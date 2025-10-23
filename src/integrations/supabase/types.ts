@@ -256,46 +256,96 @@ export type Database = {
           },
         ]
       }
+      evaluation_queue: {
+        Row: {
+          assigned_at: string | null
+          assigned_to: string | null
+          completed_at: string | null
+          created_at: string
+          event_id: string
+          id: string
+          is_cross_evaluation: boolean | null
+        }
+        Insert: {
+          assigned_at?: string | null
+          assigned_to?: string | null
+          completed_at?: string | null
+          created_at?: string
+          event_id: string
+          id?: string
+          is_cross_evaluation?: boolean | null
+        }
+        Update: {
+          assigned_at?: string | null
+          assigned_to?: string | null
+          completed_at?: string | null
+          created_at?: string
+          event_id?: string
+          id?: string
+          is_cross_evaluation?: boolean | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "evaluation_queue_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: true
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       events: {
         Row: {
+          assigned_evaluator_id: string | null
+          assignment_type: string | null
           challenge_id: string | null
           created_at: string | null
           eval_multiplier: number | null
           evidence_urls: string[] | null
+          final_points: number | null
           id: string
           payload: Json | null
           points_calculated: number | null
           quality_score: number | null
           severity_weight: number | null
           status: Database["public"]["Enums"]["event_status"] | null
+          team_modifier_applied: number | null
           updated_at: string | null
           user_id: string
         }
         Insert: {
+          assigned_evaluator_id?: string | null
+          assignment_type?: string | null
           challenge_id?: string | null
           created_at?: string | null
           eval_multiplier?: number | null
           evidence_urls?: string[] | null
+          final_points?: number | null
           id?: string
           payload?: Json | null
           points_calculated?: number | null
           quality_score?: number | null
           severity_weight?: number | null
           status?: Database["public"]["Enums"]["event_status"] | null
+          team_modifier_applied?: number | null
           updated_at?: string | null
           user_id: string
         }
         Update: {
+          assigned_evaluator_id?: string | null
+          assignment_type?: string | null
           challenge_id?: string | null
           created_at?: string | null
           eval_multiplier?: number | null
           evidence_urls?: string[] | null
+          final_points?: number | null
           id?: string
           payload?: Json | null
           points_calculated?: number | null
           quality_score?: number | null
           severity_weight?: number | null
           status?: Database["public"]["Enums"]["event_status"] | null
+          team_modifier_applied?: number | null
           updated_at?: string | null
           user_id?: string
         }
@@ -353,24 +403,71 @@ export type Database = {
           },
         ]
       }
+      team_performance_log: {
+        Row: {
+          created_at: string
+          id: string
+          new_modifier: number
+          previous_modifier: number
+          reason: string | null
+          team_id: string
+          updated_by: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          new_modifier: number
+          previous_modifier: number
+          reason?: string | null
+          team_id: string
+          updated_by: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          new_modifier?: number
+          previous_modifier?: number
+          reason?: string | null
+          team_id?: string
+          updated_by?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "team_performance_log_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       teams: {
         Row: {
           coordination_id: string
           created_at: string | null
           id: string
+          last_modifier_update: string | null
+          modifier_reason: string | null
           name: string
+          team_modifier: number | null
         }
         Insert: {
           coordination_id: string
           created_at?: string | null
           id?: string
+          last_modifier_update?: string | null
+          modifier_reason?: string | null
           name: string
+          team_modifier?: number | null
         }
         Update: {
           coordination_id?: string
           created_at?: string | null
           id?: string
+          last_modifier_update?: string | null
+          modifier_reason?: string | null
           name?: string
+          team_modifier?: number | null
         }
         Relationships: [
           {
@@ -434,6 +531,15 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      calculate_final_points: {
+        Args: {
+          _base_xp: number
+          _eval_multiplier: number
+          _quality_score: number
+          _team_modifier: number
+        }
+        Returns: number
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]

@@ -8,6 +8,7 @@ import { Progress } from '@/components/ui/progress';
 import { Shield, Zap, Trophy, Target, LogOut, Star, Menu } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import Navigation from '@/components/Navigation';
+import { TeamPerformanceCard } from '@/components/TeamPerformanceCard';
 
 interface Campaign {
   id: string;
@@ -136,6 +137,9 @@ const Index = () => {
       </header>
 
       <main className="container mx-auto px-3 py-4 space-y-6">
+        {/* Team Performance Card */}
+        <TeamPerformanceCard />
+
         {/* XP Card */}
         <Card className="bg-gradient-to-r from-primary/10 to-secondary/10">
           <CardHeader className="pb-3">

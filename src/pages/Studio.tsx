@@ -9,8 +9,9 @@ import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Plus, Target, Zap } from 'lucide-react';
+import { Plus, Target, Zap, Trophy } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { TeamPerformanceManager } from '@/components/TeamPerformanceManager';
 
 const Studio = () => {
   const { user } = useAuth();
@@ -156,7 +157,7 @@ const Studio = () => {
         </div>
 
         <Tabs defaultValue="campaigns" className="w-full">
-          <TabsList className="grid w-full max-w-md grid-cols-2">
+          <TabsList className="grid w-full max-w-2xl grid-cols-3">
             <TabsTrigger value="campaigns">
               <Target className="h-4 w-4 mr-2" />
               Campanhas
@@ -164,6 +165,10 @@ const Studio = () => {
             <TabsTrigger value="challenges">
               <Zap className="h-4 w-4 mr-2" />
               Desafios
+            </TabsTrigger>
+            <TabsTrigger value="performance">
+              <Trophy className="h-4 w-4 mr-2" />
+              Performance
             </TabsTrigger>
           </TabsList>
 
@@ -321,6 +326,10 @@ const Studio = () => {
                 </Button>
               </CardContent>
             </Card>
+          </TabsContent>
+
+          <TabsContent value="performance" className="space-y-4">
+            <TeamPerformanceManager />
           </TabsContent>
         </Tabs>
       </div>

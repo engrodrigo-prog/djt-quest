@@ -12,6 +12,7 @@ import ChallengeDetail from "./pages/ChallengeDetail";
 import Evaluations from "./pages/Evaluations";
 import Studio from "./pages/Studio";
 import Profile from "./pages/Profile";
+import Rankings from "./pages/Rankings";
 
 const queryClient = new QueryClient();
 
@@ -47,6 +48,11 @@ const App = () => (
             <Route path="/profile" element={
               <ProtectedRoute>
                 <Profile />
+              </ProtectedRoute>
+            } />
+            <Route path="/rankings" element={
+              <ProtectedRoute>
+                <Rankings />
               </ProtectedRoute>
             } />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}

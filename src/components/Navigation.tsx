@@ -1,5 +1,5 @@
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Home, Target, Shield, Settings, User } from 'lucide-react';
+import { Home, Target, Shield, Trophy, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 const Navigation = () => {
@@ -19,6 +19,16 @@ const Navigation = () => {
         >
           <Home className="h-5 w-5" />
           <span className="text-xs mt-1">Início</span>
+        </Button>
+        
+        <Button
+          variant={isActive('/rankings') ? 'default' : 'ghost'}
+          size="sm"
+          onClick={() => navigate('/rankings')}
+          className="flex-col h-auto py-2"
+        >
+          <Trophy className="h-5 w-5" />
+          <span className="text-xs mt-1">Rankings</span>
         </Button>
         
         <Button
