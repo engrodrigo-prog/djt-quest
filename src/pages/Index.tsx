@@ -9,6 +9,7 @@ import { Shield, Zap, Trophy, Target, LogOut, Star, Menu } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import Navigation from '@/components/Navigation';
 import { TeamPerformanceCard } from '@/components/TeamPerformanceCard';
+import { AvatarDisplay } from '@/components/AvatarDisplay';
 
 interface Campaign {
   id: string;
@@ -32,6 +33,7 @@ interface Profile {
   name: string;
   xp: number;
   level: number;
+  avatar_url: string | null;
 }
 
 const Index = () => {
@@ -50,7 +52,7 @@ const Index = () => {
         // Load profile
         const { data: profileData } = await supabase
           .from('profiles')
-          .select('name, xp, level')
+          .select('name, xp, level, avatar_url')
           .eq('id', user.id)
           .single();
 
@@ -129,6 +131,11 @@ const Index = () => {
                 <span>Nível {profile?.level}</span>
               </div>
             </div>
+            <AvatarDisplay 
+              avatarUrl={profile?.avatar_url || null}
+              name={profile?.name || "User"}
+              size="sm"
+            />
             <Button variant="ghost" size="icon" className="h-9 w-9" onClick={handleSignOut}>
               <LogOut className="h-4 w-4" />
             </Button>

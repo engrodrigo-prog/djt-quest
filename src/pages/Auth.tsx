@@ -13,9 +13,9 @@ import { useToast } from '@/hooks/use-toast';
 const TestQuickLogin = ({ onTestLogin }: { onTestLogin: (role: string) => void }) => {
   const testAccounts = [
     { role: 'colaborador', label: 'Colaborador', desc: 'Usuário básico', color: 'bg-blue-500' },
-    { role: 'coordenador', label: 'Coordenador', desc: 'Avalia ações', color: 'bg-green-500' },
-    { role: 'lider_divisao', label: 'Líder Divisão', desc: 'Avalia ações', color: 'bg-purple-500' },
-    { role: 'gerente', label: 'Gerente', desc: 'Gestão completa', color: 'bg-orange-500' },
+    { role: 'coordenador', label: 'Coordenador (DJTX-ABC)', desc: 'Avalia ações', color: 'bg-green-500' },
+    { role: 'lider_divisao', label: 'Líder de Divisão (DJTX)', desc: 'Avalia ações', color: 'bg-purple-500' },
+    { role: 'gerente', label: 'Gerente (DJT)', desc: 'Gestão completa', color: 'bg-orange-500' },
   ];
 
   return (
@@ -280,6 +280,20 @@ export default function Auth() {
             </Tabs>
           </CardContent>
         </Card>
+
+        <div className="text-center">
+          <p className="text-sm text-muted-foreground mb-2">
+            Ou faça um cadastro completo com foto
+          </p>
+          <Button
+            variant="link"
+            className="text-primary"
+            onClick={() => navigate('/register')}
+          >
+            Cadastro Completo com Avatar
+            <ArrowRight className="ml-2 h-4 w-4" />
+          </Button>
+        </div>
 
         <p className="text-center text-xs text-muted-foreground">
           Conhecimento • Habilidade • Atitude • Segurança

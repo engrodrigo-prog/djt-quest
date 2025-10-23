@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { User, Trophy, Star, Target, CheckCircle, Clock } from 'lucide-react';
+import { AvatarDisplay } from '@/components/AvatarDisplay';
 
 interface UserProfile {
   name: string;
@@ -13,6 +14,7 @@ interface UserProfile {
   xp: number;
   level: number;
   team: { name: string } | null;
+  avatar_url: string | null;
 }
 
 interface UserEvent {
@@ -52,7 +54,7 @@ const Profile = () => {
         // Load profile
         const { data: profileData } = await supabase
           .from('profiles')
-          .select('name, email, xp, level, team:teams(name)')
+          .select('name, email, xp, level, avatar_url, team:teams(name)')
           .eq('id', user.id)
           .single();
 
@@ -125,9 +127,11 @@ const Profile = () => {
           <CardHeader>
             <div className="flex items-start justify-between">
               <div className="flex items-center gap-4">
-                <div className="w-20 h-20 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center">
-                  <User className="h-10 w-10 text-white" />
-                </div>
+                <AvatarDisplay 
+                  avatarUrl={profile.avatar_url}
+                  name={profile.name}
+                  size="xl"
+                />
                 <div>
                   <CardTitle className="text-2xl">{profile.name}</CardTitle>
                   <CardDescription className="text-base">{profile.email}</CardDescription>

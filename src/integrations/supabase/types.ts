@@ -362,6 +362,8 @@ export type Database = {
       profiles: {
         Row: {
           avatar_meta: Json | null
+          avatar_thumbnail_url: string | null
+          avatar_url: string | null
           created_at: string | null
           email: string | null
           id: string
@@ -373,6 +375,8 @@ export type Database = {
         }
         Insert: {
           avatar_meta?: Json | null
+          avatar_thumbnail_url?: string | null
+          avatar_url?: string | null
           created_at?: string | null
           email?: string | null
           id: string
@@ -384,6 +388,8 @@ export type Database = {
         }
         Update: {
           avatar_meta?: Json | null
+          avatar_thumbnail_url?: string | null
+          avatar_url?: string | null
           created_at?: string | null
           email?: string | null
           id?: string

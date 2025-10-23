@@ -7,6 +7,7 @@ import { AuthProvider } from "./contexts/AuthContext";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
+import Register from "./pages/Register";
 import NotFound from "./pages/NotFound";
 import ChallengeDetail from "./pages/ChallengeDetail";
 import Evaluations from "./pages/Evaluations";
@@ -25,6 +26,7 @@ const App = () => (
         <AuthProvider>
           <Routes>
             <Route path="/auth" element={<Auth />} />
+            <Route path="/register" element={<Register />} />
             <Route path="/" element={
               <ProtectedRoute>
                 <Index />
