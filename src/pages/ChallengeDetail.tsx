@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
@@ -27,11 +27,14 @@ const ChallengeDetail = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
+  const [searchParams] = useSearchParams();
+  const retryEventId = searchParams.get('retry');
   const [challenge, setChallenge] = useState<Challenge | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [description, setDescription] = useState('');
   const [evidenceUrls, setEvidenceUrls] = useState<string[]>([]);
+  const [previousFeedback, setPreviousFeedback] = useState<{ positive: string | null; constructive: string | null } | null>(null);
 
   useEffect(() => {
     const loadChallenge = async () => {
@@ -50,11 +53,36 @@ const ChallengeDetail = () => {
       }
 
       setChallenge(data);
+
+      // Load previous feedback if this is a retry
+      if (retryEventId) {
+        const { data: retryEvent } = await supabase
+          .from('events')
+          .select('parent_event_id')
+          .eq('id', retryEventId)
+          .single();
+
+        if (retryEvent?.parent_event_id) {
+          const { data: evaluation } = await supabase
+            .from('action_evaluations')
+            .select('feedback_positivo, feedback_construtivo')
+            .eq('event_id', retryEvent.parent_event_id)
+            .maybeSingle();
+
+          if (evaluation) {
+            setPreviousFeedback({
+              positive: evaluation.feedback_positivo,
+              constructive: evaluation.feedback_construtivo
+            });
+          }
+        }
+      }
+
       setLoading(false);
     };
 
     loadChallenge();
-  }, [id, navigate, toast]);
+  }, [id, retryEventId, navigate, toast]);
 
   const handleSubmit = async () => {
     if (!challenge || !user) return;
@@ -67,26 +95,46 @@ const ChallengeDetail = () => {
     setSubmitting(true);
 
     try {
-      const { error } = await supabase
-        .from('events')
-        .insert([{
-          user_id: user.id,
-          challenge_id: challenge.id,
-          payload: { description },
-          evidence_urls: evidenceUrls.length > 0 ? evidenceUrls : null,
-          status: challenge.require_two_leader_eval ? 'submitted' : 'evaluated'
-        }]);
+      if (retryEventId) {
+        // Update existing retry event
+        const { error } = await supabase
+          .from('events')
+          .update({
+            payload: { description },
+            evidence_urls: evidenceUrls.length > 0 ? evidenceUrls : null,
+            status: 'submitted'
+          })
+          .eq('id', retryEventId);
 
-      if (error) throw error;
+        if (error) throw error;
 
-      toast({
-        title: 'Sucesso!',
-        description: challenge.require_two_leader_eval 
-          ? 'Ação submetida! Aguardando avaliação de 2 líderes.' 
-          : 'Desafio concluído!'
-      });
+        toast({
+          title: 'Sucesso!',
+          description: 'Refação submetida! Aguardando nova avaliação.'
+        });
+      } else {
+        // Create new event
+        const { error } = await supabase
+          .from('events')
+          .insert([{
+            user_id: user.id,
+            challenge_id: challenge.id,
+            payload: { description },
+            evidence_urls: evidenceUrls.length > 0 ? evidenceUrls : null,
+            status: challenge.require_two_leader_eval ? 'submitted' : 'evaluated'
+          }]);
 
-      navigate('/');
+        if (error) throw error;
+
+        toast({
+          title: 'Sucesso!',
+          description: challenge.require_two_leader_eval 
+            ? 'Ação submetida! Aguardando avaliação de 2 líderes.' 
+            : 'Desafio concluído!'
+        });
+      }
+
+      navigate('/profile');
     } catch (error) {
       console.error('Error submitting:', error);
       toast({ title: 'Erro', description: 'Não foi possível submeter a ação', variant: 'destructive' });
@@ -108,10 +156,53 @@ const ChallengeDetail = () => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-secondary/5 p-4">
       <div className="container max-w-2xl mx-auto py-8 space-y-6">
-        <Button variant="ghost" onClick={() => navigate('/')}>
+        <Button variant="ghost" onClick={() => navigate('/profile')}>
           <ArrowLeft className="h-4 w-4 mr-2" />
-          Voltar
+          Voltar ao Perfil
         </Button>
+
+        {retryEventId && (
+          <Card className="border-blue-200 dark:border-blue-900 bg-blue-50 dark:bg-blue-950/20">
+            <CardContent className="py-4">
+              <p className="text-sm font-semibold text-blue-900 dark:text-blue-100 mb-2">
+                🔄 Você está refazendo este desafio
+              </p>
+              <p className="text-xs text-blue-800 dark:text-blue-200">
+                Use o feedback anterior para melhorar sua submissão e demonstrar seu aprendizado!
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
+        {previousFeedback && (
+          <Card className="border-yellow-200 dark:border-yellow-900">
+            <CardHeader>
+              <CardTitle className="text-sm">Feedback da Tentativa Anterior</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {previousFeedback.positive && (
+                <div className="p-3 bg-green-50 dark:bg-green-950/20 rounded-lg">
+                  <p className="text-xs font-semibold text-green-900 dark:text-green-100 mb-1">
+                    ✅ Pontos Positivos
+                  </p>
+                  <p className="text-xs text-green-800 dark:text-green-200">
+                    {previousFeedback.positive}
+                  </p>
+                </div>
+              )}
+              {previousFeedback.constructive && (
+                <div className="p-3 bg-yellow-50 dark:bg-yellow-950/20 rounded-lg">
+                  <p className="text-xs font-semibold text-yellow-900 dark:text-yellow-100 mb-1">
+                    💡 Áreas de Melhoria
+                  </p>
+                  <p className="text-xs text-yellow-800 dark:text-yellow-200">
+                    {previousFeedback.constructive}
+                  </p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
         <Card>
           <CardHeader>
@@ -132,8 +223,12 @@ const ChallengeDetail = () => {
 
         <Card>
           <CardHeader>
-            <CardTitle>Submeter Ação</CardTitle>
-            <CardDescription>Descreva como você completou este desafio</CardDescription>
+            <CardTitle>{retryEventId ? 'Refazer Ação' : 'Submeter Ação'}</CardTitle>
+            <CardDescription>
+              {retryEventId 
+                ? 'Revise e melhore sua resposta com base no feedback recebido' 
+                : 'Descreva como você completou este desafio'}
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div>
@@ -174,7 +269,7 @@ const ChallengeDetail = () => {
               disabled={submitting || description.length < 50}
               className="w-full"
             >
-              {submitting ? 'Submetendo...' : 'Submeter Ação'}
+              {submitting ? 'Submetendo...' : retryEventId ? 'Submeter Refação' : 'Submeter Ação'}
             </Button>
           </CardContent>
         </Card>

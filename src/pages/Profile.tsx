@@ -5,8 +5,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { User, Trophy, Star, Target, CheckCircle, Clock } from 'lucide-react';
+import { User, Trophy, Star, Target, CheckCircle, Clock, GraduationCap, Filter } from 'lucide-react';
 import { AvatarDisplay } from '@/components/AvatarDisplay';
+import { ActionReviewCard } from '@/components/profile/ActionReviewCard';
+import { RetryModal } from '@/components/profile/RetryModal';
+import { LearningDashboard } from '@/components/profile/LearningDashboard';
+import { useToast } from '@/hooks/use-toast';
+import { useNavigate } from 'react-router-dom';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 interface UserProfile {
   name: string;
@@ -22,10 +28,19 @@ interface UserEvent {
   created_at: string;
   status: string;
   points_calculated: number;
+  retry_count: number;
+  parent_event_id: string | null;
   challenge: {
+    id: string;
     title: string;
     type: string;
     xp_reward: number;
+  };
+  evaluation?: {
+    rating: number;
+    feedback_positivo: string | null;
+    feedback_construtivo: string | null;
+    scores: any;
   };
 }
 
@@ -41,10 +56,15 @@ interface UserBadge {
 
 const Profile = () => {
   const { user } = useAuth();
+  const { toast } = useToast();
+  const navigate = useNavigate();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [events, setEvents] = useState<UserEvent[]>([]);
   const [badges, setBadges] = useState<UserBadge[]>([]);
   const [loading, setLoading] = useState(true);
+  const [retryModalOpen, setRetryModalOpen] = useState(false);
+  const [selectedEventForRetry, setSelectedEventForRetry] = useState<{ eventId: string; challengeId: string; challengeTitle: string } | null>(null);
+  const [statusFilter, setStatusFilter] = useState<string>('all');
 
   useEffect(() => {
     const loadProfile = async () => {
@@ -62,7 +82,7 @@ const Profile = () => {
           setProfile(profileData as any);
         }
 
-        // Load events
+        // Load events with evaluations
         const { data: eventsData } = await supabase
           .from('events')
           .select(`
@@ -70,14 +90,32 @@ const Profile = () => {
             created_at,
             status,
             points_calculated,
-            challenge:challenges(title, type, xp_reward)
+            retry_count,
+            parent_event_id,
+            challenge_id,
+            challenge:challenges(id, title, type, xp_reward)
           `)
           .eq('user_id', user.id)
-          .order('created_at', { ascending: false })
-          .limit(20);
+          .order('created_at', { ascending: false });
 
         if (eventsData) {
-          setEvents(eventsData as any);
+          // Load evaluations for each event
+          const eventsWithEval = await Promise.all(
+            eventsData.map(async (event: any) => {
+              const { data: evalData } = await supabase
+                .from('action_evaluations')
+                .select('rating, feedback_positivo, feedback_construtivo, scores')
+                .eq('event_id', event.id)
+                .maybeSingle();
+
+              return {
+                ...event,
+                evaluation: evalData || undefined
+              };
+            })
+          );
+          
+          setEvents(eventsWithEval as any);
         }
 
         // Load badges
@@ -104,6 +142,61 @@ const Profile = () => {
     loadProfile();
   }, [user]);
 
+  const handleRetryClick = (eventId: string, challengeTitle: string) => {
+    const event = events.find(e => e.id === eventId);
+    if (!event) return;
+
+    setSelectedEventForRetry({
+      eventId,
+      challengeId: event.challenge.id,
+      challengeTitle
+    });
+    setRetryModalOpen(true);
+  };
+
+  const handleRetryConfirm = async () => {
+    if (!selectedEventForRetry || !user) return;
+
+    try {
+      const originalEvent = events.find(e => e.id === selectedEventForRetry.eventId);
+      if (!originalEvent) return;
+
+      // Create new retry event
+      const { data: newEvent, error } = await supabase
+        .from('events')
+        .insert([{
+          user_id: user.id,
+          challenge_id: selectedEventForRetry.challengeId,
+          parent_event_id: selectedEventForRetry.eventId,
+          retry_count: originalEvent.retry_count + 1,
+          status: 'retry_in_progress',
+          payload: {}
+        }])
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      toast({
+        title: 'Sucesso!',
+        description: 'Você será redirecionado para refazer o desafio.'
+      });
+
+      // Navigate to challenge page with retry context
+      navigate(`/challenge/${selectedEventForRetry.challengeId}?retry=${newEvent.id}`);
+    } catch (error) {
+      console.error('Error creating retry event:', error);
+      toast({
+        title: 'Erro',
+        description: 'Não foi possível iniciar a refação do desafio',
+        variant: 'destructive'
+      });
+    } finally {
+      setRetryModalOpen(false);
+      setSelectedEventForRetry(null);
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -118,6 +211,61 @@ const Profile = () => {
   const xpProgress = (profile.xp % 1000) / 10;
   const completedEvents = events.filter(e => e.status === 'approved').length;
   const pendingEvents = events.filter(e => e.status === 'submitted').length;
+
+  // Calculate learning stats
+  const evaluatedEvents = events.filter(e => e.evaluation && (e.status === 'approved' || e.status === 'rejected'));
+  const averageRating = evaluatedEvents.length > 0
+    ? evaluatedEvents.reduce((sum, e) => sum + (e.evaluation?.rating || 0), 0) / evaluatedEvents.length
+    : 0;
+  const lowScoreEvents = evaluatedEvents.filter(e => (e.evaluation?.rating || 0) < 3.5);
+  const improvementOpportunities = evaluatedEvents.filter(e => 
+    (e.evaluation?.rating || 0) < 4.0 && 
+    e.status !== 'retry_in_progress'
+  ).length;
+
+  // Find top strength and weakness from scores
+  const allScores: Record<string, number[]> = {};
+  evaluatedEvents.forEach(e => {
+    if (e.evaluation?.scores) {
+      Object.entries(e.evaluation.scores).forEach(([key, value]) => {
+        if (!allScores[key]) allScores[key] = [];
+        allScores[key].push(value as number);
+      });
+    }
+  });
+
+  const criteriaAverages = Object.entries(allScores).map(([key, values]) => ({
+    criteria: key,
+    average: values.reduce((a, b) => a + b, 0) / values.length
+  }));
+
+  const topStrength = criteriaAverages.length > 0 
+    ? criteriaAverages.sort((a, b) => b.average - a.average)[0]
+    : null;
+  const topWeakness = criteriaAverages.length > 0
+    ? criteriaAverages.sort((a, b) => a.average - b.average)[0]
+    : null;
+
+  const learningStats = {
+    totalEvaluated: evaluatedEvents.length,
+    averageRating,
+    lowScoreCount: lowScoreEvents.length,
+    improvementOpportunities,
+    topStrength: topStrength ? `${topStrength.criteria}: ${topStrength.average.toFixed(1)}/5.0` : null,
+    topWeakness: topWeakness ? `${topWeakness.criteria}: ${topWeakness.average.toFixed(1)}/5.0` : null
+  };
+
+  // Filter events
+  const filteredEvents = statusFilter === 'all' 
+    ? events 
+    : events.filter(e => e.status === statusFilter);
+
+  const feedbackEvents = events.filter(e => e.evaluation);
+  const opportunityEvents = events.filter(e => 
+    e.evaluation && 
+    e.evaluation.rating < 3.5 && 
+    e.status !== 'retry_in_progress'
+  );
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-secondary/5 p-4">
@@ -192,8 +340,12 @@ const Profile = () => {
         </div>
 
         {/* Tabs */}
-        <Tabs defaultValue="history" className="w-full">
-          <TabsList className="grid w-full max-w-md grid-cols-2">
+        <Tabs defaultValue="learning" className="w-full">
+          <TabsList className="grid w-full max-w-2xl grid-cols-3">
+            <TabsTrigger value="learning">
+              <GraduationCap className="h-4 w-4 mr-2" />
+              Aprendizado
+            </TabsTrigger>
             <TabsTrigger value="history">
               <Target className="h-4 w-4 mr-2" />
               Histórico
@@ -204,46 +356,99 @@ const Profile = () => {
             </TabsTrigger>
           </TabsList>
 
+          <TabsContent value="learning" className="space-y-6">
+            <Tabs defaultValue="dashboard" className="w-full">
+              <TabsList className="grid w-full max-w-2xl grid-cols-3">
+                <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
+                <TabsTrigger value="feedback">
+                  Feedback ({feedbackEvents.length})
+                </TabsTrigger>
+                <TabsTrigger value="opportunities">
+                  Oportunidades ({opportunityEvents.length})
+                </TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="dashboard">
+                <LearningDashboard stats={learningStats} />
+              </TabsContent>
+
+              <TabsContent value="feedback" className="space-y-3">
+                {feedbackEvents.length === 0 ? (
+                  <Card>
+                    <CardContent className="py-12 text-center text-muted-foreground">
+                      Nenhuma avaliação recebida ainda
+                    </CardContent>
+                  </Card>
+                ) : (
+                  feedbackEvents.map((event) => (
+                    <ActionReviewCard 
+                      key={event.id} 
+                      event={event}
+                      onRetry={handleRetryClick}
+                    />
+                  ))
+                )}
+              </TabsContent>
+
+              <TabsContent value="opportunities" className="space-y-3">
+                {opportunityEvents.length === 0 ? (
+                  <Card>
+                    <CardContent className="py-12 text-center text-muted-foreground">
+                      🎉 Parabéns! Nenhuma oportunidade de melhoria no momento.
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <div className="space-y-4">
+                    <Card className="bg-orange-50 dark:bg-orange-950/20 border-orange-200 dark:border-orange-900">
+                      <CardContent className="py-4">
+                        <p className="text-sm text-orange-900 dark:text-orange-100">
+                          💡 Estas ações tiveram avaliação abaixo de 3.5. Considere refazê-las para reforçar o aprendizado!
+                        </p>
+                      </CardContent>
+                    </Card>
+                    {opportunityEvents.map((event) => (
+                      <ActionReviewCard 
+                        key={event.id} 
+                        event={event}
+                        onRetry={handleRetryClick}
+                      />
+                    ))}
+                  </div>
+                )}
+              </TabsContent>
+            </Tabs>
+          </TabsContent>
+
           <TabsContent value="history" className="space-y-3">
-            {events.length === 0 ? (
+            <div className="flex items-center gap-2 mb-4">
+              <Filter className="h-4 w-4 text-muted-foreground" />
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger className="w-[200px]">
+                  <SelectValue placeholder="Filtrar por status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos</SelectItem>
+                  <SelectItem value="approved">Aprovados</SelectItem>
+                  <SelectItem value="rejected">Rejeitados</SelectItem>
+                  <SelectItem value="submitted">Em Avaliação</SelectItem>
+                  <SelectItem value="retry_in_progress">Refazendo</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            
+            {filteredEvents.length === 0 ? (
               <Card>
                 <CardContent className="py-12 text-center text-muted-foreground">
                   Nenhuma ação registrada ainda
                 </CardContent>
               </Card>
             ) : (
-              events.map((event) => (
-                <Card key={event.id}>
-                  <CardHeader className="pb-3">
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-1">
-                          <Badge variant="outline">{event.challenge.type}</Badge>
-                          <Badge variant={
-                            event.status === 'approved' ? 'default' : 
-                            event.status === 'submitted' ? 'secondary' : 'outline'
-                          }>
-                            {event.status === 'approved' ? 'Aprovado' : 
-                             event.status === 'submitted' ? 'Em Avaliação' : event.status}
-                          </Badge>
-                        </div>
-                        <CardTitle className="text-base">{event.challenge.title}</CardTitle>
-                        <CardDescription className="text-xs">
-                          {new Date(event.created_at).toLocaleDateString('pt-BR', { 
-                            day: '2-digit', 
-                            month: 'short', 
-                            year: 'numeric' 
-                          })}
-                        </CardDescription>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-lg font-bold text-accent">
-                          +{event.points_calculated || event.challenge.xp_reward} XP
-                        </p>
-                      </div>
-                    </div>
-                  </CardHeader>
-                </Card>
+              filteredEvents.map((event) => (
+                <ActionReviewCard 
+                  key={event.id} 
+                  event={event}
+                  onRetry={handleRetryClick}
+                />
               ))
             )}
           </TabsContent>
@@ -282,6 +487,18 @@ const Profile = () => {
           </TabsContent>
         </Tabs>
       </div>
+
+      <RetryModal 
+        isOpen={retryModalOpen}
+        onClose={() => {
+          setRetryModalOpen(false);
+          setSelectedEventForRetry(null);
+        }}
+        onConfirm={handleRetryConfirm}
+        challengeTitle={selectedEventForRetry?.challengeTitle || ''}
+        retryCount={events.find(e => e.id === selectedEventForRetry?.eventId)?.retry_count || 0}
+        feedback={events.find(e => e.id === selectedEventForRetry?.eventId)?.evaluation}
+      />
     </div>
   );
 };

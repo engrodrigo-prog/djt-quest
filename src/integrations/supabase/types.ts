@@ -304,9 +304,11 @@ export type Database = {
           evidence_urls: string[] | null
           final_points: number | null
           id: string
+          parent_event_id: string | null
           payload: Json | null
           points_calculated: number | null
           quality_score: number | null
+          retry_count: number
           severity_weight: number | null
           status: Database["public"]["Enums"]["event_status"] | null
           team_modifier_applied: number | null
@@ -322,9 +324,11 @@ export type Database = {
           evidence_urls?: string[] | null
           final_points?: number | null
           id?: string
+          parent_event_id?: string | null
           payload?: Json | null
           points_calculated?: number | null
           quality_score?: number | null
+          retry_count?: number
           severity_weight?: number | null
           status?: Database["public"]["Enums"]["event_status"] | null
           team_modifier_applied?: number | null
@@ -340,9 +344,11 @@ export type Database = {
           evidence_urls?: string[] | null
           final_points?: number | null
           id?: string
+          parent_event_id?: string | null
           payload?: Json | null
           points_calculated?: number | null
           quality_score?: number | null
+          retry_count?: number
           severity_weight?: number | null
           status?: Database["public"]["Enums"]["event_status"] | null
           team_modifier_applied?: number | null
@@ -355,6 +361,13 @@ export type Database = {
             columns: ["challenge_id"]
             isOneToOne: false
             referencedRelation: "challenges"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "events_parent_event_id_fkey"
+            columns: ["parent_event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
             referencedColumns: ["id"]
           },
         ]
@@ -537,15 +550,26 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      calculate_final_points: {
-        Args: {
-          _base_xp: number
-          _eval_multiplier: number
-          _quality_score: number
-          _team_modifier: number
-        }
-        Returns: number
-      }
+      calculate_final_points:
+        | {
+            Args: {
+              _base_xp: number
+              _eval_multiplier: number
+              _quality_score: number
+              _retry_count?: number
+              _team_modifier: number
+            }
+            Returns: number
+          }
+        | {
+            Args: {
+              _base_xp: number
+              _eval_multiplier: number
+              _quality_score: number
+              _team_modifier: number
+            }
+            Returns: number
+          }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -567,6 +591,8 @@ export type Database = {
         | "awaiting_evaluation"
         | "evaluated"
         | "rejected"
+        | "retry_pending"
+        | "retry_in_progress"
       reviewer_level: "divisao" | "coordenacao"
     }
     CompositeTypes: {
@@ -708,6 +734,8 @@ export const Constants = {
         "awaiting_evaluation",
         "evaluated",
         "rejected",
+        "retry_pending",
+        "retry_in_progress",
       ],
       reviewer_level: ["divisao", "coordenacao"],
     },
