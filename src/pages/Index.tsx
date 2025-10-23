@@ -5,8 +5,9 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { Shield, Zap, Trophy, Target, LogOut, Star } from 'lucide-react';
+import { Shield, Zap, Trophy, Target, LogOut, Star, Menu } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import Navigation from '@/components/Navigation';
 
 interface Campaign {
   id: string;
@@ -171,8 +172,11 @@ const Index = () => {
                   <CardDescription>{campaign.description}</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <Button className="w-full" variant="default">
-                    Participar
+                  <p className="text-xs text-muted-foreground mb-3">
+                    {new Date(campaign.start_date).toLocaleDateString('pt-BR')} - {new Date(campaign.end_date).toLocaleDateString('pt-BR')}
+                  </p>
+                  <Button className="w-full" variant="default" disabled>
+                    Campanha Ativa
                   </Button>
                 </CardContent>
               </Card>
@@ -204,7 +208,11 @@ const Index = () => {
                       Requer avaliação de 2 líderes
                     </p>
                   )}
-                  <Button className="w-full" variant="secondary">
+                  <Button 
+                    className="w-full" 
+                    variant="secondary"
+                    onClick={() => navigate(`/challenge/${challenge.id}`)}
+                  >
                     Começar
                   </Button>
                 </CardContent>
@@ -213,6 +221,8 @@ const Index = () => {
           </div>
         </section>
       </main>
+
+      <Navigation />
     </div>
   );
 };
