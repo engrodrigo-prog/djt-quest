@@ -1,15 +1,15 @@
-import { useEffect, useState } from 'react';
-import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/integrations/supabase/client';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Progress } from '@/components/ui/progress';
-import { Shield, Zap, Trophy, Target, LogOut, Star, Menu } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
-import Navigation from '@/components/Navigation';
-import { TeamPerformanceCard } from '@/components/TeamPerformanceCard';
-import { AvatarDisplay } from '@/components/AvatarDisplay';
+import { useEffect, useState } from "react";
+import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/integrations/supabase/client";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
+import { Shield, Zap, Trophy, Target, LogOut, Star, Menu } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import Navigation from "@/components/Navigation";
+import { TeamPerformanceCard } from "@/components/TeamPerformanceCard";
+import { AvatarDisplay } from "@/components/AvatarDisplay";
 
 interface Campaign {
   id: string;
@@ -51,9 +51,9 @@ const Index = () => {
       try {
         // Load profile
         const { data: profileData } = await supabase
-          .from('profiles')
-          .select('name, xp, level, avatar_url')
-          .eq('id', user.id)
+          .from("profiles")
+          .select("name, xp, level, avatar_url")
+          .eq("id", user.id)
           .single();
 
         if (profileData) {
@@ -62,26 +62,23 @@ const Index = () => {
 
         // Load active campaigns
         const { data: campaignsData } = await supabase
-          .from('campaigns')
-          .select('*')
-          .eq('is_active', true)
-          .order('start_date', { ascending: false });
+          .from("campaigns")
+          .select("*")
+          .eq("is_active", true)
+          .order("start_date", { ascending: false });
 
         if (campaignsData) {
           setCampaigns(campaignsData);
         }
 
         // Load challenges
-        const { data: challengesData } = await supabase
-          .from('challenges')
-          .select('*')
-          .limit(6);
+        const { data: challengesData } = await supabase.from("challenges").select("*").limit(6);
 
         if (challengesData) {
           setChallenges(challengesData);
         }
       } catch (error) {
-        console.error('Error loading data:', error);
+        console.error("Error loading data:", error);
       } finally {
         setLoading(false);
       }
@@ -92,7 +89,7 @@ const Index = () => {
 
   const handleSignOut = async () => {
     await signOut();
-    navigate('/auth');
+    navigate("/auth");
   };
 
   if (loading) {
@@ -120,7 +117,9 @@ const Index = () => {
               <h1 className="text-xl font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
                 DJT Go
               </h1>
-              <p className="text-[10px] text-muted-foreground leading-none">CPFL Subtransmissão</p>
+              <p className="text-8px] text-muted-foreground leading-none">
+                CPFL Piratininga e Santa Cruz Subtransmissão
+              </p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -131,11 +130,7 @@ const Index = () => {
                 <span>Nível {profile?.level}</span>
               </div>
             </div>
-            <AvatarDisplay 
-              avatarUrl={profile?.avatar_url || null}
-              name={profile?.name || "User"}
-              size="sm"
-            />
+            <AvatarDisplay avatarUrl={profile?.avatar_url || null} name={profile?.name || "User"} size="sm" />
             <Button variant="ghost" size="icon" className="h-9 w-9" onClick={handleSignOut}>
               <LogOut className="h-4 w-4" />
             </Button>
@@ -184,7 +179,8 @@ const Index = () => {
                 </CardHeader>
                 <CardContent className="pt-0">
                   <p className="text-[10px] text-muted-foreground mb-2">
-                    {new Date(campaign.start_date).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })} - {new Date(campaign.end_date).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })}
+                    {new Date(campaign.start_date).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })} -{" "}
+                    {new Date(campaign.end_date).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })}
                   </p>
                   <Button className="w-full h-9 text-sm" variant="default" disabled>
                     Campanha Ativa
@@ -206,7 +202,9 @@ const Index = () => {
               <Card key={challenge.id} className="hover:shadow-lg transition-shadow">
                 <CardHeader className="pb-3">
                   <div className="flex items-center justify-between mb-2">
-                    <Badge variant="outline" className="text-[10px]">{challenge.type}</Badge>
+                    <Badge variant="outline" className="text-[10px]">
+                      {challenge.type}
+                    </Badge>
                     <span className="text-xs font-semibold text-accent">+{challenge.xp_reward} XP</span>
                   </div>
                   <CardTitle className="text-base leading-tight">{challenge.title}</CardTitle>
@@ -219,8 +217,8 @@ const Index = () => {
                       <span>Requer avaliação de 2 líderes</span>
                     </p>
                   )}
-                  <Button 
-                    className="w-full h-9 text-sm" 
+                  <Button
+                    className="w-full h-9 text-sm"
                     variant="secondary"
                     onClick={() => navigate(`/challenge/${challenge.id}`)}
                   >
