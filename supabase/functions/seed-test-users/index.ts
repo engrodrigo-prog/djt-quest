@@ -35,66 +35,73 @@ Deno.serve(async (req) => {
 
     console.log('Starting seed-test-users...');
 
-    // Buscar IDs da estrutura organizacional
-    const { data: teams } = await supabaseAdmin
+    // Buscar PRIMEIRO item de cada nível organizacional (usa estrutura real existente)
+    const { data: team } = await supabaseAdmin
       .from('teams')
-      .select('id, name');
+      .select('id, name')
+      .limit(1)
+      .single();
 
-    const { data: coords } = await supabaseAdmin
+    const { data: coord } = await supabaseAdmin
       .from('coordinations')
-      .select('id, name');
+      .select('id, name')
+      .limit(1)
+      .single();
 
-    const { data: divisions } = await supabaseAdmin
+    const { data: division } = await supabaseAdmin
       .from('divisions')
-      .select('id, name');
+      .select('id, name')
+      .limit(1)
+      .single();
 
-    const { data: departments } = await supabaseAdmin
+    const { data: department } = await supabaseAdmin
       .from('departments')
-      .select('id, name');
+      .select('id, name')
+      .limit(1)
+      .single();
 
-    console.log('Found structure:', { teams: teams?.length, coords: coords?.length, divisions: divisions?.length, departments: departments?.length });
+    console.log('Using organizational structure:', {
+      team: team?.name,
+      coord: coord?.name,
+      division: division?.name,
+      department: department?.name
+    });
 
-    // Mapear IDs
-    const teamAlpha = teams?.find(t => t.name === 'Equipe Alpha');
-    const coordABC = coords?.find(c => c.name === 'DJTX-ABC');
-    const divDJTX = divisions?.find(d => d.name === 'DJTX - Divisão Executora');
-    const deptDJT = departments?.find(d => d.name === 'DJT - Departamento de Segurança');
-
-    // Definir usuários de teste
+    // Definir usuários de teste com estrutura organizacional real
     const testUsers: TestUser[] = [
       {
         email: 'colab@teste.com',
         password: 'teste123',
-        name: 'João Silva (Colaborador)',
+        name: `João Silva (Colaborador - ${team?.name || 'Sem Time'})`,
         role: 'colaborador',
-        team_id: teamAlpha?.id,
-        coord_id: coordABC?.id,
-        division_id: divDJTX?.id,
-        department_id: deptDJT?.id
+        team_id: team?.id,
+        coord_id: coord?.id,
+        division_id: division?.id,
+        department_id: department?.id
       },
       {
         email: 'coordenador@teste.com',
         password: 'teste123',
-        name: 'Maria Santos (Coordenadora DJTX-ABC)',
+        name: `Maria Santos (Coordenadora - ${coord?.name || 'Sem Coord'})`,
         role: 'coordenador_djtx',
-        coord_id: coordABC?.id,
-        division_id: divDJTX?.id,
-        department_id: deptDJT?.id
+        coord_id: coord?.id,
+        division_id: division?.id,
+        department_id: department?.id
       },
       {
         email: 'gerente-divisao@teste.com',
         password: 'teste123',
-        name: 'Carlos Oliveira (Gerente de Divisão DJTX)',
+        name: `Carlos Oliveira (Gerente de Divisão - ${division?.name || 'Sem Div'})`,
         role: 'gerente_divisao_djtx',
-        division_id: divDJTX?.id,
-        department_id: deptDJT?.id
+        division_id: division?.id,
+        department_id: department?.id
       },
       {
         email: 'gerente-dept@teste.com',
         password: 'teste123',
-        name: 'Ana Paula (Gerente de Departamento DJT)',
+        name: `Ana Paula (Gerente de Departamento - ${department?.name || 'Sem Dept'})`,
         role: 'gerente_djt',
-        department_id: deptDJT?.id
+        department_id: department?.id
       }
     ];
 
