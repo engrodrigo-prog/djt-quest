@@ -48,11 +48,11 @@ Deno.serve(async (req) => {
 
     console.log('Bootstrap request from user:', user.id);
 
-    // Check if there's already an admin or gerente
+    // Check if there's already a gerente_djt
     const { data: existingManagers, error: checkError } = await supabaseAdmin
       .from('user_roles')
       .select('user_id')
-      .in('role', ['admin', 'gerente'])
+      .in('role', ['gerente_djt'])
       .limit(1);
 
     if (checkError) {
@@ -64,7 +64,7 @@ Deno.serve(async (req) => {
       return new Response(
         JSON.stringify({
           success: false,
-          message: 'Já existe um administrador ou gerente no sistema'
+          message: 'Já existe um gerente no sistema'
         }),
         {
           status: 400,
@@ -73,12 +73,12 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Promote current user to gerente
+    // No managers exist, promote current user to gerente_djt
     const { error: insertError } = await supabaseAdmin
       .from('user_roles')
-      .insert({
+      .upsert({
         user_id: user.id,
-        role: 'gerente'
+        role: 'gerente_djt'
       });
 
     if (insertError) {
@@ -86,7 +86,7 @@ Deno.serve(async (req) => {
       throw insertError;
     }
 
-    console.log('User promoted to gerente:', user.id);
+    console.log('User promoted to gerente_djt:', user.id);
 
     return new Response(
       JSON.stringify({
@@ -101,10 +101,11 @@ Deno.serve(async (req) => {
 
   } catch (error) {
     console.error('Error in bootstrap-first-manager:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido';
     return new Response(
       JSON.stringify({
         success: false,
-        error: error.message
+        error: errorMessage
       }),
       {
         status: 400,

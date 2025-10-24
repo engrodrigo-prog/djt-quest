@@ -22,7 +22,7 @@ export const UserCreationForm = () => {
     password: '',
     name: '',
     team_id: '',
-    role: 'colaborador' as 'admin' | 'gerente' | 'lider_divisao' | 'coordenador' | 'colaborador'
+    role: 'colaborador' as 'gerente_djt' | 'lider_divisao_djtx' | 'coordenador_djtx' | 'colaborador'
   });
 
   useEffect(() => {
@@ -143,10 +143,9 @@ export const UserCreationForm = () => {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="colaborador">Colaborador</SelectItem>
-                <SelectItem value="coordenador">Coordenador</SelectItem>
-                <SelectItem value="lider_divisao">Líder de Divisão</SelectItem>
-                <SelectItem value="gerente">Gerente</SelectItem>
-                <SelectItem value="admin">Administrador</SelectItem>
+                <SelectItem value="coordenador_djtx">Coordenador DJTX-ABC</SelectItem>
+                <SelectItem value="lider_divisao_djtx">Líder de Divisão DJTX</SelectItem>
+                <SelectItem value="gerente_djt">Gerente DJT</SelectItem>
               </SelectContent>
             </Select>
           </div>

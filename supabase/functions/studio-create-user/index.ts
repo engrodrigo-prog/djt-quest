@@ -46,13 +46,13 @@ Deno.serve(async (req) => {
       throw new Error('Usuário não autenticado');
     }
 
-    // Validate caller has permission
+    // Verify caller has permission (gerente_djt, lider_divisao_djtx, coordenador_djtx)
     const { data: callerRoles } = await supabaseAdmin
       .from('user_roles')
       .select('role')
       .eq('user_id', user.id);
 
-    const allowedRoles = ['admin', 'gerente', 'lider_divisao', 'coordenador'];
+    const allowedRoles = ['gerente_djt', 'lider_divisao_djtx', 'coordenador_djtx'];
     const hasPermission = callerRoles?.some(r => allowedRoles.includes(r.role));
 
     if (!hasPermission) {
@@ -141,10 +141,11 @@ Deno.serve(async (req) => {
 
   } catch (error) {
     console.error('Error in studio-create-user:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido';
     return new Response(
       JSON.stringify({
         success: false,
-        error: error.message
+        error: errorMessage
       }),
       {
         status: 400,
