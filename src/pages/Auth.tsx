@@ -1,12 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Shield, Zap, ArrowRight, Sparkles } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
@@ -50,12 +48,10 @@ const TestQuickLogin = ({ onTestLogin }: { onTestLogin: (role: string) => void }
 };
 
 export default function Auth() {
-  const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [name, setName] = useState('');
   const [loading, setLoading] = useState(false);
-  const { signIn, signUp, user } = useAuth();
+  const { signIn, user } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -69,38 +65,20 @@ export default function Auth() {
     setLoading(true);
     const testEmail = `teste.${role}@djtgo.local`;
     const testPassword = 'Teste@123456';
-    const testName = `Teste ${role.charAt(0).toUpperCase() + role.slice(1).replace('_', ' ')}`;
 
-    // Try to sign in first
+    // Try to sign in
     const { error: signInError } = await signIn(testEmail, testPassword);
 
     if (signInError) {
-      // Account doesn't exist, create it
-      const { data, error } = await signUp(testEmail, testPassword, testName);
-      
-      if (error) {
-        toast({
-          title: 'Erro',
-          description: error.message,
-          variant: 'destructive'
-        });
-      } else if (data.user) {
-        // Assign role to the new user
-        await supabase.from('user_roles').insert([{
-          user_id: data.user.id,
-          role: role as any
-        }]);
-        
-        toast({
-          title: 'Conta de teste criada!',
-          description: `Login como ${testName}`,
-        });
-      }
+      toast({
+        title: 'Erro',
+        description: 'Conta não existe. Solicite ao líder que crie sua conta no Studio.',
+        variant: 'destructive'
+      });
     } else {
-      // Account exists, logged in
       toast({
         title: 'Login de teste bem-sucedido!',
-        description: `Logado como ${testName}`,
+        description: 'Logado com sucesso',
       });
     }
     
@@ -112,43 +90,18 @@ export default function Auth() {
     setLoading(true);
 
     try {
-      if (isLogin) {
-        const { error } = await signIn(email, password);
-        if (error) {
-          toast({
-            title: "Erro no login",
-            description: error.message,
-            variant: "destructive",
-          });
-        } else {
-          toast({
-            title: "Login realizado",
-            description: "Bem-vindo ao DJT Go!",
-          });
-        }
+      const { error } = await signIn(email, password);
+      if (error) {
+        toast({
+          title: "Erro no login",
+          description: error.message,
+          variant: "destructive",
+        });
       } else {
-        if (!name || name.length < 2) {
-          toast({
-            title: "Nome inválido",
-            description: "Por favor, insira seu nome completo",
-            variant: "destructive",
-          });
-          setLoading(false);
-          return;
-        }
-        const { error } = await signUp(email, password, name);
-        if (error) {
-          toast({
-            title: "Erro no cadastro",
-            description: error.message,
-            variant: "destructive",
-          });
-        } else {
-          toast({
-            title: "Cadastro realizado",
-            description: "Bem-vindo ao DJT Go! Você já pode começar.",
-          });
-        }
+        toast({
+          title: "Login realizado",
+          description: "Bem-vindo ao DJT Go!",
+        });
       }
     } catch (error: any) {
       toast({
@@ -193,107 +146,42 @@ export default function Auth() {
         {/* Auth Forms */}
         <Card>
           <CardContent className="pt-6">
-            <Tabs value={isLogin ? "login" : "signup"} onValueChange={(v) => setIsLogin(v === "login")}>
-              <TabsList className="grid w-full grid-cols-2 mb-4">
-                <TabsTrigger value="login" className="text-sm">Entrar</TabsTrigger>
-                <TabsTrigger value="signup" className="text-sm">Criar Conta</TabsTrigger>
-              </TabsList>
-              
-              <TabsContent value="login">
-                <form onSubmit={handleSubmit} className="space-y-3">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="email" className="text-sm">Email</Label>
-                    <Input
-                      id="email"
-                      type="email"
-                      placeholder="seu@email.com"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      required
-                      className="h-10"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="password" className="text-sm">Senha</Label>
-                    <Input
-                      id="password"
-                      type="password"
-                      placeholder="••••••••"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      required
-                      className="h-10"
-                    />
-                  </div>
-                  <Button type="submit" className="w-full h-10 mt-2" disabled={loading}>
-                    {loading ? "Entrando..." : "Entrar"}
-                    <ArrowRight className="ml-2 h-4 w-4" />
-                  </Button>
-                </form>
-              </TabsContent>
-              
-              <TabsContent value="signup">
-                <form onSubmit={handleSubmit} className="space-y-3">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="name" className="text-sm">Nome Completo</Label>
-                    <Input
-                      id="name"
-                      type="text"
-                      placeholder="Seu nome"
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
-                      required
-                      className="h-10"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="signup-email" className="text-sm">Email</Label>
-                    <Input
-                      id="signup-email"
-                      type="email"
-                      placeholder="seu@email.com"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      required
-                      className="h-10"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="signup-password" className="text-sm">Senha</Label>
-                    <Input
-                      id="signup-password"
-                      type="password"
-                      placeholder="Mínimo 6 caracteres"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      required
-                      minLength={6}
-                      className="h-10"
-                    />
-                  </div>
-                  <Button type="submit" className="w-full h-10 mt-2" disabled={loading}>
-                    {loading ? "Cadastrando..." : "Cadastrar"}
-                    <ArrowRight className="ml-2 h-4 w-4" />
-                  </Button>
-                </form>
-              </TabsContent>
-            </Tabs>
+            <form onSubmit={handleSubmit} className="space-y-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="email" className="text-sm">Email</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  placeholder="seu@email.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  className="h-10"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="password" className="text-sm">Senha</Label>
+                <Input
+                  id="password"
+                  type="password"
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  className="h-10"
+                />
+              </div>
+              <Button type="submit" className="w-full h-10 mt-2" disabled={loading}>
+                {loading ? "Entrando..." : "Entrar"}
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </Button>
+            </form>
           </CardContent>
         </Card>
 
-        <div className="text-center">
-          <p className="text-sm text-muted-foreground mb-2">
-            Ou faça um cadastro completo com foto
-          </p>
-          <Button
-            variant="link"
-            className="text-primary"
-            onClick={() => navigate('/register')}
-          >
-            Cadastro Completo com Avatar
-            <ArrowRight className="ml-2 h-4 w-4" />
-          </Button>
-        </div>
+        <p className="text-center text-sm text-muted-foreground">
+          Apenas líderes podem criar novas contas através do Studio
+        </p>
 
         <p className="text-center text-xs text-muted-foreground">
           Conhecimento • Habilidade • Atitude • Segurança

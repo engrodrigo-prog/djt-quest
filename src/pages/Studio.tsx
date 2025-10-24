@@ -8,6 +8,7 @@ import { TeamPerformanceManager } from '@/components/TeamPerformanceManager';
 import { ChallengeForm } from '@/components/ChallengeForm';
 import { CampaignForm } from '@/components/CampaignForm';
 import Navigation from '@/components/Navigation';
+import { UserCreationForm } from '@/components/UserCreationForm';
 
 const Studio = () => {
   const { user } = useAuth();
@@ -100,19 +101,7 @@ const Studio = () => {
           </TabsContent>
 
           <TabsContent value="users" className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>Gestão de Usuários</CardTitle>
-                <CardDescription>
-                  Crie, edite e gerencie usuários da plataforma
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <p className="text-muted-foreground text-center py-12">
-                  Em desenvolvimento - CRUD de usuários em breve
-                </p>
-              </CardContent>
-            </Card>
+            <UserCreationForm />
           </TabsContent>
         </Tabs>
       </div>
