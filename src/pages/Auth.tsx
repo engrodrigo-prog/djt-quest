@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Shield, Zap, ArrowRight, Sparkles } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { BootstrapManager } from '@/components/BootstrapManager';
+import { supabase } from '@/integrations/supabase/client';
 
 const TestQuickLogin = ({ onTestLogin }: { onTestLogin: (role: string) => void }) => {
   const testAccounts = [
@@ -52,6 +53,7 @@ export default function Auth() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [seedLoading, setSeedLoading] = useState(false);
   const { signIn, user } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -93,6 +95,33 @@ export default function Auth() {
     }
     
     setLoading(false);
+  };
+
+  const handleSeedTestUsers = async () => {
+    setSeedLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('seed-test-users');
+      if (error) {
+        toast({
+          title: 'Erro ao criar usuários de teste',
+          description: error.message,
+          variant: 'destructive',
+        });
+      } else {
+        toast({
+          title: 'Usuários de teste prontos',
+          description: 'Tente o Login Rápido acima',
+        });
+      }
+    } catch (err: any) {
+      toast({
+        title: 'Erro',
+        description: err.message,
+        variant: 'destructive',
+      });
+    } finally {
+      setSeedLoading(false);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -139,11 +168,17 @@ export default function Auth() {
           <p className="text-xs text-muted-foreground">CPFL Subtransmissão</p>
         </div>
 
-        {/* Test Mode */}
-        <TestQuickLogin onTestLogin={handleTestLogin} />
+        {/* Test Mode + Seed */}
+        <div className="space-y-2">
+          <Button variant="secondary" className="w-full" onClick={handleSeedTestUsers} disabled={seedLoading}>
+            {seedLoading ? 'Criando usuários de teste...' : 'Criar usuários de teste (ambiente)'}
+          </Button>
+          <TestQuickLogin onTestLogin={handleTestLogin} />
+        </div>
 
         {/* Bootstrap Manager */}
         {user && <BootstrapManager />}
+
 
         <div className="relative">
           <div className="absolute inset-0 flex items-center">

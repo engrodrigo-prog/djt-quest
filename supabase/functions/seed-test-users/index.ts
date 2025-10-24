@@ -134,11 +134,10 @@ Deno.serve(async (req) => {
 
       console.log(`Created auth user: ${newUser.user.id}`);
 
-      // Criar profile
+      // Atualizar profile (trigger já criou na criação do auth user)
       const { error: profileError } = await supabaseAdmin
         .from('profiles')
-        .insert({
-          id: newUser.user.id,
+        .update({
           email: user.email,
           name: user.name,
           team_id: user.team_id || null,
@@ -148,7 +147,8 @@ Deno.serve(async (req) => {
           xp: 0,
           tier: 'EX-1',
           studio_access: ['coordenador_djtx', 'gerente_divisao_djtx', 'gerente_djt'].includes(user.role)
-        });
+        })
+        .eq('id', newUser.user.id);
 
       if (profileError) {
         console.error(`Error creating profile for ${user.email}:`, profileError);
