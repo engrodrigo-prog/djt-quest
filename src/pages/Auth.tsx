@@ -83,8 +83,8 @@ export default function Auth() {
 
     if (signInError) {
       toast({
-        title: 'Erro',
-        description: 'Conta não existe. Solicite ao líder que crie sua conta no Studio.',
+        title: 'Erro no login',
+        description: signInError.message || 'Não foi possível entrar com esta conta de teste.',
         variant: 'destructive'
       });
     } else {

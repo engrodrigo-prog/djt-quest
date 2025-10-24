@@ -10,6 +10,7 @@ import { useNavigate } from "react-router-dom";
 import Navigation from "@/components/Navigation";
 import { TeamPerformanceCard } from "@/components/TeamPerformanceCard";
 import { AvatarDisplay } from "@/components/AvatarDisplay";
+import { getTierInfo, getNextTierLevel } from "@/lib/constants/tiers";
 
 interface Campaign {
   id: string;
@@ -100,8 +101,8 @@ const Index = () => {
     );
   }
 
-  const tierInfo = profile ? require('@/lib/constants/tiers').getTierInfo(profile.tier) : null;
-  const nextLevel = profile && tierInfo ? require('@/lib/constants/tiers').getNextTierLevel(profile.tier, profile.xp) : null;
+  const tierInfo = profile ? getTierInfo(profile.tier) : null;
+  const nextLevel = profile && tierInfo ? getNextTierLevel(profile.tier, profile.xp) : null;
   const xpProgress = profile && tierInfo ? ((profile.xp - tierInfo.xpMin) / (tierInfo.xpMax - tierInfo.xpMin)) * 100 : 0;
 
   return (

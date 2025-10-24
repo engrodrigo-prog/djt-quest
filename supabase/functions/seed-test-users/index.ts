@@ -108,13 +108,52 @@ Deno.serve(async (req) => {
     const results = [];
 
     for (const user of testUsers) {
-      // Verificar se já existe
+      // Verificar se já existe e sincronizar caso exista
       const { data: existingUser } = await supabaseAdmin.auth.admin.listUsers();
-      const userExists = existingUser?.users.find(u => u.email === user.email);
+      const found = existingUser?.users.find(u => u.email === user.email);
 
-      if (userExists) {
-        console.log(`User ${user.email} already exists, skipping...`);
-        results.push({ email: user.email, status: 'already_exists' });
+      if (found) {
+        console.log(`User ${user.email} exists. Syncing password, profile and roles...`);
+        // Reset password and metadata for test env
+        await supabaseAdmin.auth.admin.updateUserById(found.id, {
+          password: user.password,
+          email_confirm: true,
+          user_metadata: { name: user.name }
+        });
+
+        const { error: profileUpdateError } = await supabaseAdmin
+          .from('profiles')
+          .update({
+            email: user.email,
+            name: user.name,
+            team_id: user.team_id || null,
+            coord_id: user.coord_id || null,
+            division_id: user.division_id || null,
+            department_id: user.department_id || null,
+            xp: 0,
+            tier: 'EX-1',
+            studio_access: ['coordenador_djtx', 'gerente_divisao_djtx', 'gerente_djt'].includes(user.role)
+          })
+          .eq('id', found.id);
+
+        if (profileUpdateError) {
+          console.error(`Error updating profile for ${user.email}:`, profileUpdateError);
+          results.push({ email: user.email, status: 'error', error: profileUpdateError.message });
+          continue;
+        }
+
+        const { error: roleUpsertError } = await supabaseAdmin
+          .from('user_roles')
+          .upsert({ user_id: found.id, role: user.role }, { onConflict: 'user_id,role' });
+
+        if (roleUpsertError) {
+          console.error(`Error upserting role for ${user.email}:`, roleUpsertError);
+          results.push({ email: user.email, status: 'error', error: roleUpsertError.message });
+          continue;
+        }
+
+        console.log(`Synced existing user: ${found.id} with role ${user.role}`);
+        results.push({ email: user.email, status: 'updated', id: found.id, role: user.role });
         continue;
       }
 
@@ -159,17 +198,13 @@ Deno.serve(async (req) => {
 
       console.log(`Created profile for: ${newUser.user.id}`);
 
-      // Atribuir role
+      // Garantir role (idempotente)
       const { error: roleError } = await supabaseAdmin
         .from('user_roles')
-        .insert({
-          user_id: newUser.user.id,
-          role: user.role
-        });
+        .upsert({ user_id: newUser.user.id, role: user.role }, { onConflict: 'user_id,role' });
 
       if (roleError) {
         console.error(`Error assigning role to ${user.email}:`, roleError);
-        await supabaseAdmin.auth.admin.deleteUser(newUser.user.id);
         results.push({ email: user.email, status: 'error', error: roleError.message });
         continue;
       }
