@@ -43,55 +43,35 @@ export const UserCreationForm = () => {
     setLoading(true);
 
     try {
-      // Create auth user
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: formData.email,
-        password: formData.password,
-        options: {
-          data: {
-            name: formData.name
-          }
+      const { data, error } = await supabase.functions.invoke('studio-create-user', {
+        body: {
+          email: formData.email,
+          password: formData.password,
+          name: formData.name,
+          team_id: formData.team_id || null,
+          role: formData.role
         }
       });
 
-      if (authError) throw authError;
+      if (error) throw error;
 
-      if (authData.user) {
-        // Update profile with team
-        const { error: profileError } = await supabase
-          .from('profiles')
-          .update({ 
-            name: formData.name,
-            team_id: formData.team_id || null
-          })
-          .eq('id', authData.user.id);
-
-        if (profileError) throw profileError;
-
-        // Insert role in user_roles table
-        const { error: roleError } = await supabase
-          .from('user_roles')
-          .insert({
-            user_id: authData.user.id,
-            role: formData.role
-          });
-
-        if (roleError) throw roleError;
-
-        toast({
-          title: 'Usuário criado com sucesso!',
-          description: `Conta criada para ${formData.name} com role ${formData.role}`
-        });
-
-        // Reset form
-        setFormData({
-          email: '',
-          password: '',
-          name: '',
-          team_id: '',
-          role: 'colaborador'
-        });
+      if (!data.success) {
+        throw new Error(data.error || 'Erro ao criar usuário');
       }
+
+      toast({
+        title: 'Usuário criado com sucesso!',
+        description: `Conta criada para ${formData.name} com role ${formData.role}`
+      });
+
+      // Reset form
+      setFormData({
+        email: '',
+        password: '',
+        name: '',
+        team_id: '',
+        role: 'colaborador'
+      });
     } catch (error: any) {
       toast({
         title: 'Erro ao criar usuário',

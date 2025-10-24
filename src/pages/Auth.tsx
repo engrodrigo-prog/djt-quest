@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Shield, Zap, ArrowRight, Sparkles } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { BootstrapManager } from '@/components/BootstrapManager';
 
 const TestQuickLogin = ({ onTestLogin }: { onTestLogin: (role: string) => void }) => {
   const testAccounts = [
@@ -131,6 +132,9 @@ export default function Auth() {
 
         {/* Test Mode */}
         <TestQuickLogin onTestLogin={handleTestLogin} />
+
+        {/* Bootstrap Manager */}
+        {user && <BootstrapManager />}
 
         <div className="relative">
           <div className="absolute inset-0 flex items-center">
