@@ -12,9 +12,9 @@ import { BootstrapManager } from '@/components/BootstrapManager';
 const TestQuickLogin = ({ onTestLogin }: { onTestLogin: (role: string) => void }) => {
   const testAccounts = [
     { role: 'colaborador', label: 'Colaborador', desc: 'Usuário básico', color: 'bg-blue-500' },
-    { role: 'coordenador', label: 'Coordenador (DJTX-ABC)', desc: 'Avalia ações', color: 'bg-green-500' },
-    { role: 'lider_divisao', label: 'Líder de Divisão (DJTX)', desc: 'Avalia ações', color: 'bg-purple-500' },
-    { role: 'gerente', label: 'Gerente (DJT)', desc: 'Gestão completa', color: 'bg-orange-500' },
+    { role: 'coordenador_djtx', label: 'Coordenador (DJTX-ABC)', desc: 'Avalia ações', color: 'bg-green-500' },
+    { role: 'lider_divisao_djtx', label: 'Líder de Divisão (DJTX)', desc: 'Avalia ações', color: 'bg-purple-500' },
+    { role: 'gerente_djt', label: 'Gerente (DJT)', desc: 'Gestão completa', color: 'bg-orange-500' },
   ];
 
   return (
@@ -101,7 +101,7 @@ export default function Auth() {
       } else {
         toast({
           title: "Login realizado",
-          description: "Bem-vindo ao DJT Go!",
+          description: "Bem-vindo ao DJT Quest!",
         });
       }
     } catch (error: any) {
@@ -125,7 +125,7 @@ export default function Auth() {
             <Zap className="h-7 w-7 text-secondary" />
           </div>
           <h1 className="text-3xl font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
-            DJT Go
+            DJT Quest
           </h1>
           <p className="text-xs text-muted-foreground">CPFL Subtransmissão</p>
         </div>

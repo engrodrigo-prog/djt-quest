@@ -43,7 +43,7 @@ const App = () => (
               </ProtectedRoute>
             } />
             <Route path="/studio" element={
-              <ProtectedRoute>
+              <ProtectedRoute requireStudio>
                 <Studio />
               </ProtectedRoute>
             } />

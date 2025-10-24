@@ -42,17 +42,18 @@ const Studio = () => {
     );
   }
 
-  if (!userRole || !['admin', 'gerente', 'lider_divisao', 'coordenador'].includes(userRole)) {
+  if (!userRole || !['gerente_djt', 'lider_divisao_djtx', 'coordenador_djtx'].includes(userRole)) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4">
         <Card className="max-w-md">
           <CardHeader>
             <CardTitle>Acesso Negado</CardTitle>
             <CardDescription>
-              Apenas gestores e líderes podem acessar o DJT Go Studio.
+              Seu perfil atual não possui permissão para acessar o DJT Quest Studio. Entre como Coordenador, Líder ou Gerente.
             </CardDescription>
           </CardHeader>
         </Card>
+        <Navigation />
       </div>
     );
   }
@@ -63,9 +64,11 @@ const Studio = () => {
         <div>
           <h1 className="text-3xl md:text-4xl font-bold flex items-center gap-2">
             <Plus className="h-8 w-8 text-primary" />
-            DJT Go Studio
+            DJT Quest Studio
           </h1>
-          <p className="text-muted-foreground">Console de gestão de campanhas e desafios</p>
+          <p className="text-muted-foreground">
+            Console de gestão de campanhas e desafios | Seu escopo: <strong>{userRole === 'coordenador_djtx' ? 'Coordenação' : userRole === 'lider_divisao_djtx' ? 'Divisão DJTX' : 'Departamento DJT'}</strong>
+          </p>
         </div>
 
         <Tabs defaultValue="campaigns" className="w-full">

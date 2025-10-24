@@ -2,15 +2,22 @@ import { ReactNode, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 
-export function ProtectedRoute({ children }: { children: ReactNode }) {
-  const { user, loading } = useAuth();
+interface ProtectedRouteProps {
+  children: ReactNode;
+  requireStudio?: boolean;
+}
+
+export function ProtectedRoute({ children, requireStudio = false }: ProtectedRouteProps) {
+  const { user, loading, studioAccess } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
     if (!loading && !user) {
       navigate('/auth');
+    } else if (!loading && user && requireStudio && !studioAccess) {
+      navigate('/');
     }
-  }, [user, loading, navigate]);
+  }, [user, loading, studioAccess, requireStudio, navigate]);
 
   if (loading) {
     return (
@@ -20,7 +27,7 @@ export function ProtectedRoute({ children }: { children: ReactNode }) {
     );
   }
 
-  if (!user) {
+  if (!user || (requireStudio && !studioAccess)) {
     return null;
   }
 

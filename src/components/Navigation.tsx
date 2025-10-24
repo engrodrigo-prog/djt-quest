@@ -1,10 +1,12 @@
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Home, Target, Shield, Trophy, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { useAuth } from '@/contexts/AuthContext';
 
 const Navigation = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const { studioAccess } = useAuth();
 
   const isActive = (path: string) => location.pathname === path;
 
@@ -41,15 +43,17 @@ const Navigation = () => {
           <span className="text-xs mt-1">Avaliar</span>
         </Button>
         
-        <Button
-          variant={isActive('/studio') ? 'default' : 'ghost'}
-          size="sm"
-          onClick={() => navigate('/studio')}
-          className="flex-col h-auto py-2"
-        >
-          <Target className="h-5 w-5" />
-          <span className="text-xs mt-1">Studio</span>
-        </Button>
+        {studioAccess && (
+          <Button
+            variant={isActive('/studio') ? 'default' : 'ghost'}
+            size="sm"
+            onClick={() => navigate('/studio')}
+            className="flex-col h-auto py-2"
+          >
+            <Target className="h-5 w-5" />
+            <span className="text-xs mt-1">Studio</span>
+          </Button>
+        )}
         
         <Button
           variant={isActive('/profile') ? 'default' : 'ghost'}
