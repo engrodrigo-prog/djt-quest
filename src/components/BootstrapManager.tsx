@@ -132,9 +132,9 @@ export const BootstrapManager = () => {
                   <p className="font-semibold text-sm mb-2">Credenciais de teste:</p>
                   <ul className="text-xs space-y-1 font-mono">
                     <li>• colab@teste.com / teste123 (Colaborador)</li>
-                    <li>• coordenador@teste.com / teste123 (Coordenador DJTX-ABC)</li>
-                    <li>• lider@teste.com / teste123 (Líder Divisão DJTX)</li>
-                    <li>• gerente@teste.com / teste123 (Gerente DJT)</li>
+                    <li>• coordenador@teste.com / teste123 (Coordenador)</li>
+                    <li>• gerente-divisao@teste.com / teste123 (Gerente de Divisão)</li>
+                    <li>• gerente-dept@teste.com / teste123 (Gerente de Departamento)</li>
                   </ul>
                 </div>
               </div>

@@ -806,11 +806,10 @@ export type Database = {
     }
     Enums: {
       app_role:
-        | "admin"
-        | "gerente"
-        | "lider_divisao"
-        | "coordenador"
         | "colaborador"
+        | "coordenador_djtx"
+        | "gerente_divisao_djtx"
+        | "gerente_djt"
       challenge_type: "quiz" | "mentoria" | "atitude" | "inspecao" | "forum"
       event_status:
         | "submitted"
@@ -971,11 +970,10 @@ export const Constants = {
   public: {
     Enums: {
       app_role: [
-        "admin",
-        "gerente",
-        "lider_divisao",
-        "coordenador",
         "colaborador",
+        "coordenador_djtx",
+        "gerente_divisao_djtx",
+        "gerente_djt",
       ],
       challenge_type: ["quiz", "mentoria", "atitude", "inspecao", "forum"],
       event_status: [

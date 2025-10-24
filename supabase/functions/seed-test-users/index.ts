@@ -9,7 +9,7 @@ interface TestUser {
   email: string;
   password: string;
   name: string;
-  role: 'colaborador' | 'coordenador_djtx' | 'lider_divisao_djtx' | 'gerente_djt';
+  role: 'colaborador' | 'coordenador_djtx' | 'gerente_divisao_djtx' | 'gerente_djt';
   team_id?: string;
   coord_id?: string;
   division_id?: string;
@@ -82,17 +82,17 @@ Deno.serve(async (req) => {
         department_id: deptDJT?.id
       },
       {
-        email: 'lider@teste.com',
+        email: 'gerente-divisao@teste.com',
         password: 'teste123',
-        name: 'Carlos Oliveira (Líder Divisão DJTX)',
-        role: 'lider_divisao_djtx',
+        name: 'Carlos Oliveira (Gerente de Divisão DJTX)',
+        role: 'gerente_divisao_djtx',
         division_id: divDJTX?.id,
         department_id: deptDJT?.id
       },
       {
-        email: 'gerente@teste.com',
+        email: 'gerente-dept@teste.com',
         password: 'teste123',
-        name: 'Ana Paula (Gerente DJT)',
+        name: 'Ana Paula (Gerente de Departamento DJT)',
         role: 'gerente_djt',
         department_id: deptDJT?.id
       }
@@ -140,7 +140,7 @@ Deno.serve(async (req) => {
           department_id: user.department_id || null,
           xp: 0,
           tier: 'EX-1',
-          studio_access: ['coordenador_djtx', 'lider_divisao_djtx', 'gerente_djt'].includes(user.role)
+          studio_access: ['coordenador_djtx', 'gerente_divisao_djtx', 'gerente_djt'].includes(user.role)
         });
 
       if (profileError) {

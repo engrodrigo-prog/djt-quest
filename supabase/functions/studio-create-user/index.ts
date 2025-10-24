@@ -52,7 +52,7 @@ Deno.serve(async (req) => {
       .select('role')
       .eq('user_id', user.id);
 
-    const allowedRoles = ['gerente_djt', 'lider_divisao_djtx', 'coordenador_djtx'];
+    const allowedRoles = ['gerente_djt', 'gerente_divisao_djtx', 'coordenador_djtx'];
     const hasPermission = callerRoles?.some(r => allowedRoles.includes(r.role));
 
     if (!hasPermission) {
