@@ -42,7 +42,7 @@ const Studio = () => {
     );
   }
 
-  if (!userRole || !['gerente_djt', 'lider_divisao_djtx', 'coordenador_djtx'].includes(userRole)) {
+  if (!userRole || !['gerente_djt', 'gerente_divisao_djtx', 'coordenador_djtx'].includes(userRole)) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4">
         <Card className="max-w-md">
@@ -67,7 +67,7 @@ const Studio = () => {
             DJT Quest Studio
           </h1>
           <p className="text-muted-foreground">
-            Console de gestão de campanhas e desafios | Seu escopo: <strong>{userRole === 'coordenador_djtx' ? 'Coordenação' : userRole === 'lider_divisao_djtx' ? 'Divisão DJTX' : 'Departamento DJT'}</strong>
+            Console de gestão de campanhas e desafios | Seu escopo: <strong>{userRole === 'coordenador_djtx' ? 'Coordenação' : userRole === 'gerente_divisao_djtx' ? 'Divisão DJTX' : 'Departamento DJT'}</strong>
           </p>
         </div>
 

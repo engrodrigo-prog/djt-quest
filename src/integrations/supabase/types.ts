@@ -413,11 +413,15 @@ export type Database = {
           avatar_meta: Json | null
           avatar_thumbnail_url: string | null
           avatar_url: string | null
+          coord_id: string | null
           created_at: string | null
           demotion_cooldown_until: string | null
+          department_id: string | null
+          division_id: string | null
           email: string | null
           id: string
           name: string
+          studio_access: boolean | null
           team_id: string | null
           tier: Database["public"]["Enums"]["player_tier"]
           tier_progression_locked: boolean | null
@@ -428,11 +432,15 @@ export type Database = {
           avatar_meta?: Json | null
           avatar_thumbnail_url?: string | null
           avatar_url?: string | null
+          coord_id?: string | null
           created_at?: string | null
           demotion_cooldown_until?: string | null
+          department_id?: string | null
+          division_id?: string | null
           email?: string | null
           id: string
           name: string
+          studio_access?: boolean | null
           team_id?: string | null
           tier?: Database["public"]["Enums"]["player_tier"]
           tier_progression_locked?: boolean | null
@@ -443,11 +451,15 @@ export type Database = {
           avatar_meta?: Json | null
           avatar_thumbnail_url?: string | null
           avatar_url?: string | null
+          coord_id?: string | null
           created_at?: string | null
           demotion_cooldown_until?: string | null
+          department_id?: string | null
+          division_id?: string | null
           email?: string | null
           id?: string
           name?: string
+          studio_access?: boolean | null
           team_id?: string | null
           tier?: Database["public"]["Enums"]["player_tier"]
           tier_progression_locked?: boolean | null
@@ -455,6 +467,27 @@ export type Database = {
           xp?: number | null
         }
         Relationships: [
+          {
+            foreignKeyName: "profiles_coord_id_fkey"
+            columns: ["coord_id"]
+            isOneToOne: false
+            referencedRelation: "coordinations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "profiles_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "profiles_division_id_fkey"
+            columns: ["division_id"]
+            isOneToOne: false
+            referencedRelation: "divisions"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "profiles_team_id_fkey"
             columns: ["team_id"]

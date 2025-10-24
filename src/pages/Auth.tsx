@@ -13,7 +13,7 @@ const TestQuickLogin = ({ onTestLogin }: { onTestLogin: (role: string) => void }
   const testAccounts = [
     { role: 'colaborador', label: 'Colaborador', desc: 'Usuário básico', color: 'bg-blue-500' },
     { role: 'coordenador_djtx', label: 'Coordenador (DJTX-ABC)', desc: 'Avalia ações', color: 'bg-green-500' },
-    { role: 'lider_divisao_djtx', label: 'Líder de Divisão (DJTX)', desc: 'Avalia ações', color: 'bg-purple-500' },
+    { role: 'gerente_divisao_djtx', label: 'Gerente de Divisão (DJTX)', desc: 'Avalia ações', color: 'bg-purple-500' },
     { role: 'gerente_djt', label: 'Gerente (DJT)', desc: 'Gestão completa', color: 'bg-orange-500' },
   ];
 
@@ -64,8 +64,17 @@ export default function Auth() {
 
   const handleTestLogin = async (role: string) => {
     setLoading(true);
-    const testEmail = `teste.${role}@djtgo.local`;
-    const testPassword = 'Teste@123456';
+    
+    // Map roles to the emails created by seed-test-users
+    const emailMap: Record<string, string> = {
+      'colaborador': 'colab@teste.com',
+      'coordenador_djtx': 'coordenador@teste.com',
+      'gerente_divisao_djtx': 'gerente-divisao@teste.com',
+      'gerente_djt': 'gerente-dept@teste.com'
+    };
+    
+    const testEmail = emailMap[role];
+    const testPassword = 'teste123';
 
     // Try to sign in
     const { error: signInError } = await signIn(testEmail, testPassword);
