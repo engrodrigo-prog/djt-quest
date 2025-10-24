@@ -32,7 +32,7 @@ interface Challenge {
 interface Profile {
   name: string;
   xp: number;
-  level: number;
+  tier: string;
   avatar_url: string | null;
 }
 
@@ -52,7 +52,7 @@ const Index = () => {
         // Load profile
         const { data: profileData } = await supabase
           .from("profiles")
-          .select("name, xp, level, avatar_url")
+          .select("name, xp, tier, avatar_url")
           .eq("id", user.id)
           .single();
 
@@ -100,8 +100,9 @@ const Index = () => {
     );
   }
 
-  const xpToNextLevel = profile ? profile.level * 1000 : 1000;
-  const xpProgress = profile ? (profile.xp % 1000) / 10 : 0;
+  const tierInfo = profile ? require('@/lib/constants/tiers').getTierInfo(profile.tier) : null;
+  const nextLevel = profile && tierInfo ? require('@/lib/constants/tiers').getNextTierLevel(profile.tier, profile.xp) : null;
+  const xpProgress = profile && tierInfo ? ((profile.xp - tierInfo.xpMin) / (tierInfo.xpMax - tierInfo.xpMin)) * 100 : 0;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-secondary/5 pb-20 md:pb-8">
@@ -125,10 +126,12 @@ const Index = () => {
           <div className="flex items-center gap-2">
             <div className="text-right hidden sm:block">
               <p className="font-semibold text-sm">{profile?.name}</p>
-              <div className="flex items-center gap-1.5 text-xs justify-end">
-                <Star className="h-3 w-3 text-accent" />
-                <span>Nível {profile?.level}</span>
-              </div>
+              {tierInfo && (
+                <div className="flex items-center gap-1.5 text-xs justify-end">
+                  <Star className="h-3 w-3 text-accent" />
+                  <span>{tierInfo.name}</span>
+                </div>
+              )}
             </div>
             <AvatarDisplay avatarUrl={profile?.avatar_url || null} name={profile?.name || "User"} size="sm" />
             <Button variant="ghost" size="icon" className="h-9 w-9" onClick={handleSignOut}>
@@ -151,15 +154,21 @@ const Index = () => {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="flex items-center justify-between text-xs sm:text-sm">
-              <span>Nível {profile?.level}</span>
-              <span className="font-semibold">{profile?.xp} XP</span>
-              <span className="text-muted-foreground">Nível {(profile?.level || 1) + 1}</span>
-            </div>
-            <Progress value={xpProgress} className="h-2.5" />
-            <p className="text-xs text-muted-foreground">
-              Faltam {xpToNextLevel - (profile?.xp || 0)} XP para o próximo nível
-            </p>
+            {tierInfo && (
+              <>
+                <div className="flex items-center justify-between text-xs sm:text-sm">
+                  <span>{tierInfo.name}</span>
+                  <span className="font-semibold">{profile?.xp} XP</span>
+                  {nextLevel && <span className="text-muted-foreground">{nextLevel.name}</span>}
+                </div>
+                <Progress value={xpProgress} className="h-2.5" />
+                {nextLevel && (
+                  <p className="text-xs text-muted-foreground">
+                    Faltam {nextLevel.xpNeeded} XP para o próximo nível
+                  </p>
+                )}
+              </>
+            )}
           </CardContent>
         </Card>
 

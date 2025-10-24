@@ -18,7 +18,8 @@ interface UserProfile {
   name: string;
   email: string;
   xp: number;
-  level: number;
+  tier: string;
+  demotion_cooldown_until: string | null;
   team: { name: string } | null;
   avatar_url: string | null;
 }
@@ -74,7 +75,7 @@ const Profile = () => {
         // Load profile
         const { data: profileData } = await supabase
           .from('profiles')
-          .select('name, email, xp, level, avatar_url, team:teams(name)')
+          .select('name, email, xp, tier, demotion_cooldown_until, avatar_url, team:teams(name)')
           .eq('id', user.id)
           .single();
 
@@ -207,8 +208,10 @@ const Profile = () => {
 
   if (!profile) return null;
 
-  const xpToNextLevel = profile.level * 1000;
-  const xpProgress = (profile.xp % 1000) / 10;
+  const { getTierInfo, getNextTierLevel } = require('@/lib/constants/tiers');
+  const tierInfo = getTierInfo(profile.tier);
+  const nextLevel = getNextTierLevel(profile.tier, profile.xp);
+  const xpProgress = tierInfo ? ((profile.xp - tierInfo.xpMin) / (tierInfo.xpMax - tierInfo.xpMin)) * 100 : 0;
   const completedEvents = events.filter(e => e.status === 'approved').length;
   const pendingEvents = events.filter(e => e.status === 'submitted').length;
 
@@ -291,7 +294,7 @@ const Profile = () => {
               <div className="text-right">
                 <div className="flex items-center gap-2 justify-end mb-1">
                   <Star className="h-5 w-5 text-accent" />
-                  <span className="text-2xl font-bold">Nível {profile.level}</span>
+                  <span className="text-2xl font-bold">{tierInfo?.name || profile.tier}</span>
                 </div>
                 <p className="text-sm text-muted-foreground">{profile.xp} XP Total</p>
               </div>
@@ -300,8 +303,8 @@ const Profile = () => {
           <CardContent>
             <div className="space-y-2">
               <div className="flex items-center justify-between text-sm">
-                <span>Progresso para Nível {profile.level + 1}</span>
-                <span className="font-semibold">{profile.xp % 1000} / {xpToNextLevel} XP</span>
+                <span>Progresso para {nextLevel?.name || 'Nível Máximo'}</span>
+                {nextLevel && <span className="font-semibold">{nextLevel.xpNeeded} XP restantes</span>}
               </div>
               <Progress value={xpProgress} className="h-3" />
             </div>

@@ -372,17 +372,55 @@ export type Database = {
           },
         ]
       }
+      notifications: {
+        Row: {
+          created_at: string
+          id: string
+          message: string
+          metadata: Json | null
+          read: boolean | null
+          read_at: string | null
+          title: string
+          type: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          message: string
+          metadata?: Json | null
+          read?: boolean | null
+          read_at?: string | null
+          title: string
+          type: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          message?: string
+          metadata?: Json | null
+          read?: boolean | null
+          read_at?: string | null
+          title?: string
+          type?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           avatar_meta: Json | null
           avatar_thumbnail_url: string | null
           avatar_url: string | null
           created_at: string | null
+          demotion_cooldown_until: string | null
           email: string | null
           id: string
-          level: number | null
           name: string
           team_id: string | null
+          tier: Database["public"]["Enums"]["player_tier"]
+          tier_progression_locked: boolean | null
           updated_at: string | null
           xp: number | null
         }
@@ -391,11 +429,13 @@ export type Database = {
           avatar_thumbnail_url?: string | null
           avatar_url?: string | null
           created_at?: string | null
+          demotion_cooldown_until?: string | null
           email?: string | null
           id: string
-          level?: number | null
           name: string
           team_id?: string | null
+          tier?: Database["public"]["Enums"]["player_tier"]
+          tier_progression_locked?: boolean | null
           updated_at?: string | null
           xp?: number | null
         }
@@ -404,11 +444,13 @@ export type Database = {
           avatar_thumbnail_url?: string | null
           avatar_url?: string | null
           created_at?: string | null
+          demotion_cooldown_until?: string | null
           email?: string | null
           id?: string
-          level?: number | null
           name?: string
           team_id?: string | null
+          tier?: Database["public"]["Enums"]["player_tier"]
+          tier_progression_locked?: boolean | null
           updated_at?: string | null
           xp?: number | null
         }
@@ -421,6 +463,60 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      safety_incidents: {
+        Row: {
+          caused_demotion: boolean | null
+          created_at: string | null
+          description: string
+          evidence_urls: string[] | null
+          id: string
+          incident_type: string
+          is_near_miss: boolean | null
+          new_tier: Database["public"]["Enums"]["player_tier"] | null
+          previous_tier: Database["public"]["Enums"]["player_tier"] | null
+          reported_at: string
+          reported_by: string
+          review_notes: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          user_id: string
+        }
+        Insert: {
+          caused_demotion?: boolean | null
+          created_at?: string | null
+          description: string
+          evidence_urls?: string[] | null
+          id?: string
+          incident_type: string
+          is_near_miss?: boolean | null
+          new_tier?: Database["public"]["Enums"]["player_tier"] | null
+          previous_tier?: Database["public"]["Enums"]["player_tier"] | null
+          reported_at?: string
+          reported_by: string
+          review_notes?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          user_id: string
+        }
+        Update: {
+          caused_demotion?: boolean | null
+          created_at?: string | null
+          description?: string
+          evidence_urls?: string[] | null
+          id?: string
+          incident_type?: string
+          is_near_miss?: boolean | null
+          new_tier?: Database["public"]["Enums"]["player_tier"] | null
+          previous_tier?: Database["public"]["Enums"]["player_tier"] | null
+          reported_at?: string
+          reported_by?: string
+          review_notes?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          user_id?: string
+        }
+        Relationships: []
       }
       team_performance_log: {
         Row: {
@@ -498,6 +594,110 @@ export type Database = {
           },
         ]
       }
+      tier_demotion_log: {
+        Row: {
+          cooldown_until: string
+          demoted_at: string
+          demoted_by: string
+          id: string
+          incident_id: string | null
+          new_tier: Database["public"]["Enums"]["player_tier"]
+          previous_tier: Database["public"]["Enums"]["player_tier"]
+          reason: string
+          user_id: string
+        }
+        Insert: {
+          cooldown_until: string
+          demoted_at?: string
+          demoted_by: string
+          id?: string
+          incident_id?: string | null
+          new_tier: Database["public"]["Enums"]["player_tier"]
+          previous_tier: Database["public"]["Enums"]["player_tier"]
+          reason: string
+          user_id: string
+        }
+        Update: {
+          cooldown_until?: string
+          demoted_at?: string
+          demoted_by?: string
+          id?: string
+          incident_id?: string | null
+          new_tier?: Database["public"]["Enums"]["player_tier"]
+          previous_tier?: Database["public"]["Enums"]["player_tier"]
+          reason?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tier_demotion_log_incident_id_fkey"
+            columns: ["incident_id"]
+            isOneToOne: false
+            referencedRelation: "safety_incidents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tier_progression_requests: {
+        Row: {
+          coordinator_id: string | null
+          created_at: string
+          current_tier: Database["public"]["Enums"]["player_tier"]
+          id: string
+          review_notes: string | null
+          reviewed_at: string | null
+          special_challenge_id: string | null
+          special_event_id: string | null
+          status: Database["public"]["Enums"]["tier_progression_status"]
+          target_tier: Database["public"]["Enums"]["player_tier"]
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          coordinator_id?: string | null
+          created_at?: string
+          current_tier: Database["public"]["Enums"]["player_tier"]
+          id?: string
+          review_notes?: string | null
+          reviewed_at?: string | null
+          special_challenge_id?: string | null
+          special_event_id?: string | null
+          status?: Database["public"]["Enums"]["tier_progression_status"]
+          target_tier: Database["public"]["Enums"]["player_tier"]
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          coordinator_id?: string | null
+          created_at?: string
+          current_tier?: Database["public"]["Enums"]["player_tier"]
+          id?: string
+          review_notes?: string | null
+          reviewed_at?: string | null
+          special_challenge_id?: string | null
+          special_event_id?: string | null
+          status?: Database["public"]["Enums"]["tier_progression_status"]
+          target_tier?: Database["public"]["Enums"]["player_tier"]
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tier_progression_requests_special_challenge_id_fkey"
+            columns: ["special_challenge_id"]
+            isOneToOne: false
+            referencedRelation: "challenges"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tier_progression_requests_special_event_id_fkey"
+            columns: ["special_event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_badges: {
         Row: {
           badge_id: string
@@ -570,6 +770,32 @@ export type Database = {
             }
             Returns: number
           }
+      calculate_tier_from_xp: {
+        Args: {
+          _current_tier: Database["public"]["Enums"]["player_tier"]
+          _xp: number
+        }
+        Returns: Database["public"]["Enums"]["player_tier"]
+      }
+      create_notification: {
+        Args: {
+          _message: string
+          _metadata?: Json
+          _title: string
+          _type: string
+          _user_id: string
+        }
+        Returns: string
+      }
+      demote_for_safety_incident: {
+        Args: {
+          _cooldown_days?: number
+          _demoted_by: string
+          _incident_id: string
+          _user_id: string
+        }
+        Returns: Json
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -593,7 +819,30 @@ export type Database = {
         | "rejected"
         | "retry_pending"
         | "retry_in_progress"
+      player_tier:
+        | "EX-1"
+        | "EX-2"
+        | "EX-3"
+        | "EX-4"
+        | "EX-5"
+        | "FO-1"
+        | "FO-2"
+        | "FO-3"
+        | "FO-4"
+        | "FO-5"
+        | "GU-1"
+        | "GU-2"
+        | "GU-3"
+        | "GU-4"
+        | "GU-5"
       reviewer_level: "divisao" | "coordenacao"
+      tier_progression_status:
+        | "pending"
+        | "challenge_created"
+        | "in_progress"
+        | "under_review"
+        | "approved"
+        | "rejected"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -737,7 +986,32 @@ export const Constants = {
         "retry_pending",
         "retry_in_progress",
       ],
+      player_tier: [
+        "EX-1",
+        "EX-2",
+        "EX-3",
+        "EX-4",
+        "EX-5",
+        "FO-1",
+        "FO-2",
+        "FO-3",
+        "FO-4",
+        "FO-5",
+        "GU-1",
+        "GU-2",
+        "GU-3",
+        "GU-4",
+        "GU-5",
+      ],
       reviewer_level: ["divisao", "coordenacao"],
+      tier_progression_status: [
+        "pending",
+        "challenge_created",
+        "in_progress",
+        "under_review",
+        "approved",
+        "rejected",
+      ],
     },
   },
 } as const
