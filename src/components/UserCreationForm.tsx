@@ -21,7 +21,8 @@ export const UserCreationForm = () => {
     email: '',
     password: '',
     name: '',
-    team_id: ''
+    team_id: '',
+    role: 'colaborador' as 'admin' | 'gerente' | 'lider_divisao' | 'coordenador' | 'colaborador'
   });
 
   useEffect(() => {
@@ -67,9 +68,19 @@ export const UserCreationForm = () => {
 
         if (profileError) throw profileError;
 
+        // Insert role in user_roles table
+        const { error: roleError } = await supabase
+          .from('user_roles')
+          .insert({
+            user_id: authData.user.id,
+            role: formData.role
+          });
+
+        if (roleError) throw roleError;
+
         toast({
           title: 'Usuário criado com sucesso!',
-          description: `Conta criada para ${formData.name}`
+          description: `Conta criada para ${formData.name} com role ${formData.role}`
         });
 
         // Reset form
@@ -77,7 +88,8 @@ export const UserCreationForm = () => {
           email: '',
           password: '',
           name: '',
-          team_id: ''
+          team_id: '',
+          role: 'colaborador'
         });
       }
     } catch (error: any) {
@@ -138,6 +150,25 @@ export const UserCreationForm = () => {
               onChange={(e) => setFormData({ ...formData, password: e.target.value })}
               placeholder="Mínimo 6 caracteres"
             />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="role">Função/Cargo *</Label>
+            <Select 
+              value={formData.role} 
+              onValueChange={(value: any) => setFormData({ ...formData, role: value })}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Selecione a função" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="colaborador">Colaborador</SelectItem>
+                <SelectItem value="coordenador">Coordenador</SelectItem>
+                <SelectItem value="lider_divisao">Líder de Divisão</SelectItem>
+                <SelectItem value="gerente">Gerente</SelectItem>
+                <SelectItem value="admin">Administrador</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="space-y-2">
