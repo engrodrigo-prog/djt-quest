@@ -154,13 +154,13 @@ export const UserCreationForm = () => {
             <Label htmlFor="team">Equipe</Label>
             <Select 
               value={formData.team_id} 
-              onValueChange={(value) => setFormData({ ...formData, team_id: value })}
+              onValueChange={(value) => setFormData({ ...formData, team_id: value === "none" ? "" : value })}
             >
               <SelectTrigger>
                 <SelectValue placeholder="Selecione uma equipe" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">Sem equipe</SelectItem>
+                <SelectItem value="none">Sem equipe</SelectItem>
                 {teams.map((team) => (
                   <SelectItem key={team.id} value={team.id}>
                     {team.name}

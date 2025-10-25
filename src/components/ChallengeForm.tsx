@@ -148,12 +148,12 @@ export const ChallengeForm = () => {
           <div className="space-y-4">
             <div>
               <Label htmlFor="campaign">Campanha (opcional)</Label>
-              <Select onValueChange={(val) => setValue("campaign_id", val || null)}>
+              <Select onValueChange={(val) => setValue("campaign_id", val === "none" ? null : val)}>
                 <SelectTrigger id="campaign">
                   <SelectValue placeholder="Selecione uma campanha" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Nenhuma campanha</SelectItem>
+                  <SelectItem value="none">Nenhuma campanha</SelectItem>
                   {campaigns.map((campaign) => (
                     <SelectItem key={campaign.id} value={campaign.id}>
                       {campaign.title}
