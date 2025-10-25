@@ -9,6 +9,8 @@ import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { toast } from '@/components/ui/use-toast';
 import { TierBadge } from '@/components/TierBadge';
+import { AttachmentUploader } from '@/components/AttachmentUploader';
+import { AttachmentViewer } from '@/components/AttachmentViewer';
 import { ArrowLeft, ThumbsUp, MessageCircle, CheckCircle, Star } from 'lucide-react';
 
 export default function ForumTopic() {
@@ -17,6 +19,7 @@ export default function ForumTopic() {
   const queryClient = useQueryClient();
   const [replyContent, setReplyContent] = useState('');
   const [replyToPostId, setReplyToPostId] = useState<string | null>(null);
+  const [attachmentUrls, setAttachmentUrls] = useState<string[]>([]);
 
   const { data: topic } = useQuery({
     queryKey: ['forum-topic', topicId],
@@ -84,7 +87,8 @@ export default function ForumTopic() {
         body: {
           topic_id: topicId,
           content: replyContent,
-          parent_post_id: replyToPostId
+          parent_post_id: replyToPostId,
+          attachment_urls: attachmentUrls.length > 0 ? attachmentUrls : undefined
         }
       });
 
@@ -96,6 +100,7 @@ export default function ForumTopic() {
       queryClient.invalidateQueries({ queryKey: ['forum-topic', topicId] });
       setReplyContent('');
       setReplyToPostId(null);
+      setAttachmentUrls([]);
       toast({ title: 'Resposta publicada!' });
     },
     onError: (error) => {
@@ -208,6 +213,10 @@ export default function ForumTopic() {
                   dangerouslySetInnerHTML={{ __html: post.content_html || post.content }}
                 />
                 
+                {post.attachment_urls && post.attachment_urls.length > 0 && (
+                  <AttachmentViewer urls={post.attachment_urls} postId={post.id} />
+                )}
+                
                 <div className="flex items-center gap-4 mt-4">
                   <Button
                     variant="ghost"
@@ -260,6 +269,13 @@ export default function ForumTopic() {
                 rows={4}
                 minLength={10}
               />
+              
+              <AttachmentUploader
+                onAttachmentsChange={setAttachmentUrls}
+                maxFiles={10}
+                maxSizeMB={50}
+              />
+              
               <p className="text-xs text-muted-foreground">
                 Dica: Use @nome para mencionar e #tag para categorizar
               </p>

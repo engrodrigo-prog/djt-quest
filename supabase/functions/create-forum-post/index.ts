@@ -119,6 +119,70 @@ serve(async (req) => {
       throw new Error('Failed to create post');
     }
 
+    // Processar anexos e criar metadados
+    if (attachment_urls && attachment_urls.length > 0) {
+      for (const url of attachment_urls) {
+        try {
+          const storagePath = url.split('/forum-attachments/')[1];
+          if (!storagePath) continue;
+
+          // Detectar tipo de arquivo
+          const ext = url.split('.').pop()?.toLowerCase() || '';
+          let fileType = 'document';
+          let mimeType = 'application/octet-stream';
+
+          if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext)) {
+            fileType = 'image';
+            mimeType = `image/${ext === 'jpg' ? 'jpeg' : ext}`;
+          } else if (['mp3', 'wav', 'ogg', 'webm', 'm4a'].includes(ext)) {
+            fileType = 'audio';
+            mimeType = `audio/${ext}`;
+          } else if (['mp4', 'webm', 'mov'].includes(ext)) {
+            fileType = 'video';
+            mimeType = `video/${ext === 'mov' ? 'quicktime' : ext}`;
+          } else if (ext === 'pdf') {
+            mimeType = 'application/pdf';
+          }
+
+          // Obter informações do arquivo do storage
+          const { data: fileInfo } = await supabase.storage
+            .from('forum-attachments')
+            .list(storagePath.split('/')[0], {
+              search: storagePath.split('/').pop()
+            });
+
+          const fileSize = fileInfo?.[0]?.metadata?.size || 0;
+          const originalFilename = storagePath.split('/').pop() || 'unknown';
+
+          // Criar registro de metadados
+          const { error: metadataError } = await supabase
+            .from('forum_attachment_metadata')
+            .insert({
+              post_id: post.id,
+              storage_path: storagePath,
+              file_type: fileType,
+              mime_type: mimeType,
+              file_size: fileSize,
+              original_filename: originalFilename
+            });
+
+          if (metadataError) {
+            console.error('Error creating attachment metadata:', metadataError);
+          }
+
+          // Disparar processamento EXIF para imagens (background task)
+          if (fileType === 'image') {
+            supabase.functions.invoke('extract-image-metadata', {
+              body: { storage_path: storagePath, post_id: post.id }
+            }).catch(err => console.error('Error invoking extract-image-metadata:', err));
+          }
+        } catch (attachmentError) {
+          console.error('Error processing attachment:', attachmentError);
+          // Continuar mesmo se houver erro em um anexo
+        }
+      }
+    }
+
     // Inserir menções
     for (const mentionedUser of mentionedUsers) {
       await supabase.from('forum_mentions').insert({

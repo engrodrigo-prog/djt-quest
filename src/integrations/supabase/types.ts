@@ -372,6 +372,87 @@ export type Database = {
           },
         ]
       }
+      forum_attachment_metadata: {
+        Row: {
+          audio_duration_seconds: number | null
+          capture_date: string | null
+          created_at: string | null
+          device_make: string | null
+          device_model: string | null
+          file_size: number
+          file_type: string
+          gps_latitude: number | null
+          gps_longitude: number | null
+          id: string
+          image_height: number | null
+          image_width: number | null
+          mime_type: string
+          ocr_text: string | null
+          original_filename: string
+          post_id: string | null
+          processed_at: string | null
+          storage_path: string
+          transcription: string | null
+        }
+        Insert: {
+          audio_duration_seconds?: number | null
+          capture_date?: string | null
+          created_at?: string | null
+          device_make?: string | null
+          device_model?: string | null
+          file_size: number
+          file_type: string
+          gps_latitude?: number | null
+          gps_longitude?: number | null
+          id?: string
+          image_height?: number | null
+          image_width?: number | null
+          mime_type: string
+          ocr_text?: string | null
+          original_filename: string
+          post_id?: string | null
+          processed_at?: string | null
+          storage_path: string
+          transcription?: string | null
+        }
+        Update: {
+          audio_duration_seconds?: number | null
+          capture_date?: string | null
+          created_at?: string | null
+          device_make?: string | null
+          device_model?: string | null
+          file_size?: number
+          file_type?: string
+          gps_latitude?: number | null
+          gps_longitude?: number | null
+          id?: string
+          image_height?: number | null
+          image_width?: number | null
+          mime_type?: string
+          ocr_text?: string | null
+          original_filename?: string
+          post_id?: string | null
+          processed_at?: string | null
+          storage_path?: string
+          transcription?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "forum_attachment_metadata_post_id_fkey"
+            columns: ["post_id"]
+            isOneToOne: false
+            referencedRelation: "forum_knowledge_base"
+            referencedColumns: ["post_id"]
+          },
+          {
+            foreignKeyName: "forum_attachment_metadata_post_id_fkey"
+            columns: ["post_id"]
+            isOneToOne: false
+            referencedRelation: "forum_posts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       forum_hashtags: {
         Row: {
           created_at: string | null
