@@ -7,10 +7,9 @@ const corsHeaders = {
 
 interface EvaluationRequest {
   eventId: string;
-  scores: Record<string, number>;
-  feedbackPositivo: string;
-  feedbackConstrutivo: string;
-  attachments?: string[];
+  approved: boolean;
+  feedback: string;
+  rating: number;
 }
 
 Deno.serve(async (req) => {
@@ -36,113 +35,126 @@ Deno.serve(async (req) => {
 
     const body: EvaluationRequest = await req.json();
 
-    // Validate permission using database function
-    const { data: canEval, error: permError } = await supabase.rpc('can_evaluate_event', {
-      _user_id: user.id,
-      _event_id: body.eventId
-    });
+    console.log('Processing evaluation:', { eventId: body.eventId, approved: body.approved });
 
-    if (permError || !canEval) {
-      throw new Error('Você não tem permissão para avaliar este evento');
-    }
-
-    // Get user role
-    const { data: roleData } = await supabase
-      .from('user_roles')
-      .select('role')
-      .eq('user_id', user.id)
+    // Verificar que usuário é líder
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('is_leader')
+      .eq('id', user.id)
       .single();
 
-    const role = roleData?.role;
-    let reviewerLevel: string;
-
-    if (role === 'coordenador_djtx') reviewerLevel = 'coordenacao';
-    else if (role === 'lider_divisao_djtx') reviewerLevel = 'divisao';
-    else if (role === 'gerente_djt') reviewerLevel = 'departamento';
-    else throw new Error('Role inválido para avaliação');
-
-    // Validate feedback length
-    if (body.feedbackPositivo.length < 140 || body.feedbackConstrutivo.length < 140) {
-      throw new Error('Feedbacks devem ter no mínimo 140 caracteres cada');
+    if (!profile?.is_leader) {
+      throw new Error('Apenas líderes podem avaliar ações');
     }
 
-    // Calculate average rating
-    const scores = Object.values(body.scores);
-    const avgRating = scores.reduce((a, b) => a + b, 0) / scores.length;
+    // Validar feedback
+    if (!body.feedback || body.feedback.length < 50) {
+      throw new Error('Feedback deve ter no mínimo 50 caracteres');
+    }
 
-    // Insert evaluation
+    // Validar rating
+    if (body.rating < 1 || body.rating > 5) {
+      throw new Error('Rating deve estar entre 1 e 5');
+    }
+
+    // Buscar dados do evento
+    const { data: eventData, error: eventError } = await supabase
+      .from('events')
+      .select('user_id, challenge_id, retry_count, challenges(xp_reward)')
+      .eq('id', body.eventId)
+      .single();
+
+    if (eventError) throw eventError;
+
+    const challenge = eventData.challenges as any;
+    const baseXp = challenge?.xp_reward || 0;
+
+    // Calcular pontos finais com penalidade de retry
+    const retryPenalty = body.eventId ? 
+      (eventData.retry_count === 0 ? 1.0 : 
+       eventData.retry_count === 1 ? 0.8 :
+       eventData.retry_count === 2 ? 0.6 : 0.4) : 1.0;
+
+    const qualityScore = body.approved ? (body.rating / 5.0) : 0;
+    const finalPoints = Math.floor(baseXp * qualityScore * retryPenalty);
+
+    // Atualizar evento
+    const newStatus = body.approved ? 'approved' : 'rejected';
+    
+    const { error: updateError } = await supabase
+      .from('events')
+      .update({
+        status: newStatus,
+        quality_score: qualityScore,
+        points_calculated: finalPoints,
+        final_points: finalPoints
+      })
+      .eq('id', body.eventId);
+
+    if (updateError) throw updateError;
+
+    // Se aprovado, atualizar XP do usuário
+    if (body.approved && finalPoints > 0) {
+      const { data: userProfile } = await supabase
+        .from('profiles')
+        .select('xp')
+        .eq('id', eventData.user_id)
+        .single();
+
+      if (userProfile) {
+        await supabase
+          .from('profiles')
+          .update({ xp: userProfile.xp + finalPoints })
+          .eq('id', eventData.user_id);
+      }
+    }
+
+    // Inserir avaliação simplificada
     const { data: evaluation, error: evalError } = await supabase
       .from('action_evaluations')
       .insert({
         event_id: body.eventId,
         reviewer_id: user.id,
-        reviewer_role: role,
-        reviewer_level: reviewerLevel,
-        scores: body.scores,
-        rating: avgRating,
-        feedback_positivo: body.feedbackPositivo,
-        feedback_construtivo: body.feedbackConstrutivo,
-        attachments: body.attachments || []
+        reviewer_level: 'leadership',
+        rating: body.rating,
+        feedback_positivo: body.approved ? body.feedback : null,
+        feedback_construtivo: !body.approved ? body.feedback : null,
+        scores: { overall: body.rating }
       })
       .select()
       .single();
 
     if (evalError) throw evalError;
 
-    // Update SLA tracking
-    const updateField = reviewerLevel === 'coordenacao' 
-      ? 'coord_evaluated_at' 
-      : 'division_evaluated_at';
-    
-    await supabase
-      .from('evaluation_sla')
-      .update({ [updateField]: new Date().toISOString() })
-      .eq('event_id', body.eventId);
-
-    // Check if both evaluations are complete (2L)
-    const { count } = await supabase
-      .from('action_evaluations')
-      .select('*', { count: 'exact', head: true })
-      .eq('event_id', body.eventId);
-
-    let consolidated = null;
-    if (count === 2) {
-      // Consolidate final rating (34% Coord + 66% Division)
-      const { data: consolidationResult, error: consolidateError } = await supabase.rpc(
-        'consolidate_2l_evaluation',
-        { _event_id: body.eventId }
-      );
-
-      if (consolidateError) {
-        console.error('Error consolidating:', consolidateError);
-      } else {
-        consolidated = consolidationResult;
-
-        // Notify the user who submitted the action
-        const { data: eventData } = await supabase
-          .from('events')
-          .select('user_id')
-          .eq('id', body.eventId)
-          .single();
-
-        if (eventData?.user_id) {
-          await supabase.rpc('create_notification', {
-            _user_id: eventData.user_id,
-            _type: 'evaluation_complete',
-            _title: 'Avaliação Concluída',
-            _message: `Sua ação foi avaliada! Nota final: ${consolidationResult.final_rating.toFixed(2)}/5.0`,
-            _metadata: { event_id: body.eventId, ...consolidationResult }
-          });
-        }
+    // Notificar usuário
+    await supabase.rpc('create_notification', {
+      _user_id: eventData.user_id,
+      _type: 'evaluation_complete',
+      _title: body.approved ? 'Ação Aprovada!' : 'Ação Reprovada',
+      _message: body.approved 
+        ? `Sua ação foi aprovada! +${finalPoints} XP. ${body.feedback}`
+        : `Sua ação precisa ser refeita. ${body.feedback}`,
+      _metadata: { 
+        event_id: body.eventId,
+        rating: body.rating,
+        points: finalPoints,
+        approved: body.approved
       }
-    }
+    });
+
+    console.log('Evaluation completed:', { 
+      eventId: body.eventId, 
+      approved: body.approved,
+      points: finalPoints
+    });
 
     return new Response(
       JSON.stringify({ 
         success: true, 
         evaluation,
-        consolidated,
-        message: consolidated ? 'Avaliação consolidada!' : 'Avaliação registrada. Aguardando segunda avaliação.'
+        finalPoints,
+        message: body.approved ? 'Ação aprovada!' : 'Ação reprovada'
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );

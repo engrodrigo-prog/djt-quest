@@ -53,6 +53,7 @@ Deno.serve(async (req) => {
 
     const role = roleData?.role || 'colaborador';
     const studioAccess = profile?.studio_access || false;
+    const isLeader = profile?.is_leader || false;
 
     // Build organizational scope
     const orgScope = {
@@ -71,6 +72,7 @@ Deno.serve(async (req) => {
         },
         role,
         studioAccess,
+        isLeader,
         orgScope,
         profile
       }),

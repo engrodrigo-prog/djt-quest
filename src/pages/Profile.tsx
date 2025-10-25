@@ -10,6 +10,7 @@ import { AvatarDisplay } from '@/components/AvatarDisplay';
 import { ActionReviewCard } from '@/components/profile/ActionReviewCard';
 import { RetryModal } from '@/components/profile/RetryModal';
 import { LearningDashboard } from '@/components/profile/LearningDashboard';
+import { LeaderTeamDashboard } from '@/components/LeaderTeamDashboard';
 import { useToast } from '@/hooks/use-toast';
 import { useNavigate } from 'react-router-dom';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -56,9 +57,14 @@ interface UserBadge {
 }
 
 const Profile = () => {
-  const { user } = useAuth();
+  const { user, isLeader } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
+
+  // Se for líder, renderizar dashboard da equipe
+  if (isLeader) {
+    return <LeaderTeamDashboard />;
+  }
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [events, setEvents] = useState<UserEvent[]>([]);
   const [badges, setBadges] = useState<UserBadge[]>([]);

@@ -814,6 +814,7 @@ export type Database = {
           division_id: string | null
           email: string | null
           id: string
+          is_leader: boolean | null
           name: string
           studio_access: boolean | null
           team_id: string | null
@@ -833,6 +834,7 @@ export type Database = {
           division_id?: string | null
           email?: string | null
           id: string
+          is_leader?: boolean | null
           name: string
           studio_access?: boolean | null
           team_id?: string | null
@@ -852,6 +854,7 @@ export type Database = {
           division_id?: string | null
           email?: string | null
           id?: string
+          is_leader?: boolean | null
           name?: string
           studio_access?: boolean | null
           team_id?: string | null
@@ -881,6 +884,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "divisions"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "profiles_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "team_xp_summary"
+            referencedColumns: ["team_id"]
           },
           {
             foreignKeyName: "profiles_team_id_fkey"
@@ -945,6 +955,61 @@ export type Database = {
         }
         Relationships: []
       }
+      team_events: {
+        Row: {
+          affected_users: string[]
+          created_at: string | null
+          created_by: string
+          event_type: string
+          id: string
+          points: number
+          reason: string
+          team_id: string
+        }
+        Insert: {
+          affected_users: string[]
+          created_at?: string | null
+          created_by: string
+          event_type: string
+          id?: string
+          points: number
+          reason: string
+          team_id: string
+        }
+        Update: {
+          affected_users?: string[]
+          created_at?: string | null
+          created_by?: string
+          event_type?: string
+          id?: string
+          points?: number
+          reason?: string
+          team_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "team_events_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "team_events_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "team_xp_summary"
+            referencedColumns: ["team_id"]
+          },
+          {
+            foreignKeyName: "team_events_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       team_performance_log: {
         Row: {
           created_at: string
@@ -974,6 +1039,13 @@ export type Database = {
           updated_by?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "team_performance_log_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "team_xp_summary"
+            referencedColumns: ["team_id"]
+          },
           {
             foreignKeyName: "team_performance_log_team_id_fkey"
             columns: ["team_id"]
@@ -1189,6 +1261,18 @@ export type Database = {
           post_id: string | null
           title: string | null
           topic_id: string | null
+        }
+        Relationships: []
+      }
+      team_xp_summary: {
+        Row: {
+          avg_xp: number | null
+          collaborator_count: number | null
+          max_xp: number | null
+          min_xp: number | null
+          team_id: string | null
+          team_name: string | null
+          total_xp: number | null
         }
         Relationships: []
       }
