@@ -3,12 +3,13 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Plus, Target, Zap, Trophy, Users } from 'lucide-react';
+import { Plus, Target, Zap, Trophy, Users, MessageSquare } from 'lucide-react';
 import { TeamPerformanceManager } from '@/components/TeamPerformanceManager';
 import { ChallengeForm } from '@/components/ChallengeForm';
 import { CampaignForm } from '@/components/CampaignForm';
 import Navigation from '@/components/Navigation';
 import { UserCreationForm } from '@/components/UserCreationForm';
+import { ForumManagement } from '@/components/ForumManagement';
 
 const Studio = () => {
   const { user } = useAuth();
@@ -72,7 +73,7 @@ const Studio = () => {
         </div>
 
         <Tabs defaultValue="campaigns" className="w-full">
-          <TabsList className="grid w-full max-w-3xl grid-cols-4">
+          <TabsList className="grid w-full max-w-4xl grid-cols-5">
             <TabsTrigger value="campaigns">
               <Target className="h-4 w-4 mr-2" />
               <span className="hidden sm:inline">Campanhas</span>
@@ -88,6 +89,10 @@ const Studio = () => {
             <TabsTrigger value="users">
               <Users className="h-4 w-4 mr-2" />
               <span className="hidden sm:inline">Usuários</span>
+            </TabsTrigger>
+            <TabsTrigger value="forums">
+              <MessageSquare className="h-4 w-4 mr-2" />
+              <span className="hidden sm:inline">Fóruns</span>
             </TabsTrigger>
           </TabsList>
 
@@ -105,6 +110,10 @@ const Studio = () => {
 
           <TabsContent value="users" className="space-y-4">
             <UserCreationForm />
+          </TabsContent>
+
+          <TabsContent value="forums" className="space-y-4">
+            <ForumManagement />
           </TabsContent>
         </Tabs>
       </div>

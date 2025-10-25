@@ -14,6 +14,8 @@ import Evaluations from "./pages/Evaluations";
 import Studio from "./pages/Studio";
 import Profile from "./pages/Profile";
 import Rankings from "./pages/Rankings";
+import Forums from "./pages/Forums";
+import ForumTopic from "./pages/ForumTopic";
 
 const queryClient = new QueryClient();
 
@@ -55,6 +57,16 @@ const App = () => (
             <Route path="/rankings" element={
               <ProtectedRoute>
                 <Rankings />
+              </ProtectedRoute>
+            } />
+            <Route path="/forums" element={
+              <ProtectedRoute>
+                <Forums />
+              </ProtectedRoute>
+            } />
+            <Route path="/forum/:topicId" element={
+              <ProtectedRoute>
+                <ForumTopic />
               </ProtectedRoute>
             } />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}

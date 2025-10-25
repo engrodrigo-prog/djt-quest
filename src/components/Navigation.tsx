@@ -1,5 +1,5 @@
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Home, Target, Shield, Trophy, User } from 'lucide-react';
+import { Home, Target, Shield, Trophy, User, MessageSquare } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -31,6 +31,16 @@ const Navigation = () => {
         >
           <Trophy className="h-5 w-5" />
           <span className="text-xs mt-1">Rankings</span>
+        </Button>
+        
+        <Button
+          variant={location.pathname.startsWith('/forum') ? 'default' : 'ghost'}
+          size="sm"
+          onClick={() => navigate('/forums')}
+          className="flex-col h-auto py-2"
+        >
+          <MessageSquare className="h-5 w-5" />
+          <span className="text-xs mt-1">Fóruns</span>
         </Button>
         
         <Button
