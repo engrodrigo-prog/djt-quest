@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Shield, Zap, ArrowRight, Sparkles } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { BootstrapManager } from '@/components/BootstrapManager';
+import { SystemHealthCheck } from '@/components/SystemHealthCheck';
 import { supabase } from '@/integrations/supabase/client';
 
 const TestQuickLogin = ({ onTestLogin }: { onTestLogin: (role: string) => void }) => {
@@ -65,6 +66,7 @@ export default function Auth() {
   }, [user, navigate]);
 
   const handleTestLogin = async (role: string) => {
+    console.log('[TEST LOGIN] Iniciando login com role:', role);
     setLoading(true);
     
     // Map roles to the emails created by seed-test-users
@@ -78,19 +80,23 @@ export default function Auth() {
     const testEmail = emailMap[role];
     const testPassword = 'teste123';
 
+    console.log('[TEST LOGIN] Tentando autenticar:', testEmail);
+
     // Try to sign in
     const { error: signInError } = await signIn(testEmail, testPassword);
 
     if (signInError) {
+      console.error('[TEST LOGIN] Erro de autenticação:', signInError);
       toast({
         title: 'Erro no login',
-        description: signInError.message || 'Não foi possível entrar com esta conta de teste.',
+        description: `${signInError.message}. Tente criar os usuários de teste primeiro.`,
         variant: 'destructive'
       });
     } else {
+      console.log('[TEST LOGIN] Autenticação bem-sucedida!');
       toast({
         title: 'Login de teste bem-sucedido!',
-        description: 'Logado com sucesso',
+        description: `Logado como ${role}`,
       });
     }
     
@@ -174,6 +180,7 @@ export default function Auth() {
             {seedLoading ? 'Criando usuários de teste...' : 'Criar usuários de teste (ambiente)'}
           </Button>
           <TestQuickLogin onTestLogin={handleTestLogin} />
+          <SystemHealthCheck />
         </div>
 
         {/* Bootstrap Manager */}

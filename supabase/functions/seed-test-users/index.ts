@@ -121,6 +121,8 @@ Deno.serve(async (req) => {
           user_metadata: { name: user.name }
         });
 
+        const isLeaderRole = ['coordenador_djtx', 'gerente_divisao_djtx', 'gerente_djt'].includes(user.role);
+        
         const { error: profileUpdateError } = await supabaseAdmin
           .from('profiles')
           .update({
@@ -132,7 +134,8 @@ Deno.serve(async (req) => {
             department_id: user.department_id || null,
             xp: 0,
             tier: 'EX-1',
-            studio_access: ['coordenador_djtx', 'gerente_divisao_djtx', 'gerente_djt'].includes(user.role)
+            is_leader: isLeaderRole,
+            studio_access: isLeaderRole
           })
           .eq('id', found.id);
 
@@ -174,6 +177,8 @@ Deno.serve(async (req) => {
       console.log(`Created auth user: ${newUser.user.id}`);
 
       // Atualizar profile (trigger já criou na criação do auth user)
+      const isLeaderRole = ['coordenador_djtx', 'gerente_divisao_djtx', 'gerente_djt'].includes(user.role);
+      
       const { error: profileError } = await supabaseAdmin
         .from('profiles')
         .update({
@@ -185,7 +190,8 @@ Deno.serve(async (req) => {
           department_id: user.department_id || null,
           xp: 0,
           tier: 'EX-1',
-          studio_access: ['coordenador_djtx', 'gerente_divisao_djtx', 'gerente_djt'].includes(user.role)
+          is_leader: isLeaderRole,
+          studio_access: isLeaderRole
         })
         .eq('id', newUser.user.id);
 

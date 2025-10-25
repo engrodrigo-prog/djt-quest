@@ -1,7 +1,5 @@
-import { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/integrations/supabase/client';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Plus, Target, Zap, Trophy, Users, MessageSquare, Gift } from 'lucide-react';
 import { TeamPerformanceManager } from '@/components/TeamPerformanceManager';
@@ -13,38 +11,20 @@ import { ForumManagement } from '@/components/ForumManagement';
 import { TeamEventForm } from '@/components/TeamEventForm';
 
 const Studio = () => {
-  const { user } = useAuth();
-  const [loading, setLoading] = useState(true);
-  const [userRole, setUserRole] = useState<string | null>(null);
-
-  useEffect(() => {
-    const loadUserRole = async () => {
-      if (!user) return;
-
-      const { data: roleData } = await supabase
-        .from('user_roles')
-        .select('role')
-        .eq('user_id', user.id)
-        .single();
-
-      if (roleData) {
-        setUserRole(roleData.role);
-      }
-      setLoading(false);
-    };
-
-    loadUserRole();
-  }, [user]);
+  const { user, loading, isLeader, studioAccess } = useAuth();
 
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+        <div className="text-center space-y-4">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
+          <p className="text-muted-foreground">Verificando permissões...</p>
+        </div>
       </div>
     );
   }
 
-  if (!userRole || !['gerente_djt', 'gerente_divisao_djtx', 'coordenador_djtx'].includes(userRole)) {
+  if (!isLeader || !studioAccess) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4">
         <Card className="max-w-md">
@@ -69,7 +49,7 @@ const Studio = () => {
             DJT Quest Studio
           </h1>
           <p className="text-muted-foreground">
-            Console de gestão de campanhas e desafios | Seu escopo: <strong>{userRole === 'coordenador_djtx' ? 'Coordenação' : userRole === 'gerente_divisao_djtx' ? 'Divisão DJTX' : 'Departamento DJT'}</strong>
+            Console de gestão de campanhas e desafios | Modo Líder
           </p>
         </div>
 
