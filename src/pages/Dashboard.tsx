@@ -37,7 +37,7 @@ interface Profile {
   avatar_url: string | null;
 }
 
-const Index = () => {
+const Dashboard = () => {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
@@ -246,4 +246,4 @@ const Index = () => {
   );
 };
 
-export default Index;
+export default Dashboard;

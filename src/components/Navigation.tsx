@@ -14,9 +14,9 @@ const Navigation = () => {
     <nav className="fixed bottom-0 left-0 right-0 bg-card border-t z-50 md:hidden">
       <div className="container flex items-center justify-around py-2">
         <Button
-          variant={isActive('/') ? 'default' : 'ghost'}
+          variant={isActive('/dashboard') ? 'default' : 'ghost'}
           size="sm"
-          onClick={() => navigate('/')}
+          onClick={() => navigate('/dashboard')}
           className="flex-col h-auto py-2"
         >
           <Home className="h-5 w-5" />
