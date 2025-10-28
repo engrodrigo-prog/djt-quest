@@ -14,6 +14,10 @@ export default {
     },
     extend: {
       colors: {
+        'djt-blue-dark': 'hsl(var(--djt-blue-dark))',
+        'djt-blue-medium': 'hsl(var(--djt-blue-medium))',
+        'djt-orange': 'hsl(var(--djt-orange))',
+        'djt-yellow': 'hsl(var(--djt-yellow))',
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",

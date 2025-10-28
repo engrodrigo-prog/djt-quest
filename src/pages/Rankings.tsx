@@ -6,6 +6,7 @@ import { Trophy, Users, Building, Building2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
+import rankingBg from '@/assets/backgrounds/ranking-bg.png';
 
 interface IndividualRanking {
   id: string;
@@ -149,7 +150,15 @@ export default function Rankings() {
   };
 
   return (
-    <div className="min-h-screen bg-background">
+    <div 
+      className="min-h-screen"
+      style={{
+        backgroundImage: `url(${rankingBg})`,
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        backgroundAttachment: 'fixed',
+      }}
+    >
       <Navigation />
       <main className="container mx-auto p-4 md:p-6 max-w-6xl">
         <div className="mb-6">
@@ -179,7 +188,7 @@ export default function Rankings() {
           </TabsList>
 
           <TabsContent value="individual">
-            <Card className="p-6">
+            <Card className="p-6 bg-card/95 backdrop-blur-sm">
               <h2 className="text-xl font-semibold mb-4">Ranking Individual</h2>
               {loading ? (
                 <p className="text-muted-foreground">Carregando...</p>
@@ -213,7 +222,7 @@ export default function Rankings() {
           </TabsContent>
 
           <TabsContent value="teams">
-            <Card className="p-6">
+            <Card className="p-6 bg-card/95 backdrop-blur-sm">
               <h2 className="text-xl font-semibold mb-4">Ranking de Equipes</h2>
               {loading ? (
                 <p className="text-muted-foreground">Carregando...</p>
@@ -255,7 +264,7 @@ export default function Rankings() {
           </TabsContent>
 
           <TabsContent value="divisions">
-            <Card className="p-6">
+            <Card className="p-6 bg-card/95 backdrop-blur-sm">
               <h2 className="text-xl font-semibold mb-4">Ranking de Divisões</h2>
               {loading ? (
                 <p className="text-muted-foreground">Carregando...</p>

@@ -8,6 +8,12 @@ All colors MUST be HSL.
 
 @layer base {
   :root {
+    /* DJT Quest Color Palette */
+    --djt-blue-dark: 197 65% 28%;
+    --djt-blue-medium: 199 66% 44%;
+    --djt-orange: 36 100% 50%;
+    --djt-yellow: 45 100% 51%;
+    
     --background: 210 20% 98%;
     --foreground: 210 15% 10%;
     --card: 0 0% 100%;
@@ -39,6 +45,12 @@ All colors MUST be HSL.
   }
 
   .dark {
+    /* DJT Quest Dark Mode */
+    --djt-blue-dark: 197 65% 28%;
+    --djt-blue-medium: 199 66% 44%;
+    --djt-orange: 36 100% 50%;
+    --djt-yellow: 45 100% 51%;
+    
     --background: 210 20% 8%;
     --foreground: 210 10% 95%;
     --card: 210 20% 12%;
