@@ -2,8 +2,8 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
-import { Shield, Zap, Play } from 'lucide-react';
-import splashBg from '@/assets/backgrounds/splash-bg.png';
+import { Play } from 'lucide-react';
+import djtCover from '@/assets/backgrounds/djt-quest-cover.png';
 
 const Home = () => {
   const navigate = useNavigate();
@@ -26,26 +26,12 @@ const Home = () => {
     <div 
       className={`min-h-screen flex flex-col items-center justify-center p-6 relative overflow-hidden ${isTransitioning ? 'animate-page-fade-out' : ''}`}
       style={{
-        backgroundImage: `url(${splashBg})`,
+        backgroundImage: `url(${djtCover})`,
         backgroundSize: 'cover',
         backgroundPosition: 'center',
       }}
     >
-      {/* Dark overlay for better text contrast */}
-      <div className="absolute inset-0 bg-black/40" />
-      
-      <div className="relative z-10 flex flex-col items-center gap-8 animate-fade-in max-w-2xl text-center">
-        {/* Logo Icons */}
-        <div className="flex items-center gap-3 mb-4">
-          <Shield className="h-16 w-16 text-primary drop-shadow-lg animate-pulse" />
-          <Zap className="h-16 w-16 text-secondary drop-shadow-lg animate-pulse" style={{ animationDelay: '0.5s' }} />
-        </div>
-        
-        {/* Main Title */}
-        <h1 className="text-7xl sm:text-8xl font-bold text-white drop-shadow-2xl leading-tight">
-          DJT Quest
-        </h1>
-        
+      <div className="relative z-10 flex flex-col items-center gap-6 animate-fade-in max-w-2xl text-center">
         {/* Subtitle */}
         <div className="space-y-2">
           <p className="text-xl sm:text-2xl text-white/95 drop-shadow-lg font-medium">
