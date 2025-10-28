@@ -84,10 +84,26 @@ export default {
             height: "0",
           },
         },
+        "slide-fade-left": {
+          "0%": { 
+            opacity: "1", 
+            transform: "translateX(0)" 
+          },
+          "100%": { 
+            opacity: "0", 
+            transform: "translateX(-100px)" 
+          }
+        },
+        "page-fade-out": {
+          "0%": { opacity: "1" },
+          "100%": { opacity: "0" }
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
+        "slide-fade-left": "slide-fade-left 0.6s ease-out forwards",
+        "page-fade-out": "page-fade-out 0.6s ease-out forwards",
       },
     },
   },
