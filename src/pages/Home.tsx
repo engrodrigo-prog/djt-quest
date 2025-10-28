@@ -1,10 +1,20 @@
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Shield, Zap, Play } from 'lucide-react';
 import splashBg from '@/assets/backgrounds/splash-bg.png';
 
 const Home = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
+
+  const handleGo = () => {
+    if (user) {
+      navigate('/dashboard');
+    } else {
+      navigate('/auth');
+    }
+  };
 
   return (
     <div 
@@ -42,7 +52,7 @@ const Home = () => {
         
         {/* GO Button */}
         <Button 
-          onClick={() => navigate('/dashboard')}
+          onClick={handleGo}
           size="lg"
           className="mt-8 h-16 px-12 text-2xl font-bold bg-gradient-to-r from-primary to-secondary hover:scale-110 transition-all duration-300 shadow-2xl group"
         >
