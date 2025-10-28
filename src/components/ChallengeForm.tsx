@@ -13,6 +13,8 @@ import { Plus, Target as TargetIcon } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { challengeSchema, type ChallengeFormData } from "@/lib/validations/challenge";
 import { Checkbox } from "@/components/ui/checkbox";
+import { QuizQuestionForm } from "./QuizQuestionForm";
+import { QuizQuestionsList } from "./QuizQuestionsList";
 
 interface Campaign {
   id: string;
@@ -44,6 +46,8 @@ export const ChallengeForm = () => {
   const [selectedCoordinations, setSelectedCoordinations] = useState<string[]>([]);
   const [selectedTeams, setSelectedTeams] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const [createdChallengeId, setCreatedChallengeId] = useState<string | null>(null);
+  const [questionsKey, setQuestionsKey] = useState(0);
 
   const {
     register,
@@ -94,22 +98,35 @@ export const ChallengeForm = () => {
         target_coord_ids: selectedCoordinations.length > 0 ? selectedCoordinations : null,
         target_team_ids: selectedTeams.length > 0 ? selectedTeams : null,
         campaign_id: data.campaign_id || null,
+        xp_reward: data.type === 'quiz' ? 0 : data.xp_reward, // XP will be sum of questions for quiz
       };
 
-      const { error } = await supabase.from("challenges").insert([challengeData]);
+      const { data: challenge, error } = await supabase
+        .from("challenges")
+        .insert([challengeData])
+        .select()
+        .single();
 
       if (error) throw error;
 
-      toast({
-        title: "Desafio criado! 🎯",
-        description: "O desafio foi publicado com sucesso",
-      });
-
-      // Reset form
-      reset();
-      setSelectedDivisions([]);
-      setSelectedCoordinations([]);
-      setSelectedTeams([]);
+      if (data.type === 'quiz') {
+        setCreatedChallengeId(challenge.id);
+        toast({
+          title: "Quiz criado! 📝",
+          description: "Agora adicione perguntas ao quiz",
+        });
+      } else {
+        toast({
+          title: "Desafio criado! 🎯",
+          description: "O desafio foi publicado com sucesso",
+        });
+        // Reset form
+        reset();
+        setSelectedDivisions([]);
+        setSelectedCoordinations([]);
+        setSelectedTeams([]);
+        setCreatedChallengeId(null);
+      }
     } catch (error: any) {
       console.error("Error creating challenge:", error);
       toast({
@@ -345,18 +362,52 @@ export const ChallengeForm = () => {
             </div>
           </div>
 
-          <Button type="submit" className="w-full" disabled={submitting}>
+          <Button type="submit" className="w-full" disabled={submitting || (challengeType === 'quiz' && !!createdChallengeId)}>
             {submitting ? (
               "Criando..."
             ) : (
               <>
                 <Plus className="h-4 w-4 mr-2" />
-                Criar Desafio
+                {challengeType === 'quiz' && createdChallengeId ? 'Quiz Criado' : 'Criar Desafio'}
               </>
             )}
           </Button>
         </form>
       </CardContent>
+
+      {/* Quiz Questions Section */}
+      {challengeType === 'quiz' && createdChallengeId && (
+        <CardContent className="space-y-6 border-t pt-6">
+          <div className="flex items-center justify-between">
+            <h3 className="font-semibold text-lg">Perguntas do Quiz</h3>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                reset();
+                setSelectedDivisions([]);
+                setSelectedCoordinations([]);
+                setSelectedTeams([]);
+                setCreatedChallengeId(null);
+                toast({ title: "Novo quiz iniciado" });
+              }}
+            >
+              Criar Outro Quiz
+            </Button>
+          </div>
+          
+          <QuizQuestionsList 
+            key={questionsKey}
+            challengeId={createdChallengeId} 
+            onUpdate={() => setQuestionsKey(k => k + 1)}
+          />
+          
+          <QuizQuestionForm 
+            challengeId={createdChallengeId}
+            onQuestionAdded={() => setQuestionsKey(k => k + 1)}
+          />
+        </CardContent>
+      )}
     </Card>
   );
 };

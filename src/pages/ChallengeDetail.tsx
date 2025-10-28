@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ArrowLeft, Upload, Shield } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { QuizPlayer } from '@/components/QuizPlayer';
 
 interface Challenge {
   id: string;
@@ -208,7 +209,9 @@ const ChallengeDetail = () => {
           <CardHeader>
             <div className="flex items-center justify-between mb-2">
               <Badge>{challenge.type}</Badge>
-              <span className="text-sm font-semibold text-accent">+{challenge.xp_reward} XP</span>
+              {challenge.xp_reward > 0 && (
+                <span className="text-sm font-semibold text-accent">+{challenge.xp_reward} XP</span>
+              )}
             </div>
             <CardTitle className="text-2xl">{challenge.title}</CardTitle>
             <CardDescription>{challenge.description}</CardDescription>
@@ -221,58 +224,62 @@ const ChallengeDetail = () => {
           </CardHeader>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>{retryEventId ? 'Refazer Ação' : 'Submeter Ação'}</CardTitle>
-            <CardDescription>
-              {retryEventId 
-                ? 'Revise e melhore sua resposta com base no feedback recebido' 
-                : 'Descreva como você completou este desafio'}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div>
-              <Label htmlFor="description">Descrição da Ação *</Label>
-              <Textarea
-                id="description"
-                placeholder="Descreva detalhadamente a ação realizada, contexto, resultados e aprendizados... (mínimo 50 caracteres)"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                rows={6}
-                className="mt-2"
-              />
-              <p className="text-xs text-muted-foreground mt-1">
-                {description.length}/50 caracteres mínimos
-              </p>
-            </div>
-
-            {challenge.evidence_required && (
+        {challenge.type === 'quiz' ? (
+          <QuizPlayer challengeId={challenge.id} />
+        ) : (
+          <Card>
+            <CardHeader>
+              <CardTitle>{retryEventId ? 'Refazer Ação' : 'Submeter Ação'}</CardTitle>
+              <CardDescription>
+                {retryEventId 
+                  ? 'Revise e melhore sua resposta com base no feedback recebido' 
+                  : 'Descreva como você completou este desafio'}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
               <div>
-                <Label htmlFor="evidence">Evidências (URLs)</Label>
-                <Input
-                  id="evidence"
-                  placeholder="https://exemplo.com/foto.jpg"
-                  onChange={(e) => {
-                    const urls = e.target.value.split(',').map(u => u.trim()).filter(u => u);
-                    setEvidenceUrls(urls);
-                  }}
+                <Label htmlFor="description">Descrição da Ação *</Label>
+                <Textarea
+                  id="description"
+                  placeholder="Descreva detalhadamente a ação realizada, contexto, resultados e aprendizados... (mínimo 50 caracteres)"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  rows={6}
                   className="mt-2"
                 />
                 <p className="text-xs text-muted-foreground mt-1">
-                  Separe múltiplas URLs com vírgula
+                  {description.length}/50 caracteres mínimos
                 </p>
               </div>
-            )}
 
-            <Button 
-              onClick={handleSubmit} 
-              disabled={submitting || description.length < 50}
-              className="w-full"
-            >
-              {submitting ? 'Submetendo...' : retryEventId ? 'Submeter Refação' : 'Submeter Ação'}
-            </Button>
-          </CardContent>
-        </Card>
+              {challenge.evidence_required && (
+                <div>
+                  <Label htmlFor="evidence">Evidências (URLs)</Label>
+                  <Input
+                    id="evidence"
+                    placeholder="https://exemplo.com/foto.jpg"
+                    onChange={(e) => {
+                      const urls = e.target.value.split(',').map(u => u.trim()).filter(u => u);
+                      setEvidenceUrls(urls);
+                    }}
+                    className="mt-2"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Separe múltiplas URLs com vírgula
+                  </p>
+                </div>
+              )}
+
+              <Button 
+                onClick={handleSubmit} 
+                disabled={submitting || description.length < 50}
+                className="w-full"
+              >
+                {submitting ? 'Submetendo...' : retryEventId ? 'Submeter Refação' : 'Submeter Ação'}
+              </Button>
+            </CardContent>
+          </Card>
+        )}
       </div>
     </div>
   );

@@ -5,3 +5,6 @@ verify_jwt = false
 
 [functions.seed-production-data]
 verify_jwt = false
+
+[functions.submit-quiz-answer]
+verify_jwt = true

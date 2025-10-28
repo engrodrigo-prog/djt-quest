@@ -982,6 +982,82 @@ export type Database = {
           },
         ]
       }
+      quiz_options: {
+        Row: {
+          created_at: string | null
+          explanation: string | null
+          id: string
+          is_correct: boolean
+          option_text: string
+          question_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          explanation?: string | null
+          id?: string
+          is_correct?: boolean
+          option_text: string
+          question_id: string
+        }
+        Update: {
+          created_at?: string | null
+          explanation?: string | null
+          id?: string
+          is_correct?: boolean
+          option_text?: string
+          question_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quiz_options_question_id_fkey"
+            columns: ["question_id"]
+            isOneToOne: false
+            referencedRelation: "quiz_questions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      quiz_questions: {
+        Row: {
+          challenge_id: string
+          created_at: string | null
+          created_by: string
+          difficulty_level: string
+          id: string
+          order_index: number
+          question_text: string
+          xp_value: number
+        }
+        Insert: {
+          challenge_id: string
+          created_at?: string | null
+          created_by: string
+          difficulty_level: string
+          id?: string
+          order_index?: number
+          question_text: string
+          xp_value: number
+        }
+        Update: {
+          challenge_id?: string
+          created_at?: string | null
+          created_by?: string
+          difficulty_level?: string
+          id?: string
+          order_index?: number
+          question_text?: string
+          xp_value?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quiz_questions_challenge_id_fkey"
+            columns: ["challenge_id"]
+            isOneToOne: false
+            referencedRelation: "challenges"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       safety_incidents: {
         Row: {
           caused_demotion: boolean | null
@@ -1303,6 +1379,61 @@ export type Database = {
             columns: ["badge_id"]
             isOneToOne: false
             referencedRelation: "badges"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      user_quiz_answers: {
+        Row: {
+          answered_at: string | null
+          challenge_id: string
+          id: string
+          is_correct: boolean
+          question_id: string
+          selected_option_id: string
+          user_id: string
+          xp_earned: number
+        }
+        Insert: {
+          answered_at?: string | null
+          challenge_id: string
+          id?: string
+          is_correct: boolean
+          question_id: string
+          selected_option_id: string
+          user_id: string
+          xp_earned?: number
+        }
+        Update: {
+          answered_at?: string | null
+          challenge_id?: string
+          id?: string
+          is_correct?: boolean
+          question_id?: string
+          selected_option_id?: string
+          user_id?: string
+          xp_earned?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_quiz_answers_challenge_id_fkey"
+            columns: ["challenge_id"]
+            isOneToOne: false
+            referencedRelation: "challenges"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_quiz_answers_question_id_fkey"
+            columns: ["question_id"]
+            isOneToOne: false
+            referencedRelation: "quiz_questions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_quiz_answers_selected_option_id_fkey"
+            columns: ["selected_option_id"]
+            isOneToOne: false
+            referencedRelation: "quiz_options"
             referencedColumns: ["id"]
           },
         ]
