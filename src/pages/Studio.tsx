@@ -1,6 +1,7 @@
 import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Plus, Target, Zap, Trophy, Users, MessageSquare, Gift } from 'lucide-react';
 import { TeamPerformanceManager } from '@/components/TeamPerformanceManager';
 import { ChallengeForm } from '@/components/ChallengeForm';
@@ -54,32 +55,81 @@ const Studio = () => {
         </div>
 
         <Tabs defaultValue="campaigns" className="w-full">
-          <TabsList className="grid w-full max-w-5xl grid-cols-6">
-            <TabsTrigger value="campaigns">
-              <Target className="h-4 w-4 mr-2" />
-              <span className="hidden sm:inline">Campanhas</span>
-            </TabsTrigger>
-            <TabsTrigger value="challenges">
-              <Zap className="h-4 w-4 mr-2" />
-              <span className="hidden sm:inline">Desafios</span>
-            </TabsTrigger>
-            <TabsTrigger value="performance">
-              <Trophy className="h-4 w-4 mr-2" />
-              <span className="hidden sm:inline">Performance</span>
-            </TabsTrigger>
-            <TabsTrigger value="team-events">
-              <Gift className="h-4 w-4 mr-2" />
-              <span className="hidden sm:inline">Equipe</span>
-            </TabsTrigger>
-            <TabsTrigger value="users">
-              <Users className="h-4 w-4 mr-2" />
-              <span className="hidden sm:inline">Usuários</span>
-            </TabsTrigger>
-            <TabsTrigger value="forums">
-              <MessageSquare className="h-4 w-4 mr-2" />
-              <span className="hidden sm:inline">Fóruns</span>
-            </TabsTrigger>
-          </TabsList>
+          <TooltipProvider>
+            <TabsList className="grid w-full max-w-5xl grid-cols-6">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <TabsTrigger value="campaigns">
+                    <Target className="h-4 w-4 mr-2" />
+                    <span className="hidden sm:inline">Campanhas</span>
+                  </TabsTrigger>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Criar e gerenciar campanhas temáticas</p>
+                </TooltipContent>
+              </Tooltip>
+              
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <TabsTrigger value="challenges">
+                    <Zap className="h-4 w-4 mr-2" />
+                    <span className="hidden sm:inline">Desafios</span>
+                  </TabsTrigger>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Criar desafios e definir pontuações</p>
+                </TooltipContent>
+              </Tooltip>
+              
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <TabsTrigger value="performance">
+                    <Trophy className="h-4 w-4 mr-2" />
+                    <span className="hidden sm:inline">Performance</span>
+                  </TabsTrigger>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Monitorar métricas das equipes</p>
+                </TooltipContent>
+              </Tooltip>
+              
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <TabsTrigger value="team-events">
+                    <Gift className="h-4 w-4 mr-2" />
+                    <span className="hidden sm:inline">Equipe</span>
+                  </TabsTrigger>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Criar eventos e reconhecimentos</p>
+                </TooltipContent>
+              </Tooltip>
+              
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <TabsTrigger value="users">
+                    <Users className="h-4 w-4 mr-2" />
+                    <span className="hidden sm:inline">Usuários</span>
+                  </TabsTrigger>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Criar e gerenciar colaboradores</p>
+                </TooltipContent>
+              </Tooltip>
+              
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <TabsTrigger value="forums">
+                    <MessageSquare className="h-4 w-4 mr-2" />
+                    <span className="hidden sm:inline">Fóruns</span>
+                  </TabsTrigger>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Moderar tópicos e posts do fórum</p>
+                </TooltipContent>
+              </Tooltip>
+            </TabsList>
+          </TooltipProvider>
 
           <TabsContent value="campaigns" className="space-y-4">
             <CampaignForm />

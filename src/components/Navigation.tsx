@@ -6,7 +6,7 @@ import { useAuth } from '@/contexts/AuthContext';
 const Navigation = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { studioAccess } = useAuth();
+  const { studioAccess, isLeader } = useAuth();
 
   const isActive = (path: string) => location.pathname === path;
 
@@ -43,15 +43,17 @@ const Navigation = () => {
           <span className="text-xs mt-1">Fóruns</span>
         </Button>
         
-        <Button
-          variant={isActive('/evaluations') ? 'default' : 'ghost'}
-          size="sm"
-          onClick={() => navigate('/evaluations')}
-          className="flex-col h-auto py-2"
-        >
-          <Shield className="h-5 w-5" />
-          <span className="text-xs mt-1">Avaliar</span>
-        </Button>
+        {isLeader && (
+          <Button
+            variant={isActive('/evaluations') ? 'default' : 'ghost'}
+            size="sm"
+            onClick={() => navigate('/evaluations')}
+            className="flex-col h-auto py-2"
+          >
+            <Shield className="h-5 w-5" />
+            <span className="text-xs mt-1">Avaliar</span>
+          </Button>
+        )}
         
         {studioAccess && (
           <Button
