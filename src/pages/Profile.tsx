@@ -14,6 +14,7 @@ import { LeaderTeamDashboard } from '@/components/LeaderTeamDashboard';
 import { useToast } from '@/hooks/use-toast';
 import { useNavigate } from 'react-router-dom';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { getTierInfo, getNextTierLevel } from '@/lib/constants/tiers';
 
 interface UserProfile {
   name: string;
@@ -214,7 +215,6 @@ const Profile = () => {
 
   if (!profile) return null;
 
-  const { getTierInfo, getNextTierLevel } = require('@/lib/constants/tiers');
   const tierInfo = getTierInfo(profile.tier);
   const nextLevel = getNextTierLevel(profile.tier, profile.xp);
   const xpProgress = tierInfo ? ((profile.xp - tierInfo.xpMin) / (tierInfo.xpMax - tierInfo.xpMin)) * 100 : 0;
