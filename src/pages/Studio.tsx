@@ -2,7 +2,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Plus, Target, Zap, Trophy, Users, MessageSquare, Gift } from 'lucide-react';
+import { Plus, Target, Zap, Trophy, Users, MessageSquare, Gift, Settings } from 'lucide-react';
 import { TeamPerformanceManager } from '@/components/TeamPerformanceManager';
 import { ChallengeForm } from '@/components/ChallengeForm';
 import { CampaignForm } from '@/components/CampaignForm';
@@ -10,6 +10,7 @@ import Navigation from '@/components/Navigation';
 import { UserCreationForm } from '@/components/UserCreationForm';
 import { ForumManagement } from '@/components/ForumManagement';
 import { TeamEventForm } from '@/components/TeamEventForm';
+import { SystemHealthCheck } from '@/components/SystemHealthCheck';
 
 const Studio = () => {
   const { user, loading, isLeader, studioAccess } = useAuth();
@@ -56,7 +57,7 @@ const Studio = () => {
 
         <Tabs defaultValue="campaigns" className="w-full">
           <TooltipProvider>
-            <TabsList className="grid w-full max-w-5xl grid-cols-6">
+            <TabsList className="grid w-full max-w-5xl grid-cols-7">
               <Tooltip>
                 <TooltipTrigger asChild>
                   <TabsTrigger value="campaigns">
@@ -128,6 +129,18 @@ const Studio = () => {
                   <p>Moderar tópicos e posts do fórum</p>
                 </TooltipContent>
               </Tooltip>
+              
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <TabsTrigger value="system">
+                    <Settings className="h-4 w-4 mr-2" />
+                    <span className="hidden sm:inline">Sistema</span>
+                  </TabsTrigger>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Popular dados e diagnóstico</p>
+                </TooltipContent>
+              </Tooltip>
             </TabsList>
           </TooltipProvider>
 
@@ -153,6 +166,10 @@ const Studio = () => {
 
           <TabsContent value="forums" className="space-y-4">
             <ForumManagement />
+          </TabsContent>
+
+          <TabsContent value="system" className="space-y-4">
+            <SystemHealthCheck />
           </TabsContent>
         </Tabs>
       </div>

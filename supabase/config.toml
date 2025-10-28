@@ -2,3 +2,6 @@ project_id = "kjalgrgtalwnhhsvirvp"
 
 [functions.seed-test-users]
 verify_jwt = false
+
+[functions.seed-production-data]
+verify_jwt = false

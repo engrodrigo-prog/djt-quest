@@ -2,8 +2,9 @@ import { useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Activity, CheckCircle2, XCircle, AlertCircle } from 'lucide-react';
+import { Activity, CheckCircle2, XCircle, AlertCircle, Database, Users } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { toast } from 'sonner';
 
 interface HealthCheckResult {
   email: string;
@@ -18,6 +19,8 @@ interface HealthCheckResult {
 export const SystemHealthCheck = () => {
   const [health, setHealth] = useState<HealthCheckResult[] | null>(null);
   const [checking, setChecking] = useState(false);
+  const [seedingTest, setSeedingTest] = useState(false);
+  const [seedingProd, setSeedingProd] = useState(false);
 
   const checkSystem = async () => {
     setChecking(true);
@@ -67,6 +70,55 @@ export const SystemHealthCheck = () => {
     }
   };
 
+  const seedTestUsers = async () => {
+    setSeedingTest(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('seed-test-users');
+      
+      if (error) throw error;
+      
+      toast.success('Usuários de teste criados/sincronizados com sucesso!', {
+        description: `${data?.results?.length || 0} usuários processados`
+      });
+      
+      // Recheck health after seeding
+      await checkSystem();
+    } catch (error) {
+      console.error('Error seeding test users:', error);
+      toast.error('Erro ao criar usuários de teste', {
+        description: error instanceof Error ? error.message : 'Erro desconhecido'
+      });
+    } finally {
+      setSeedingTest(false);
+    }
+  };
+
+  const seedProductionData = async () => {
+    if (!confirm('⚠️ Isso criará 72 colaboradores com dados realistas. Continuar?')) {
+      return;
+    }
+
+    setSeedingProd(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('seed-production-data');
+      
+      if (error) throw error;
+      
+      toast.success('Sistema populado com sucesso!', {
+        description: `${data?.summary?.total || 0} usuários criados (${data?.summary?.colaborador || 0} colaboradores, ${data?.summary?.coordenador_djtx || 0} coordenadores, ${data?.summary?.gerente_divisao_djtx || 0} gerentes divisão, ${data?.summary?.gerente_djt || 0} gerente geral)`
+      });
+      
+      console.log('Seed results:', data);
+    } catch (error) {
+      console.error('Error seeding production data:', error);
+      toast.error('Erro ao popular sistema', {
+        description: error instanceof Error ? error.message : 'Erro desconhecido'
+      });
+    } finally {
+      setSeedingProd(false);
+    }
+  };
+
   const getStatusIcon = (user: HealthCheckResult) => {
     if (!user.exists) return <XCircle className="h-4 w-4 text-destructive" />;
     if (user.email === 'colab@teste.com') {
@@ -84,28 +136,71 @@ export const SystemHealthCheck = () => {
   };
 
   return (
-    <Card className="border-dashed">
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <div>
-            <CardTitle className="flex items-center gap-2">
-              <Activity className="h-5 w-5" />
-              Diagnóstico do Sistema
-            </CardTitle>
-            <CardDescription>
-              Verificar integridade dos usuários de teste
-            </CardDescription>
+    <div className="space-y-4">
+      {/* Seed Controls */}
+      <Card className="border-primary/20 bg-primary/5">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-lg">
+            <Database className="h-5 w-5" />
+            Popular Banco de Dados
+          </CardTitle>
+          <CardDescription>
+            Criar usuários de exemplo para teste e desenvolvimento
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex flex-col sm:flex-row gap-2">
+            <Button
+              onClick={seedTestUsers}
+              disabled={seedingTest}
+              variant="outline"
+              className="flex-1"
+            >
+              <Users className="h-4 w-4 mr-2" />
+              {seedingTest ? 'Criando...' : 'Criar 4 Usuários de Teste'}
+            </Button>
+            
+            <Button
+              onClick={seedProductionData}
+              disabled={seedingProd}
+              variant="default"
+              className="flex-1"
+            >
+              <Database className="h-4 w-4 mr-2" />
+              {seedingProd ? 'Criando...' : 'Popular Sistema (72 Colaboradores)'}
+            </Button>
           </div>
-          <Button 
-            onClick={checkSystem} 
-            disabled={checking}
-            variant="outline"
-            size="sm"
-          >
-            {checking ? 'Verificando...' : 'Verificar'}
-          </Button>
-        </div>
-      </CardHeader>
+          
+          <div className="text-xs text-muted-foreground space-y-1 p-3 rounded-lg bg-background/50">
+            <p><strong>4 Usuários de Teste:</strong> Cria colaborador, coordenador, gerente divisão e gerente departamento para testes rápidos</p>
+            <p><strong>72 Colaboradores:</strong> Popula sistema completo com hierarquia organizacional realista (1 gerente geral + 3 gerentes divisão + 7 coordenadores + ~60 colaboradores distribuídos em 7 times com XP variado)</p>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Health Check */}
+      <Card className="border-dashed">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Activity className="h-5 w-5" />
+                Diagnóstico do Sistema
+              </CardTitle>
+              <CardDescription>
+                Verificar integridade dos usuários de teste
+              </CardDescription>
+            </div>
+            <Button 
+              onClick={checkSystem} 
+              disabled={checking}
+              variant="outline"
+              size="sm"
+            >
+              {checking ? 'Verificando...' : 'Verificar'}
+            </Button>
+          </div>
+        </CardHeader>
       
       {health && (
         <CardContent>
@@ -161,6 +256,7 @@ export const SystemHealthCheck = () => {
           </div>
         </CardContent>
       )}
-    </Card>
+      </Card>
+    </div>
   );
 };
