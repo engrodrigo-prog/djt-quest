@@ -1,8 +1,9 @@
+import { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Plus, Target, Zap, HelpCircle, TrendingUp, Award, Users, MessageSquare, ActivitySquare, Crown } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { ArrowLeft } from 'lucide-react';
+import { StudioDashboard } from '@/components/StudioDashboard';
 import { TeamPerformanceManager } from '@/components/TeamPerformanceManager';
 import { ChallengeForm } from '@/components/ChallengeForm';
 import { CampaignForm } from '@/components/CampaignForm';
@@ -16,7 +17,7 @@ import { AdminBonusManager } from '@/components/AdminBonusManager';
 
 const Studio = () => {
   const { user, loading, isLeader, studioAccess, userRole } = useAuth();
-  const isGerenteDJT = userRole === 'gerente_djt';
+  const [selectedModule, setSelectedModule] = useState<string | null>(null);
 
   if (loading) {
     return (
@@ -45,181 +46,61 @@ const Studio = () => {
     );
   }
 
+  // Se nenhum módulo selecionado, mostra dashboard
+  if (!selectedModule) {
+    return (
+      <>
+        <StudioDashboard onSelectModule={setSelectedModule} userRole={userRole} />
+        <Navigation />
+      </>
+    );
+  }
+
+  // Renderiza módulo selecionado
+  const renderModule = () => {
+    switch (selectedModule) {
+      case 'campaigns':
+        return <CampaignForm />;
+      case 'quiz':
+        return <QuizCreationWizard />;
+      case 'challenges':
+        return <ChallengeForm />;
+      case 'performance':
+        return <TeamPerformanceManager />;
+      case 'team-bonus':
+        return <TeamEventForm />;
+      case 'users':
+        return <UserCreationForm />;
+      case 'forums':
+        return <ForumManagement />;
+      case 'system':
+        return <SystemHealthCheck />;
+      case 'admin':
+        return userRole === 'gerente_djt' ? <AdminBonusManager /> : null;
+      default:
+        return null;
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-secondary/5 pb-20 md:pb-8">
-      <div className="container mx-auto p-4 md:p-6 space-y-6">
+    <div className="min-h-screen bg-background pb-20 md:pb-8">
+      <div className="container mx-auto p-4 md:p-8 max-w-7xl space-y-6">
+        {/* Botão Voltar */}
         <div>
-          <h1 className="text-3xl md:text-4xl font-bold flex items-center gap-2">
-            <Plus className="h-8 w-8 text-primary" />
-            DJT Quest Studio
-          </h1>
-          <p className="text-muted-foreground">
-            Console de gestão de campanhas e desafios | Modo Líder
-          </p>
+          <Button
+            onClick={() => setSelectedModule(null)}
+            variant="ghost"
+            className="gap-2 hover:bg-muted"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Voltar ao Studio
+          </Button>
         </div>
 
-        <Tabs defaultValue="campaigns" className="w-full">
-          <TooltipProvider>
-            <TabsList className={`grid w-full max-w-6xl ${isGerenteDJT ? 'grid-cols-9' : 'grid-cols-8'}`}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <TabsTrigger value="campaigns" className="flex flex-col items-center gap-1 py-2">
-                    <Target className="h-4 w-4" />
-                    <span className="text-[10px] sm:text-xs">Campanhas</span>
-                  </TabsTrigger>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p className="font-semibold">Campanhas</p>
-                  <p className="text-xs">Criar e gerenciar campanhas temáticas</p>
-                </TooltipContent>
-              </Tooltip>
-              
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <TabsTrigger value="quiz" className="flex flex-col items-center gap-1 py-2">
-                    <HelpCircle className="h-4 w-4" />
-                    <span className="text-[10px] sm:text-xs">Quiz</span>
-                  </TabsTrigger>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p className="font-semibold">Quiz de Conhecimento</p>
-                  <p className="text-xs">Criar perguntas com alternativas e XP por acerto</p>
-                </TooltipContent>
-              </Tooltip>
-              
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <TabsTrigger value="challenges" className="flex flex-col items-center gap-1 py-2">
-                    <Zap className="h-4 w-4" />
-                    <span className="text-[10px] sm:text-xs">Desafios</span>
-                  </TabsTrigger>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p className="font-semibold">Desafios</p>
-                  <p className="text-xs">Criar outros tipos de desafios (fórum, mentoria, etc)</p>
-                </TooltipContent>
-              </Tooltip>
-              
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <TabsTrigger value="performance" className="flex flex-col items-center gap-1 py-2">
-                    <TrendingUp className="h-4 w-4" />
-                    <span className="text-[10px] sm:text-xs">Performance</span>
-                  </TabsTrigger>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p className="font-semibold">Performance</p>
-                  <p className="text-xs">Monitorar e ajustar métricas das equipes</p>
-                </TooltipContent>
-              </Tooltip>
-              
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <TabsTrigger value="team-events" className="flex flex-col items-center gap-1 py-2">
-                    <Award className="h-4 w-4" />
-                    <span className="text-[10px] sm:text-xs">Bonificação</span>
-                  </TabsTrigger>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p className="font-semibold">Bonificação de Equipe</p>
-                  <p className="text-xs">Reconhecimentos e pontos de atenção</p>
-                </TooltipContent>
-              </Tooltip>
-              
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <TabsTrigger value="users" className="flex flex-col items-center gap-1 py-2">
-                    <Users className="h-4 w-4" />
-                    <span className="text-[10px] sm:text-xs">Usuários</span>
-                  </TabsTrigger>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p className="font-semibold">Usuários</p>
-                  <p className="text-xs">Criar e gerenciar colaboradores</p>
-                </TooltipContent>
-              </Tooltip>
-              
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <TabsTrigger value="forums" className="flex flex-col items-center gap-1 py-2">
-                    <MessageSquare className="h-4 w-4" />
-                    <span className="text-[10px] sm:text-xs">Fóruns</span>
-                  </TabsTrigger>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p className="font-semibold">Fóruns</p>
-                  <p className="text-xs">Moderar tópicos e posts do fórum</p>
-                </TooltipContent>
-              </Tooltip>
-              
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <TabsTrigger value="system" className="flex flex-col items-center gap-1 py-2">
-                    <ActivitySquare className="h-4 w-4" />
-                    <span className="text-[10px] sm:text-xs">Sistema</span>
-                  </TabsTrigger>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p className="font-semibold">Sistema</p>
-                  <p className="text-xs">Diagnóstico e verificação de integridade</p>
-                </TooltipContent>
-              </Tooltip>
-
-              {isGerenteDJT && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <TabsTrigger value="admin" className="flex flex-col items-center gap-1 py-2 border-l-2 border-amber-500/50">
-                      <Crown className="h-4 w-4 text-amber-500" />
-                      <span className="text-[10px] sm:text-xs text-amber-500">Admin</span>
-                    </TabsTrigger>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p className="font-semibold">Admin Global</p>
-                    <p className="text-xs">Bonificação para qualquer equipe (Gerente DJT)</p>
-                  </TooltipContent>
-                </Tooltip>
-              )}
-            </TabsList>
-          </TooltipProvider>
-
-          <TabsContent value="campaigns" className="space-y-4">
-            <CampaignForm />
-          </TabsContent>
-
-          <TabsContent value="quiz" className="space-y-4">
-            <QuizCreationWizard />
-          </TabsContent>
-
-          <TabsContent value="challenges" className="space-y-4">
-            <ChallengeForm />
-          </TabsContent>
-
-          <TabsContent value="performance" className="space-y-4">
-            <TeamPerformanceManager />
-          </TabsContent>
-
-          <TabsContent value="team-events" className="space-y-4">
-            <TeamEventForm />
-          </TabsContent>
-
-          <TabsContent value="users" className="space-y-4">
-            <UserCreationForm />
-          </TabsContent>
-
-          <TabsContent value="forums" className="space-y-4">
-            <ForumManagement />
-          </TabsContent>
-
-          <TabsContent value="system" className="space-y-4">
-            <SystemHealthCheck />
-          </TabsContent>
-
-          {isGerenteDJT && (
-            <TabsContent value="admin" className="space-y-4">
-              <AdminBonusManager />
-            </TabsContent>
-          )}
-        </Tabs>
+        {/* Renderiza módulo selecionado com animação */}
+        <div className="animate-in fade-in duration-300">
+          {renderModule()}
+        </div>
       </div>
 
       <Navigation />
