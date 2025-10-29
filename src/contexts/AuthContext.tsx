@@ -69,11 +69,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [studioAccess, setStudioAccess] = useState(false);
   const [isLeader, setIsLeader] = useState(false);
   const [orgScope, setOrgScope] = useState<OrgScope | null>(null);
+  const [previousRole, setPreviousRole] = useState<string | null>(null);
 
   const fetchUserSession = async (currentSession: Session) => {
     // Try cache first
     const cached = getCachedAuth();
     if (cached) {
+      console.log('🔹 Using cached auth:', cached);
       setUserRole(cached.role);
       setStudioAccess(cached.studioAccess);
       setIsLeader(cached.isLeader);
@@ -90,6 +92,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (error) throw error;
 
+      console.log('🔸 Fresh auth-me response:', data);
+      
       // Cache the result
       setCachedAuth(data);
       
@@ -119,11 +123,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Set up auth state listener
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
+        const previousUserId = user?.id;
+        
+        // Clear cache if user changed
+        if (session?.user.id !== previousUserId && previousUserId) {
+          console.log('🔄 User changed, clearing cache');
+          localStorage.removeItem(CACHE_KEY);
+        }
+        
         setSession(session);
         setUser(session?.user ?? null);
         
         if (session) {
+          const oldRole = userRole;
           await fetchUserSession(session);
+          
+          // Check if role upgraded from colaborador to manager
+          if (oldRole === 'colaborador' && userRole && userRole.includes('gerente')) {
+            // Toast will be shown after state updates
+            setTimeout(() => {
+              const event = new CustomEvent('show-studio-welcome');
+              window.dispatchEvent(event);
+            }, 500);
+          }
         } else {
           setUserRole(null);
           setStudioAccess(false);
@@ -170,6 +192,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signOut = async () => {
+    console.log('🚪 Signing out, clearing cache');
+    localStorage.removeItem(CACHE_KEY);
     await supabase.auth.signOut();
   };
 

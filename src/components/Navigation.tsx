@@ -1,7 +1,9 @@
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Home, Target, Shield, Trophy, User, MessageSquare } from 'lucide-react';
+import { Home, Target, Shield, Trophy, User, MessageSquare, Lock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useAuth } from '@/contexts/AuthContext';
+import { cn } from '@/lib/utils';
 
 const Navigation = () => {
   const navigate = useNavigate();
@@ -55,17 +57,31 @@ const Navigation = () => {
           </Button>
         )}
         
-        {studioAccess && (
-          <Button
-            variant={isActive('/studio') ? 'default' : 'ghost'}
-            size="sm"
-            onClick={() => navigate('/studio')}
-            className="flex-col h-auto py-2"
-          >
-            <Target className="h-5 w-5" />
-            <span className="text-xs mt-1">Studio</span>
-          </Button>
-        )}
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant={isActive('/studio') ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => studioAccess ? navigate('/studio') : null}
+                disabled={!studioAccess}
+                className={cn(
+                  "flex-col h-auto py-2 relative",
+                  !studioAccess && "opacity-50 cursor-not-allowed"
+                )}
+              >
+                <Target className="h-5 w-5" />
+                <span className="text-xs mt-1">Studio</span>
+                {!studioAccess && <Lock className="h-3 w-3 absolute top-1 right-1" />}
+              </Button>
+            </TooltipTrigger>
+            {!studioAccess && (
+              <TooltipContent>
+                <p>Requer perfil de Líder ou Gerente</p>
+              </TooltipContent>
+            )}
+          </Tooltip>
+        </TooltipProvider>
         
         <Button
           variant={isActive('/profile') ? 'default' : 'ghost'}
