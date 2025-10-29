@@ -91,20 +91,7 @@ const Dashboard = () => {
     loadData();
   }, [user]);
 
-  const handleSignOut = async () => {
-    await signOut();
-    navigate("/auth");
-  };
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
-      </div>
-    );
-  }
-
-  // Memoize calculations to prevent unnecessary recalculations
+  // Memoize calculations to prevent unnecessary recalculations (must be before any conditional returns)
   const tierInfo = useMemo(() => 
     profile ? getTierInfo(profile.tier) : null, 
     [profile]
@@ -121,6 +108,19 @@ const Dashboard = () => {
       : 0,
     [profile, tierInfo]
   );
+
+  const handleSignOut = async () => {
+    await signOut();
+    navigate("/auth");
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-secondary/5 pb-20 md:pb-8">
