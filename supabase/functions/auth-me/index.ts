@@ -28,12 +28,11 @@ Deno.serve(async (req) => {
       throw new Error('Unauthorized');
     }
 
-    // Fetch user role
-    const { data: roleData } = await supabase
+    // Fetch ALL user roles
+    const { data: rolesData } = await supabase
       .from('user_roles')
       .select('role')
-      .eq('user_id', user.id)
-      .single();
+      .eq('user_id', user.id);
 
     // Fetch complete profile with organizational data
     const { data: profile } = await supabase
@@ -51,7 +50,26 @@ Deno.serve(async (req) => {
       .eq('id', user.id)
       .single();
 
-    const role = roleData?.role || 'colaborador';
+    // Define role hierarchy (highest to lowest privilege)
+    const roleHierarchy = [
+      'gerente_djt',
+      'gerente_divisao_djtx',
+      'coordenador_djtx',
+      'lider_equipe',
+      'colaborador'
+    ];
+
+    // Get the highest privilege role
+    let role = 'colaborador';
+    if (rolesData && rolesData.length > 0) {
+      const userRoles = rolesData.map(r => r.role);
+      for (const hierarchyRole of roleHierarchy) {
+        if (userRoles.includes(hierarchyRole)) {
+          role = hierarchyRole;
+          break;
+        }
+      }
+    }
     const studioAccess = profile?.studio_access || false;
     const isLeader = profile?.is_leader || false;
 
