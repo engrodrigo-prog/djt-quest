@@ -137,49 +137,8 @@ export const SystemHealthCheck = () => {
 
   return (
     <div className="space-y-4">
-      {/* Seed Controls */}
-      <Card className="border-primary/20 bg-primary/5">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-lg">
-            <Database className="h-5 w-5" />
-            Popular Banco de Dados
-          </CardTitle>
-          <CardDescription>
-            Criar usuários de exemplo para teste e desenvolvimento
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="flex flex-col sm:flex-row gap-2">
-            <Button
-              onClick={seedTestUsers}
-              disabled={seedingTest}
-              variant="outline"
-              className="flex-1"
-            >
-              <Users className="h-4 w-4 mr-2" />
-              {seedingTest ? 'Criando...' : 'Criar 4 Usuários de Teste'}
-            </Button>
-            
-            <Button
-              onClick={seedProductionData}
-              disabled={seedingProd}
-              variant="default"
-              className="flex-1"
-            >
-              <Database className="h-4 w-4 mr-2" />
-              {seedingProd ? 'Criando...' : 'Popular Sistema (72 Colaboradores)'}
-            </Button>
-          </div>
-          
-          <div className="text-xs text-muted-foreground space-y-1 p-3 rounded-lg bg-background/50">
-            <p><strong>4 Usuários de Teste:</strong> Cria colaborador, coordenador, gerente divisão e gerente departamento para testes rápidos</p>
-            <p><strong>72 Colaboradores:</strong> Popula sistema completo com hierarquia organizacional realista (1 gerente geral + 3 gerentes divisão + 7 coordenadores + ~60 colaboradores distribuídos em 7 times com XP variado)</p>
-          </div>
-        </CardContent>
-      </Card>
-
       {/* Health Check */}
-      <Card className="border-dashed">
+      <Card className="border-primary/20 bg-primary/5">
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>

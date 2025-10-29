@@ -7,7 +7,7 @@ const corsHeaders = {
 
 interface TeamEventRequest {
   teamId: string;
-  eventType: 'bonus' | 'penalty';
+  eventType: 'reconhecimento' | 'ponto_atencao';
   points: number;
   reason: string;
 }
@@ -37,24 +37,38 @@ Deno.serve(async (req) => {
 
     console.log('Processing team event:', { userId: user.id, ...body });
 
-    // Validar que o usuário é líder da equipe
+    // Verificar se é gerente DJT (pode acessar qualquer equipe) ou líder da equipe
     const { data: profile } = await supabase
       .from('profiles')
       .select('is_leader, team_id')
       .eq('id', user.id)
       .single();
 
-    if (!profile?.is_leader) {
-      throw new Error('Apenas líderes podem criar eventos de equipe');
-    }
+    const { data: roles } = await supabase
+      .from('user_roles')
+      .select('role')
+      .eq('user_id', user.id);
 
-    if (profile.team_id !== body.teamId) {
-      throw new Error('Você só pode criar eventos para sua própria equipe');
+    const isGerenteDJT = roles?.some(r => r.role === 'gerente_djt');
+
+    if (!isGerenteDJT) {
+      // Se não for gerente DJT, validar que é líder da equipe específica
+      if (!profile?.is_leader) {
+        throw new Error('Apenas líderes podem criar eventos de equipe');
+      }
+
+      if (profile.team_id !== body.teamId) {
+        throw new Error('Você só pode criar eventos para sua própria equipe');
+      }
     }
 
     // Validações
-    if (body.points <= 0) {
-      throw new Error('Pontos devem ser positivos');
+    if (body.eventType === 'reconhecimento' && body.points <= 0) {
+      throw new Error('Pontos devem ser positivos para reconhecimento');
+    }
+
+    if (body.eventType === 'ponto_atencao') {
+      body.points = 0; // Forçar pontos = 0 para ponto de atenção
     }
 
     if (body.reason.length < 50) {
@@ -92,20 +106,22 @@ Deno.serve(async (req) => {
 
     if (eventError) throw eventError;
 
-    // Atualizar XP de cada colaborador
-    const pointsDelta = body.eventType === 'bonus' ? body.points : -body.points;
+    // Atualizar XP de cada colaborador (apenas para reconhecimento)
+    const pointsDelta = body.eventType === 'reconhecimento' ? body.points : 0;
     
     const updates = await Promise.all(
       collaborators.map(async (collab) => {
-        const newXp = Math.max(0, collab.xp + pointsDelta);
+        const newXp = collab.xp + pointsDelta;
         
-        const { error: updateError } = await supabase
-          .from('profiles')
-          .update({ xp: newXp })
-          .eq('id', collab.id);
+        if (pointsDelta > 0) {
+          const { error: updateError } = await supabase
+            .from('profiles')
+            .update({ xp: newXp })
+            .eq('id', collab.id);
 
-        if (updateError) {
-          console.error('Error updating XP for user:', collab.id, updateError);
+          if (updateError) {
+            console.error('Error updating XP for user:', collab.id, updateError);
+          }
         }
 
         return { userId: collab.id, oldXp: collab.xp, newXp };
@@ -113,16 +129,16 @@ Deno.serve(async (req) => {
     );
 
     // Criar notificações para todos os colaboradores
-    const notificationMessage = body.eventType === 'bonus'
-      ? `🎉 Sua equipe ganhou +${body.points} XP! ${body.reason}`
-      : `⚠️ Sua equipe perdeu -${body.points} XP. ${body.reason}`;
+    const notificationMessage = body.eventType === 'reconhecimento'
+      ? `🎉 Sua equipe recebeu reconhecimento: +${body.points} XP! ${body.reason}`
+      : `⚠️ Ponto de atenção registrado para sua equipe. ${body.reason}`;
 
     await Promise.all(
       affectedUserIds.map(userId =>
         supabase.rpc('create_notification', {
           _user_id: userId,
           _type: 'team_event',
-          _title: body.eventType === 'bonus' ? 'Bônus de Equipe' : 'Penalidade de Equipe',
+          _title: body.eventType === 'reconhecimento' ? '🎉 Reconhecimento de Equipe' : '⚠️ Ponto de Atenção',
           _message: notificationMessage,
           _metadata: { 
             team_event_id: teamEvent.id,
@@ -145,7 +161,9 @@ Deno.serve(async (req) => {
         event: teamEvent,
         affectedUsers: affectedUserIds.length,
         updates,
-        message: `${body.eventType === 'bonus' ? 'Bônus' : 'Penalidade'} aplicado a ${affectedUserIds.length} colaboradores`
+        message: body.eventType === 'reconhecimento' 
+          ? `🎉 Reconhecimento de ${body.points} XP aplicado a ${affectedUserIds.length} colaboradores`
+          : `⚠️ Ponto de atenção registrado para ${affectedUserIds.length} colaboradores`
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );

@@ -2,7 +2,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Plus, Target, Zap, Trophy, Users, MessageSquare, Gift, Settings } from 'lucide-react';
+import { Plus, Target, Zap, HelpCircle, TrendingUp, Award, Users, MessageSquare, ActivitySquare, Crown } from 'lucide-react';
 import { TeamPerformanceManager } from '@/components/TeamPerformanceManager';
 import { ChallengeForm } from '@/components/ChallengeForm';
 import { CampaignForm } from '@/components/CampaignForm';
@@ -11,9 +11,12 @@ import { UserCreationForm } from '@/components/UserCreationForm';
 import { ForumManagement } from '@/components/ForumManagement';
 import { TeamEventForm } from '@/components/TeamEventForm';
 import { SystemHealthCheck } from '@/components/SystemHealthCheck';
+import { QuizCreationWizard } from '@/components/QuizCreationWizard';
+import { AdminBonusManager } from '@/components/AdminBonusManager';
 
 const Studio = () => {
-  const { user, loading, isLeader, studioAccess } = useAuth();
+  const { user, loading, isLeader, studioAccess, userRole } = useAuth();
+  const isGerenteDJT = userRole === 'gerente_djt';
 
   if (loading) {
     return (
@@ -57,95 +60,134 @@ const Studio = () => {
 
         <Tabs defaultValue="campaigns" className="w-full">
           <TooltipProvider>
-            <TabsList className="grid w-full max-w-5xl grid-cols-7">
+            <TabsList className={`grid w-full max-w-6xl ${isGerenteDJT ? 'grid-cols-9' : 'grid-cols-8'}`}>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <TabsTrigger value="campaigns">
-                    <Target className="h-4 w-4 mr-2" />
-                    <span className="hidden sm:inline">Campanhas</span>
+                  <TabsTrigger value="campaigns" className="flex flex-col items-center gap-1 py-2">
+                    <Target className="h-4 w-4" />
+                    <span className="text-[10px] sm:text-xs">Campanhas</span>
                   </TabsTrigger>
                 </TooltipTrigger>
                 <TooltipContent>
-                  <p>Criar e gerenciar campanhas temáticas</p>
+                  <p className="font-semibold">Campanhas</p>
+                  <p className="text-xs">Criar e gerenciar campanhas temáticas</p>
                 </TooltipContent>
               </Tooltip>
               
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <TabsTrigger value="challenges">
-                    <Zap className="h-4 w-4 mr-2" />
-                    <span className="hidden sm:inline">Desafios</span>
+                  <TabsTrigger value="quiz" className="flex flex-col items-center gap-1 py-2">
+                    <HelpCircle className="h-4 w-4" />
+                    <span className="text-[10px] sm:text-xs">Quiz</span>
                   </TabsTrigger>
                 </TooltipTrigger>
                 <TooltipContent>
-                  <p>Criar desafios e definir pontuações</p>
+                  <p className="font-semibold">Quiz de Conhecimento</p>
+                  <p className="text-xs">Criar perguntas com alternativas e XP por acerto</p>
                 </TooltipContent>
               </Tooltip>
               
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <TabsTrigger value="performance">
-                    <Trophy className="h-4 w-4 mr-2" />
-                    <span className="hidden sm:inline">Performance</span>
+                  <TabsTrigger value="challenges" className="flex flex-col items-center gap-1 py-2">
+                    <Zap className="h-4 w-4" />
+                    <span className="text-[10px] sm:text-xs">Desafios</span>
                   </TabsTrigger>
                 </TooltipTrigger>
                 <TooltipContent>
-                  <p>Monitorar métricas das equipes</p>
+                  <p className="font-semibold">Desafios</p>
+                  <p className="text-xs">Criar outros tipos de desafios (fórum, mentoria, etc)</p>
                 </TooltipContent>
               </Tooltip>
               
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <TabsTrigger value="team-events">
-                    <Gift className="h-4 w-4 mr-2" />
-                    <span className="hidden sm:inline">Equipe</span>
+                  <TabsTrigger value="performance" className="flex flex-col items-center gap-1 py-2">
+                    <TrendingUp className="h-4 w-4" />
+                    <span className="text-[10px] sm:text-xs">Performance</span>
                   </TabsTrigger>
                 </TooltipTrigger>
                 <TooltipContent>
-                  <p>Criar eventos e reconhecimentos</p>
+                  <p className="font-semibold">Performance</p>
+                  <p className="text-xs">Monitorar e ajustar métricas das equipes</p>
                 </TooltipContent>
               </Tooltip>
               
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <TabsTrigger value="users">
-                    <Users className="h-4 w-4 mr-2" />
-                    <span className="hidden sm:inline">Usuários</span>
+                  <TabsTrigger value="team-events" className="flex flex-col items-center gap-1 py-2">
+                    <Award className="h-4 w-4" />
+                    <span className="text-[10px] sm:text-xs">Bonificação</span>
                   </TabsTrigger>
                 </TooltipTrigger>
                 <TooltipContent>
-                  <p>Criar e gerenciar colaboradores</p>
+                  <p className="font-semibold">Bonificação de Equipe</p>
+                  <p className="text-xs">Reconhecimentos e pontos de atenção</p>
                 </TooltipContent>
               </Tooltip>
               
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <TabsTrigger value="forums">
-                    <MessageSquare className="h-4 w-4 mr-2" />
-                    <span className="hidden sm:inline">Fóruns</span>
+                  <TabsTrigger value="users" className="flex flex-col items-center gap-1 py-2">
+                    <Users className="h-4 w-4" />
+                    <span className="text-[10px] sm:text-xs">Usuários</span>
                   </TabsTrigger>
                 </TooltipTrigger>
                 <TooltipContent>
-                  <p>Moderar tópicos e posts do fórum</p>
+                  <p className="font-semibold">Usuários</p>
+                  <p className="text-xs">Criar e gerenciar colaboradores</p>
                 </TooltipContent>
               </Tooltip>
               
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <TabsTrigger value="system">
-                    <Settings className="h-4 w-4 mr-2" />
-                    <span className="hidden sm:inline">Sistema</span>
+                  <TabsTrigger value="forums" className="flex flex-col items-center gap-1 py-2">
+                    <MessageSquare className="h-4 w-4" />
+                    <span className="text-[10px] sm:text-xs">Fóruns</span>
                   </TabsTrigger>
                 </TooltipTrigger>
                 <TooltipContent>
-                  <p>Popular dados e diagnóstico</p>
+                  <p className="font-semibold">Fóruns</p>
+                  <p className="text-xs">Moderar tópicos e posts do fórum</p>
                 </TooltipContent>
               </Tooltip>
+              
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <TabsTrigger value="system" className="flex flex-col items-center gap-1 py-2">
+                    <ActivitySquare className="h-4 w-4" />
+                    <span className="text-[10px] sm:text-xs">Sistema</span>
+                  </TabsTrigger>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p className="font-semibold">Sistema</p>
+                  <p className="text-xs">Diagnóstico e verificação de integridade</p>
+                </TooltipContent>
+              </Tooltip>
+
+              {isGerenteDJT && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <TabsTrigger value="admin" className="flex flex-col items-center gap-1 py-2 border-l-2 border-amber-500/50">
+                      <Crown className="h-4 w-4 text-amber-500" />
+                      <span className="text-[10px] sm:text-xs text-amber-500">Admin</span>
+                    </TabsTrigger>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p className="font-semibold">Admin Global</p>
+                    <p className="text-xs">Bonificação para qualquer equipe (Gerente DJT)</p>
+                  </TooltipContent>
+                </Tooltip>
+              )}
             </TabsList>
           </TooltipProvider>
 
           <TabsContent value="campaigns" className="space-y-4">
             <CampaignForm />
+          </TabsContent>
+
+          <TabsContent value="quiz" className="space-y-4">
+            <QuizCreationWizard />
           </TabsContent>
 
           <TabsContent value="challenges" className="space-y-4">
@@ -171,6 +213,12 @@ const Studio = () => {
           <TabsContent value="system" className="space-y-4">
             <SystemHealthCheck />
           </TabsContent>
+
+          {isGerenteDJT && (
+            <TabsContent value="admin" className="space-y-4">
+              <AdminBonusManager />
+            </TabsContent>
+          )}
         </Tabs>
       </div>
 

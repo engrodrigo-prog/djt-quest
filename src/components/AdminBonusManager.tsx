@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -7,30 +7,53 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { Zap, Gift, AlertTriangle } from 'lucide-react';
+import { Crown, Gift, AlertTriangle } from 'lucide-react';
 
-export function TeamEventForm() {
-  const { user, orgScope } = useAuth();
+interface Team {
+  id: string;
+  name: string;
+  coordination_id: string;
+}
+
+export function AdminBonusManager() {
+  const { user } = useAuth();
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [selectedTeam, setSelectedTeam] = useState<string>('');
   const [eventType, setEventType] = useState<'reconhecimento' | 'ponto_atencao'>('reconhecimento');
   const [points, setPoints] = useState('');
   const [reason, setReason] = useState('');
 
+  useEffect(() => {
+    loadTeams();
+  }, []);
+
+  const loadTeams = async () => {
+    const { data, error } = await supabase
+      .from('teams')
+      .select('id, name, coordination_id')
+      .order('name');
+
+    if (!error && data) {
+      setTeams(data);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!user || !orgScope?.teamId) {
+    if (!user || !selectedTeam) {
       toast({
         title: 'Erro',
-        description: 'Você precisa estar vinculado a uma equipe',
+        description: 'Selecione uma equipe',
         variant: 'destructive'
       });
       return;
     }
 
-    // Validar pontos apenas para reconhecimento
     if (eventType === 'reconhecimento' && (!points || parseInt(points) <= 0)) {
       toast({
         title: 'Erro',
@@ -56,10 +79,10 @@ export function TeamEventForm() {
       
       const { data, error } = await supabase.functions.invoke('create-team-event', {
         body: {
-          teamId: orgScope.teamId,
+          teamId: selectedTeam,
           eventType,
           points: eventType === 'reconhecimento' ? parseInt(points) : 0,
-          reason
+          reason: `[Admin Global] ${reason}`
         },
         headers: {
           Authorization: `Bearer ${session.session?.access_token}`
@@ -70,10 +93,11 @@ export function TeamEventForm() {
 
       toast({
         title: 'Sucesso!',
-        description: data.message || `${eventType === 'reconhecimento' ? '🎉 Reconhecimento' : '⚠️ Ponto de atenção'} registrado para a equipe`
+        description: data.message || `${eventType === 'reconhecimento' ? '🎉 Reconhecimento' : '⚠️ Ponto de atenção'} aplicado à equipe`
       });
 
       // Reset form
+      setSelectedTeam('');
       setPoints('');
       setReason('');
       setEventType('reconhecimento');
@@ -90,24 +114,40 @@ export function TeamEventForm() {
   };
 
   return (
-    <Card>
+    <Card className="border-amber-500/20 bg-amber-500/5">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          <Zap className="h-5 w-5 text-primary" />
-          Evento de Equipe
+          <Crown className="h-5 w-5 text-amber-500" />
+          Bonificação Global (Admin)
         </CardTitle>
         <CardDescription>
-          Registre reconhecimentos (com XP) ou pontos de atenção (sem XP) para sua equipe
+          Como Gerente DJT, você pode bonificar qualquer equipe da organização
         </CardDescription>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-6">
+          <div className="space-y-2">
+            <Label htmlFor="team">Selecionar Equipe</Label>
+            <Select value={selectedTeam} onValueChange={setSelectedTeam}>
+              <SelectTrigger>
+                <SelectValue placeholder="Escolha uma equipe..." />
+              </SelectTrigger>
+              <SelectContent>
+                {teams.map((team) => (
+                  <SelectItem key={team.id} value={team.id}>
+                    {team.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
           <div className="space-y-3">
             <Label>Tipo de Evento</Label>
             <RadioGroup value={eventType} onValueChange={(v) => setEventType(v as 'reconhecimento' | 'ponto_atencao')}>
               <div className="flex items-center space-x-2 p-4 border rounded-lg hover:bg-accent/50 cursor-pointer">
-                <RadioGroupItem value="reconhecimento" id="reconhecimento" />
-                <Label htmlFor="reconhecimento" className="flex items-center gap-2 cursor-pointer flex-1">
+                <RadioGroupItem value="reconhecimento" id="admin-reconhecimento" />
+                <Label htmlFor="admin-reconhecimento" className="flex items-center gap-2 cursor-pointer flex-1">
                   <Gift className="h-4 w-4 text-green-600" />
                   <div>
                     <p className="font-semibold">✅ Reconhecimento</p>
@@ -116,8 +156,8 @@ export function TeamEventForm() {
                 </Label>
               </div>
               <div className="flex items-center space-x-2 p-4 border rounded-lg hover:bg-accent/50 cursor-pointer">
-                <RadioGroupItem value="ponto_atencao" id="ponto_atencao" />
-                <Label htmlFor="ponto_atencao" className="flex items-center gap-2 cursor-pointer flex-1">
+                <RadioGroupItem value="ponto_atencao" id="admin-ponto-atencao" />
+                <Label htmlFor="admin-ponto-atencao" className="flex items-center gap-2 cursor-pointer flex-1">
                   <AlertTriangle className="h-4 w-4 text-orange-600" />
                   <div>
                     <p className="font-semibold">⚠️ Ponto de Atenção</p>
@@ -130,9 +170,9 @@ export function TeamEventForm() {
 
           {eventType === 'reconhecimento' && (
             <div className="space-y-2">
-              <Label htmlFor="points">Quantidade de Pontos</Label>
+              <Label htmlFor="admin-points">Quantidade de Pontos</Label>
               <Input
-                id="points"
+                id="admin-points"
                 type="number"
                 min="1"
                 value={points}
@@ -152,9 +192,9 @@ export function TeamEventForm() {
           )}
 
           <div className="space-y-2">
-            <Label htmlFor="reason">Justificativa (mínimo 50 caracteres)</Label>
+            <Label htmlFor="admin-reason">Justificativa (mínimo 50 caracteres)</Label>
             <Textarea
-              id="reason"
+              id="admin-reason"
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               placeholder="Descreva o motivo detalhado para este evento..."
@@ -169,10 +209,10 @@ export function TeamEventForm() {
 
           <Button 
             type="submit" 
-            disabled={loading || (eventType === 'reconhecimento' && !points) || reason.length < 50}
+            disabled={loading || !selectedTeam || (eventType === 'reconhecimento' && !points) || reason.length < 50}
             className="w-full"
           >
-            {loading ? 'Processando...' : `Registrar ${eventType === 'reconhecimento' ? 'Reconhecimento' : 'Ponto de Atenção'}`}
+            {loading ? 'Processando...' : `Aplicar ${eventType === 'reconhecimento' ? 'Reconhecimento' : 'Ponto de Atenção'}`}
           </Button>
         </form>
       </CardContent>
