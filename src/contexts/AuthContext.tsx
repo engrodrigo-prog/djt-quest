@@ -29,6 +29,38 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+// Cache configuration
+const CACHE_KEY = 'auth_user_cache';
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+const getCachedAuth = () => {
+  try {
+    const cached = localStorage.getItem(CACHE_KEY);
+    if (!cached) return null;
+    
+    const { data, timestamp } = JSON.parse(cached);
+    if (Date.now() - timestamp > CACHE_TTL) {
+      localStorage.removeItem(CACHE_KEY);
+      return null;
+    }
+    
+    return data;
+  } catch {
+    return null;
+  }
+};
+
+const setCachedAuth = (data: any) => {
+  try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify({
+      data,
+      timestamp: Date.now()
+    }));
+  } catch (error) {
+    console.error('Error caching auth data:', error);
+  }
+};
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
@@ -39,6 +71,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [orgScope, setOrgScope] = useState<OrgScope | null>(null);
 
   const fetchUserSession = async (currentSession: Session) => {
+    // Try cache first
+    const cached = getCachedAuth();
+    if (cached) {
+      setUserRole(cached.role);
+      setStudioAccess(cached.studioAccess);
+      setIsLeader(cached.isLeader);
+      setOrgScope(cached.orgScope);
+      return;
+    }
+
     try {
       const { data, error } = await supabase.functions.invoke('auth-me', {
         headers: {
@@ -48,6 +90,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (error) throw error;
 
+      // Cache the result
+      setCachedAuth(data);
+      
       setUserRole(data.role);
       setStudioAccess(data.studioAccess);
       setIsLeader(data.isLeader || false);
@@ -62,6 +107,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const refreshUserSession = async () => {
+    // Clear cache to force refresh
+    localStorage.removeItem(CACHE_KEY);
     const { data: { session: currentSession } } = await supabase.auth.getSession();
     if (currentSession) {
       await fetchUserSession(currentSession);

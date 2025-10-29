@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -50,33 +50,36 @@ const Dashboard = () => {
       if (!user) return;
 
       try {
-        // Load profile
-        const { data: profileData } = await supabase
-          .from("profiles")
-          .select("name, xp, tier, avatar_url")
-          .eq("id", user.id)
-          .single();
+        // Parallelize all queries for faster loading
+        const [profileResult, campaignsResult, challengesResult] = await Promise.all([
+          supabase
+            .from("profiles")
+            .select("name, xp, tier, avatar_url")
+            .eq("id", user.id)
+            .single(),
+          
+          supabase
+            .from("campaigns")
+            .select("*")
+            .eq("is_active", true)
+            .order("start_date", { ascending: false }),
+          
+          supabase
+            .from("challenges")
+            .select("*")
+            .limit(6)
+        ]);
 
-        if (profileData) {
-          setProfile(profileData);
+        if (profileResult.data) {
+          setProfile(profileResult.data);
         }
 
-        // Load active campaigns
-        const { data: campaignsData } = await supabase
-          .from("campaigns")
-          .select("*")
-          .eq("is_active", true)
-          .order("start_date", { ascending: false });
-
-        if (campaignsData) {
-          setCampaigns(campaignsData);
+        if (campaignsResult.data) {
+          setCampaigns(campaignsResult.data);
         }
 
-        // Load challenges
-        const { data: challengesData } = await supabase.from("challenges").select("*").limit(6);
-
-        if (challengesData) {
-          setChallenges(challengesData);
+        if (challengesResult.data) {
+          setChallenges(challengesResult.data);
         }
       } catch (error) {
         console.error("Error loading data:", error);
@@ -101,9 +104,23 @@ const Dashboard = () => {
     );
   }
 
-  const tierInfo = profile ? getTierInfo(profile.tier) : null;
-  const nextLevel = profile && tierInfo ? getNextTierLevel(profile.tier, profile.xp) : null;
-  const xpProgress = profile && tierInfo ? ((profile.xp - tierInfo.xpMin) / (tierInfo.xpMax - tierInfo.xpMin)) * 100 : 0;
+  // Memoize calculations to prevent unnecessary recalculations
+  const tierInfo = useMemo(() => 
+    profile ? getTierInfo(profile.tier) : null, 
+    [profile]
+  );
+  
+  const nextLevel = useMemo(() => 
+    profile && tierInfo ? getNextTierLevel(profile.tier, profile.xp) : null,
+    [profile, tierInfo]
+  );
+  
+  const xpProgress = useMemo(() => 
+    profile && tierInfo 
+      ? ((profile.xp - tierInfo.xpMin) / (tierInfo.xpMax - tierInfo.xpMin)) * 100 
+      : 0,
+    [profile, tierInfo]
+  );
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-secondary/5 pb-20 md:pb-8">

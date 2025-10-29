@@ -54,27 +54,55 @@ export function Rankings() {
 
   const fetchRankings = async () => {
     try {
-      // Individual rankings - Geral
-      const { data: profiles } = await supabase
-        .from('profiles')
-        .select(`
-          id,
-          name,
-          xp,
-          avatar_url,
-          tier,
-          team_id,
-          coord_id,
-          division_id,
-          teams (
-            name
-          )
-        `)
-        .order('xp', { ascending: false })
-        .limit(100);
+      // Parallelize all queries for faster loading
+      const [profilesResult, teamsResult, divisionsResult] = await Promise.all([
+        supabase
+          .from('profiles')
+          .select(`
+            id,
+            name,
+            xp,
+            avatar_url,
+            tier,
+            team_id,
+            coord_id,
+            division_id,
+            teams (
+              name
+            )
+          `)
+          .order('xp', { ascending: false })
+          .limit(100),
+        
+        supabase
+          .from('teams')
+          .select(`
+            id,
+            name,
+            team_modifier,
+            profiles!inner (
+              xp
+            )
+          `),
+        
+        supabase
+          .from('divisions')
+          .select(`
+            id,
+            name,
+            coordinations (
+              teams (
+                profiles (
+                  xp
+                )
+              )
+            )
+          `)
+      ]);
 
-      if (profiles) {
-        const ranked = profiles.map((profile, index) => ({
+      // Process individual rankings
+      if (profilesResult.data) {
+        const ranked = profilesResult.data.map((profile, index) => ({
           rank: index + 1,
           userId: profile.id,
           name: profile.name,
@@ -89,33 +117,22 @@ export function Rankings() {
         }));
         setIndividualRankings(ranked);
 
-        // Filtrar para "Minha Base" (divisão ou coordenação)
+        // Filter for "My Base"
         if (orgScope?.divisionId) {
           const myBase = ranked.filter(p => p.divisionId === orgScope.divisionId);
           setMyBaseRankings(myBase.map((p, i) => ({ ...p, rank: i + 1 })));
         }
 
-        // Filtrar para "Minha Equipe"
+        // Filter for "My Team"
         if (orgScope?.teamId) {
           const myTeam = ranked.filter(p => p.teamId === orgScope.teamId);
           setMyTeamRankings(myTeam.map((p, i) => ({ ...p, rank: i + 1 })));
         }
       }
 
-      // Team rankings
-      const { data: teams } = await supabase
-        .from('teams')
-        .select(`
-          id,
-          name,
-          team_modifier,
-          profiles!inner (
-            xp
-          )
-        `);
-
-      if (teams) {
-        const teamData = teams.map((team: any) => {
+      // Process team rankings
+      if (teamsResult.data) {
+        const teamData = teamsResult.data.map((team: any) => {
           const totalXp = team.profiles.reduce((sum: number, p: any) => sum + (p.xp || 0), 0);
           return {
             teamId: team.id,
@@ -129,23 +146,9 @@ export function Rankings() {
         setTeamRankings(teamData.map((t, i) => ({ ...t, rank: i + 1 })));
       }
 
-      // Division rankings
-      const { data: divisions } = await supabase
-        .from('divisions')
-        .select(`
-          id,
-          name,
-          coordinations (
-            teams (
-              profiles (
-                xp
-              )
-            )
-          )
-        `);
-
-      if (divisions) {
-        const divisionData = divisions.map((div: any) => {
+      // Process division rankings
+      if (divisionsResult.data) {
+        const divisionData = divisionsResult.data.map((div: any) => {
           let totalXp = 0;
           let teamCount = 0;
           

@@ -13,21 +13,15 @@ interface TeamModifier {
 }
 
 export const TeamPerformanceCard = () => {
-  const { user } = useAuth();
+  const { orgScope } = useAuth();
   const [teamData, setTeamData] = useState<TeamModifier | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchTeamModifier = async () => {
-      if (!user) return;
-
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("team_id")
-        .eq("id", user.id)
-        .single();
-
-      if (!profile?.team_id) {
+      const teamId = orgScope?.teamId;
+      
+      if (!teamId) {
         setLoading(false);
         return;
       }
@@ -35,7 +29,7 @@ export const TeamPerformanceCard = () => {
       const { data: team } = await supabase
         .from("teams")
         .select("name, team_modifier, last_modifier_update, modifier_reason")
-        .eq("id", profile.team_id)
+        .eq("id", teamId)
         .single();
 
       if (team) {
@@ -45,7 +39,7 @@ export const TeamPerformanceCard = () => {
     };
 
     fetchTeamModifier();
-  }, [user]);
+  }, [orgScope]);
 
   if (loading) return null;
   if (!teamData) return null;
