@@ -139,8 +139,8 @@ export const StudioDashboard = ({ onSelectModule, userRole }: StudioDashboardPro
                 )}
 
                 {/* Ícone com gradiente */}
-                <div className={`bg-gradient-to-br ${module.gradientFrom} ${module.gradientTo} p-8 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform duration-300`}>
-                  <Icon className="h-16 w-16 text-white" strokeWidth={1.5} />
+                <div className={`bg-gradient-to-br ${module.gradientFrom} ${module.gradientTo} p-6 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform duration-300`}>
+                  <Icon className="h-10 w-10 text-white" strokeWidth={1.5} />
                 </div>
 
                 {/* Conteúdo */}
