@@ -68,7 +68,7 @@ Deno.serve(async (req) => {
     if (userRole === 'gerente_djt') {
       // Gerente DJT pode tudo
     } else if (userRole === 'gerente_divisao_djtx') {
-      if (targetTeam?.coordinations?.division_id !== profile?.division_id) {
+      if (targetTeam?.coordinations?.[0]?.division_id !== profile?.division_id) {
         throw new Error('Você só pode bonificar equipes da sua divisão');
       }
     } else if (userRole === 'coordenador_djtx') {
