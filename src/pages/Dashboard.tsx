@@ -46,8 +46,21 @@ const Dashboard = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    console.log('🏠 Dashboard: user changed', user?.id);
+    
     const loadData = async () => {
-      if (!user) return;
+      if (!user) {
+        console.log('🏠 Dashboard: no user, skipping load');
+        return;
+      }
+
+      console.log('🏠 Dashboard: starting data load');
+      
+      // Safety timeout - force end loading after 5s
+      const timeoutId = setTimeout(() => {
+        console.error('⏱️ Dashboard: timeout reached - forcing loading to false');
+        setLoading(false);
+      }, 5000);
 
       try {
         // Parallelize all queries for faster loading
@@ -81,9 +94,12 @@ const Dashboard = () => {
         if (challengesResult.data) {
           setChallenges(challengesResult.data);
         }
+        
+        console.log('🏠 Dashboard: data loaded successfully');
       } catch (error) {
         console.error("Error loading data:", error);
       } finally {
+        clearTimeout(timeoutId);
         setLoading(false);
       }
     };

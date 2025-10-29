@@ -70,6 +70,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLeader, setIsLeader] = useState(false);
   const [orgScope, setOrgScope] = useState<OrgScope | null>(null);
   const [previousRole, setPreviousRole] = useState<string | null>(null);
+  const [hasShownWelcome, setHasShownWelcome] = useState(false);
 
   const fetchUserSession = async (currentSession: Session) => {
     // Try cache first
@@ -138,13 +139,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const oldRole = userRole;
           await fetchUserSession(session);
           
+          console.log('👤 AuthContext: role check', { oldRole, newRole: userRole, hasShownWelcome });
+          
           // Check if role upgraded from colaborador to manager
-          if (oldRole === 'colaborador' && userRole && userRole.includes('gerente')) {
-            // Toast will be shown after state updates
+          if (oldRole === 'colaborador' && userRole && userRole.includes('gerente') && !hasShownWelcome) {
+            setHasShownWelcome(true);
+            console.log('🎉 AuthContext: Triggering welcome toast');
+            // Toast will be shown after dashboard renders
             setTimeout(() => {
-              const event = new CustomEvent('show-studio-welcome');
-              window.dispatchEvent(event);
-            }, 500);
+              window.dispatchEvent(new CustomEvent('show-studio-welcome'));
+            }, 1000);
           }
         } else {
           setUserRole(null);
