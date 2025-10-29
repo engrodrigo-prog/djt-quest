@@ -15,8 +15,9 @@ export const challengeSchema = z.object({
   xp_reward: z
     .number()
     .int("XP deve ser um número inteiro")
-    .min(0, "XP deve ser no mínimo 0")
-    .max(10000, "XP deve ser no máximo 10000"),
+    .refine((val) => [10, 20, 30, 50].includes(val), {
+      message: "XP deve ser 10 (Básico), 20 (Intermediário), 30 (Avançado) ou 50 (Especialista)",
+    }),
   campaign_id: z.string().uuid().optional().nullable(),
   require_two_leader_eval: z.boolean().default(false),
   evidence_required: z.boolean().default(false),

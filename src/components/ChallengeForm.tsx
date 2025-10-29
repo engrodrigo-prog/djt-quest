@@ -29,11 +29,13 @@ interface Division {
 interface Coordination {
   id: string;
   name: string;
+  division_id: string;
 }
 
 interface Team {
   id: string;
   name: string;
+  coordination_id: string;
 }
 
 export const ChallengeForm = () => {
@@ -78,8 +80,8 @@ export const ChallengeForm = () => {
     const [campaignsRes, divisionsRes, coordinationsRes, teamsRes] = await Promise.all([
       supabase.from("campaigns").select("id, title").eq("is_active", true).order("title"),
       supabase.from("divisions").select("id, name").order("name"),
-      supabase.from("coordinations").select("id, name").order("name"),
-      supabase.from("teams").select("id, name").order("name"),
+      supabase.from("coordinations").select("id, name, division_id").order("name"),
+      supabase.from("teams").select("id, name, coordination_id").order("name"),
     ]);
 
     if (campaignsRes.data) setCampaigns(campaignsRes.data);
@@ -148,6 +150,62 @@ export const ChallengeForm = () => {
       setSelected(selected.filter((item) => item !== id));
     } else {
       setSelected([...selected, id]);
+    }
+  };
+
+  const handleSelectAll = () => {
+    const allDivIds = divisions.map(d => d.id);
+    const allCoordIds = coordinations.map(c => c.id);
+    const allTeamIds = teams.map(t => t.id);
+    
+    if (selectedDivisions.length === allDivIds.length && 
+        selectedCoordinations.length === allCoordIds.length && 
+        selectedTeams.length === allTeamIds.length) {
+      // Desmarcar todos
+      setSelectedDivisions([]);
+      setSelectedCoordinations([]);
+      setSelectedTeams([]);
+    } else {
+      // Marcar todos
+      setSelectedDivisions(allDivIds);
+      setSelectedCoordinations(allCoordIds);
+      setSelectedTeams(allTeamIds);
+    }
+  };
+
+  const handleDivisionSelect = (divisionId: string) => {
+    const isSelected = selectedDivisions.includes(divisionId);
+    
+    if (isSelected) {
+      // Desmarcar divisão e seus filhos
+      setSelectedDivisions(selectedDivisions.filter(id => id !== divisionId));
+      const coordsToRemove = coordinations.filter(c => c.division_id === divisionId).map(c => c.id);
+      setSelectedCoordinations(selectedCoordinations.filter(id => !coordsToRemove.includes(id)));
+      const teamsToRemove = teams.filter(t => coordsToRemove.includes(t.coordination_id)).map(t => t.id);
+      setSelectedTeams(selectedTeams.filter(id => !teamsToRemove.includes(id)));
+    } else {
+      // Marcar divisão e seus filhos
+      setSelectedDivisions([...selectedDivisions, divisionId]);
+      const coordsToAdd = coordinations.filter(c => c.division_id === divisionId).map(c => c.id);
+      setSelectedCoordinations([...new Set([...selectedCoordinations, ...coordsToAdd])]);
+      const teamsToAdd = teams.filter(t => coordsToAdd.includes(t.coordination_id)).map(t => t.id);
+      setSelectedTeams([...new Set([...selectedTeams, ...teamsToAdd])]);
+    }
+  };
+
+  const handleCoordinationSelect = (coordId: string) => {
+    const isSelected = selectedCoordinations.includes(coordId);
+    
+    if (isSelected) {
+      // Desmarcar coordenação e suas equipes
+      setSelectedCoordinations(selectedCoordinations.filter(id => id !== coordId));
+      const teamsToRemove = teams.filter(t => t.coordination_id === coordId).map(t => t.id);
+      setSelectedTeams(selectedTeams.filter(id => !teamsToRemove.includes(id)));
+    } else {
+      // Marcar coordenação e suas equipes
+      setSelectedCoordinations([...selectedCoordinations, coordId]);
+      const teamsToAdd = teams.filter(t => t.coordination_id === coordId).map(t => t.id);
+      setSelectedTeams([...new Set([...selectedTeams, ...teamsToAdd])]);
     }
   };
 
@@ -228,18 +286,33 @@ export const ChallengeForm = () => {
                 )}
               </div>
 
-              <div>
-                <Label htmlFor="xp">Recompensa XP *</Label>
-                <Input
-                  id="xp"
-                  type="number"
-                  {...register("xp_reward", { valueAsNumber: true })}
-                  placeholder="50"
-                />
-                {errors.xp_reward && (
-                  <p className="text-sm text-destructive mt-1">{errors.xp_reward.message}</p>
-                )}
-              </div>
+              {challengeType !== 'quiz' && (
+                <div>
+                  <Label htmlFor="xp">Nível de Dificuldade *</Label>
+                  <Select
+                    value={watch("xp_reward")?.toString()}
+                    onValueChange={(val) => setValue("xp_reward", parseInt(val))}
+                  >
+                    <SelectTrigger id="xp">
+                      <SelectValue placeholder="Selecione o nível" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="10">Básico - 10 XP</SelectItem>
+                      <SelectItem value="20">Intermediário - 20 XP</SelectItem>
+                      <SelectItem value="30">Avançado - 30 XP</SelectItem>
+                      <SelectItem value="50">Especialista - 50 XP</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {errors.xp_reward && (
+                    <p className="text-sm text-destructive mt-1">{errors.xp_reward.message}</p>
+                  )}
+                </div>
+              )}
+              {challengeType === 'quiz' && (
+                <div className="flex items-center text-sm text-muted-foreground">
+                  XP será a soma das perguntas do quiz
+                </div>
+              )}
             </div>
           </div>
 
@@ -277,9 +350,23 @@ export const ChallengeForm = () => {
 
           {/* Targeting */}
           <div className="space-y-4 p-4 bg-primary/5 rounded-lg border border-primary/20">
-            <div className="flex items-center gap-2">
-              <TargetIcon className="w-4 h-4 text-primary" />
-              <h3 className="font-semibold text-sm">Alvos do Desafio</h3>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <TargetIcon className="w-4 h-4 text-primary" />
+                <h3 className="font-semibold text-sm">Alvos do Desafio</h3>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleSelectAll}
+              >
+                {selectedDivisions.length === divisions.length && 
+                 selectedCoordinations.length === coordinations.length && 
+                 selectedTeams.length === teams.length
+                  ? "Desmarcar Todas"
+                  : "Selecionar Todas"}
+              </Button>
             </div>
             <p className="text-xs text-muted-foreground">
               Deixe em branco para disponibilizar para todos
@@ -294,13 +381,11 @@ export const ChallengeForm = () => {
                     <Checkbox
                       id={`div-${div.id}`}
                       checked={selectedDivisions.includes(div.id)}
-                      onCheckedChange={() =>
-                        toggleSelection(div.id, selectedDivisions, setSelectedDivisions)
-                      }
+                      onCheckedChange={() => handleDivisionSelect(div.id)}
                     />
                     <label
                       htmlFor={`div-${div.id}`}
-                      className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                      className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
                     >
                       {div.name}
                     </label>
@@ -318,17 +403,11 @@ export const ChallengeForm = () => {
                     <Checkbox
                       id={`coord-${coord.id}`}
                       checked={selectedCoordinations.includes(coord.id)}
-                      onCheckedChange={() =>
-                        toggleSelection(
-                          coord.id,
-                          selectedCoordinations,
-                          setSelectedCoordinations
-                        )
-                      }
+                      onCheckedChange={() => handleCoordinationSelect(coord.id)}
                     />
                     <label
                       htmlFor={`coord-${coord.id}`}
-                      className="text-sm leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                      className="text-sm leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
                     >
                       {coord.name}
                     </label>
@@ -352,7 +431,7 @@ export const ChallengeForm = () => {
                     />
                     <label
                       htmlFor={`team-${team.id}`}
-                      className="text-sm leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                      className="text-sm leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
                     >
                       {team.name}
                     </label>

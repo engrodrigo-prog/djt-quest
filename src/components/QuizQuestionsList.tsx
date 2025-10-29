@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { difficultyLevels, type DifficultyLevel } from "@/lib/validations/quiz";
@@ -71,9 +72,16 @@ export function QuizQuestionsList({ challengeId, onUpdate }: QuizQuestionsListPr
     );
   }
 
+  const totalXP = questions.reduce((sum, q) => sum + q.xp_value, 0);
+
   return (
     <div className="space-y-3">
-      <h3 className="font-semibold text-sm">Perguntas ({questions.length})</h3>
+      <div className="flex items-center justify-between">
+        <h3 className="font-semibold text-sm">Perguntas ({questions.length})</h3>
+        <Badge variant="default" className="text-sm">
+          Total: {totalXP} XP
+        </Badge>
+      </div>
       {questions.map((question, index) => (
         <Card key={question.id}>
           <CardContent className="p-4">
