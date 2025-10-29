@@ -37,10 +37,10 @@ Deno.serve(async (req) => {
 
     console.log('Processing team event:', { userId: user.id, ...body });
 
-    // Verificar se é gerente DJT (pode acessar qualquer equipe) ou líder da equipe
+    // Verificar permissões baseadas em hierarquia
     const { data: profile } = await supabase
       .from('profiles')
-      .select('is_leader, team_id')
+      .select('is_leader, team_id, coord_id, division_id, department_id')
       .eq('id', user.id)
       .single();
 
@@ -49,17 +49,36 @@ Deno.serve(async (req) => {
       .select('role')
       .eq('user_id', user.id);
 
-    const isGerenteDJT = roles?.some(r => r.role === 'gerente_djt');
+    const userRole = roles?.[0]?.role;
 
-    if (!isGerenteDJT) {
-      // Se não for gerente DJT, validar que é líder da equipe específica
-      if (!profile?.is_leader) {
-        throw new Error('Apenas líderes podem criar eventos de equipe');
-      }
+    // Buscar dados da equipe alvo
+    const { data: targetTeam } = await supabase
+      .from('teams')
+      .select(`
+        id,
+        coordination_id,
+        coordinations (
+          division_id
+        )
+      `)
+      .eq('id', body.teamId)
+      .single();
 
-      if (profile.team_id !== body.teamId) {
-        throw new Error('Você só pode criar eventos para sua própria equipe');
+    // Validação hierárquica
+    if (userRole === 'gerente_djt') {
+      // Gerente DJT pode tudo
+    } else if (userRole === 'gerente_divisao_djtx') {
+      if (targetTeam?.coordinations?.division_id !== profile?.division_id) {
+        throw new Error('Você só pode bonificar equipes da sua divisão');
       }
+    } else if (userRole === 'coordenador_djtx') {
+      if (targetTeam?.coordination_id !== profile?.coord_id) {
+        throw new Error('Você só pode bonificar equipes da sua coordenação');
+      }
+    } else if (profile?.is_leader && profile?.team_id === body.teamId) {
+      // Líder de equipe pode bonificar apenas sua equipe
+    } else {
+      throw new Error('Você não tem permissão para criar eventos para esta equipe');
     }
 
     // Validações

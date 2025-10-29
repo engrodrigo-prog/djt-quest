@@ -8,10 +8,10 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { useToast } from '@/hooks/use-toast';
-import { Zap, Gift, AlertTriangle } from 'lucide-react';
+import { Zap, Gift, AlertTriangle, Building2, ChevronRight } from 'lucide-react';
 
 export function TeamEventForm() {
-  const { user, orgScope } = useAuth();
+  const { user, orgScope, userRole } = useAuth();
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
   const [eventType, setEventType] = useState<'reconhecimento' | 'ponto_atencao'>('reconhecimento');
@@ -99,6 +99,12 @@ export function TeamEventForm() {
         <CardDescription>
           Registre reconhecimentos (com XP) ou pontos de atenção (sem XP) para sua equipe
         </CardDescription>
+        {orgScope && (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground mt-2 pt-2 border-t">
+            <Building2 className="h-4 w-4" />
+            <span className="text-xs">Sua equipe: {orgScope.teamName || 'Carregando...'}</span>
+          </div>
+        )}
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-6">

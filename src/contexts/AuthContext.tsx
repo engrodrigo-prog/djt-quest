@@ -5,8 +5,11 @@ import { useNavigate } from 'react-router-dom';
 
 interface OrgScope {
   teamId: string | null;
+  teamName?: string;
   coordId: string | null;
+  coordName?: string;
   divisionId: string;
+  divisionName?: string;
   departmentId: string;
 }
 

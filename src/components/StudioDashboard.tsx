@@ -114,9 +114,11 @@ export const StudioDashboard = ({ onSelectModule, userRole }: StudioDashboardPro
     <div className="min-h-screen bg-background p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-4xl font-bold text-foreground mb-2">DJT Quest Studio</h1>
-          <p className="text-muted-foreground text-lg">
+        <div className="mb-6">
+          <h1 className="text-2xl md:text-3xl font-bold text-foreground mb-1">
+            DJT Quest Studio
+          </h1>
+          <p className="text-muted-foreground text-sm md:text-base">
             Console de gestão | Modo Líder
           </p>
         </div>
@@ -139,14 +141,14 @@ export const StudioDashboard = ({ onSelectModule, userRole }: StudioDashboardPro
                 )}
 
                 {/* Ícone com gradiente */}
-                <div className={`bg-gradient-to-br ${module.gradientFrom} ${module.gradientTo} p-6 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform duration-300`}>
-                  <Icon className="h-10 w-10 text-white" strokeWidth={1.5} />
+                <div className={`bg-gradient-to-br ${module.gradientFrom} ${module.gradientTo} p-4 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform duration-300`}>
+                  <Icon className="h-8 w-8 text-white" strokeWidth={1.5} />
                 </div>
 
                 {/* Conteúdo */}
-                <CardHeader className="pb-6">
-                  <CardTitle className="text-2xl mb-2 text-card-foreground">{module.title}</CardTitle>
-                  <CardDescription className="text-base text-muted-foreground">
+                <CardHeader className="pb-4 pt-0">
+                  <CardTitle className="text-lg mb-1 text-card-foreground">{module.title}</CardTitle>
+                  <CardDescription className="text-xs text-muted-foreground">
                     {module.description}
                   </CardDescription>
                 </CardHeader>

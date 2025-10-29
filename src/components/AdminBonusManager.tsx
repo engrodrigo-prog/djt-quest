@@ -9,16 +9,26 @@ import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { Crown, Gift, AlertTriangle } from 'lucide-react';
+import { Crown, Gift, AlertTriangle, Building2, ChevronRight } from 'lucide-react';
 
 interface Team {
   id: string;
   name: string;
   coordination_id: string;
+  coordinations?: {
+    id: string;
+    name: string;
+    division_id: string;
+    divisions?: {
+      id: string;
+      name: string;
+      department_id: string;
+    };
+  };
 }
 
 export function AdminBonusManager() {
-  const { user } = useAuth();
+  const { user, orgScope, userRole } = useAuth();
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
   const [teams, setTeams] = useState<Team[]>([]);
@@ -32,10 +42,36 @@ export function AdminBonusManager() {
   }, []);
 
   const loadTeams = async () => {
-    const { data, error } = await supabase
+    if (!user || !orgScope) return;
+
+    let query = supabase
       .from('teams')
-      .select('id, name, coordination_id')
+      .select(`
+        id,
+        name,
+        coordination_id,
+        coordinations (
+          id,
+          name,
+          division_id,
+          divisions (
+            id,
+            name,
+            department_id
+          )
+        )
+      `)
       .order('name');
+
+    // Filtrar equipes baseado na role e hierarquia
+    if (userRole === 'coordenador_djtx' && orgScope.coordId) {
+      query = query.eq('coordination_id', orgScope.coordId);
+    } else if (userRole === 'gerente_divisao_djtx' && orgScope.divisionId) {
+      query = query.eq('coordinations.division_id', orgScope.divisionId);
+    }
+    // gerente_djt vê todas as equipes (sem filtro adicional)
+
+    const { data, error } = await query;
 
     if (!error && data) {
       setTeams(data);
@@ -118,11 +154,30 @@ export function AdminBonusManager() {
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Crown className="h-5 w-5 text-amber-500" />
-          Bonificação Global (Admin)
+          Bonificação {userRole === 'gerente_djt' ? 'Global' : 'de Equipes'}
         </CardTitle>
         <CardDescription>
-          Como Gerente DJT, você pode bonificar qualquer equipe da organização
+          {userRole === 'gerente_djt' 
+            ? 'Como Gerente DJT, você pode bonificar qualquer equipe da organização'
+            : userRole === 'gerente_divisao_djtx'
+            ? 'Como Gerente de Divisão, você pode bonificar equipes da sua divisão'
+            : 'Como Coordenador, você pode bonificar equipes da sua coordenação'
+          }
         </CardDescription>
+        {orgScope && userRole !== 'gerente_djt' && (
+          <div className="flex items-center gap-1 text-sm text-muted-foreground mt-2 pt-2 border-t">
+            <Building2 className="h-3 w-3" />
+            <span className="text-xs">DJT</span>
+            <ChevronRight className="h-3 w-3" />
+            <span className="text-xs">{orgScope.divisionName || 'Divisão'}</span>
+            {userRole === 'coordenador_djtx' && (
+              <>
+                <ChevronRight className="h-3 w-3" />
+                <span className="text-xs font-semibold">{orgScope.coordName || 'Coordenação'}</span>
+              </>
+            )}
+          </div>
+        )}
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-6">

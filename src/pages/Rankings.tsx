@@ -1,41 +1,51 @@
-import { useEffect, useState } from "react";
-import Navigation from "@/components/Navigation";
-import { Card } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Trophy, Users, Building, Building2 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
-import rankingBg from '@/assets/backgrounds/ranking-bg.png';
+import { useEffect, useState } from 'react';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/contexts/AuthContext';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import Navigation from '@/components/Navigation';
+import { Trophy, Users, Building2, Award } from 'lucide-react';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Badge } from '@/components/ui/badge';
 
 interface IndividualRanking {
-  id: string;
+  rank: number;
+  userId: string;
   name: string;
   xp: number;
   level: number;
-  avatar_url: string | null;
-  team_name: string;
+  avatarUrl: string | null;
+  tier: string;
+  teamName: string;
+  teamId: string | null;
+  coordId: string | null;
+  divisionId: string;
 }
 
 interface TeamRanking {
-  id: string;
-  name: string;
-  total_xp: number;
-  member_count: number;
-  team_modifier: number;
+  rank: number;
+  teamId: string;
+  teamName: string;
+  totalXp: number;
+  memberCount: number;
+  teamModifier: number;
 }
 
 interface DivisionRanking {
-  id: string;
-  name: string;
-  total_xp: number;
-  team_count: number;
+  rank: number;
+  divisionId: string;
+  divisionName: string;
+  totalXp: number;
+  teamCount: number;
 }
 
-export default function Rankings() {
-  const [individualRanking, setIndividualRanking] = useState<IndividualRanking[]>([]);
-  const [teamRanking, setTeamRanking] = useState<TeamRanking[]>([]);
-  const [divisionRanking, setDivisionRanking] = useState<DivisionRanking[]>([]);
+export function Rankings() {
+  const { orgScope } = useAuth();
+  const [individualRankings, setIndividualRankings] = useState<IndividualRanking[]>([]);
+  const [myBaseRankings, setMyBaseRankings] = useState<IndividualRanking[]>([]);
+  const [myTeamRankings, setMyTeamRankings] = useState<IndividualRanking[]>([]);
+  const [teamRankings, setTeamRankings] = useState<TeamRanking[]>([]);
+  const [divisionRankings, setDivisionRankings] = useState<DivisionRanking[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -43,258 +53,413 @@ export default function Rankings() {
   }, []);
 
   const fetchRankings = async () => {
-    setLoading(true);
-
-    // Individual ranking
-    const { data: individuals } = await supabase
-      .from("profiles")
-      .select(`
-        id,
-        name,
-        xp,
-        level,
-        avatar_url,
-        teams(name)
-      `)
-      .order("xp", { ascending: false })
-      .limit(100);
-
-    if (individuals) {
-      setIndividualRanking(
-        individuals.map((p: any) => ({
-          id: p.id,
-          name: p.name,
-          xp: p.xp || 0,
-          level: p.level || 1,
-          avatar_url: p.avatar_url,
-          team_name: p.teams?.name || "Sem equipe",
-        }))
-      );
-    }
-
-    // Team ranking
-    const { data: teams } = await supabase
-      .from("teams")
-      .select(`
-        id,
-        name,
-        team_modifier,
-        profiles(xp)
-      `)
-      .order("name");
-
-    if (teams) {
-      const teamRankings = teams.map((team: any) => {
-        const totalXp = team.profiles?.reduce((sum: number, p: any) => sum + (p.xp || 0), 0) || 0;
-        return {
-          id: team.id,
-          name: team.name,
-          total_xp: totalXp,
-          member_count: team.profiles?.length || 0,
-          team_modifier: team.team_modifier || 1.0,
-        };
-      });
-      setTeamRanking(teamRankings.sort((a, b) => b.total_xp - a.total_xp));
-    }
-
-    // Division ranking
-    const { data: divisions } = await supabase
-      .from("divisions")
-      .select(`
-        id,
-        name,
-        coordinations(
-          teams(
-            profiles(xp)
+    try {
+      // Individual rankings - Geral
+      const { data: profiles } = await supabase
+        .from('profiles')
+        .select(`
+          id,
+          name,
+          xp,
+          avatar_url,
+          tier,
+          team_id,
+          coord_id,
+          division_id,
+          teams (
+            name
           )
-        )
-      `)
-      .order("name");
+        `)
+        .order('xp', { ascending: false })
+        .limit(100);
 
-    if (divisions) {
-      const divisionRankings = divisions.map((div: any) => {
-        let totalXp = 0;
-        let teamCount = 0;
-        div.coordinations?.forEach((coord: any) => {
-          coord.teams?.forEach((team: any) => {
-            teamCount++;
-            team.profiles?.forEach((p: any) => {
-              totalXp += p.xp || 0;
+      if (profiles) {
+        const ranked = profiles.map((profile, index) => ({
+          rank: index + 1,
+          userId: profile.id,
+          name: profile.name,
+          xp: profile.xp,
+          level: Math.floor(profile.xp / 100),
+          avatarUrl: profile.avatar_url,
+          tier: profile.tier,
+          teamName: profile.teams?.name || 'Sem equipe',
+          coordId: profile.coord_id,
+          divisionId: profile.division_id,
+          teamId: profile.team_id
+        }));
+        setIndividualRankings(ranked);
+
+        // Filtrar para "Minha Base" (divisão ou coordenação)
+        if (orgScope?.divisionId) {
+          const myBase = ranked.filter(p => p.divisionId === orgScope.divisionId);
+          setMyBaseRankings(myBase.map((p, i) => ({ ...p, rank: i + 1 })));
+        }
+
+        // Filtrar para "Minha Equipe"
+        if (orgScope?.teamId) {
+          const myTeam = ranked.filter(p => p.teamId === orgScope.teamId);
+          setMyTeamRankings(myTeam.map((p, i) => ({ ...p, rank: i + 1 })));
+        }
+      }
+
+      // Team rankings
+      const { data: teams } = await supabase
+        .from('teams')
+        .select(`
+          id,
+          name,
+          team_modifier,
+          profiles!inner (
+            xp
+          )
+        `);
+
+      if (teams) {
+        const teamData = teams.map((team: any) => {
+          const totalXp = team.profiles.reduce((sum: number, p: any) => sum + (p.xp || 0), 0);
+          return {
+            teamId: team.id,
+            teamName: team.name,
+            totalXp,
+            memberCount: team.profiles.length,
+            teamModifier: team.team_modifier || 1.0
+          };
+        }).sort((a, b) => b.totalXp - a.totalXp);
+
+        setTeamRankings(teamData.map((t, i) => ({ ...t, rank: i + 1 })));
+      }
+
+      // Division rankings
+      const { data: divisions } = await supabase
+        .from('divisions')
+        .select(`
+          id,
+          name,
+          coordinations (
+            teams (
+              profiles (
+                xp
+              )
+            )
+          )
+        `);
+
+      if (divisions) {
+        const divisionData = divisions.map((div: any) => {
+          let totalXp = 0;
+          let teamCount = 0;
+          
+          div.coordinations?.forEach((coord: any) => {
+            coord.teams?.forEach((team: any) => {
+              teamCount++;
+              team.profiles?.forEach((p: any) => {
+                totalXp += p.xp || 0;
+              });
             });
           });
-        });
-        return {
-          id: div.id,
-          name: div.name,
-          total_xp: totalXp,
-          team_count: teamCount,
-        };
-      });
-      setDivisionRanking(divisionRankings.sort((a, b) => b.total_xp - a.total_xp));
-    }
 
-    setLoading(false);
+          return {
+            divisionId: div.id,
+            divisionName: div.name,
+            totalXp,
+            teamCount
+          };
+        }).sort((a, b) => b.totalXp - a.totalXp);
+
+        setDivisionRankings(divisionData.map((d, i) => ({ ...d, rank: i + 1 })));
+      }
+    } catch (error) {
+      console.error('Error fetching rankings:', error);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const getMedalEmoji = (position: number) => {
-    switch (position) {
-      case 1:
-        return "🥇";
-      case 2:
-        return "🥈";
-      case 3:
-        return "🥉";
-      default:
-        return `#${position}`;
-    }
+    if (position === 1) return '🥇';
+    if (position === 2) return '🥈';
+    if (position === 3) return '🥉';
+    return `#${position}`;
   };
 
   return (
-    <div 
-      className="min-h-screen"
-      style={{
-        backgroundImage: `url(${rankingBg})`,
-        backgroundSize: 'cover',
-        backgroundPosition: 'center',
-        backgroundAttachment: 'fixed',
-      }}
-    >
+    <div className="min-h-screen bg-background">
       <Navigation />
-      <main className="container mx-auto p-4 md:p-6 max-w-6xl">
+      <div className="container mx-auto p-4 md:p-6 max-w-6xl">
         <div className="mb-6">
-          <h1 className="text-3xl md:text-4xl font-bold text-foreground mb-2">
-            <Trophy className="inline-block w-8 h-8 mr-2 text-primary" />
-            Rankings DJT Go
+          <h1 className="text-3xl md:text-4xl font-bold flex items-center gap-2">
+            <Trophy className="h-8 w-8 text-primary" />
+            Rankings DJT Quest
           </h1>
-          <p className="text-muted-foreground">
+          <p className="text-muted-foreground mt-2">
             Acompanhe o desempenho individual, das equipes e divisões
           </p>
         </div>
 
         <Tabs defaultValue="individual" className="w-full">
-          <TabsList className="grid w-full grid-cols-3 mb-6">
-            <TabsTrigger value="individual">
-              <Users className="w-4 h-4 mr-2" />
-              Individual
+          <TabsList className="grid w-full grid-cols-5 mb-6">
+            <TabsTrigger value="individual" className="flex items-center gap-2">
+              <Trophy className="h-4 w-4" />
+              Geral
             </TabsTrigger>
-            <TabsTrigger value="teams">
-              <Building className="w-4 h-4 mr-2" />
+            <TabsTrigger value="mybase" className="flex items-center gap-2">
+              <Building2 className="h-4 w-4" />
+              Minha Base
+            </TabsTrigger>
+            <TabsTrigger value="myteam" className="flex items-center gap-2">
+              <Users className="h-4 w-4" />
+              Minha Equipe
+            </TabsTrigger>
+            <TabsTrigger value="teams" className="flex items-center gap-2">
+              <Users className="h-4 w-4" />
               Equipes
             </TabsTrigger>
-            <TabsTrigger value="divisions">
-              <Building2 className="w-4 h-4 mr-2" />
+            <TabsTrigger value="divisions" className="flex items-center gap-2">
+              <Building2 className="h-4 w-4" />
               Divisões
             </TabsTrigger>
           </TabsList>
 
           <TabsContent value="individual">
-            <Card className="p-6 bg-card/95 backdrop-blur-sm">
-              <h2 className="text-xl font-semibold mb-4">Ranking Individual</h2>
-              {loading ? (
-                <p className="text-muted-foreground">Carregando...</p>
-              ) : (
-                <div className="space-y-3">
-                  {individualRanking.map((player, index) => (
-                    <div
-                      key={player.id}
-                      className="flex items-center gap-4 p-3 rounded-lg bg-secondary/30 hover:bg-secondary/50 transition-colors"
-                    >
-                      <span className="text-2xl font-bold w-12 text-center">
-                        {getMedalEmoji(index + 1)}
-                      </span>
-                      <Avatar className="w-12 h-12">
-                        <AvatarImage src={player.avatar_url || undefined} />
-                        <AvatarFallback>{player.name.charAt(0)}</AvatarFallback>
-                      </Avatar>
-                      <div className="flex-1">
-                        <p className="font-semibold text-foreground">{player.name}</p>
-                        <p className="text-sm text-muted-foreground">{player.team_name}</p>
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Trophy className="h-5 w-5 text-yellow-500" />
+                  Ranking Geral
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {loading ? (
+                  <p className="text-center py-8 text-muted-foreground">Carregando...</p>
+                ) : (
+                  <div className="space-y-3">
+                    {individualRankings.map((ranking) => (
+                      <div
+                        key={ranking.userId}
+                        className="flex items-center gap-4 p-4 rounded-lg border hover:bg-accent/50 transition-colors"
+                      >
+                        <span className="text-2xl font-bold text-muted-foreground min-w-[3rem]">
+                          {getMedalEmoji(ranking.rank)}
+                        </span>
+                        
+                        <Avatar className="h-12 w-12">
+                          <AvatarImage src={ranking.avatarUrl || ''} />
+                          <AvatarFallback>{ranking.name.split(' ').map(n => n[0]).join('')}</AvatarFallback>
+                        </Avatar>
+
+                        <div className="flex-1">
+                          <p className="font-semibold">{ranking.name}</p>
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <Badge variant="outline" className="text-xs">
+                              {ranking.tier}
+                            </Badge>
+                            <span>{ranking.teamName}</span>
+                          </div>
+                        </div>
+
+                        <div className="text-right">
+                          <p className="text-lg font-bold">{ranking.xp.toLocaleString()} XP</p>
+                          <p className="text-sm text-muted-foreground">Nível {ranking.level}</p>
+                        </div>
                       </div>
-                      <div className="text-right">
-                        <p className="font-bold text-lg text-primary">{player.xp} XP</p>
-                        <Badge variant="outline">Nível {player.level}</Badge>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="mybase">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Building2 className="h-5 w-5 text-blue-500" />
+                  Ranking da Minha Base
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {loading ? (
+                  <p className="text-center py-8 text-muted-foreground">Carregando...</p>
+                ) : myBaseRankings.length === 0 ? (
+                  <p className="text-center py-8 text-muted-foreground">Nenhum colaborador encontrado na sua base.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {myBaseRankings.map((ranking) => (
+                      <div
+                        key={ranking.userId}
+                        className="flex items-center gap-4 p-4 rounded-lg border hover:bg-accent/50 transition-colors"
+                      >
+                        <span className="text-2xl font-bold text-muted-foreground min-w-[3rem]">
+                          {getMedalEmoji(ranking.rank)}
+                        </span>
+                        
+                        <Avatar className="h-12 w-12">
+                          <AvatarImage src={ranking.avatarUrl || ''} />
+                          <AvatarFallback>{ranking.name.split(' ').map(n => n[0]).join('')}</AvatarFallback>
+                        </Avatar>
+
+                        <div className="flex-1">
+                          <p className="font-semibold">{ranking.name}</p>
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <Badge variant="outline" className="text-xs">
+                              {ranking.tier}
+                            </Badge>
+                            <span>{ranking.teamName}</span>
+                          </div>
+                        </div>
+
+                        <div className="text-right">
+                          <p className="text-lg font-bold">{ranking.xp.toLocaleString()} XP</p>
+                          <p className="text-sm text-muted-foreground">Nível {ranking.level}</p>
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="myteam">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Users className="h-5 w-5 text-green-500" />
+                  Ranking da Minha Equipe
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {loading ? (
+                  <p className="text-center py-8 text-muted-foreground">Carregando...</p>
+                ) : myTeamRankings.length === 0 ? (
+                  <p className="text-center py-8 text-muted-foreground">Nenhum colaborador encontrado na sua equipe.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {myTeamRankings.map((ranking) => (
+                      <div
+                        key={ranking.userId}
+                        className="flex items-center gap-4 p-4 rounded-lg border hover:bg-accent/50 transition-colors"
+                      >
+                        <span className="text-2xl font-bold text-muted-foreground min-w-[3rem]">
+                          {getMedalEmoji(ranking.rank)}
+                        </span>
+                        
+                        <Avatar className="h-12 w-12">
+                          <AvatarImage src={ranking.avatarUrl || ''} />
+                          <AvatarFallback>{ranking.name.split(' ').map(n => n[0]).join('')}</AvatarFallback>
+                        </Avatar>
+
+                        <div className="flex-1">
+                          <p className="font-semibold">{ranking.name}</p>
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <Badge variant="outline" className="text-xs">
+                              {ranking.tier}
+                            </Badge>
+                          </div>
+                        </div>
+
+                        <div className="text-right">
+                          <p className="text-lg font-bold">{ranking.xp.toLocaleString()} XP</p>
+                          <p className="text-sm text-muted-foreground">Nível {ranking.level}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
             </Card>
           </TabsContent>
 
           <TabsContent value="teams">
-            <Card className="p-6 bg-card/95 backdrop-blur-sm">
-              <h2 className="text-xl font-semibold mb-4">Ranking de Equipes</h2>
-              {loading ? (
-                <p className="text-muted-foreground">Carregando...</p>
-              ) : (
-                <div className="space-y-3">
-                  {teamRanking.map((team, index) => (
-                    <div
-                      key={team.id}
-                      className="flex items-center gap-4 p-4 rounded-lg bg-secondary/30 hover:bg-secondary/50 transition-colors"
-                    >
-                      <span className="text-2xl font-bold w-12 text-center">
-                        {getMedalEmoji(index + 1)}
-                      </span>
-                      <div className="flex-1">
-                        <p className="font-semibold text-foreground text-lg">{team.name}</p>
-                        <p className="text-sm text-muted-foreground">
-                          {team.member_count} membros
-                        </p>
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Users className="h-5 w-5 text-purple-500" />
+                  Ranking de Equipes
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {loading ? (
+                  <p className="text-center py-8 text-muted-foreground">Carregando...</p>
+                ) : (
+                  <div className="space-y-3">
+                    {teamRankings.map((ranking) => (
+                      <div
+                        key={ranking.teamId}
+                        className="flex items-center gap-4 p-4 rounded-lg border hover:bg-accent/50 transition-colors"
+                      >
+                        <span className="text-2xl font-bold text-muted-foreground min-w-[3rem]">
+                          {getMedalEmoji(ranking.rank)}
+                        </span>
+
+                        <div className="flex-1">
+                          <p className="font-semibold text-lg">{ranking.teamName}</p>
+                          <p className="text-sm text-muted-foreground">{ranking.memberCount} membros</p>
+                        </div>
+
+                        <div className="text-right">
+                          <p className="text-lg font-bold">{ranking.totalXp.toLocaleString()} XP</p>
+                          <Badge
+                            variant={
+                              ranking.teamModifier > 1.0
+                                ? 'default'
+                                : ranking.teamModifier < 1.0
+                                ? 'destructive'
+                                : 'secondary'
+                            }
+                          >
+                            {ranking.teamModifier}x
+                          </Badge>
+                        </div>
                       </div>
-                      <div className="text-right">
-                        <p className="font-bold text-xl text-primary">{team.total_xp} XP</p>
-                        <Badge
-                          variant={
-                            team.team_modifier > 1.0
-                              ? "default"
-                              : team.team_modifier < 1.0
-                              ? "destructive"
-                              : "secondary"
-                          }
-                        >
-                          Modificador: {team.team_modifier.toFixed(2)}x
-                        </Badge>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+                    ))}
+                  </div>
+                )}
+              </CardContent>
             </Card>
           </TabsContent>
 
           <TabsContent value="divisions">
-            <Card className="p-6 bg-card/95 backdrop-blur-sm">
-              <h2 className="text-xl font-semibold mb-4">Ranking de Divisões</h2>
-              {loading ? (
-                <p className="text-muted-foreground">Carregando...</p>
-              ) : (
-                <div className="space-y-3">
-                  {divisionRanking.map((division, index) => (
-                    <div
-                      key={division.id}
-                      className="flex items-center gap-4 p-4 rounded-lg bg-secondary/30 hover:bg-secondary/50 transition-colors"
-                    >
-                      <span className="text-2xl font-bold w-12 text-center">
-                        {getMedalEmoji(index + 1)}
-                      </span>
-                      <div className="flex-1">
-                        <p className="font-semibold text-foreground text-lg">{division.name}</p>
-                        <p className="text-sm text-muted-foreground">
-                          {division.team_count} equipes
-                        </p>
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Building2 className="h-5 w-5 text-orange-500" />
+                  Ranking de Divisões
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {loading ? (
+                  <p className="text-center py-8 text-muted-foreground">Carregando...</p>
+                ) : (
+                  <div className="space-y-3">
+                    {divisionRankings.map((ranking) => (
+                      <div
+                        key={ranking.divisionId}
+                        className="flex items-center gap-4 p-4 rounded-lg border hover:bg-accent/50 transition-colors"
+                      >
+                        <span className="text-2xl font-bold text-muted-foreground min-w-[3rem]">
+                          {getMedalEmoji(ranking.rank)}
+                        </span>
+
+                        <div className="flex-1">
+                          <p className="font-semibold text-lg">{ranking.divisionName}</p>
+                          <p className="text-sm text-muted-foreground">{ranking.teamCount} equipes</p>
+                        </div>
+
+                        <div className="text-right">
+                          <p className="text-lg font-bold">{ranking.totalXp.toLocaleString()} XP</p>
+                        </div>
                       </div>
-                      <div className="text-right">
-                        <p className="font-bold text-xl text-primary">{division.total_xp} XP</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+                    ))}
+                  </div>
+                )}
+              </CardContent>
             </Card>
           </TabsContent>
         </Tabs>
-      </main>
+      </div>
     </div>
   );
 }
+
+export default Rankings;
