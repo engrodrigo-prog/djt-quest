@@ -41,34 +41,58 @@ Deno.serve(async (req) => {
       errors: [] as { email: string; error: string }[],
     };
 
-    // Primeiro, deletar de profiles e user_roles baseado em email
-    try {
-      // Deletar user_roles de usuários que não estão na lista
-      const { error: rolesError } = await supabaseAdmin
-        .from('user_roles')
-        .delete()
-        .not('user_id', 'in', `(SELECT id FROM profiles WHERE LOWER(email) = ANY(ARRAY[${normalizedEmails.map(e => `'${e}'`).join(',')}]))`);
+    // Primeiro, buscar todos os profiles
+    const { data: allProfiles, error: fetchError } = await supabaseAdmin
+      .from('profiles')
+      .select('id, email');
 
-      if (rolesError) {
-        console.error('Error deleting user_roles:', rolesError);
+    if (fetchError) {
+      console.error('Error fetching profiles:', fetchError);
+      throw fetchError;
+    }
+
+    // Calcular IDs e emails para deletar usando JavaScript
+    const idsParaDeletar = allProfiles
+      .filter(p => !normalizedEmails.includes(p.email?.toLowerCase().trim() || ''))
+      .map(p => p.id);
+
+    const emailsParaDeletar = allProfiles
+      .filter(p => !normalizedEmails.includes(p.email?.toLowerCase().trim() || ''))
+      .map(p => p.email);
+
+    // Deletar user_roles e profiles usando .in() com arrays
+    if (idsParaDeletar.length > 0) {
+      try {
+        // Deletar user_roles
+        const { error: rolesError } = await supabaseAdmin
+          .from('user_roles')
+          .delete()
+          .in('user_id', idsParaDeletar);
+
+        if (rolesError) {
+          console.error('Error deleting user_roles:', rolesError);
+        } else {
+          console.log(`Deleted user_roles for ${idsParaDeletar.length} users`);
+        }
+
+        // Deletar profiles
+        const { data: deletedProfiles, error: profilesError } = await supabaseAdmin
+          .from('profiles')
+          .delete()
+          .in('id', idsParaDeletar)
+          .select('email');
+
+        if (profilesError) {
+          console.error('Error deleting profiles:', profilesError);
+        } else if (deletedProfiles) {
+          console.log(`Deleted ${deletedProfiles.length} profiles from database`);
+          results.deleted.push(...deletedProfiles.map(p => p.email || 'unknown'));
+        }
+      } catch (error) {
+        console.error('Error cleaning up database:', error);
       }
-
-      // Deletar profiles que não estão na lista
-      const { data: deletedProfiles, error: profilesError } = await supabaseAdmin
-        .from('profiles')
-        .delete()
-        .not('email', 'in', `(${normalizedEmails.map(e => `'${e}'`).join(',')})`)
-        .select('email');
-
-      if (profilesError) {
-        console.error('Error deleting profiles:', profilesError);
-      }
-
-      if (deletedProfiles) {
-        console.log(`Deleted ${deletedProfiles.length} profiles from database`);
-      }
-    } catch (error) {
-      console.error('Error cleaning up database:', error);
+    } else {
+      console.log('No profiles to delete');
     }
 
     // Agora buscar todos os usuários auth

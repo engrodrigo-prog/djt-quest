@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Command, CommandEmpty, CommandGroup, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -24,12 +24,25 @@ const LAST_USER_KEY = 'djt_last_user_id';
 const Auth = () => {
   const [selectedUserId, setSelectedUserId] = useState("");
   const [selectedUserName, setSelectedUserName] = useState("");
+  const [query, setQuery] = useState("");
   const [users, setUsers] = useState<UserOption[]>([]);
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
   const { signIn } = useAuth();
   const navigate = useNavigate();
+
+  // Normalizar string removendo acentos e convertendo para minúsculas
+  const normalize = (str: string) => 
+    str.normalize('NFD')
+       .replace(/[\u0300-\u036f]/g, '')
+       .toLowerCase()
+       .trim();
+
+  // Filtrar usuários baseado na query
+  const filteredUsers = users.filter(u => 
+    normalize(u.name).includes(normalize(query))
+  );
 
   useEffect(() => {
     fetchUsers();
@@ -52,6 +65,7 @@ const Auth = () => {
         if (lastUser) {
           setSelectedUserId(lastUser.id);
           setSelectedUserName(lastUser.name);
+          setQuery(lastUser.name);
         }
       }
     } catch (error) {
@@ -101,7 +115,7 @@ const Auth = () => {
       }}
     >
       <div className="absolute inset-0 bg-black/30" />
-      <Card className="w-full max-w-md bg-background/90 backdrop-blur-md shadow-2xl relative z-10">
+      <Card className="w-full max-w-md bg-background backdrop-blur-sm shadow-2xl relative z-10">
         <CardHeader>
           <CardTitle>DJT Quest - Login</CardTitle>
           <CardDescription>
@@ -114,34 +128,43 @@ const Auth = () => {
               <Label htmlFor="user">Usuário</Label>
               <Popover open={open} onOpenChange={setOpen}>
                 <PopoverTrigger asChild>
-                  <Button
-                    variant="outline"
-                    role="combobox"
-                    aria-expanded={open}
-                    className="w-full justify-between"
-                    onClick={() => setOpen(true)}
-                  >
-                    {selectedUserName || "Selecione ou digite seu nome..."}
-                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                  </Button>
+                  <div className="relative">
+                    <Input
+                      placeholder="Digite seu nome..."
+                      value={query}
+                      onChange={(e) => {
+                        setQuery(e.target.value);
+                        setOpen(true);
+                      }}
+                      onFocus={() => setOpen(true)}
+                      onBlur={() => setTimeout(() => setOpen(false), 200)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Escape') setOpen(false);
+                      }}
+                      className="w-full pr-10"
+                    />
+                    <ChevronsUpDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 opacity-50 pointer-events-none" />
+                  </div>
                 </PopoverTrigger>
                 <PopoverContent 
                   className="w-[var(--radix-popover-trigger-width)] p-0 z-50 bg-popover border shadow-lg" 
                   align="start"
                   sideOffset={4}
                 >
-                  <Command>
-                    <CommandInput placeholder="Digite seu nome..." autoFocus />
+                  <Command shouldFilter={false}>
                     <CommandList>
-                      <CommandEmpty>Nenhum usuário encontrado.</CommandEmpty>
-                      <CommandGroup heading={users.length > 0 ? `${users.length} usuários` : undefined}>
-                        {users.map((user) => (
+                      <CommandEmpty>
+                        Nenhum usuário encontrado para "{query}".
+                      </CommandEmpty>
+                      <CommandGroup heading={filteredUsers.length > 0 ? `${filteredUsers.length} encontrado(s)` : undefined}>
+                        {filteredUsers.map((user) => (
                           <CommandItem
                             key={user.id}
                             value={user.name}
                             onSelect={() => {
                               setSelectedUserId(user.id);
                               setSelectedUserName(user.name);
+                              setQuery(user.name);
                               setOpen(false);
                             }}
                           >
