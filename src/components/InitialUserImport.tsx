@@ -24,6 +24,12 @@ export function InitialUserImport() {
     errors: { name: string; error: string }[];
     admins: string[];
   } | null>(null);
+  const [cleanupResults, setCleanupResults] = useState<{
+    kept: string[];
+    deleted: string[];
+    errors: { email: string; error: string }[];
+  } | null>(null);
+  const [isCleaningUp, setIsCleaningUp] = useState(false);
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -90,6 +96,38 @@ export function InitialUserImport() {
     }
   };
 
+  const handleCleanup = async () => {
+    if (!users.length) {
+      toast.error('Nenhum usuário no preview para manter');
+      return;
+    }
+
+    if (!confirm(`Isso irá DELETAR todos os usuários EXCETO os ${users.length} do CSV. Continuar?`)) {
+      return;
+    }
+
+    setIsCleaningUp(true);
+    setCleanupResults(null);
+
+    try {
+      const emailsToKeep = users.map(u => u.email.trim().toLowerCase());
+
+      const { data, error } = await supabase.functions.invoke('studio-cleanup-users', {
+        body: { emailsToKeep },
+      });
+
+      if (error) throw error;
+
+      setCleanupResults(data);
+      toast.success(`${data.deleted.length} usuários removidos, ${data.kept.length} mantidos`);
+    } catch (error) {
+      console.error('Error cleaning up users:', error);
+      toast.error('Erro ao limpar usuários');
+    } finally {
+      setIsCleaningUp(false);
+    }
+  };
+
   return (
     <Card>
       <CardHeader>
@@ -129,6 +167,15 @@ export function InitialUserImport() {
           >
             {importing ? 'Importando...' : `Importar ${users.length} Usuários`}
           </Button>
+          
+          <Button 
+            onClick={handleCleanup}
+            disabled={users.length === 0 || isCleaningUp}
+            variant="destructive"
+            className="flex-1"
+          >
+            {isCleaningUp ? 'Limpando...' : 'Limpar Outros Usuários'}
+          </Button>
         </div>
 
         {results && (
@@ -167,6 +214,48 @@ export function InitialUserImport() {
                       <li key={i}>✗ {err.name}: {err.error}</li>
                     ))}
                     {results.errors.length > 3 && <li>... e mais {results.errors.length - 3}</li>}
+                  </ul>
+                </AlertDescription>
+              </Alert>
+            )}
+          </div>
+        )}
+
+        {cleanupResults && (
+          <div className="space-y-4 mt-6">
+            <Alert className="border-blue-500">
+              <CheckCircle className="h-4 w-4 text-blue-500" />
+              <AlertDescription>
+                <strong className="text-blue-600">Mantidos ({cleanupResults.kept.length}):</strong>
+                <p className="text-sm mt-1">Usuários do CSV foram preservados</p>
+              </AlertDescription>
+            </Alert>
+
+            {cleanupResults.deleted.length > 0 && (
+              <Alert className="border-orange-500">
+                <AlertCircle className="h-4 w-4 text-orange-500" />
+                <AlertDescription>
+                  <strong className="text-orange-600">Deletados ({cleanupResults.deleted.length}):</strong>
+                  <ul className="mt-2 text-sm">
+                    {cleanupResults.deleted.slice(0, 5).map((email, i) => (
+                      <li key={i}>🗑️ {email}</li>
+                    ))}
+                    {cleanupResults.deleted.length > 5 && <li>... e mais {cleanupResults.deleted.length - 5}</li>}
+                  </ul>
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {cleanupResults.errors.length > 0 && (
+              <Alert className="border-red-500">
+                <XCircle className="h-4 w-4 text-red-500" />
+                <AlertDescription>
+                  <strong className="text-red-600">Erros ({cleanupResults.errors.length}):</strong>
+                  <ul className="mt-2 text-sm">
+                    {cleanupResults.errors.slice(0, 3).map((err, i) => (
+                      <li key={i}>✗ {err.email}: {err.error}</li>
+                    ))}
+                    {cleanupResults.errors.length > 3 && <li>... e mais {cleanupResults.errors.length - 3}</li>}
                   </ul>
                 </AlertDescription>
               </Alert>
