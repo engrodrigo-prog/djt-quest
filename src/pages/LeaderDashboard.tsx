@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Trophy, Users, TrendingUp, MessageSquare, Target, Award } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
+import { TeamTierProgressCard } from "@/components/TeamTierProgressCard";
 
 interface TeamStats {
   total_members: number;
@@ -202,7 +203,7 @@ export default function LeaderDashboard() {
       </div>
 
       {/* Estatísticas Gerais */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Colaboradores</CardTitle>
@@ -212,19 +213,6 @@ export default function LeaderDashboard() {
             <div className="text-2xl font-bold">{teamStats?.total_members || 0}</div>
             <p className="text-xs text-muted-foreground">
               Membros da equipe
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">XP Médio</CardTitle>
-            <TrendingUp className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{teamStats?.avg_xp || 0}</div>
-            <p className="text-xs text-muted-foreground">
-              Total: {teamStats?.total_xp || 0} XP
             </p>
           </CardContent>
         </Card>
@@ -255,6 +243,15 @@ export default function LeaderDashboard() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Progressão da Equipe */}
+      {teamStats && (
+        <TeamTierProgressCard 
+          avgXp={teamStats.avg_xp} 
+          totalMembers={teamStats.total_members}
+          totalXp={teamStats.total_xp}
+        />
+      )}
 
       <Tabs defaultValue="campaigns" className="space-y-4">
         <TabsList>
