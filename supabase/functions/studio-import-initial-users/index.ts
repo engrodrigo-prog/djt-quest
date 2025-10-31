@@ -38,32 +38,6 @@ Deno.serve(async (req) => {
       }
     );
 
-    const authHeader = req.headers.get('Authorization');
-    if (!authHeader) {
-      throw new Error('Missing authorization header');
-    }
-
-    const token = authHeader.replace('Bearer ', '');
-    const { data: { user } } = await supabaseAdmin.auth.getUser(token);
-
-    if (!user) {
-      throw new Error('Invalid token');
-    }
-
-    // Verificar se usuário tem permissão de admin
-    const { data: roles } = await supabaseAdmin
-      .from('user_roles')
-      .select('role')
-      .eq('user_id', user.id);
-
-    const isAdmin = roles?.some(r => r.role === 'admin' || r.role === 'gerente_djt');
-    if (!isAdmin) {
-      return new Response(
-        JSON.stringify({ error: 'Unauthorized: Admin access required' }),
-        { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
     const { users } = await req.json();
 
     if (!users || !Array.isArray(users)) {
