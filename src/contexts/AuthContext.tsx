@@ -74,7 +74,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [previousRole, setPreviousRole] = useState<string | null>(null);
   const [hasShownWelcome, setHasShownWelcome] = useState(false);
 
-  const fetchUserSession = async (currentSession: Session) => {
+  const fetchUserSession = async (userId: string) => {
     // Try cache first
     const cached = getCachedAuth();
     if (cached) {
@@ -83,10 +83,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setStudioAccess(cached.studioAccess);
       setIsLeader(cached.isLeader);
       setOrgScope(cached.orgScope);
-      return;
+      setProfile(cached.profile);
+      return cached;
     }
 
     try {
+      // Get fresh session token
+      const { data: { session: currentSession } } = await supabase.auth.getSession();
+      if (!currentSession) throw new Error('No session');
+
       const { data, error } = await supabase.functions.invoke('auth-me', {
         headers: {
           Authorization: `Bearer ${currentSession.access_token}`
@@ -97,14 +102,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       console.log('🔸 Fresh auth-me response:', data);
       
+      const authData = {
+        role: data.role,
+        studioAccess: data.studioAccess,
+        isLeader: data.isLeader,
+        orgScope: data.orgScope,
+        profile: data.profile
+      };
+      
       // Cache the result
-      setCachedAuth(data);
+      setCachedAuth(authData);
       
       setUserRole(data.role);
       setStudioAccess(data.studioAccess);
       setIsLeader(data.isLeader || false);
       setOrgScope(data.orgScope);
       setProfile(data.profile);
+      
+      return authData;
     } catch (error) {
       console.error('Error fetching user session:', error);
       setUserRole('colaborador');
@@ -118,8 +133,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Clear cache to force refresh
     localStorage.removeItem(CACHE_KEY);
     const { data: { session: currentSession } } = await supabase.auth.getSession();
-    if (currentSession) {
-      await fetchUserSession(currentSession);
+    if (currentSession?.user?.id) {
+      await fetchUserSession(currentSession.user.id);
     }
   };
 
@@ -140,15 +155,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         
         if (session) {
           const oldRole = userRole;
-          await fetchUserSession(session);
+          const authData = await fetchUserSession(session.user.id);
           
-          console.log('👤 AuthContext: role check', { oldRole, newRole: userRole, hasShownWelcome });
+          console.log('👤 AuthContext: role check', { oldRole, newRole: authData?.role, hasShownWelcome });
+          
+          // Check if role upgraded and redirect leaders
+          if (authData?.isLeader && window.location.pathname === '/auth') {
+            setTimeout(() => {
+              window.location.href = '/leader-dashboard';
+            }, 500);
+          }
           
           // Check if role upgraded from colaborador to manager
-          if (oldRole === 'colaborador' && userRole && userRole.includes('gerente') && !hasShownWelcome) {
+          if (oldRole === 'colaborador' && authData?.role && authData.role.includes('gerente') && !hasShownWelcome) {
             setHasShownWelcome(true);
             console.log('🎉 AuthContext: Triggering welcome toast');
-            // Toast will be shown after dashboard renders
             setTimeout(() => {
               window.dispatchEvent(new CustomEvent('show-studio-welcome'));
             }, 1000);
@@ -170,7 +191,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(session?.user ?? null);
       
       if (session) {
-        await fetchUserSession(session);
+        await fetchUserSession(session.user.id);
       }
       
       setLoading(false);

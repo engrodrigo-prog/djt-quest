@@ -21,6 +21,7 @@ import Rankings from "./pages/Rankings";
 import Forums from "./pages/Forums";
 import ForumTopic from "./pages/ForumTopic";
 import UserSetup from "./pages/UserSetup";
+import LeaderDashboard from "./pages/LeaderDashboard";
 
 const queryClient = new QueryClient();
 
@@ -71,6 +72,11 @@ const App = () => (
             <Route path="/studio" element={
               <ProtectedRoute requireStudio>
                 <Studio />
+              </ProtectedRoute>
+            } />
+            <Route path="/leader-dashboard" element={
+              <ProtectedRoute>
+                <LeaderDashboard />
               </ProtectedRoute>
             } />
             <Route path="/profile" element={

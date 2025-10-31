@@ -9,10 +9,13 @@ import {
   ActivitySquare,
   Crown,
   ChevronRight,
-  Users
+  Users,
+  ClipboardCheck
 } from "lucide-react";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { UserManagement } from "./UserManagement";
+import EvaluationManagement from "./EvaluationManagement";
 
 interface StudioModule {
   id: string;
@@ -79,6 +82,14 @@ export const StudioDashboard = ({ onSelectModule, userRole }: StudioDashboardPro
       icon: Users,
       gradientFrom: 'from-djt-blue-dark',
       gradientTo: 'to-primary',
+    },
+    {
+      id: 'evaluations',
+      title: 'Avaliações',
+      description: 'Gerenciar fila de avaliações',
+      icon: ClipboardCheck,
+      gradientFrom: 'from-purple-500',
+      gradientTo: 'to-pink-500',
     },
     {
       id: 'users',

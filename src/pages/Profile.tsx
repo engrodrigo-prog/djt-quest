@@ -392,8 +392,7 @@ const Profile = () => {
                   feedbackEvents.map((event) => (
                     <ActionReviewCard 
                       key={event.id} 
-                      event={event}
-                      onRetry={handleRetryClick}
+                      eventId={event.id}
                     />
                   ))
                 )}
@@ -418,8 +417,7 @@ const Profile = () => {
                     {opportunityEvents.map((event) => (
                       <ActionReviewCard 
                         key={event.id} 
-                        event={event}
-                        onRetry={handleRetryClick}
+                        eventId={event.id}
                       />
                     ))}
                   </div>
@@ -455,8 +453,7 @@ const Profile = () => {
               filteredEvents.map((event) => (
                 <ActionReviewCard 
                   key={event.id} 
-                  event={event}
-                  onRetry={handleRetryClick}
+                  eventId={event.id}
                 />
               ))
             )}

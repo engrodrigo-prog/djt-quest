@@ -1,197 +1,204 @@
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Progress } from '@/components/ui/progress';
-import { ThumbsUp, Lightbulb, RefreshCw, CheckCircle, XCircle } from 'lucide-react';
+import { useEffect, useState } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { Star, Clock } from "lucide-react";
 
 interface ActionReviewCardProps {
-  event: {
-    id: string;
-    created_at: string;
-    status: string;
-    points_calculated: number;
-    retry_count: number;
-    challenge: {
-      title: string;
-      type: string;
-      xp_reward: number;
-    };
-    evaluation?: {
-      rating: number;
-      feedback_positivo: string | null;
-      feedback_construtivo: string | null;
-      scores: {
-        clareza?: number;
-        qualidade?: number;
-        impacto?: number;
-        alinhamento?: number;
-        evidencias?: number;
-      };
-    };
-  };
-  onRetry?: (eventId: string, challengeId: string) => void;
+  eventId: string;
 }
 
-export const ActionReviewCard = ({ event, onRetry }: ActionReviewCardProps) => {
-  const { evaluation } = event;
-  const hasEvaluation = evaluation && event.status !== 'submitted';
-  
-  const getStatusInfo = () => {
-    switch (event.status) {
-      case 'approved':
-        return { label: 'Aprovado', icon: CheckCircle, color: 'text-green-600', variant: 'default' as const };
-      case 'rejected':
-        return { label: 'Rejeitado', icon: XCircle, color: 'text-red-600', variant: 'destructive' as const };
-      case 'submitted':
-        return { label: 'Em Avaliação', icon: RefreshCw, color: 'text-yellow-600', variant: 'secondary' as const };
-      case 'retry_in_progress':
-        return { label: 'Refazendo', icon: RefreshCw, color: 'text-blue-600', variant: 'outline' as const };
-      default:
-        return { label: event.status, icon: RefreshCw, color: 'text-muted-foreground', variant: 'outline' as const };
+interface Evaluation {
+  id: string;
+  evaluation_number: number;
+  rating: number;
+  final_rating: number | null;
+  feedback_positivo: string;
+  feedback_construtivo: string;
+  created_at: string;
+  reviewer: {
+    name: string;
+  };
+}
+
+export function ActionReviewCard({ eventId }: ActionReviewCardProps) {
+  const [evaluations, setEvaluations] = useState<Evaluation[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [eventData, setEventData] = useState<any>(null);
+
+  useEffect(() => {
+    loadEvaluations();
+  }, [eventId]);
+
+  const loadEvaluations = async () => {
+    setLoading(true);
+    try {
+      // Buscar avaliações
+      const { data: evals, error: evalsError } = await supabase
+        .from('action_evaluations')
+        .select(`
+          *,
+          reviewer:profiles!action_evaluations_reviewer_id_fkey(name)
+        `)
+        .eq('event_id', eventId)
+        .order('evaluation_number');
+
+      if (evalsError) throw evalsError;
+
+      setEvaluations(evals || []);
+
+      // Buscar dados do evento
+      const { data: event, error: eventError } = await supabase
+        .from('events')
+        .select('status, final_points, retry_count')
+        .eq('id', eventId)
+        .single();
+
+      if (eventError) throw eventError;
+
+      setEventData(event);
+    } catch (error) {
+      console.error("Error loading evaluations:", error);
+    } finally {
+      setLoading(false);
     }
   };
 
-  const statusInfo = getStatusInfo();
-  const StatusIcon = statusInfo.icon;
-  const shouldShowRetryButton = hasEvaluation && evaluation.rating < 4.0 && event.status !== 'retry_in_progress';
+  if (loading) {
+    return (
+      <Card>
+        <CardContent className="p-6">
+          <div className="flex items-center gap-2">
+            <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-primary"></div>
+            <span className="text-sm text-muted-foreground">Carregando avaliação...</span>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
 
-  const criteriaLabels: Record<string, string> = {
-    clareza: 'Clareza',
-    qualidade: 'Qualidade',
-    impacto: 'Impacto',
-    alinhamento: 'Alinhamento',
-    evidencias: 'Evidências'
-  };
+  if (evaluations.length === 0) {
+    return (
+      <Card>
+        <CardContent className="p-6">
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <Clock className="h-4 w-4" />
+            <span className="text-sm">Aguardando Avaliação</span>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (evaluations.length === 1) {
+    const eval1 = evaluations[0];
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Badge variant="default">1ª Avaliação: {eval1.rating}/10</Badge>
+          </CardTitle>
+          <CardDescription>
+            🕐 Aguardando 2ª avaliação...
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <p className="text-sm font-semibold">📝 Feedback Positivo:</p>
+            <p className="text-sm text-muted-foreground">{eval1.feedback_positivo}</p>
+          </div>
+          {eval1.feedback_construtivo && (
+            <div className="space-y-2">
+              <p className="text-sm font-semibold">💡 Feedback Construtivo:</p>
+              <p className="text-sm text-muted-foreground">{eval1.feedback_construtivo}</p>
+            </div>
+          )}
+          <p className="text-xs text-muted-foreground">
+            Avaliado por: {eval1.reviewer?.name}
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // Duas avaliações completas
+  const eval1 = evaluations[0];
+  const eval2 = evaluations[1];
+  const avgRating = eval2.final_rating || ((eval1.rating + eval2.rating) / 2);
+  const finalXP = eventData?.final_points || 0;
+  const retryCount = eventData?.retry_count || 0;
+  
+  const retryPenalty = retryCount === 0 ? 1.0 :
+                       retryCount === 1 ? 0.8 :
+                       retryCount === 2 ? 0.6 : 0.4;
 
   return (
-    <Card className="overflow-hidden">
-      <CardHeader className="pb-3">
-        <div className="flex items-start justify-between mb-2">
-          <div className="flex items-center gap-2">
-            <Badge variant="outline">{event.challenge.type}</Badge>
-            <Badge variant={statusInfo.variant}>
-              <StatusIcon className="h-3 w-3 mr-1" />
-              {statusInfo.label}
-            </Badge>
-            {event.retry_count > 0 && (
-              <Badge variant="secondary">
-                <RefreshCw className="h-3 w-3 mr-1" />
-                Tentativa {event.retry_count + 1}
-              </Badge>
-            )}
-          </div>
-          <div className="text-right">
-            <p className="text-lg font-bold text-accent">
-              +{event.points_calculated || event.challenge.xp_reward} XP
-            </p>
-            {event.retry_count > 0 && (
-              <p className="text-xs text-muted-foreground">
-                ({event.retry_count === 1 ? '80%' : event.retry_count === 2 ? '60%' : '40%'} dos pontos)
-              </p>
-            )}
-          </div>
-        </div>
-        <CardTitle className="text-base">{event.challenge.title}</CardTitle>
-        <CardDescription className="text-xs">
-          Submetido em {new Date(event.created_at).toLocaleDateString('pt-BR', { 
-            day: '2-digit', 
-            month: 'short', 
-            year: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
-          })}
-        </CardDescription>
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 flex-wrap">
+          <Badge variant="outline">1ª: {eval1.rating}/10</Badge>
+          <Badge variant="outline">2ª: {eval2.rating}/10</Badge>
+          <Badge className="text-lg">
+            📊 Média: {avgRating.toFixed(1)}/10
+          </Badge>
+        </CardTitle>
       </CardHeader>
+      <CardContent className="space-y-4">
+        <Alert>
+          <Star className="h-4 w-4" />
+          <AlertTitle>✅ Pontuação Final</AlertTitle>
+          <AlertDescription>
+            Você conquistou <strong>{finalXP} XP</strong> neste desafio!
+            {retryPenalty < 1 && (
+              <span className="text-muted-foreground block mt-1">
+                ({Math.round(retryPenalty * 100)}% devido a {retryCount} {retryCount === 1 ? 'retry' : 'retries'})
+              </span>
+            )}
+          </AlertDescription>
+        </Alert>
 
-      {hasEvaluation && (
-        <CardContent className="space-y-4 border-t pt-4">
-          {/* Rating Summary */}
-          <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
-            <span className="font-semibold">Avaliação Geral</span>
-            <div className="flex items-center gap-2">
-              <span className="text-2xl font-bold">{evaluation.rating.toFixed(1)}</span>
-              <span className="text-sm text-muted-foreground">/5.0</span>
-            </div>
-          </div>
-
-          {/* Rubrics */}
-          {evaluation.scores && Object.keys(evaluation.scores).length > 0 && (
-            <div className="space-y-3">
-              <h4 className="text-sm font-semibold">Critérios Avaliados</h4>
-              {Object.entries(evaluation.scores).map(([key, value]) => (
-                <div key={key} className="space-y-1">
-                  <div className="flex items-center justify-between text-sm">
-                    <span>{criteriaLabels[key] || key}</span>
-                    <span className="font-semibold">{value}/5.0</span>
-                  </div>
-                  <Progress value={value * 20} className="h-2" />
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Positive Feedback */}
-          {evaluation.feedback_positivo && (
-            <div className="p-3 bg-green-50 dark:bg-green-950/20 rounded-lg border border-green-200 dark:border-green-900">
-              <div className="flex items-start gap-2">
-                <ThumbsUp className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
-                <div className="flex-1">
-                  <p className="font-semibold text-sm text-green-900 dark:text-green-100 mb-1">
-                    Pontos Positivos
-                  </p>
-                  <p className="text-sm text-green-800 dark:text-green-200">
-                    {evaluation.feedback_positivo}
-                  </p>
-                </div>
+        <Accordion type="single" collapsible className="w-full">
+          <AccordionItem value="eval1">
+            <AccordionTrigger>📝 Ver 1ª Avaliação ({eval1.rating}/10)</AccordionTrigger>
+            <AccordionContent className="space-y-3">
+              <div className="space-y-2">
+                <p className="text-sm font-semibold">Feedback Positivo:</p>
+                <p className="text-sm text-muted-foreground">{eval1.feedback_positivo}</p>
               </div>
-            </div>
-          )}
-
-          {/* Constructive Feedback */}
-          {evaluation.feedback_construtivo && (
-            <div className="p-3 bg-yellow-50 dark:bg-yellow-950/20 rounded-lg border border-yellow-200 dark:border-yellow-900">
-              <div className="flex items-start gap-2">
-                <Lightbulb className="h-4 w-4 text-yellow-600 dark:text-yellow-400 mt-0.5 flex-shrink-0" />
-                <div className="flex-1">
-                  <p className="font-semibold text-sm text-yellow-900 dark:text-yellow-100 mb-1">
-                    Oportunidades de Melhoria
-                  </p>
-                  <p className="text-sm text-yellow-800 dark:text-yellow-200">
-                    {evaluation.feedback_construtivo}
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Retry Button */}
-          {shouldShowRetryButton && onRetry && (
-            <div className="pt-2">
-              {evaluation.rating < 3.0 ? (
-                <div className="p-3 bg-orange-50 dark:bg-orange-950/20 rounded-lg mb-3">
-                  <p className="text-sm text-orange-900 dark:text-orange-100">
-                    💡 Considere refazer este desafio para demonstrar seu aprendizado e melhorar sua pontuação!
-                  </p>
-                </div>
-              ) : (
-                <div className="p-3 bg-blue-50 dark:bg-blue-950/20 rounded-lg mb-3">
-                  <p className="text-sm text-blue-900 dark:text-blue-100">
-                    Você pode refazer este desafio para praticar e reforçar o conhecimento!
-                  </p>
+              {eval1.feedback_construtivo && (
+                <div className="space-y-2">
+                  <p className="text-sm font-semibold">Feedback Construtivo:</p>
+                  <p className="text-sm text-muted-foreground">{eval1.feedback_construtivo}</p>
                 </div>
               )}
-              <Button 
-                variant="outline" 
-                className="w-full"
-                onClick={() => onRetry(event.id, event.challenge.title)}
-              >
-                <RefreshCw className="h-4 w-4 mr-2" />
-                Refazer Desafio
-              </Button>
-            </div>
-          )}
-        </CardContent>
-      )}
+              <p className="text-xs text-muted-foreground">
+                Avaliado por: {eval1.reviewer?.name}
+              </p>
+            </AccordionContent>
+          </AccordionItem>
+
+          <AccordionItem value="eval2">
+            <AccordionTrigger>📝 Ver 2ª Avaliação ({eval2.rating}/10)</AccordionTrigger>
+            <AccordionContent className="space-y-3">
+              <div className="space-y-2">
+                <p className="text-sm font-semibold">Feedback Positivo:</p>
+                <p className="text-sm text-muted-foreground">{eval2.feedback_positivo}</p>
+              </div>
+              {eval2.feedback_construtivo && (
+                <div className="space-y-2">
+                  <p className="text-sm font-semibold">Feedback Construtivo:</p>
+                  <p className="text-sm text-muted-foreground">{eval2.feedback_construtivo}</p>
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground">
+                Avaliado por: {eval2.reviewer?.name}
+              </p>
+            </AccordionContent>
+          </AccordionItem>
+        </Accordion>
+      </CardContent>
     </Card>
   );
-};
+}
