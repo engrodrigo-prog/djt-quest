@@ -93,14 +93,14 @@ const Auth = () => {
 
   return (
     <div 
-      className="min-h-screen flex items-center justify-center p-4"
+      className="min-h-screen flex items-center justify-center p-4 animate-fade-in"
       style={{
         backgroundImage: `url(${djtCover})`,
         backgroundSize: 'cover',
         backgroundPosition: 'center',
       }}
     >
-      <Card className="w-full max-w-md bg-background/95 backdrop-blur-sm shadow-2xl">
+      <Card className="w-full max-w-md bg-background/70 backdrop-blur-sm shadow-2xl">
         <CardHeader>
           <CardTitle>DJT Quest - Login</CardTitle>
           <CardDescription>

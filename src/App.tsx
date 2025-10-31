@@ -20,6 +20,7 @@ import Profile from "./pages/Profile";
 import Rankings from "./pages/Rankings";
 import Forums from "./pages/Forums";
 import ForumTopic from "./pages/ForumTopic";
+import UserSetup from "./pages/UserSetup";
 
 const queryClient = new QueryClient();
 
@@ -48,6 +49,7 @@ const App = () => (
           <Routes>
             <Route path="/auth" element={<Auth />} />
             <Route path="/register" element={<Register />} />
+            <Route path="/user-setup" element={<UserSetup />} />
           <Route path="/" element={<Home />} />
             <Route path="/dashboard" element={
               <ProtectedRoute>
