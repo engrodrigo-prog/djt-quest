@@ -33,7 +33,7 @@ Deno.serve(async (req) => {
     }
 
     console.log('=== CLEANUP STARTED ===');
-    console.log('Emails to keep:', emailsToKeep.length, emailsToKeep);
+    console.log('Emails to keep:', emailsToKeep.length);
 
     // Normalizar emails para comparação
     const normalizedEmails = emailsToKeep.map(e => e.trim().toLowerCase());
@@ -55,7 +55,6 @@ Deno.serve(async (req) => {
     }
 
     console.log('Total profiles found:', allProfiles.length);
-    console.log('All profile emails:', allProfiles.map(p => p.email));
 
     // Calcular IDs e emails para deletar usando JavaScript
     const idsParaDeletar = allProfiles
@@ -68,7 +67,6 @@ Deno.serve(async (req) => {
 
     console.log('Profiles to DELETE:', idsParaDeletar.length);
     console.log('Expected to delete:', allProfiles.length - emailsToKeep.length);
-    console.log('Emails to delete:', emailsParaDeletar);
     
     if (idsParaDeletar.length !== (allProfiles.length - emailsToKeep.length)) {
       console.error('⚠️ WARNING: Deletion count mismatch!');

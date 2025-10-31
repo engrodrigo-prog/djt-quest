@@ -8,7 +8,8 @@ import {
   MessageSquare, 
   ActivitySquare,
   Crown,
-  ChevronRight
+  ChevronRight,
+  Users
 } from "lucide-react";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -72,12 +73,20 @@ export const StudioDashboard = ({ onSelectModule, userRole }: StudioDashboardPro
       gradientTo: 'to-accent',
     },
     {
-      id: 'users',
-      title: 'Usuários',
-      description: 'Criar e gerenciar usuários do sistema',
-      icon: UserPlus,
+      id: 'user-management',
+      title: 'Gerenciar Usuários',
+      description: 'Visualizar, buscar e limpar usuários',
+      icon: Users,
       gradientFrom: 'from-djt-blue-dark',
       gradientTo: 'to-primary',
+    },
+    {
+      id: 'users',
+      title: 'Criar Usuário',
+      description: 'Adicionar novo usuário ao sistema',
+      icon: UserPlus,
+      gradientFrom: 'from-primary',
+      gradientTo: 'to-djt-blue-dark',
     },
     {
       id: 'registrations',

@@ -15,6 +15,7 @@ import { SystemHealthCheck } from '@/components/SystemHealthCheck';
 import { QuizCreationWizard } from '@/components/QuizCreationWizard';
 import { AdminBonusManager } from '@/components/AdminBonusManager';
 import { PendingRegistrationsManager } from '@/components/PendingRegistrationsManager';
+import { UserManagement } from '@/components/UserManagement';
 
 const Studio = () => {
   const { user, loading, isLeader, studioAccess, userRole } = useAuth();
@@ -70,6 +71,8 @@ const Studio = () => {
         return <TeamPerformanceManager />;
       case 'team-bonus':
         return <TeamEventForm />;
+      case 'user-management':
+        return <UserManagement />;
       case 'users':
         return <UserCreationForm />;
       case 'registrations':
