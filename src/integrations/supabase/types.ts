@@ -17,9 +17,11 @@ export type Database = {
       action_evaluations: {
         Row: {
           created_at: string | null
+          evaluation_number: number | null
           event_id: string
           feedback_construtivo: string | null
           feedback_positivo: string | null
+          final_rating: number | null
           id: string
           rating: number | null
           reviewer_id: string
@@ -28,9 +30,11 @@ export type Database = {
         }
         Insert: {
           created_at?: string | null
+          evaluation_number?: number | null
           event_id: string
           feedback_construtivo?: string | null
           feedback_positivo?: string | null
+          final_rating?: number | null
           id?: string
           rating?: number | null
           reviewer_id: string
@@ -39,9 +43,11 @@ export type Database = {
         }
         Update: {
           created_at?: string | null
+          evaluation_number?: number | null
           event_id?: string
           feedback_construtivo?: string | null
           feedback_positivo?: string | null
+          final_rating?: number | null
           id?: string
           rating?: number | null
           reviewer_id?: string
@@ -185,6 +191,13 @@ export type Database = {
             referencedRelation: "campaigns"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "challenges_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "team_campaign_performance"
+            referencedColumns: ["campaign_id"]
+          },
         ]
       }
       coordinations: {
@@ -312,17 +325,22 @@ export type Database = {
         Row: {
           assigned_evaluator_id: string | null
           assignment_type: string | null
+          awaiting_second_evaluation: boolean | null
           challenge_id: string | null
           created_at: string | null
           eval_multiplier: number | null
           evidence_urls: string[] | null
           final_points: number | null
+          first_evaluation_rating: number | null
+          first_evaluator_id: string | null
           id: string
           parent_event_id: string | null
           payload: Json | null
           points_calculated: number | null
           quality_score: number | null
           retry_count: number
+          second_evaluation_rating: number | null
+          second_evaluator_id: string | null
           severity_weight: number | null
           status: Database["public"]["Enums"]["event_status"] | null
           team_modifier_applied: number | null
@@ -332,17 +350,22 @@ export type Database = {
         Insert: {
           assigned_evaluator_id?: string | null
           assignment_type?: string | null
+          awaiting_second_evaluation?: boolean | null
           challenge_id?: string | null
           created_at?: string | null
           eval_multiplier?: number | null
           evidence_urls?: string[] | null
           final_points?: number | null
+          first_evaluation_rating?: number | null
+          first_evaluator_id?: string | null
           id?: string
           parent_event_id?: string | null
           payload?: Json | null
           points_calculated?: number | null
           quality_score?: number | null
           retry_count?: number
+          second_evaluation_rating?: number | null
+          second_evaluator_id?: string | null
           severity_weight?: number | null
           status?: Database["public"]["Enums"]["event_status"] | null
           team_modifier_applied?: number | null
@@ -352,17 +375,22 @@ export type Database = {
         Update: {
           assigned_evaluator_id?: string | null
           assignment_type?: string | null
+          awaiting_second_evaluation?: boolean | null
           challenge_id?: string | null
           created_at?: string | null
           eval_multiplier?: number | null
           evidence_urls?: string[] | null
           final_points?: number | null
+          first_evaluation_rating?: number | null
+          first_evaluator_id?: string | null
           id?: string
           parent_event_id?: string | null
           payload?: Json | null
           points_calculated?: number | null
           quality_score?: number | null
           retry_count?: number
+          second_evaluation_rating?: number | null
+          second_evaluator_id?: string | null
           severity_weight?: number | null
           status?: Database["public"]["Enums"]["event_status"] | null
           team_modifier_applied?: number | null
@@ -385,10 +413,31 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "events_challenge_id_fkey"
+            columns: ["challenge_id"]
+            isOneToOne: false
+            referencedRelation: "team_challenge_performance"
+            referencedColumns: ["challenge_id"]
+          },
+          {
+            foreignKeyName: "events_first_evaluator_id_fkey"
+            columns: ["first_evaluator_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "events_parent_event_id_fkey"
             columns: ["parent_event_id"]
             isOneToOne: false
             referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "events_second_evaluator_id_fkey"
+            columns: ["second_evaluator_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
           {
@@ -860,11 +909,25 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "forum_topics_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "team_campaign_performance"
+            referencedColumns: ["campaign_id"]
+          },
+          {
             foreignKeyName: "forum_topics_challenge_id_fkey"
             columns: ["challenge_id"]
             isOneToOne: false
             referencedRelation: "challenges"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "forum_topics_challenge_id_fkey"
+            columns: ["challenge_id"]
+            isOneToOne: false
+            referencedRelation: "team_challenge_performance"
+            referencedColumns: ["challenge_id"]
           },
           {
             foreignKeyName: "forum_topics_created_by_fkey"
@@ -1141,6 +1204,20 @@ export type Database = {
             foreignKeyName: "profiles_team_id_fkey"
             columns: ["team_id"]
             isOneToOne: false
+            referencedRelation: "team_campaign_performance"
+            referencedColumns: ["team_id"]
+          },
+          {
+            foreignKeyName: "profiles_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "team_challenge_performance"
+            referencedColumns: ["team_id"]
+          },
+          {
+            foreignKeyName: "profiles_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
             referencedRelation: "team_xp_summary"
             referencedColumns: ["team_id"]
           },
@@ -1226,6 +1303,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "challenges"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quiz_questions_challenge_id_fkey"
+            columns: ["challenge_id"]
+            isOneToOne: false
+            referencedRelation: "team_challenge_performance"
+            referencedColumns: ["challenge_id"]
           },
           {
             foreignKeyName: "quiz_questions_created_by_fkey"
@@ -1355,6 +1439,20 @@ export type Database = {
             foreignKeyName: "team_events_team_id_fkey"
             columns: ["team_id"]
             isOneToOne: false
+            referencedRelation: "team_campaign_performance"
+            referencedColumns: ["team_id"]
+          },
+          {
+            foreignKeyName: "team_events_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "team_challenge_performance"
+            referencedColumns: ["team_id"]
+          },
+          {
+            foreignKeyName: "team_events_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
             referencedRelation: "team_xp_summary"
             referencedColumns: ["team_id"]
           },
@@ -1396,6 +1494,20 @@ export type Database = {
           updated_by?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "team_performance_log_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "team_campaign_performance"
+            referencedColumns: ["team_id"]
+          },
+          {
+            foreignKeyName: "team_performance_log_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "team_challenge_performance"
+            referencedColumns: ["team_id"]
+          },
           {
             foreignKeyName: "team_performance_log_team_id_fkey"
             columns: ["team_id"]
@@ -1574,6 +1686,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "tier_progression_requests_special_challenge_id_fkey"
+            columns: ["special_challenge_id"]
+            isOneToOne: false
+            referencedRelation: "team_challenge_performance"
+            referencedColumns: ["challenge_id"]
+          },
+          {
             foreignKeyName: "tier_progression_requests_special_event_id_fkey"
             columns: ["special_event_id"]
             isOneToOne: false
@@ -1665,6 +1784,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "user_quiz_answers_challenge_id_fkey"
+            columns: ["challenge_id"]
+            isOneToOne: false
+            referencedRelation: "team_challenge_performance"
+            referencedColumns: ["challenge_id"]
+          },
+          {
             foreignKeyName: "user_quiz_answers_question_id_fkey"
             columns: ["question_id"]
             isOneToOne: false
@@ -1722,6 +1848,36 @@ export type Database = {
           post_id: string | null
           title: string | null
           topic_id: string | null
+        }
+        Relationships: []
+      }
+      team_campaign_performance: {
+        Row: {
+          adhesion_percentage: number | null
+          campaign_id: string | null
+          campaign_title: string | null
+          completed_count: number | null
+          completion_percentage: number | null
+          participants_count: number | null
+          team_id: string | null
+          team_name: string | null
+          total_members: number | null
+        }
+        Relationships: []
+      }
+      team_challenge_performance: {
+        Row: {
+          adhesion_percentage: number | null
+          avg_xp_earned: number | null
+          challenge_id: string | null
+          challenge_title: string | null
+          challenge_type: Database["public"]["Enums"]["challenge_type"] | null
+          completed_count: number | null
+          completion_percentage: number | null
+          participants_count: number | null
+          team_id: string | null
+          team_name: string | null
+          total_members: number | null
         }
         Relationships: []
       }
@@ -1792,6 +1948,11 @@ export type Database = {
         }
         Returns: boolean
       }
+      increment_user_xp: {
+        Args: { _user_id: string; _xp_to_add: number }
+        Returns: undefined
+      }
+      refresh_team_performance: { Args: never; Returns: undefined }
     }
     Enums: {
       app_role:
@@ -1808,6 +1969,8 @@ export type Database = {
         | "rejected"
         | "retry_pending"
         | "retry_in_progress"
+        | "awaiting_second_evaluation"
+        | "approved"
       player_tier:
         | "EX-1"
         | "EX-2"
@@ -1974,6 +2137,8 @@ export const Constants = {
         "rejected",
         "retry_pending",
         "retry_in_progress",
+        "awaiting_second_evaluation",
+        "approved",
       ],
       player_tier: [
         "EX-1",

@@ -53,9 +53,9 @@ Deno.serve(async (req) => {
       throw new Error('Feedback deve ter no mínimo 50 caracteres');
     }
 
-    // Validar rating
-    if (body.rating < 1 || body.rating > 5) {
-      throw new Error('Rating deve estar entre 1 e 5');
+    // Validar rating (agora é 0-10)
+    if (body.rating < 0 || body.rating > 10) {
+      throw new Error('Rating deve estar entre 0 e 10');
     }
 
     // Buscar dados do evento
@@ -76,7 +76,7 @@ Deno.serve(async (req) => {
        eventData.retry_count === 1 ? 0.8 :
        eventData.retry_count === 2 ? 0.6 : 0.4) : 1.0;
 
-    const qualityScore = body.approved ? (body.rating / 5.0) : 0;
+    const qualityScore = body.approved ? (body.rating / 10.0) : 0;
     const finalPoints = Math.floor(baseXp * qualityScore * retryPenalty);
 
     // Atualizar evento
