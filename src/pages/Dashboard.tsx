@@ -9,7 +9,7 @@ import { Shield, Zap, Trophy, Target, LogOut, Star, Menu } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import Navigation from "@/components/Navigation";
 import { TeamPerformanceCard } from "@/components/TeamPerformanceCard";
-import { AvatarDisplay } from "@/components/AvatarDisplay";
+import { ProfileDropdown } from "@/components/ProfileDropdown";
 import { getTierInfo, getNextTierLevel } from "@/lib/constants/tiers";
 
 interface Campaign {
@@ -35,10 +35,11 @@ interface Profile {
   xp: number;
   tier: string;
   avatar_url: string | null;
+  team: { name: string } | null;
 }
 
 const Dashboard = () => {
-  const { user, signOut } = useAuth();
+  const { user, signOut, isLeader } = useAuth();
   const navigate = useNavigate();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [challenges, setChallenges] = useState<Challenge[]>([]);
@@ -67,7 +68,7 @@ const Dashboard = () => {
         const [profileResult, campaignsResult, challengesResult] = await Promise.all([
           supabase
             .from("profiles")
-            .select("name, xp, tier, avatar_url")
+            .select("name, xp, tier, avatar_url, team:teams(name)")
             .eq("id", user.id)
             .single(),
           
@@ -167,10 +168,18 @@ const Dashboard = () => {
                 </div>
               )}
             </div>
-            <AvatarDisplay avatarUrl={profile?.avatar_url || null} name={profile?.name || "User"} size="sm" />
-            <Button variant="ghost" size="icon" className="h-9 w-9" onClick={handleSignOut}>
-              <LogOut className="h-4 w-4" />
-            </Button>
+            {profile && (
+              <ProfileDropdown
+                profile={{
+                  name: profile.name,
+                  avatar_url: profile.avatar_url,
+                  team: profile.team,
+                  tier: profile.tier
+                }}
+                isLeader={isLeader || false}
+                onSignOut={handleSignOut}
+              />
+            )}
           </div>
         </div>
       </header>

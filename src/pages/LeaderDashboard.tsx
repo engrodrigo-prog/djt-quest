@@ -5,10 +5,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Trophy, Users, TrendingUp, MessageSquare, Target, Award } from "lucide-react";
+import { Trophy, Users, TrendingUp, MessageSquare, Target, Award, Shield, Zap } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { TeamTierProgressCard } from "@/components/TeamTierProgressCard";
+import { ProfileDropdown } from "@/components/ProfileDropdown";
 
 interface TeamStats {
   total_members: number;
@@ -53,7 +54,7 @@ interface TeamMember {
 }
 
 export default function LeaderDashboard() {
-  const { profile, orgScope } = useAuth();
+  const { user, profile, orgScope, signOut } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [teamStats, setTeamStats] = useState<TeamStats | null>(null);
@@ -61,10 +62,26 @@ export default function LeaderDashboard() {
   const [challenges, setChallenges] = useState<ChallengePerformance[]>([]);
   const [forums, setForums] = useState<ForumTopic[]>([]);
   const [topMembers, setTopMembers] = useState<TeamMember[]>([]);
+  const [userProfile, setUserProfile] = useState<{ name: string; avatar_url: string | null; team: { name: string } | null; tier: string } | null>(null);
 
   useEffect(() => {
     loadDashboardData();
-  }, [orgScope]);
+    loadUserProfile();
+  }, [orgScope, user]);
+
+  const loadUserProfile = async () => {
+    if (!user) return;
+    
+    const { data } = await supabase
+      .from("profiles")
+      .select("name, tier, avatar_url, team:teams(name)")
+      .eq("id", user.id)
+      .single();
+    
+    if (data) {
+      setUserProfile(data);
+    }
+  };
 
   const loadDashboardData = async () => {
     if (!orgScope?.teamId) return;
@@ -83,6 +100,11 @@ export default function LeaderDashboard() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSignOut = async () => {
+    await signOut();
+    navigate("/auth");
   };
 
   const loadTeamStats = async () => {
@@ -188,19 +210,47 @@ export default function LeaderDashboard() {
   }
 
   return (
-    <div className="container mx-auto p-4 pb-20 space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-secondary/5 pb-20 md:pb-8">
+      {/* Header */}
+      <header className="border-b bg-card/50 backdrop-blur-sm sticky top-0 z-10">
+        <div className="container mx-auto px-3 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
+              <Shield className="h-6 w-6 text-primary" />
+              <Zap className="h-6 w-6 text-secondary" />
+            </div>
+            <div>
+              <h1 className="text-xl font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
+                DJT Go
+              </h1>
+              <p className="text-[8px] text-muted-foreground leading-none">
+                CPFL Piratininga e Santa Cruz Subtransmissão
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {userProfile && (
+              <ProfileDropdown
+                profile={userProfile}
+                isLeader={true}
+                onSignOut={handleSignOut}
+              />
+            )}
+            <Button onClick={() => navigate('/studio')} variant="ghost" size="sm">
+              <Award className="h-4 w-4 mr-2" />
+              Studio
+            </Button>
+          </div>
+        </div>
+      </header>
+
+      <main className="container mx-auto px-3 py-4 space-y-6">
         <div>
-          <h1 className="text-3xl font-bold">Dashboard de Liderança</h1>
-          <p className="text-muted-foreground">
+          <h2 className="text-2xl font-bold">Dashboard de Liderança</h2>
+          <p className="text-muted-foreground text-sm">
             Visão completa do desempenho da sua equipe
           </p>
         </div>
-        <Button onClick={() => navigate('/studio')} variant="outline">
-          <Award className="mr-2 h-4 w-4" />
-          Studio
-        </Button>
-      </div>
 
       {/* Estatísticas Gerais */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
@@ -422,6 +472,7 @@ export default function LeaderDashboard() {
           </Card>
         </TabsContent>
       </Tabs>
+      </main>
     </div>
   );
 }
