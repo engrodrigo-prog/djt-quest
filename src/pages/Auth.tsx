@@ -93,14 +93,15 @@ const Auth = () => {
 
   return (
     <div 
-      className="min-h-screen flex items-center justify-center p-4 animate-fade-in"
+      className="min-h-screen flex items-center justify-center p-4 animate-fade-in relative"
       style={{
         backgroundImage: `url(${djtCover})`,
         backgroundSize: 'cover',
         backgroundPosition: 'center',
       }}
     >
-      <Card className="w-full max-w-md bg-background/70 backdrop-blur-sm shadow-2xl">
+      <div className="absolute inset-0 bg-black/30" />
+      <Card className="w-full max-w-md bg-background/90 backdrop-blur-md shadow-2xl relative z-10">
         <CardHeader>
           <CardTitle>DJT Quest - Login</CardTitle>
           <CardDescription>
@@ -118,17 +119,22 @@ const Auth = () => {
                     role="combobox"
                     aria-expanded={open}
                     className="w-full justify-between"
+                    onClick={() => setOpen(true)}
                   >
                     {selectedUserName || "Selecione ou digite seu nome..."}
                     <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent className="w-full p-0" align="start">
+                <PopoverContent 
+                  className="w-[var(--radix-popover-trigger-width)] p-0 z-50 bg-popover border shadow-lg" 
+                  align="start"
+                  sideOffset={4}
+                >
                   <Command>
-                    <CommandInput placeholder="Digite seu nome..." />
+                    <CommandInput placeholder="Digite seu nome..." autoFocus />
                     <CommandList>
                       <CommandEmpty>Nenhum usuário encontrado.</CommandEmpty>
-                      <CommandGroup>
+                      <CommandGroup heading={users.length > 0 ? `${users.length} usuários` : undefined}>
                         {users.map((user) => (
                           <CommandItem
                             key={user.id}

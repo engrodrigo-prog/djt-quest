@@ -177,6 +177,15 @@ const UserSetup = () => {
       setCleanupResults(data);
       setCleanupCompleted(true);
       toast.success(`${data.deleted.length} usuários removidos, ${data.kept.length} mantidos`);
+
+      // Verificar quantos profiles restaram no banco
+      const { count: profileCount } = await supabase
+        .from('profiles')
+        .select('*', { count: 'exact', head: true });
+
+      if (profileCount !== null) {
+        toast.info(`✅ Verificado: ${profileCount} perfis no banco de dados`);
+      }
     } catch (error) {
       console.error('Error cleaning up users:', error);
       toast.error('Erro ao limpar usuários');
@@ -326,6 +335,14 @@ const UserSetup = () => {
                   <strong className="text-blue-700">
                     ✅ {cleanupResults.kept.length} mantidos | 🗑️ {cleanupResults.deleted.length} removidos
                   </strong>
+                  <p className="mt-2 text-sm text-blue-600">
+                    Usuários mantidos:
+                  </p>
+                  <ul className="mt-1 text-xs space-y-1 max-h-32 overflow-y-auto">
+                    {cleanupResults.kept.map((email, i) => (
+                      <li key={i} className="text-blue-700">• {email}</li>
+                    ))}
+                  </ul>
                 </AlertDescription>
               </Alert>
 
