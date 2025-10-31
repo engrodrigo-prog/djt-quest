@@ -31,6 +31,13 @@ export function CompleteProfile({ profile }: CompleteProfileProps) {
     try {
       // Validar senha
       if (profile.must_change_password) {
+        // Não permitir senha igual à atual
+        if (formData.newPassword === '123456') {
+          toast.error('A nova senha não pode ser igual à senha padrão (123456)');
+          setLoading(false);
+          return;
+        }
+
         if (formData.newPassword.length < 6) {
           toast.error("A senha deve ter no mínimo 6 caracteres");
           setLoading(false);
@@ -47,7 +54,16 @@ export function CompleteProfile({ profile }: CompleteProfileProps) {
           password: formData.newPassword,
         });
 
-        if (passwordError) throw passwordError;
+        if (passwordError) {
+          // Detectar erro específico de senha igual
+          if (passwordError.message?.includes('same_password') || 
+              passwordError.message?.includes('should be different')) {
+            toast.error('A nova senha não pode ser igual à senha atual (123456)');
+            setLoading(false);
+            return;
+          }
+          throw passwordError;
+        }
       }
 
       // Atualizar perfil
@@ -94,7 +110,7 @@ export function CompleteProfile({ profile }: CompleteProfileProps) {
               <Alert>
                 <AlertCircle className="h-4 w-4" />
                 <AlertDescription>
-                  Você está usando a senha padrão. Por segurança, escolha uma nova senha.
+                  Você está usando a senha padrão (123456). Por segurança, escolha uma nova senha <strong>diferente</strong>.
                 </AlertDescription>
               </Alert>
             )}
@@ -102,15 +118,30 @@ export function CompleteProfile({ profile }: CompleteProfileProps) {
             {profile.must_change_password && (
               <>
                 <div className="space-y-2">
-                  <Label htmlFor="newPassword">Nova Senha *</Label>
+                  <Label htmlFor="newPassword">
+                    Nova Senha * 
+                    <span className="text-xs text-muted-foreground ml-2">
+                      (não use 123456)
+                    </span>
+                  </Label>
                   <Input
                     id="newPassword"
                     type="password"
                     value={formData.newPassword}
-                    onChange={(e) => setFormData({ ...formData, newPassword: e.target.value })}
+                    onChange={(e) => {
+                      const newValue = e.target.value;
+                      setFormData({ ...formData, newPassword: newValue });
+                      
+                      // Mostrar aviso se tentar usar senha padrão
+                      if (newValue === '123456') {
+                        toast.warning('Não use a senha padrão como nova senha!', {
+                          duration: 2000,
+                        });
+                      }
+                    }}
                     required
                     minLength={6}
-                    placeholder="Mínimo 6 caracteres"
+                    placeholder="Mínimo 6 caracteres (não use 123456)"
                   />
                 </div>
 
