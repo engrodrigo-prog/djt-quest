@@ -14,6 +14,7 @@ import { TeamEventForm } from '@/components/TeamEventForm';
 import { SystemHealthCheck } from '@/components/SystemHealthCheck';
 import { QuizCreationWizard } from '@/components/QuizCreationWizard';
 import { AdminBonusManager } from '@/components/AdminBonusManager';
+import { PendingRegistrationsManager } from '@/components/PendingRegistrationsManager';
 
 const Studio = () => {
   const { user, loading, isLeader, studioAccess, userRole } = useAuth();
@@ -71,6 +72,8 @@ const Studio = () => {
         return <TeamEventForm />;
       case 'users':
         return <UserCreationForm />;
+      case 'registrations':
+        return <PendingRegistrationsManager />;
       case 'forums':
         return <ForumManagement />;
       case 'system':

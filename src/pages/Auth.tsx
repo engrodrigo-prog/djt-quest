@@ -26,7 +26,7 @@ const Auth = () => {
   const [selectedUserName, setSelectedUserName] = useState("");
   const [query, setQuery] = useState("");
   const [users, setUsers] = useState<UserOption[]>([]);
-  const [password, setPassword] = useState("");
+  const [password, setPassword] = useState("123456");
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
   const { signIn } = useAuth();
@@ -137,7 +137,7 @@ const Auth = () => {
                         setOpen(true);
                       }}
                       onFocus={() => setOpen(true)}
-                      onBlur={() => setTimeout(() => setOpen(false), 200)}
+                      onBlur={() => setTimeout(() => setOpen(false), 300)}
                       onKeyDown={(e) => {
                         if (e.key === 'Escape') setOpen(false);
                       }}
@@ -161,12 +161,16 @@ const Auth = () => {
                           <CommandItem
                             key={user.id}
                             value={user.name}
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                            }}
                             onSelect={() => {
                               setSelectedUserId(user.id);
                               setSelectedUserName(user.name);
                               setQuery(user.name);
                               setOpen(false);
                             }}
+                            className={cn(selectedUserId === user.id && "bg-accent")}
                           >
                             <Check
                               className={cn(
@@ -200,9 +204,19 @@ const Auth = () => {
               </p>
             </div>
             
-            <Button type="submit" className="w-full" disabled={loading}>
+            <Button type="submit" className="w-full" disabled={!selectedUserId || loading}>
               {loading ? 'Entrando...' : 'Entrar'}
             </Button>
+
+            <div className="text-center text-sm mt-4">
+              <span className="text-muted-foreground">Não tem conta? </span>
+              <a 
+                href="/register" 
+                className="text-primary hover:underline font-medium"
+              >
+                Solicitar Cadastro
+              </a>
+            </div>
           </form>
         </CardContent>
       </Card>

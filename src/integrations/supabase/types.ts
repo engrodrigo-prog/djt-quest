@@ -883,6 +883,51 @@ export type Database = {
         }
         Relationships: []
       }
+      pending_registrations: {
+        Row: {
+          created_at: string
+          email: string
+          id: string
+          matricula: string | null
+          name: string
+          operational_base: string
+          review_notes: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          sigla_area: string
+          status: string
+          telefone: string | null
+        }
+        Insert: {
+          created_at?: string
+          email: string
+          id?: string
+          matricula?: string | null
+          name: string
+          operational_base: string
+          review_notes?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          sigla_area: string
+          status?: string
+          telefone?: string | null
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          id?: string
+          matricula?: string | null
+          name?: string
+          operational_base?: string
+          review_notes?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          sigla_area?: string
+          status?: string
+          telefone?: string | null
+        }
+        Relationships: []
+      }
       profile_change_requests: {
         Row: {
           created_at: string | null

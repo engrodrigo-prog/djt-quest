@@ -80,6 +80,14 @@ export const StudioDashboard = ({ onSelectModule, userRole }: StudioDashboardPro
       gradientTo: 'to-primary',
     },
     {
+      id: 'registrations',
+      title: 'Cadastros',
+      description: 'Aprovar solicitações de cadastro',
+      icon: UserPlus,
+      gradientFrom: 'from-primary',
+      gradientTo: 'to-djt-blue-medium',
+    },
+    {
       id: 'forums',
       title: 'Fóruns',
       description: 'Gerenciar categorias e moderação',
