@@ -114,6 +114,8 @@ const UserSetup = () => {
   const navigate = useNavigate();
   const [importing, setImporting] = useState(false);
   const [cleaning, setCleaning] = useState(false);
+  const [importCompleted, setImportCompleted] = useState(false);
+  const [cleanupCompleted, setCleanupCompleted] = useState(false);
   const [importResults, setImportResults] = useState<{
     success: string[];
     errors: { name: string; error: string }[];
@@ -124,6 +126,8 @@ const UserSetup = () => {
     deleted: string[];
     errors: { email: string; error: string }[];
   } | null>(null);
+
+  const currentStep = importCompleted && cleanupCompleted ? 3 : importCompleted ? 2 : 1;
 
   const handleImport = async () => {
     setImporting(true);
@@ -137,6 +141,7 @@ const UserSetup = () => {
       if (error) throw error;
 
       setImportResults(data);
+      setImportCompleted(true);
       
       if (data.success.length > 0) {
         toast.success(`${data.success.length} usuários importados com sucesso!`);
@@ -170,6 +175,7 @@ const UserSetup = () => {
       if (error) throw error;
 
       setCleanupResults(data);
+      setCleanupCompleted(true);
       toast.success(`${data.deleted.length} usuários removidos, ${data.kept.length} mantidos`);
     } catch (error) {
       console.error('Error cleaning up users:', error);
@@ -197,28 +203,38 @@ const UserSetup = () => {
           <Alert>
             <AlertCircle className="h-4 w-4" />
             <AlertDescription>
-              <strong>Passo 1:</strong> Importar os {INITIAL_USERS.length} usuários oficiais<br />
-              <strong>Passo 2:</strong> Limpar usuários de teste<br />
-              <strong>Senha padrão:</strong> 123456 (deve ser alterada no primeiro login)
+              <div className="flex items-center justify-between">
+                <div>
+                  <strong>Progresso:</strong> Etapa {currentStep} de 3<br />
+                  <span className="text-xs text-muted-foreground">
+                    Senha padrão: 123456 (deve ser alterada no primeiro login)
+                  </span>
+                </div>
+                <div className="flex gap-1">
+                  <div className={`w-3 h-3 rounded-full ${currentStep >= 1 ? 'bg-primary' : 'bg-muted'}`} />
+                  <div className={`w-3 h-3 rounded-full ${currentStep >= 2 ? 'bg-primary' : 'bg-muted'}`} />
+                  <div className={`w-3 h-3 rounded-full ${currentStep >= 3 ? 'bg-primary' : 'bg-muted'}`} />
+                </div>
+              </div>
             </AlertDescription>
           </Alert>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-3">
             <Button 
               onClick={handleImport}
-              disabled={importing || !!importResults}
+              disabled={importing || importCompleted}
               size="lg"
-              className="h-20"
+              className="w-full h-16"
             >
               {importing ? (
                 <>
                   <Loader2 className="mr-2 h-5 w-5 animate-spin" />
                   Importando...
                 </>
-              ) : importResults ? (
+              ) : importCompleted ? (
                 <>
                   <CheckCircle className="mr-2 h-5 w-5" />
-                  Importação Concluída
+                  1. Importação Concluída ✓
                 </>
               ) : (
                 `1. Importar ${INITIAL_USERS.length} Usuários`
@@ -227,23 +243,47 @@ const UserSetup = () => {
             
             <Button 
               onClick={handleCleanup}
-              disabled={cleaning || !importResults || !!cleanupResults}
+              disabled={cleaning || !importCompleted || cleanupCompleted}
               variant="destructive"
               size="lg"
-              className="h-20"
+              className="w-full h-16"
             >
               {cleaning ? (
                 <>
                   <Loader2 className="mr-2 h-5 w-5 animate-spin" />
                   Limpando...
                 </>
-              ) : cleanupResults ? (
+              ) : cleanupCompleted ? (
                 <>
                   <CheckCircle className="mr-2 h-5 w-5" />
-                  Limpeza Concluída
+                  2. Limpeza Concluída ✓
+                </>
+              ) : !importCompleted ? (
+                <>
+                  <span className="opacity-50">2. Limpar Usuários de Teste</span>
+                  <span className="ml-2 text-xs">(Complete a etapa 1 primeiro)</span>
                 </>
               ) : (
                 '2. Limpar Usuários de Teste'
+              )}
+            </Button>
+
+            <Button 
+              onClick={handleComplete}
+              disabled={!importCompleted || !cleanupCompleted}
+              size="lg"
+              className="w-full h-16 text-lg"
+            >
+              {importCompleted && cleanupCompleted ? (
+                <>
+                  <CheckCircle className="mr-2 h-6 w-6" />
+                  3. Setup Completo - Ir para Login
+                </>
+              ) : (
+                <>
+                  <span className="opacity-50">3. Setup Completo - Ir para Login</span>
+                  <span className="ml-2 text-xs">(Complete as etapas 1 e 2 primeiro)</span>
+                </>
               )}
             </Button>
           </div>
@@ -298,17 +338,6 @@ const UserSetup = () => {
                 </Alert>
               )}
             </div>
-          )}
-
-          {importResults && cleanupResults && (
-            <Button 
-              onClick={handleComplete}
-              size="lg"
-              className="w-full h-16 text-lg"
-            >
-              <CheckCircle className="mr-2 h-6 w-6" />
-              Setup Completo - Ir para Login
-            </Button>
           )}
 
           <div className="bg-muted p-4 rounded-lg">
