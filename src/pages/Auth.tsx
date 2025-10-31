@@ -17,6 +17,7 @@ interface UserOption {
   id: string;
   name: string;
   email: string;
+  matricula?: string;
 }
 
 const LAST_USER_KEY = 'djt_last_user_id';
@@ -32,16 +33,9 @@ const Auth = () => {
   const { signIn } = useAuth();
   const navigate = useNavigate();
 
-  // Normalizar string removendo acentos e convertendo para minúsculas
-  const normalize = (str: string) => 
-    str.normalize('NFD')
-       .replace(/[\u0300-\u036f]/g, '')
-       .toLowerCase()
-       .trim();
-
-  // Filtrar usuários baseado na query
+  // Filtrar usuários baseado na matrícula
   const filteredUsers = users.filter(u => 
-    normalize(u.name).includes(normalize(query))
+    (u.matricula ?? "").toLowerCase().includes(query.trim().toLowerCase())
   );
 
   useEffect(() => {
@@ -52,8 +46,8 @@ const Auth = () => {
     try {
       const { data, error } = await supabase
         .from('profiles')
-        .select('id, name, email')
-        .order('name');
+        .select('id, name, email, matricula')
+        .order('matricula', { ascending: true });
 
       if (error) throw error;
       setUsers(data || []);
@@ -65,12 +59,26 @@ const Auth = () => {
         if (lastUser) {
           setSelectedUserId(lastUser.id);
           setSelectedUserName(lastUser.name);
-          setQuery(lastUser.name);
+          setQuery(lastUser.matricula ?? "");
         }
       }
     } catch (error) {
       console.error('Error fetching users:', error);
       toast.error('Erro ao carregar usuários');
+    }
+  };
+
+  const attemptLogin = async (user: UserOption) => {
+    setLoading(true);
+    try {
+      await signIn(user.email, password);
+      localStorage.setItem(LAST_USER_KEY, user.id);
+      navigate("/dashboard");
+    } catch (error) {
+      console.error("Login error:", error);
+      toast.error("Email ou senha incorretos");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -82,27 +90,13 @@ const Auth = () => {
       return;
     }
 
-    setLoading(true);
-
-    try {
-      const selectedUser = users.find(u => u.id === selectedUserId);
-      if (!selectedUser) {
-        toast.error("Usuário não encontrado");
-        return;
-      }
-
-      await signIn(selectedUser.email, password);
-      
-      // Save user to localStorage
-      localStorage.setItem(LAST_USER_KEY, selectedUserId);
-      
-      navigate("/dashboard");
-    } catch (error) {
-      console.error("Login error:", error);
-      toast.error("Email ou senha incorretos");
-    } finally {
-      setLoading(false);
+    const selectedUser = users.find(u => u.id === selectedUserId);
+    if (!selectedUser) {
+      toast.error("Usuário não encontrado");
+      return;
     }
+
+    await attemptLogin(selectedUser);
   };
 
   return (
@@ -119,26 +113,50 @@ const Auth = () => {
         <CardHeader>
           <CardTitle>DJT Quest - Login</CardTitle>
           <CardDescription>
-            {selectedUserName ? `Bem-vindo de volta, ${selectedUserName}!` : 'Comece digitando seu nome'}
+            {selectedUserName ? `Bem-vindo de volta, ${selectedUserName}!` : 'Comece digitando sua matrícula'}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleLogin} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="user">Usuário</Label>
+              <Label htmlFor="user">Matrícula</Label>
               <Popover open={open} onOpenChange={setOpen}>
                 <PopoverTrigger asChild>
                   <div className="relative">
                     <Input
-                      placeholder="Digite seu nome..."
+                      placeholder="Digite sua matrícula..."
                       value={query}
+                      inputMode="numeric"
                       onChange={(e) => {
                         setQuery(e.target.value);
                         setOpen(true);
                       }}
                       onFocus={() => setOpen(true)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Escape') setOpen(false);
+                      onKeyDown={async (e) => {
+                        if (e.key === 'Escape') {
+                          setOpen(false);
+                        } else if (e.key === 'Enter') {
+                          e.preventDefault();
+                          const q = query.trim().toLowerCase();
+                          const exactMatch = users.find(
+                            (u) => (u.matricula ?? "").trim().toLowerCase() === q
+                          );
+                          
+                          if (exactMatch) {
+                            setSelectedUserId(exactMatch.id);
+                            setSelectedUserName(exactMatch.name);
+                            setQuery(exactMatch.matricula ?? "");
+                            setOpen(false);
+                            await attemptLogin(exactMatch);
+                          } else if (filteredUsers.length === 1) {
+                            const onlyUser = filteredUsers[0];
+                            setSelectedUserId(onlyUser.id);
+                            setSelectedUserName(onlyUser.name);
+                            setQuery(onlyUser.matricula ?? "");
+                            setOpen(false);
+                            await attemptLogin(onlyUser);
+                          }
+                        }
                       }}
                       className="w-full pr-10"
                       aria-expanded={open}
@@ -164,14 +182,14 @@ const Auth = () => {
                         {filteredUsers.map((user) => (
                           <CommandItem
                             key={user.id}
-                            value={user.name}
+                            value={user.id}
                             onMouseDown={(e) => {
                               e.preventDefault();
                             }}
                             onSelect={() => {
                               setSelectedUserId(user.id);
                               setSelectedUserName(user.name);
-                              setQuery(user.name);
+                              setQuery(user.matricula ?? "");
                               setOpen(false);
                             }}
                             className={cn(selectedUserId === user.id && "bg-accent")}
@@ -182,7 +200,7 @@ const Auth = () => {
                                 selectedUserId === user.id ? "opacity-100" : "opacity-0"
                               )}
                             />
-                            {user.name}
+                            {user.matricula ? `${user.matricula} — ${user.name}` : user.name}
                           </CommandItem>
                         ))}
                       </CommandGroup>
