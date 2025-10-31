@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -137,11 +137,12 @@ const Auth = () => {
                         setOpen(true);
                       }}
                       onFocus={() => setOpen(true)}
-                      onBlur={() => setTimeout(() => setOpen(false), 300)}
                       onKeyDown={(e) => {
                         if (e.key === 'Escape') setOpen(false);
                       }}
                       className="w-full pr-10"
+                      aria-expanded={open}
+                      aria-controls="user-combobox"
                     />
                     <ChevronsUpDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 opacity-50 pointer-events-none" />
                   </div>
@@ -150,6 +151,9 @@ const Auth = () => {
                   className="w-[var(--radix-popover-trigger-width)] p-0 z-50 bg-popover border shadow-lg" 
                   align="start"
                   sideOffset={4}
+                  onOpenAutoFocus={(e) => e.preventDefault()}
+                  id="user-combobox"
+                  role="listbox"
                 >
                   <Command shouldFilter={false}>
                     <CommandList>
@@ -210,12 +214,12 @@ const Auth = () => {
 
             <div className="text-center text-sm mt-4">
               <span className="text-muted-foreground">Não tem conta? </span>
-              <a 
-                href="/register" 
+              <Link 
+                to="/register" 
                 className="text-primary hover:underline font-medium"
               >
                 Solicitar Cadastro
-              </a>
+              </Link>
             </div>
           </form>
         </CardContent>

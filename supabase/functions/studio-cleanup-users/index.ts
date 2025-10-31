@@ -32,6 +32,9 @@ Deno.serve(async (req) => {
       throw new Error('Invalid emails list');
     }
 
+    console.log('=== CLEANUP STARTED ===');
+    console.log('Emails to keep:', emailsToKeep.length, emailsToKeep);
+
     // Normalizar emails para comparação
     const normalizedEmails = emailsToKeep.map(e => e.trim().toLowerCase());
 
@@ -51,6 +54,9 @@ Deno.serve(async (req) => {
       throw fetchError;
     }
 
+    console.log('Total profiles found:', allProfiles.length);
+    console.log('All profile emails:', allProfiles.map(p => p.email));
+
     // Calcular IDs e emails para deletar usando JavaScript
     const idsParaDeletar = allProfiles
       .filter(p => !normalizedEmails.includes(p.email?.toLowerCase().trim() || ''))
@@ -59,6 +65,15 @@ Deno.serve(async (req) => {
     const emailsParaDeletar = allProfiles
       .filter(p => !normalizedEmails.includes(p.email?.toLowerCase().trim() || ''))
       .map(p => p.email);
+
+    console.log('Profiles to DELETE:', idsParaDeletar.length);
+    console.log('Expected to delete:', allProfiles.length - emailsToKeep.length);
+    console.log('Emails to delete:', emailsParaDeletar);
+    
+    if (idsParaDeletar.length !== (allProfiles.length - emailsToKeep.length)) {
+      console.error('⚠️ WARNING: Deletion count mismatch!');
+      console.error(`Expected ${allProfiles.length - emailsToKeep.length} but got ${idsParaDeletar.length}`);
+    }
 
     // Deletar user_roles e profiles usando .in() com arrays
     if (idsParaDeletar.length > 0) {
@@ -92,15 +107,22 @@ Deno.serve(async (req) => {
         console.error('Error cleaning up database:', error);
       }
     } else {
-      console.log('No profiles to delete');
+      console.log('✅ No profiles to delete (all match keep list)');
     }
 
+    console.log('=== Database cleanup complete ===');
+    console.log('Total deleted from DB:', results.deleted.length);
+
     // Agora buscar todos os usuários auth
+    console.log('=== Starting auth cleanup ===');
     const { data: allUsers, error: listError } = await supabaseAdmin.auth.admin.listUsers();
     
     if (listError) throw listError;
 
+    console.log('Total auth users found:', allUsers.users.length);
+
     // Deletar usuários auth que não estão na lista
+    let authDeletedCount = 0;
     for (const authUser of allUsers.users) {
       const userEmail = authUser.email?.toLowerCase();
       
@@ -115,7 +137,10 @@ Deno.serve(async (req) => {
         
         if (deleteError) throw deleteError;
         
-        results.deleted.push(userEmail);
+        authDeletedCount++;
+        if (!results.deleted.includes(userEmail)) {
+          results.deleted.push(userEmail);
+        }
       } catch (error) {
         console.error(`Error deleting user ${userEmail}:`, error);
         results.errors.push({
@@ -125,8 +150,26 @@ Deno.serve(async (req) => {
       }
     }
 
+    console.log('=== Auth cleanup complete ===');
+    console.log('Auth users deleted:', authDeletedCount);
+    console.log('=== CLEANUP FINISHED ===');
+    console.log('Final results:', {
+      totalDeleted: results.deleted.length,
+      totalKept: results.kept.length,
+      totalErrors: results.errors.length
+    });
+
     return new Response(
-      JSON.stringify(results),
+      JSON.stringify({
+        ...results,
+        summary: {
+          profilesDeleted: idsParaDeletar.length,
+          authUsersDeleted: authDeletedCount,
+          totalKept: results.kept.length,
+          totalDeleted: results.deleted.length,
+          errors: results.errors.length
+        }
+      }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   } catch (error) {
