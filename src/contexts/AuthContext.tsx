@@ -21,6 +21,7 @@ interface AuthContextType {
   studioAccess: boolean;
   isLeader: boolean;
   orgScope: OrgScope | null;
+  profile: any | null;
   signIn: (email: string, password: string) => Promise<{ error: any }>;
   signUp: (email: string, password: string, name: string) => Promise<{ data: any; error: any }>;
   signOut: () => Promise<void>;
@@ -69,6 +70,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [studioAccess, setStudioAccess] = useState(false);
   const [isLeader, setIsLeader] = useState(false);
   const [orgScope, setOrgScope] = useState<OrgScope | null>(null);
+  const [profile, setProfile] = useState<any | null>(null);
   const [previousRole, setPreviousRole] = useState<string | null>(null);
   const [hasShownWelcome, setHasShownWelcome] = useState(false);
 
@@ -102,6 +104,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setStudioAccess(data.studioAccess);
       setIsLeader(data.isLeader || false);
       setOrgScope(data.orgScope);
+      setProfile(data.profile);
     } catch (error) {
       console.error('Error fetching user session:', error);
       setUserRole('colaborador');
@@ -210,7 +213,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       studioAccess,
       isLeader,
       orgScope,
-      signIn, 
+      profile,
+      signIn,
       signUp, 
       signOut,
       refreshUserSession

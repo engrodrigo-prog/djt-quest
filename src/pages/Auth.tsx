@@ -1,247 +1,122 @@
-import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useAuth } from '@/contexts/AuthContext';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Shield, Zap, ArrowRight, Sparkles } from 'lucide-react';
-import { useToast } from '@/hooks/use-toast';
-import { BootstrapManager } from '@/components/BootstrapManager';
-import { SystemHealthCheck } from '@/components/SystemHealthCheck';
-import { supabase } from '@/integrations/supabase/client';
+import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
-const TestQuickLogin = ({ onTestLogin }: { onTestLogin: (role: string) => void }) => {
-  const testAccounts = [
-    { role: 'colaborador', label: 'Colaborador', desc: 'Usuário básico', color: 'bg-blue-500' },
-    { role: 'coordenador_djtx', label: 'Coordenador (DJTX-ABC)', desc: 'Avalia ações', color: 'bg-green-500' },
-    { role: 'gerente_divisao_djtx', label: 'Gerente de Divisão (DJTX)', desc: 'Avalia ações', color: 'bg-purple-500' },
-    { role: 'gerente_djt', label: 'Gerente (DJT)', desc: 'Gestão completa', color: 'bg-orange-500' },
-  ];
+interface UserOption {
+  id: string;
+  name: string;
+  email: string;
+}
 
-  return (
-    <Card className="w-full border-dashed">
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-center gap-2 mb-1">
-          <Sparkles className="h-4 w-4 text-accent" />
-          <CardTitle className="text-center text-base">Login Rápido de Teste</CardTitle>
-        </div>
-        <CardDescription className="text-center text-xs">
-          Crie/acesse conta de teste com role específica
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-2">
-        {testAccounts.map((account) => (
-          <Button
-            key={account.role}
-            variant="outline"
-            className="w-full justify-start h-auto py-2.5"
-            onClick={() => onTestLogin(account.role)}
-          >
-            <div className={`w-2.5 h-2.5 rounded-full ${account.color} mr-2.5 flex-shrink-0`} />
-            <div className="flex flex-col items-start">
-              <span className="font-semibold text-sm">{account.label}</span>
-              <span className="text-xs text-muted-foreground">{account.desc}</span>
-            </div>
-          </Button>
-        ))}
-      </CardContent>
-    </Card>
-  );
-};
-
-export default function Auth() {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+const Auth = () => {
+  const [selectedUserId, setSelectedUserId] = useState("");
+  const [users, setUsers] = useState<UserOption[]>([]);
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const [seedLoading, setSeedLoading] = useState(false);
-  const { signIn, user } = useAuth();
+  const { signIn } = useAuth();
   const navigate = useNavigate();
-  const { toast } = useToast();
 
   useEffect(() => {
-    if (user) {
-      navigate('/dashboard');
-    }
-  }, [user, navigate]);
+    fetchUsers();
+  }, []);
 
-  const handleTestLogin = async (role: string) => {
-    console.log('[TEST LOGIN] Iniciando login com role:', role);
-    setLoading(true);
-    
-    // Map roles to the emails created by seed-test-users
-    const emailMap: Record<string, string> = {
-      'colaborador': 'colab@teste.com',
-      'coordenador_djtx': 'coordenador@teste.com',
-      'gerente_divisao_djtx': 'gerente-divisao@teste.com',
-      'gerente_djt': 'gerente-dept@teste.com'
-    };
-    
-    const testEmail = emailMap[role];
-    const testPassword = 'teste123';
-
-    console.log('[TEST LOGIN] Tentando autenticar:', testEmail);
-
-    // Try to sign in
-    const { error: signInError } = await signIn(testEmail, testPassword);
-
-    if (signInError) {
-      console.error('[TEST LOGIN] Erro de autenticação:', signInError);
-      toast({
-        title: 'Erro no login',
-        description: `${signInError.message}. Tente criar os usuários de teste primeiro.`,
-        variant: 'destructive'
-      });
-    } else {
-      console.log('[TEST LOGIN] Autenticação bem-sucedida!');
-      toast({
-        title: 'Login de teste bem-sucedido!',
-        description: `Logado como ${role}`,
-      });
-    }
-    
-    setLoading(false);
-  };
-
-  const handleSeedTestUsers = async () => {
-    setSeedLoading(true);
+  const fetchUsers = async () => {
     try {
-      const { data, error } = await supabase.functions.invoke('seed-test-users');
-      if (error) {
-        toast({
-          title: 'Erro ao criar usuários de teste',
-          description: error.message,
-          variant: 'destructive',
-        });
-      } else {
-        toast({
-          title: 'Usuários de teste prontos',
-          description: 'Tente o Login Rápido acima',
-        });
-      }
-    } catch (err: any) {
-      toast({
-        title: 'Erro',
-        description: err.message,
-        variant: 'destructive',
-      });
-    } finally {
-      setSeedLoading(false);
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, name, email')
+        .order('name');
+
+      if (error) throw error;
+      setUsers(data || []);
+    } catch (error) {
+      console.error('Error fetching users:', error);
+      toast.error('Erro ao carregar usuários');
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    if (!selectedUserId) {
+      toast.error("Selecione um usuário");
+      return;
+    }
+
     setLoading(true);
 
     try {
-      const { error } = await signIn(email, password);
-      if (error) {
-        toast({
-          title: "Erro no login",
-          description: error.message,
-          variant: "destructive",
-        });
-      } else {
-        toast({
-          title: "Login realizado",
-          description: "Bem-vindo ao DJT Quest!",
-        });
+      const selectedUser = users.find(u => u.id === selectedUserId);
+      if (!selectedUser) {
+        toast.error("Usuário não encontrado");
+        return;
       }
-    } catch (error: any) {
-      toast({
-        title: "Erro",
-        description: error.message,
-        variant: "destructive",
-      });
+
+      await signIn(selectedUser.email, password);
+      navigate("/dashboard");
+    } catch (error) {
+      console.error("Login error:", error);
+      toast.error("Email ou senha incorretos");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/10 via-background to-secondary/10 p-3">
-      <div className="w-full max-w-md space-y-4">
-        {/* Header */}
-        <div className="text-center space-y-2">
-          <div className="flex items-center justify-center gap-2 mb-3">
-            <Shield className="h-7 w-7 text-primary" />
-            <Zap className="h-7 w-7 text-secondary" />
-          </div>
-          <h1 className="text-3xl font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
-            DJT Quest
-          </h1>
-          <p className="text-xs text-muted-foreground">CPFL Subtransmissão</p>
-        </div>
-
-        {/* Test Mode + Seed */}
-        <div className="space-y-2">
-          <Button variant="secondary" className="w-full" onClick={handleSeedTestUsers} disabled={seedLoading}>
-            {seedLoading ? 'Criando usuários de teste...' : 'Criar usuários de teste (ambiente)'}
-          </Button>
-          <TestQuickLogin onTestLogin={handleTestLogin} />
-          <SystemHealthCheck />
-        </div>
-
-        {/* Bootstrap Manager */}
-        {user && <BootstrapManager />}
-
-
-        <div className="relative">
-          <div className="absolute inset-0 flex items-center">
-            <span className="w-full border-t" />
-          </div>
-          <div className="relative flex justify-center text-xs uppercase">
-            <span className="bg-background px-2 text-muted-foreground">
-              ou login normal
-            </span>
-          </div>
-        </div>
-
-        {/* Auth Forms */}
-        <Card>
-          <CardContent className="pt-6">
-            <form onSubmit={handleSubmit} className="space-y-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="email" className="text-sm">Email</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="seu@email.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  className="h-10"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="password" className="text-sm">Senha</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  placeholder="••••••••"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  className="h-10"
-                />
-              </div>
-              <Button type="submit" className="w-full h-10 mt-2" disabled={loading}>
-                {loading ? "Entrando..." : "Entrar"}
-                <ArrowRight className="ml-2 h-4 w-4" />
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
-
-        <p className="text-center text-sm text-muted-foreground">
-          Apenas líderes podem criar novas contas através do Studio
-        </p>
-
-        <p className="text-center text-xs text-muted-foreground">
-          Conhecimento • Habilidade • Atitude • Segurança
-        </p>
-      </div>
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/20 via-background to-secondary/20 p-4">
+      <Card className="w-full max-w-md">
+        <CardHeader>
+          <CardTitle>DJT Quest - Login</CardTitle>
+          <CardDescription>Selecione seu nome e entre com sua senha</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleLogin} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="user">Usuário</Label>
+              <Select value={selectedUserId} onValueChange={setSelectedUserId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione seu nome" />
+                </SelectTrigger>
+                <SelectContent>
+                  {users.map((user) => (
+                    <SelectItem key={user.id} value={user.id}>
+                      {user.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="password">Senha</Label>
+              <Input
+                id="password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                placeholder="Digite sua senha"
+              />
+              <p className="text-xs text-muted-foreground">
+                Senha padrão: <code className="bg-muted px-1 rounded">123456</code>
+              </p>
+            </div>
+            
+            <Button type="submit" className="w-full" disabled={loading}>
+              {loading ? 'Entrando...' : 'Entrar'}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
     </div>
   );
-}
+};
+
+export default Auth;

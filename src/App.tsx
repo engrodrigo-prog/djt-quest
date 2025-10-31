@@ -4,8 +4,9 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
-import { AuthProvider } from "./contexts/AuthContext";
+import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { ProtectedRoute } from "./components/ProtectedRoute";
+import { CompleteProfile } from "./components/CompleteProfile";
 import Home from "./pages/Home";
 import Dashboard from "./pages/Dashboard";
 import Auth from "./pages/Auth";
@@ -21,6 +22,20 @@ import ForumTopic from "./pages/ForumTopic";
 
 const queryClient = new QueryClient();
 
+const ProfileCheckWrapper = ({ children }: { children: React.ReactNode }) => {
+  const { profile, loading } = useAuth();
+
+  if (loading) {
+    return <div className="min-h-screen flex items-center justify-center">Carregando...</div>;
+  }
+
+  if (profile && (profile.must_change_password || profile.needs_profile_completion)) {
+    return <CompleteProfile profile={profile} />;
+  }
+
+  return <>{children}</>;
+};
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
@@ -35,7 +50,9 @@ const App = () => (
           <Route path="/" element={<Home />} />
             <Route path="/dashboard" element={
               <ProtectedRoute>
-                <Dashboard />
+                <ProfileCheckWrapper>
+                  <Dashboard />
+                </ProfileCheckWrapper>
               </ProtectedRoute>
             } />
             <Route path="/challenge/:id" element={

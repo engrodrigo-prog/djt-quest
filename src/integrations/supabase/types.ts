@@ -883,6 +883,73 @@ export type Database = {
         }
         Relationships: []
       }
+      profile_change_requests: {
+        Row: {
+          created_at: string | null
+          field_name: string
+          id: string
+          new_value: string
+          old_value: string | null
+          requested_by: string
+          review_notes: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          status: string
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          field_name: string
+          id?: string
+          new_value: string
+          old_value?: string | null
+          requested_by: string
+          review_notes?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          field_name?: string
+          id?: string
+          new_value?: string
+          old_value?: string | null
+          requested_by?: string
+          review_notes?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "profile_change_requests_requested_by_fkey"
+            columns: ["requested_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "profile_change_requests_reviewed_by_fkey"
+            columns: ["reviewed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "profile_change_requests_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           avatar_meta: Json | null
@@ -896,7 +963,12 @@ export type Database = {
           email: string | null
           id: string
           is_leader: boolean | null
+          matricula: string | null
+          must_change_password: boolean | null
           name: string
+          needs_profile_completion: boolean | null
+          operational_base: string | null
+          sigla_area: string | null
           studio_access: boolean | null
           team_id: string | null
           tier: Database["public"]["Enums"]["player_tier"]
@@ -916,7 +988,12 @@ export type Database = {
           email?: string | null
           id: string
           is_leader?: boolean | null
+          matricula?: string | null
+          must_change_password?: boolean | null
           name: string
+          needs_profile_completion?: boolean | null
+          operational_base?: string | null
+          sigla_area?: string | null
           studio_access?: boolean | null
           team_id?: string | null
           tier?: Database["public"]["Enums"]["player_tier"]
@@ -936,7 +1013,12 @@ export type Database = {
           email?: string | null
           id?: string
           is_leader?: boolean | null
+          matricula?: string | null
+          must_change_password?: boolean | null
           name?: string
+          needs_profile_completion?: boolean | null
+          operational_base?: string | null
+          sigla_area?: string | null
           studio_access?: boolean | null
           team_id?: string | null
           tier?: Database["public"]["Enums"]["player_tier"]
@@ -1550,6 +1632,7 @@ export type Database = {
         | "coordenador_djtx"
         | "gerente_divisao_djtx"
         | "gerente_djt"
+        | "admin"
       challenge_type: "quiz" | "mentoria" | "atitude" | "inspecao" | "forum"
       event_status:
         | "submitted"
@@ -1714,6 +1797,7 @@ export const Constants = {
         "coordenador_djtx",
         "gerente_divisao_djtx",
         "gerente_djt",
+        "admin",
       ],
       challenge_type: ["quiz", "mentoria", "atitude", "inspecao", "forum"],
       event_status: [
