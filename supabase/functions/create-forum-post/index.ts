@@ -96,7 +96,7 @@ serve(async (req) => {
     }
 
     // Renderizar HTML com links
-    let contentHtml = content
+    const contentHtml = content
       .replace(mentionRegex, '<span class="text-primary font-semibold">@$1</span>')
       .replace(hashtagRegex, '<span class="text-accent font-semibold">#$1</span>');
 

@@ -12,6 +12,7 @@ import { TierBadge } from '@/components/TierBadge';
 import { AttachmentUploader } from '@/components/AttachmentUploader';
 import { AttachmentViewer } from '@/components/AttachmentViewer';
 import { ArrowLeft, ThumbsUp, MessageCircle, CheckCircle, Star } from 'lucide-react';
+import { sanitizeHtml } from '@/lib/sanitize';
 
 export default function ForumTopic() {
   const { topicId } = useParams();
@@ -210,7 +211,7 @@ export default function ForumTopic() {
               <CardContent>
                 <div
                   className="prose prose-sm max-w-none"
-                  dangerouslySetInnerHTML={{ __html: post.content_html || post.content }}
+                  dangerouslySetInnerHTML={{ __html: sanitizeHtml(post.content_html || post.content || '') }}
                 />
                 
                 {post.attachment_urls && post.attachment_urls.length > 0 && (

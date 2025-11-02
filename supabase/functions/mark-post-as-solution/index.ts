@@ -33,12 +33,29 @@ serve(async (req) => {
     // Verificar se é líder
     const { data: profile } = await supabase
       .from('profiles')
-      .select('studio_access')
+      .select('studio_access, is_leader')
       .eq('id', user.id)
       .single();
 
-    if (!profile?.studio_access) {
+    if (!profile?.studio_access || !profile.is_leader) {
       throw new Error('Only leaders can mark solutions');
+    }
+
+    const { data: roles } = await supabase
+      .from('user_roles')
+      .select('role')
+      .eq('user_id', user.id);
+
+    const allowedRoles = new Set([
+      'coordenador_djtx',
+      'gerente_divisao_djtx',
+      'gerente_djt',
+      'admin',
+    ]);
+
+    const hasAllowedRole = roles?.some(({ role }) => allowedRoles.has(role));
+    if (!hasAllowedRole) {
+      throw new Error('Insufficient permissions to mark solutions');
     }
 
     const { post_id } = await req.json();
@@ -52,6 +69,10 @@ serve(async (req) => {
 
     if (postError || !post) {
       throw new Error('Post not found');
+    }
+
+    if (post.author_id === user.id) {
+      throw new Error('You cannot mark your own post as a solution');
     }
 
     // Desmarcar solução anterior
@@ -72,17 +93,14 @@ serve(async (req) => {
     }
 
     // Conceder XP bônus ao autor (+20 XP)
-    const { data: currentProfile } = await supabase
-      .from('profiles')
-      .select('xp')
-      .eq('id', post.author_id)
-      .single();
+    const { error: xpError } = await supabase.rpc('increment_user_xp', {
+      _user_id: post.author_id,
+      _xp_to_add: 20,
+    });
 
-    if (currentProfile) {
-      await supabase
-        .from('profiles')
-        .update({ xp: currentProfile.xp + 20 })
-        .eq('id', post.author_id);
+    if (xpError) {
+      console.error('Error awarding XP bonus:', xpError);
+      throw new Error('Failed to award XP bonus');
     }
 
     // Notificar autor

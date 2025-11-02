@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Trophy, Users, TrendingUp, MessageSquare, Target, Award, Shield, Zap } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -53,6 +54,8 @@ interface TeamMember {
   tier: string;
 }
 
+type Scope = 'team' | 'coord' | 'division';
+
 export default function LeaderDashboard() {
   const { user, profile, orgScope, signOut } = useAuth();
   const navigate = useNavigate();
@@ -63,11 +66,12 @@ export default function LeaderDashboard() {
   const [forums, setForums] = useState<ForumTopic[]>([]);
   const [topMembers, setTopMembers] = useState<TeamMember[]>([]);
   const [userProfile, setUserProfile] = useState<{ name: string; avatar_url: string | null; team: { name: string } | null; tier: string } | null>(null);
+  const [scope, setScope] = useState<Scope>('team');
 
   useEffect(() => {
     loadDashboardData();
     loadUserProfile();
-  }, [orgScope, user]);
+  }, [orgScope, user, scope]);
 
   const loadUserProfile = async () => {
     if (!user) return;
@@ -108,10 +112,14 @@ export default function LeaderDashboard() {
   };
 
   const loadTeamStats = async () => {
+    const scopeFilter = scope === 'team' ? { col: 'team_id', val: orgScope?.teamId }
+      : scope === 'coord' ? { col: 'coord_id', val: orgScope?.coordId }
+      : { col: 'division_id', val: orgScope?.divisionId };
+
     const { data: members } = await supabase
       .from('profiles')
       .select('xp, id')
-      .eq('team_id', orgScope?.teamId)
+      .eq(scopeFilter.col as any, scopeFilter.val as any)
       .eq('is_leader', false);
 
     if (members) {
@@ -122,13 +130,15 @@ export default function LeaderDashboard() {
       // Calcular engajamento (últimos 7 dias - simulado com base no XP)
       const engagementRate = 85; // TODO: calcular baseado em login real
 
-      // Buscar posição no ranking
-      const { data: rankings } = await supabase
-        .from('team_xp_summary')
-        .select('*')
-        .order('total_xp', { ascending: false });
-
-      const rankPosition = rankings?.findIndex(r => r.team_id === orgScope?.teamId) + 1 || 0;
+      // Buscar posição no ranking (apenas para escopo de equipe)
+      let rankPosition = 0;
+      if (scope === 'team') {
+        const { data: rankings } = await supabase
+          .from('team_xp_summary')
+          .select('*')
+          .order('total_xp', { ascending: false });
+        rankPosition = (rankings?.findIndex(r => r.team_id === orgScope?.teamId) ?? -1) + 1 || 0;
+      }
 
       setTeamStats({
         total_members: totalMembers,
@@ -188,10 +198,14 @@ export default function LeaderDashboard() {
   };
 
   const loadTopMembers = async () => {
+    const scopeFilter = scope === 'team' ? { col: 'team_id', val: orgScope?.teamId }
+      : scope === 'coord' ? { col: 'coord_id', val: orgScope?.coordId }
+      : { col: 'division_id', val: orgScope?.divisionId };
+
     const { data } = await supabase
       .from('profiles')
       .select('id, name, xp, tier')
-      .eq('team_id', orgScope?.teamId)
+      .eq(scopeFilter.col as any, scopeFilter.val as any)
       .eq('is_leader', false)
       .order('xp', { ascending: false })
       .limit(5);
@@ -245,18 +259,32 @@ export default function LeaderDashboard() {
       </header>
 
       <main className="container mx-auto px-3 py-4 space-y-6">
-        <div>
-          <h2 className="text-2xl font-bold">Dashboard de Liderança</h2>
-          <p className="text-muted-foreground text-sm">
-            Visão completa do desempenho da sua equipe
-          </p>
+        <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+          <div>
+            <h2 className="text-2xl font-bold">Dashboard de Liderança</h2>
+            <p className="text-muted-foreground text-sm">
+              XP agregado do seu escopo ({scope === 'team' ? 'Equipe' : scope === 'coord' ? 'Coordenação' : 'Divisão'})
+            </p>
+          </div>
+          <div className="w-full md:w-64">
+            <Select value={scope} onValueChange={(v) => setScope(v as Scope)}>
+              <SelectTrigger aria-label="Selecionar Escopo">
+                <SelectValue placeholder="Selecionar escopo" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="team">Minha Equipe</SelectItem>
+                <SelectItem value="coord">Minha Coordenação</SelectItem>
+                <SelectItem value="division">Minha Divisão</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
 
       {/* Estatísticas Gerais */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Colaboradores</CardTitle>
+            <CardTitle className="text-sm font-medium">Colaboradores ({scope === 'team' ? 'Equipe' : scope === 'coord' ? 'Coord.' : 'Div.'})</CardTitle>
             <Users className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -269,13 +297,13 @@ export default function LeaderDashboard() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Ranking</CardTitle>
+            <CardTitle className="text-sm font-medium">Ranking (Equipe)</CardTitle>
             <Trophy className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">#{teamStats?.rank_position || '-'}</div>
+            <div className="text-2xl font-bold">{scope === 'team' && teamStats?.rank_position ? `#${teamStats.rank_position}` : '-'}</div>
             <p className="text-xs text-muted-foreground">
-              Posição geral
+              {scope === 'team' ? 'Posição geral' : 'Não aplicável neste escopo'}
             </p>
           </CardContent>
         </Card>

@@ -57,15 +57,10 @@ interface UserBadge {
   };
 }
 
-const Profile = () => {
-  const { user, isLeader } = useAuth();
+function ProfileContent() {
+  const { user } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
-
-  // Se for líder, renderizar dashboard da equipe
-  if (isLeader) {
-    return <LeaderTeamDashboard />;
-  }
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [events, setEvents] = useState<UserEvent[]>([]);
   const [badges, setBadges] = useState<UserBadge[]>([]);
@@ -507,6 +502,11 @@ const Profile = () => {
       />
     </div>
   );
+}
+
+const Profile = () => {
+  const { isLeader } = useAuth();
+  return isLeader ? <LeaderTeamDashboard /> : <ProfileContent />;
 };
 
 export default Profile;

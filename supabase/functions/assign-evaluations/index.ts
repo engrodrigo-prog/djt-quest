@@ -60,7 +60,7 @@ Deno.serve(async (req) => {
     }
 
     // Filtrar coordenadores elegíveis
-    let eligibleCoordinators = allCoordinators.filter(coord => {
+    const eligibleCoordinators = allCoordinators.filter(coord => {
       // Sempre excluir coordenações especificadas
       if (excludeCoordinations && excludeCoordinations.includes(coord.coord_id)) {
         return false;

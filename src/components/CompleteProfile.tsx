@@ -8,6 +8,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { AlertCircle } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface CompleteProfileProps {
   profile: any;
@@ -15,6 +16,7 @@ interface CompleteProfileProps {
 
 export function CompleteProfile({ profile }: CompleteProfileProps) {
   const navigate = useNavigate();
+  const { refreshUserSession } = useAuth();
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     newPassword: "",
@@ -82,6 +84,8 @@ export function CompleteProfile({ profile }: CompleteProfileProps) {
         .eq('id', profile.id);
 
       if (profileError) throw profileError;
+
+      await refreshUserSession();
 
       toast.success("Perfil completado com sucesso!");
       navigate('/dashboard');

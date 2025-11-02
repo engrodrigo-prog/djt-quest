@@ -33,10 +33,21 @@ const Auth = () => {
   const { signIn } = useAuth();
   const navigate = useNavigate();
 
-  // Filtrar usuários baseado na matrícula
-  const filteredUsers = users.filter(u => 
-    (u.matricula ?? "").toLowerCase().includes(query.trim().toLowerCase())
-  );
+  const normalizedQuery = query.trim().toLowerCase();
+
+  const matchesSearch = (user: UserOption, needle: string) => {
+    if (!needle) return true;
+    const matricula = (user.matricula ?? "").toLowerCase();
+    const name = (user.name ?? "").toLowerCase();
+    const email = (user.email ?? "").toLowerCase();
+    return (
+      matricula.includes(needle) ||
+      name.includes(needle) ||
+      email.includes(needle)
+    );
+  };
+
+  const filteredUsers = users.filter((user) => matchesSearch(user, normalizedQuery));
 
   useEffect(() => {
     fetchUsers();
@@ -47,7 +58,7 @@ const Auth = () => {
       const { data, error } = await supabase
         .from('profiles')
         .select('id, name, email, matricula')
-        .order('matricula', { ascending: true });
+        .order('name', { ascending: true });
 
       if (error) throw error;
       setUsers(data || []);
@@ -113,7 +124,7 @@ const Auth = () => {
         <CardHeader>
           <CardTitle>DJT Quest - Login</CardTitle>
           <CardDescription>
-            {selectedUserName ? `Bem-vindo de volta, ${selectedUserName}!` : 'Comece digitando sua matrícula'}
+            {selectedUserName ? `Bem-vindo de volta, ${selectedUserName}!` : 'Digite nome ou matrícula para localizar seu acesso'}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -124,7 +135,7 @@ const Auth = () => {
                 <PopoverTrigger asChild>
                   <div className="relative">
                     <Input
-                      placeholder="Digite sua matrícula..."
+                      placeholder="Digite nome ou matrícula..."
                       value={query}
                       inputMode="numeric"
                       onChange={(e) => {
@@ -138,9 +149,11 @@ const Auth = () => {
                         } else if (e.key === 'Enter') {
                           e.preventDefault();
                           const q = query.trim().toLowerCase();
-                          const exactMatch = users.find(
-                            (u) => (u.matricula ?? "").trim().toLowerCase() === q
-                          );
+                          const exactMatch = users.find((u) => {
+                            const matricula = (u.matricula ?? "").trim().toLowerCase();
+                            const name = (u.name ?? "").trim().toLowerCase();
+                            return matricula === q || name === q;
+                          });
                           
                           if (exactMatch) {
                             setSelectedUserId(exactMatch.id);
@@ -152,7 +165,7 @@ const Auth = () => {
                             const onlyUser = filteredUsers[0];
                             setSelectedUserId(onlyUser.id);
                             setSelectedUserName(onlyUser.name);
-                            setQuery(onlyUser.matricula ?? "");
+                            setQuery(onlyUser.matricula ?? onlyUser.name);
                             setOpen(false);
                             await attemptLogin(onlyUser);
                           }
@@ -176,7 +189,7 @@ const Auth = () => {
                   <Command shouldFilter={false}>
                     <CommandList>
                       <CommandEmpty>
-                        Nenhum usuário encontrado para "{query}".
+                        Nenhum usuário encontrado para “{query}”. Pesquise pelo nome ou matrícula.
                       </CommandEmpty>
                       <CommandGroup heading={filteredUsers.length > 0 ? `${filteredUsers.length} encontrado(s)` : undefined}>
                         {filteredUsers.map((user) => (
@@ -189,7 +202,7 @@ const Auth = () => {
                             onSelect={() => {
                               setSelectedUserId(user.id);
                               setSelectedUserName(user.name);
-                              setQuery(user.matricula ?? "");
+                              setQuery(user.matricula ?? user.name);
                               setOpen(false);
                             }}
                             className={cn(selectedUserId === user.id && "bg-accent")}

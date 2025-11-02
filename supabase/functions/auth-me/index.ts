@@ -70,8 +70,9 @@ Deno.serve(async (req) => {
         }
       }
     }
-    const studioAccess = profile?.studio_access || false;
     const isLeader = profile?.is_leader || false;
+    const privilegedRoles = new Set(['gerente_djt','gerente_divisao_djtx','coordenador_djtx']);
+    const studioAccess = Boolean(profile?.studio_access) || isLeader || privilegedRoles.has(role);
 
     // Build organizational scope
     const orgScope = {

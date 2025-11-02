@@ -22,6 +22,11 @@ Deno.serve(async (req) => {
   }
 
   try {
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) {
+      throw new Error('Unauthorized');
+    }
+
     const supabaseAdmin = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
@@ -33,7 +38,24 @@ Deno.serve(async (req) => {
       }
     );
 
-    console.log('Starting seed-test-users...');
+    const token = authHeader.replace('Bearer ', '');
+    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
+    if (authError || !user) {
+      throw new Error('Unauthorized');
+    }
+
+    const { data: roles } = await supabaseAdmin
+      .from('user_roles')
+      .select('role')
+      .eq('user_id', user.id);
+
+    const allowedRoles = new Set(['gerente_djt', 'admin']);
+    const hasPermission = roles?.some(({ role }) => allowedRoles.has(role));
+    if (!hasPermission) {
+      throw new Error('Insufficient permissions');
+    }
+
+    console.log('Starting seed-test-users for user:', user.id);
 
     // Buscar PRIMEIRO item de cada nível organizacional (usa estrutura real existente)
     const { data: team } = await supabaseAdmin

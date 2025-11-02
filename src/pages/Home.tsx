@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -7,19 +7,28 @@ import djtCover from '@/assets/backgrounds/djt-quest-cover.png';
 
 const Home = () => {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { /* hasActiveSession, */ loading } = useAuth();
   const [isTransitioning, setIsTransitioning] = useState(false);
+  const [pendingRedirect, setPendingRedirect] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!loading && pendingRedirect) {
+      navigate(pendingRedirect);
+      setPendingRedirect(null);
+    }
+  }, [loading, pendingRedirect, navigate]);
 
   const handleGo = () => {
     setIsTransitioning(true);
-    
-    setTimeout(() => {
-      if (user) {
-        navigate('/dashboard');
-      } else {
-        navigate('/auth');
-      }
-    }, 600);
+    // Always navigate to dashboard; ProtectedRoute handles auth redirects
+    const target = '/dashboard';
+
+    if (loading) {
+      setPendingRedirect(target);
+      return;
+    }
+
+    navigate(target);
   };
 
   return (

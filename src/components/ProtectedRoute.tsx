@@ -5,19 +5,45 @@ import { useAuth } from '@/contexts/AuthContext';
 interface ProtectedRouteProps {
   children: ReactNode;
   requireStudio?: boolean;
+  requireLeader?: boolean;
+  allowedRoles?: string[];
 }
 
-export function ProtectedRoute({ children, requireStudio = false }: ProtectedRouteProps) {
-  const { user, loading, studioAccess } = useAuth();
+export function ProtectedRoute({
+  children,
+  requireStudio = false,
+  requireLeader = false,
+  allowedRoles,
+}: ProtectedRouteProps) {
+  const { user, loading, studioAccess, isLeader, userRole } = useAuth();
   const navigate = useNavigate();
 
+  const allowedRolesKey = allowedRoles?.join(',') ?? '';
+
   useEffect(() => {
+    const requiresSpecificRole = allowedRolesKey.length > 0;
+    const allowedRolesList = requiresSpecificRole ? allowedRolesKey.split(',') : [];
+    const roleNotAllowed =
+      requiresSpecificRole && (!userRole || !allowedRolesList.includes(userRole));
+
     if (!loading && !user) {
       navigate('/auth');
-    } else if (!loading && user && requireStudio && !studioAccess) {
-      navigate('/');
+    } else if (!loading && user) {
+      if (requireStudio && !studioAccess) {
+        navigate('/');
+        return;
+      }
+
+      if (requireLeader && !isLeader) {
+        navigate('/');
+        return;
+      }
+
+      if (roleNotAllowed) {
+        navigate('/');
+      }
     }
-  }, [user, loading, studioAccess, requireStudio, navigate]);
+  }, [user, loading, studioAccess, requireStudio, isLeader, requireLeader, allowedRolesKey, userRole, navigate]);
 
   if (loading) {
     return (
@@ -27,7 +53,13 @@ export function ProtectedRoute({ children, requireStudio = false }: ProtectedRou
     );
   }
 
-  if (!user || (requireStudio && !studioAccess)) {
+  if (
+    !user ||
+    (requireStudio && !studioAccess) ||
+    (requireLeader && !isLeader) ||
+    (allowedRolesKey.length > 0 &&
+      (!userRole || !allowedRolesKey.split(',').includes(userRole)))
+  ) {
     return null;
   }
 

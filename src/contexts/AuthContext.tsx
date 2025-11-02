@@ -17,6 +17,7 @@ interface AuthContextType {
   user: User | null;
   session: Session | null;
   loading: boolean;
+  hasActiveSession: boolean;
   userRole: string | null;
   studioAccess: boolean;
   isLeader: boolean;
@@ -66,6 +67,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const [hasActiveSession, setHasActiveSession] = useState(false);
   const [userRole, setUserRole] = useState<string | null>(null);
   const [studioAccess, setStudioAccess] = useState(false);
   const [isLeader, setIsLeader] = useState(false);
@@ -152,6 +154,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         
         setSession(session);
         setUser(session?.user ?? null);
+        setHasActiveSession(!!session);
         
         if (session) {
           const oldRole = userRole;
@@ -189,6 +192,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       setSession(session);
       setUser(session?.user ?? null);
+      setHasActiveSession(!!session);
       
       if (session) {
         await fetchUserSession(session.user.id);
@@ -230,6 +234,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user, 
       session, 
       loading, 
+      hasActiveSession,
       userRole, 
       studioAccess,
       isLeader,

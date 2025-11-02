@@ -24,6 +24,7 @@ import UserSetup from "./pages/UserSetup";
 import LeaderDashboard from "./pages/LeaderDashboard";
 
 const queryClient = new QueryClient();
+const LEADER_ALLOWED_ROLES = ['coordenador_djtx', 'gerente_divisao_djtx', 'gerente_djt', 'admin'];
 
 const ProfileCheckWrapper = ({ children }: { children: React.ReactNode }) => {
   const { profile, loading } = useAuth();
@@ -65,17 +66,17 @@ const App = () => (
               </ProtectedRoute>
             } />
             <Route path="/evaluations" element={
-              <ProtectedRoute>
+              <ProtectedRoute requireLeader allowedRoles={LEADER_ALLOWED_ROLES}>
                 <Evaluations />
               </ProtectedRoute>
             } />
             <Route path="/studio" element={
-              <ProtectedRoute requireStudio>
+              <ProtectedRoute requireStudio allowedRoles={LEADER_ALLOWED_ROLES}>
                 <Studio />
               </ProtectedRoute>
             } />
             <Route path="/leader-dashboard" element={
-              <ProtectedRoute>
+              <ProtectedRoute requireLeader allowedRoles={LEADER_ALLOWED_ROLES}>
                 <LeaderDashboard />
               </ProtectedRoute>
             } />
