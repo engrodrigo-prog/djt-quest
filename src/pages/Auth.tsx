@@ -30,24 +30,20 @@ const Auth = () => {
   const [password, setPassword] = useState("123456");
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
-  const { signIn } = useAuth();
+  const { signIn, refreshUserSession } = useAuth();
   const navigate = useNavigate();
 
   const normalizedQuery = query.trim().toLowerCase();
 
-  const matchesSearch = (user: UserOption, needle: string) => {
+  const matchesSearch = (u: UserOption, needle: string) => {
     if (!needle) return true;
-    const matricula = (user.matricula ?? "").toLowerCase();
-    const name = (user.name ?? "").toLowerCase();
-    const email = (user.email ?? "").toLowerCase();
-    return (
-      matricula.includes(needle) ||
-      name.includes(needle) ||
-      email.includes(needle)
-    );
+    const m = (u.matricula ?? '').toLowerCase();
+    const n = (u.name ?? '').toLowerCase();
+    const e = (u.email ?? '').toLowerCase();
+    return m.includes(needle) || n.includes(needle) || e.includes(needle);
   };
 
-  const filteredUsers = users.filter((user) => matchesSearch(user, normalizedQuery));
+  const filteredUsers = users.filter(u => matchesSearch(u, normalizedQuery));
 
   useEffect(() => {
     fetchUsers();
@@ -82,12 +78,24 @@ const Auth = () => {
   const attemptLogin = async (user: UserOption) => {
     setLoading(true);
     try {
-      await signIn(user.email, password);
+      const { error } = await signIn(user.email, password);
+
+      if (error) {
+        console.error("Login error:", error);
+        toast.error("Não foi possível entrar", {
+          description: error.message ?? "Verifique as credenciais e tente novamente",
+        });
+        return;
+      }
+
+      await refreshUserSession();
       localStorage.setItem(LAST_USER_KEY, user.id);
       navigate("/dashboard");
     } catch (error) {
       console.error("Login error:", error);
-      toast.error("Email ou senha incorretos");
+      toast.error("Falha inesperada ao entrar", {
+        description: error instanceof Error ? error.message : undefined,
+      });
     } finally {
       setLoading(false);
     }
@@ -149,12 +157,24 @@ const Auth = () => {
                         } else if (e.key === 'Enter') {
                           e.preventDefault();
                           const q = query.trim().toLowerCase();
-                          const exactMatch = users.find((u) => {
-                            const matricula = (u.matricula ?? "").trim().toLowerCase();
-                            const name = (u.name ?? "").trim().toLowerCase();
-                            return matricula === q || name === q;
-                          });
+                          let exactMatch = users.find((u) =>
+                            (u.matricula ?? '').trim().toLowerCase() === q ||
+                            (u.name ?? '').trim().toLowerCase() === q
+                          );
                           
+                          // Se não achou, tenta uma busca rápida no servidor
+                          if (!exactMatch && q.length >= 3) {
+                            const { data: remote } = await supabase
+                              .from('profiles')
+                              .select('id, name, email, matricula')
+                              .or(`matricula.ilike.%${q}%,name.ilike.%${q}%`)
+                              .limit(5);
+                            if (remote && remote.length > 0) {
+                              setUsers(remote);
+                              exactMatch = remote.find((u) => (u.matricula ?? '').trim().toLowerCase() === q);
+                            }
+                          }
+
                           if (exactMatch) {
                             setSelectedUserId(exactMatch.id);
                             setSelectedUserName(exactMatch.name);

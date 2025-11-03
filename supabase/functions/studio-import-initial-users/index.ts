@@ -38,6 +38,25 @@ Deno.serve(async (req) => {
       }
     );
 
+    // Authorization
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) {
+      throw new Error('Unauthorized');
+    }
+    const token = authHeader.replace('Bearer ', '');
+    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
+    if (authError || !user) {
+      throw new Error('Unauthorized');
+    }
+    const { data: roles } = await supabaseAdmin
+      .from('user_roles')
+      .select('role')
+      .eq('user_id', user.id);
+    const allowed = roles?.some(r => ['admin','gerente_djt','gerente_divisao_djtx','coordenador_djtx'].includes(r.role));
+    if (!allowed) {
+      throw new Error('Insufficient permissions');
+    }
+
     const { users } = await req.json();
 
     if (!users || !Array.isArray(users)) {
@@ -52,54 +71,96 @@ Deno.serve(async (req) => {
 
     for (const userData of users as UserRow[]) {
       try {
-        const { data: authUser, error: authError } = await supabaseAdmin.auth.admin.createUser({
-          email: userData.email.trim().toLowerCase(),
-          password: '123456',
-          email_confirm: true,
-          user_metadata: {
-            name: userData.nome.trim(),
-          },
-        });
-
-        if (authError) throw authError;
-        if (!authUser.user) throw new Error('Failed to create auth user');
-
+        const email = userData.email.trim().toLowerCase();
+        const nome = userData.nome.trim();
+        const matricula = userData.matricula.trim();
+        const siglaArea = userData.sigla_area.trim();
+        const baseOperacional = userData.base_operacional.trim();
+        const telefone = (userData.telefone || '').trim();
         const role = cargoToRole[userData.cargo] || 'colaborador';
         const isAdminUser = userData.nome.toLowerCase().includes('rodrigo') || 
                            userData.nome.toLowerCase().includes('cintia');
-
-        // Atualizar profile
-        const { error: profileError } = await supabaseAdmin
+        
+        // Verificar se já existe profile por email
+        const { data: existingProfile } = await supabaseAdmin
           .from('profiles')
-          .update({
-            matricula: userData.matricula.trim(),
-            operational_base: userData.base_operacional.trim(),
-            sigla_area: userData.sigla_area.trim(),
-            must_change_password: true,
-            needs_profile_completion: !userData.telefone || userData.telefone.trim() === '',
-          })
-          .eq('id', authUser.user.id);
+          .select('id, email')
+          .eq('email', email)
+          .maybeSingle();
 
-        if (profileError) throw profileError;
+        let userId: string | null = null;
 
-        // Inserir role
-        const { error: roleError } = await supabaseAdmin
-          .from('user_roles')
-          .insert({
-            user_id: authUser.user.id,
-            role: role,
+        if (existingProfile?.id) {
+          userId = existingProfile.id;
+
+          // Atualizar auth user (nome e confirmar email). Opcionalmente resetar senha
+          const { error: updateAuthErr } = await supabaseAdmin.auth.admin.updateUserById(userId, {
+            email,
+            password: '123456',
+            email_confirm: true,
+            user_metadata: { name: nome },
           });
+          if (updateAuthErr) {
+            // Se falhar atualização de senha/email, logamos mas seguimos com DB
+            console.warn('Auth update warning for', email, updateAuthErr.message);
+          }
 
-        if (roleError) throw roleError;
+          // Atualizar profile com overwrite dos campos relevantes
+          const { error: updProfileErr } = await supabaseAdmin
+            .from('profiles')
+            .update({
+              name: nome,
+              email,
+              matricula,
+              operational_base: baseOperacional,
+              sigla_area: siglaArea,
+              must_change_password: true,
+              needs_profile_completion: !telefone,
+              is_leader: ['coordenador_djtx','gerente_divisao_djtx','gerente_djt'].includes(role),
+              studio_access: ['coordenador_djtx','gerente_divisao_djtx','gerente_djt'].includes(role),
+            })
+            .eq('id', userId);
+          if (updProfileErr) throw updProfileErr;
+        } else {
+          // Criar novo auth user
+          const { data: authUser, error: authError } = await supabaseAdmin.auth.admin.createUser({
+            email,
+            password: '123456',
+            email_confirm: true,
+            user_metadata: { name: nome },
+          });
+          if (authError) throw authError;
+          if (!authUser.user) throw new Error('Failed to create auth user');
+          userId = authUser.user.id;
 
-        // Se for admin, adicionar role admin também
+          // Atualizar profile
+          const { error: profileError } = await supabaseAdmin
+            .from('profiles')
+            .update({
+              name: nome,
+              email,
+              matricula,
+              operational_base: baseOperacional,
+              sigla_area: siglaArea,
+              must_change_password: true,
+              needs_profile_completion: !telefone,
+              is_leader: ['coordenador_djtx','gerente_divisao_djtx','gerente_djt'].includes(role),
+              studio_access: ['coordenador_djtx','gerente_divisao_djtx','gerente_djt'].includes(role),
+            })
+            .eq('id', userId);
+          if (profileError) throw profileError;
+        }
+
+        // Garantir role principal via upsert
+        const { error: roleUpsertError } = await supabaseAdmin
+          .from('user_roles')
+          .upsert({ user_id: userId!, role }, { onConflict: 'user_id,role' });
+        if (roleUpsertError) throw roleUpsertError;
+
         if (isAdminUser) {
           await supabaseAdmin
             .from('user_roles')
-            .insert({
-              user_id: authUser.user.id,
-              role: 'admin',
-            });
+            .upsert({ user_id: userId!, role: 'admin' }, { onConflict: 'user_id,role' });
           results.admins.push(userData.nome);
         }
 

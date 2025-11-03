@@ -1,5 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
   <defs>
+<<<<<<< HEAD
     <linearGradient id="goGradient" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" stop-color="#0ea5e9" />
       <stop offset="100%" stop-color="#10b981" />
@@ -16,4 +17,18 @@
     fill="#ffffff"
     letter-spacing="1"
   >GO</text>
+=======
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#00b37e"/>
+      <stop offset="100%" stop-color="#22c55e"/>
+    </linearGradient>
+    <filter id="s" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#000" flood-opacity="0.3"/>
+    </filter>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="url(#g)" filter="url(#s)"/>
+  <g fill="#fff" font-family="Inter, Arial, sans-serif" font-weight="800" text-anchor="middle">
+    <text x="32" y="40" font-size="28" letter-spacing="1">GO</text>
+  </g>
+>>>>>>> 17dcae0 (feat: CSV import with overwrite, avatar capture/upload, leader dashboard scope filter, Studio access calc, GO favicon; Auth search by matricula/name/email; nav fixes)
 </svg>

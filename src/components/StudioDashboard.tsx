@@ -44,6 +44,14 @@ export const StudioDashboard = ({ onSelectModule, userRole }: StudioDashboardPro
       gradientTo: 'to-djt-blue-dark',
     },
     {
+      id: 'import-users',
+      title: 'Importar Usuários',
+      description: 'Carregar CSV e sobrescrever existentes',
+      icon: UserPlus,
+      gradientFrom: 'from-emerald-500',
+      gradientTo: 'to-green-600',
+    },
+    {
       id: 'quiz',
       title: 'Quiz',
       description: 'Perguntas com alternativas e XP por acerto',

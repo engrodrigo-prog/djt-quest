@@ -101,7 +101,7 @@ export const AvatarCapture = ({ onCapture, onSkip }: AvatarCaptureProps) => {
                   variant="default"
                 >
                   <Camera className="w-4 h-4 mr-2" />
-                  Capturar
+                  Capturar ou enviar
                 </Button>
                 {onSkip && (
                   <Button onClick={onSkip} variant="outline" className="w-full">

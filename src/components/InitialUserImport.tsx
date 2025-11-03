@@ -36,17 +36,44 @@ export function InitialUserImport() {
     if (!file) return;
 
     try {
-      const text = await file.text();
-      const lines = text.split('\n').filter(line => line.trim());
-      const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
-      
+      let text = await file.text();
+      // Remove BOM se existir
+      if (text.charCodeAt(0) === 0xFEFF) {
+        text = text.slice(1);
+      }
+      const rawLines = text.split(/\r?\n/).filter(line => line.trim().length > 0);
+      if (rawLines.length < 2) throw new Error('CSV vazio ou sem dados');
+
+      const delimiter = (rawLines[0].match(/;/g)?.length || 0) > (rawLines[0].match(/,/g)?.length || 0) ? ';' : ',';
+
+      const splitCSV = (line: string) => {
+        const out: string[] = [];
+        let cur = '';
+        let inQuotes = false;
+        for (let i = 0; i < line.length; i++) {
+          const ch = line[i];
+          if (ch === '"') {
+            inQuotes = !inQuotes;
+            continue;
+          }
+          if (ch === delimiter && !inQuotes) {
+            out.push(cur.trim());
+            cur = '';
+          } else {
+            cur += ch;
+          }
+        }
+        out.push(cur.trim());
+        return out;
+      };
+
+      const headers = splitCSV(rawLines[0]).map(h => h.trim().toLowerCase());
       const parsedUsers: UserRow[] = [];
-      for (let i = 1; i < lines.length; i++) {
-        const values = lines[i].split(',').map(v => v.trim());
+      for (let i = 1; i < rawLines.length; i++) {
+        const values = splitCSV(rawLines[i]);
         if (values.length < 7) continue;
-        
         parsedUsers.push({
-          nome: values[0],
+          nome: values[0]?.replace(/^\"|\"$/g, ''),
           matricula: values[1],
           email: values[2],
           telefone: values[3],

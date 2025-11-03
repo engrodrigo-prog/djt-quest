@@ -88,17 +88,25 @@ export default function LeaderDashboard() {
   };
 
   const loadDashboardData = async () => {
-    if (!orgScope?.teamId) return;
-    
     setLoading(true);
     try {
-      await Promise.all([
-        loadTeamStats(),
-        loadCampaigns(),
-        loadChallenges(),
-        loadForums(),
-        loadTopMembers()
-      ]);
+      const requiredVal = scope === 'team' ? orgScope?.teamId : scope === 'coord' ? orgScope?.coordId : orgScope?.divisionId;
+      if (!requiredVal) {
+        setTeamStats(null);
+        setCampaigns([]);
+        setChallenges([]);
+        setForums([]);
+        setTopMembers([]);
+        return;
+      }
+
+      const jobs: Promise<any>[] = [loadTeamStats(), loadForums(), loadTopMembers()];
+      if (scope === 'team') {
+        // Apenas no escopo de equipe fazem sentido os painéis por time
+        jobs.push(loadCampaigns());
+        jobs.push(loadChallenges());
+      }
+      await Promise.all(jobs);
     } catch (error) {
       console.error("Error loading dashboard:", error);
     } finally {

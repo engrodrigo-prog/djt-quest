@@ -17,6 +17,7 @@ import { AdminBonusManager } from '@/components/AdminBonusManager';
 import { PendingRegistrationsManager } from '@/components/PendingRegistrationsManager';
 import { UserManagement } from '@/components/UserManagement';
 import EvaluationManagement from '@/components/EvaluationManagement';
+import { InitialUserImport } from '@/components/InitialUserImport';
 
 const Studio = () => {
   const { user, loading, isLeader, studioAccess, userRole } = useAuth();
@@ -78,6 +79,8 @@ const Studio = () => {
         return <EvaluationManagement />;
       case 'users':
         return <UserCreationForm />;
+      case 'import-users':
+        return <InitialUserImport />;
       case 'registrations':
         return <PendingRegistrationsManager />;
       case 'forums':

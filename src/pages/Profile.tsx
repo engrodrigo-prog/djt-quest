@@ -5,6 +5,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { User, Trophy, Star, Target, CheckCircle, Clock, GraduationCap, Filter } from 'lucide-react';
 import { AvatarDisplay } from '@/components/AvatarDisplay';
 import { ActionReviewCard } from '@/components/profile/ActionReviewCard';
@@ -15,6 +17,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useNavigate } from 'react-router-dom';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { getTierInfo, getNextTierLevel } from '@/lib/constants/tiers';
+import { AvatarCapture } from '@/components/AvatarCapture';
 
 interface UserProfile {
   name: string;
@@ -58,7 +61,7 @@ interface UserBadge {
 }
 
 function ProfileContent() {
-  const { user } = useAuth();
+  const { user, refreshUserSession } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -68,6 +71,8 @@ function ProfileContent() {
   const [retryModalOpen, setRetryModalOpen] = useState(false);
   const [selectedEventForRetry, setSelectedEventForRetry] = useState<{ eventId: string; challengeId: string; challengeTitle: string } | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [avatarDialogOpen, setAvatarDialogOpen] = useState(false);
+  const [avatarSaving, setAvatarSaving] = useState(false);
 
   useEffect(() => {
     const loadProfile = async () => {
@@ -200,6 +205,44 @@ function ProfileContent() {
     }
   };
 
+  const handleAvatarCaptured = async (imageBase64: string) => {
+    if (!user || avatarSaving) return;
+
+    try {
+      setAvatarSaving(true);
+      const { data, error } = await supabase.functions.invoke('process-avatar', {
+        body: {
+          userId: user.id,
+          imageBase64,
+        },
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      await refreshUserSession();
+      if (data?.avatarUrl) {
+        setProfile((prev) => (prev ? { ...prev, avatar_url: data.avatarUrl } : prev));
+      }
+
+      toast({
+        title: 'Avatar atualizado com sucesso!',
+        description: 'Sua foto já aparece para toda a equipe.',
+      });
+      setAvatarDialogOpen(false);
+    } catch (error) {
+      console.error('Error updating avatar:', error);
+      toast({
+        title: 'Erro ao atualizar avatar',
+        description: error instanceof Error ? error.message : 'Tente novamente em instantes.',
+        variant: 'destructive',
+      });
+    } finally {
+      setAvatarSaving(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -279,11 +322,21 @@ function ProfileContent() {
           <CardHeader>
             <div className="flex items-start justify-between">
               <div className="flex items-center gap-4">
-                <AvatarDisplay 
-                  avatarUrl={profile.avatar_url}
-                  name={profile.name}
-                  size="xl"
-                />
+                <div className="flex flex-col items-center md:items-start gap-3">
+                  <AvatarDisplay 
+                    avatarUrl={profile.avatar_url}
+                    name={profile.name}
+                    size="xl"
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setAvatarDialogOpen(true)}
+                    disabled={avatarSaving}
+                  >
+                    Atualizar foto
+                  </Button>
+                </div>
                 <div>
                   <CardTitle className="text-2xl">{profile.name}</CardTitle>
                   <CardDescription className="text-base">{profile.email}</CardDescription>
@@ -486,14 +539,42 @@ function ProfileContent() {
               </div>
             )}
           </TabsContent>
-        </Tabs>
-      </div>
+      </Tabs>
+    </div>
 
-      <RetryModal 
-        isOpen={retryModalOpen}
-        onClose={() => {
-          setRetryModalOpen(false);
-          setSelectedEventForRetry(null);
+    <Dialog
+      open={avatarDialogOpen}
+      onOpenChange={(open) => {
+        if (!avatarSaving) {
+          setAvatarDialogOpen(open);
+        }
+      }}
+    >
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Atualizar avatar</DialogTitle>
+        </DialogHeader>
+        <AvatarCapture
+          onCapture={handleAvatarCaptured}
+          onSkip={() => {
+            if (!avatarSaving) {
+              setAvatarDialogOpen(false);
+            }
+          }}
+        />
+        {avatarSaving && (
+          <p className="text-sm text-muted-foreground text-center mt-2">
+            Processando foto...
+          </p>
+        )}
+      </DialogContent>
+    </Dialog>
+
+    <RetryModal 
+      isOpen={retryModalOpen}
+      onClose={() => {
+        setRetryModalOpen(false);
+        setSelectedEventForRetry(null);
         }}
         onConfirm={handleRetryConfirm}
         challengeTitle={selectedEventForRetry?.challengeTitle || ''}
