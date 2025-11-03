@@ -52,6 +52,14 @@ const getCachedAuth = () => {
   }
 };
 
+// Helper to avoid hanging fetches impacting UI loading state
+async function withTimeout<T>(promise: Promise<T>, ms = 3000): Promise<T> {
+  return await Promise.race([
+    promise,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error('timeout')), ms)) as Promise<T>,
+  ]);
+}
+
 const setCachedAuth = (data: any) => {
   try {
     localStorage.setItem(CACHE_KEY, JSON.stringify({
@@ -94,11 +102,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const { data: { session: currentSession } } = await supabase.auth.getSession();
       if (!currentSession) throw new Error('No session');
 
-      const { data, error } = await supabase.functions.invoke('auth-me', {
+      const { data, error } = await withTimeout(supabase.functions.invoke('auth-me', {
         headers: {
           Authorization: `Bearer ${currentSession.access_token}`
         }
-      });
+      }), 3500);
 
       if (error) throw error;
 
@@ -128,6 +136,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setStudioAccess(false);
       setIsLeader(false);
       setOrgScope(null);
+      return null;
     }
   };
 
@@ -143,62 +152,64 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     // Set up auth state listener
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
+      async (_event, session) => {
         const previousUserId = user?.id;
-        
+
         // Clear cache if user changed
         if (session?.user.id !== previousUserId && previousUserId) {
           console.log('🔄 User changed, clearing cache');
           localStorage.removeItem(CACHE_KEY);
         }
-        
+
         setSession(session);
         setUser(session?.user ?? null);
         setHasActiveSession(!!session);
-        
+
+        // Do not block UI on role/profile fetch
+        setLoading(false);
+
         if (session) {
           const oldRole = userRole;
-          const authData = await fetchUserSession(session.user.id);
-          
-          console.log('👤 AuthContext: role check', { oldRole, newRole: authData?.role, hasShownWelcome });
-          
-          // Check if role upgraded and redirect leaders
-          if (authData?.isLeader && window.location.pathname === '/auth') {
-            setTimeout(() => {
-              window.location.href = '/leader-dashboard';
-            }, 500);
-          }
-          
-          // Check if role upgraded from colaborador to manager
-          if (oldRole === 'colaborador' && authData?.role && authData.role.includes('gerente') && !hasShownWelcome) {
-            setHasShownWelcome(true);
-            console.log('🎉 AuthContext: Triggering welcome toast');
-            setTimeout(() => {
-              window.dispatchEvent(new CustomEvent('show-studio-welcome'));
-            }, 1000);
-          }
+          fetchUserSession(session.user.id)
+            .then((authData) => {
+              console.log('👤 AuthContext: role check', { oldRole, newRole: authData?.role, hasShownWelcome });
+
+              if (authData?.isLeader && window.location.pathname === '/auth') {
+                setTimeout(() => {
+                  window.location.href = '/leader-dashboard';
+                }, 500);
+              }
+
+              if (oldRole === 'colaborador' && authData?.role && authData.role.includes('gerente') && !hasShownWelcome) {
+                setHasShownWelcome(true);
+                console.log('🎉 AuthContext: Triggering welcome toast');
+                setTimeout(() => {
+                  window.dispatchEvent(new CustomEvent('show-studio-welcome'));
+                }, 1000);
+              }
+            })
+            .catch((err) => {
+              console.error('Auth fetch (background) error:', err);
+            });
         } else {
           setUserRole(null);
           setStudioAccess(false);
           setIsLeader(false);
           setOrgScope(null);
         }
-        
-        setLoading(false);
       }
     );
 
-    // Check for existing session
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
+    // Check for existing session without blocking UI
+    supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setUser(session?.user ?? null);
       setHasActiveSession(!!session);
-      
-      if (session) {
-        await fetchUserSession(session.user.id);
-      }
-      
       setLoading(false);
+
+      if (session) {
+        fetchUserSession(session.user.id).catch((err) => console.error('Auth fetch (startup) error:', err));
+      }
     });
 
     return () => subscription.unsubscribe();
