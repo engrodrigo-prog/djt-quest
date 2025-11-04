@@ -71,16 +71,49 @@ export function InitialUserImport() {
       const parsedUsers: UserRow[] = [];
       for (let i = 1; i < rawLines.length; i++) {
         const values = splitCSV(rawLines[i]);
-        if (values.length < 7) continue;
-        parsedUsers.push({
-          nome: values[0]?.replace(/^\"|\"$/g, ''),
-          matricula: values[1],
-          email: values[2],
-          telefone: values[3],
-          cargo: values[4],
-          sigla_area: values[5],
-          base_operacional: values[6],
-        });
+        // Suporta tanto o CSV original (AREA;Matrícula;E-mail;Nome;Tipo de cargo;Data Nascimento)
+        // quanto o CSV convertido (nome,matricula,email,cargo,sigla_area,base_operacional,date_of_birth)
+        if (headers.includes('area') && headers.includes('e-mail')) {
+          // Formato original por colunas fixas
+          const area = values[0];
+          const matricula = values[1];
+          const email = values[2];
+          const nome = values[3]?.replace(/^\"|\"$/g, '');
+          const cargo = values[4];
+          const dataNasc = values[5];
+          const toIso = (s: string) => {
+            const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec((s || '').trim());
+            if (!m) return '';
+            const dd = m[1].padStart(2, '0');
+            const mm = m[2].padStart(2, '0');
+            return `${m[3]}-${mm}-${dd}`;
+          };
+          parsedUsers.push({
+            nome,
+            matricula,
+            email: (email || '').toLowerCase(),
+            telefone: '',
+            cargo,
+            sigla_area: area,
+            base_operacional: area,
+            // @ts-ignore - field aceito no backend
+            date_of_birth: toIso(dataNasc),
+          } as any);
+        } else {
+          // Formato convertido
+          if (values.length < 7) continue;
+          parsedUsers.push({
+            nome: values[0]?.replace(/^\"|\"$/g, ''),
+            matricula: values[1],
+            email: values[2],
+            telefone: '',
+            cargo: values[3],
+            sigla_area: values[4],
+            base_operacional: values[5],
+            // @ts-ignore - field aceito no backend
+            date_of_birth: values[6],
+          } as any);
+        }
       }
 
       setUsers(parsedUsers);
