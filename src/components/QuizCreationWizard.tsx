@@ -15,7 +15,13 @@ import { QuizQuestionsList } from './QuizQuestionsList';
 
 const quizSchema = z.object({
   title: z.string().min(3, "Título deve ter no mínimo 3 caracteres"),
-  description: z.string().min(10, "Descrição deve ter no mínimo 10 caracteres"),
+  description: z
+    .string()
+    .trim()
+    .default('')
+    .refine((val) => val.length === 0 || val.length >= 10, {
+      message: "Descrição deve ter no mínimo 10 caracteres quando preenchida",
+    }),
   xp_reward: z.coerce.number().min(1, "XP deve ser maior que 0"),
 });
 
@@ -94,7 +100,10 @@ export function QuizCreationWizard() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="description">Descrição</Label>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="description">Descrição (opcional)</Label>
+                <span className="text-xs text-muted-foreground">Use para contextualizar o quiz</span>
+              </div>
               <Textarea
                 id="description"
                 {...register('description')}
@@ -103,6 +112,11 @@ export function QuizCreationWizard() {
               />
               {errors.description && (
                 <p className="text-sm text-destructive">{errors.description.message}</p>
+              )}
+              {!errors.description && (
+                <p className="text-xs text-muted-foreground">
+                  Deixe em branco ou use pelo menos 10 caracteres.
+                </p>
               )}
             </div>
 

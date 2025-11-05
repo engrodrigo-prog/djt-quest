@@ -22,6 +22,7 @@ import { ProfileEditor } from '@/components/ProfileEditor';
 import { ProfileChangeHistory } from '@/components/profile/ProfileChangeHistory';
 import { QuizHistory } from '@/components/profile/QuizHistory';
 import { ChangePasswordCard } from '@/components/profile/ChangePasswordCard';
+import Navigation from '@/components/Navigation';
 
 interface UserProfile {
   name: string;
@@ -401,7 +402,7 @@ function ProfileContent() {
         </div>
 
         {/* Tabs */}
-        <Tabs defaultValue="learning" className="w-full">
+      <Tabs defaultValue="learning" className="w-full">
           <TabsList className="grid w-full max-w-2xl grid-cols-3">
             <TabsTrigger value="learning">
               <GraduationCap className="h-4 w-4 mr-2" />
@@ -553,7 +554,8 @@ function ProfileContent() {
         </div>
       </div>
 
-      <Dialog
+      <Navigation />
+    <Dialog
       open={avatarDialogOpen}
       onOpenChange={(open) => {
         if (!avatarSaving) {
