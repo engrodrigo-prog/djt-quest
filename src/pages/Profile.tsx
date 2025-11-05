@@ -18,6 +18,10 @@ import { useNavigate } from 'react-router-dom';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { getTierInfo, getNextTierLevel } from '@/lib/constants/tiers';
 import { AvatarCapture } from '@/components/AvatarCapture';
+import { ProfileEditor } from '@/components/ProfileEditor';
+import { ProfileChangeHistory } from '@/components/profile/ProfileChangeHistory';
+import { QuizHistory } from '@/components/profile/QuizHistory';
+import { ChangePasswordCard } from '@/components/profile/ChangePasswordCard';
 
 interface UserProfile {
   name: string;
@@ -539,10 +543,17 @@ function ProfileContent() {
               </div>
             )}
           </TabsContent>
-      </Tabs>
-    </div>
+        </Tabs>
 
-    <Dialog
+        <div className="grid gap-6 lg:grid-cols-2">
+          <ProfileEditor />
+          <ChangePasswordCard />
+          <ProfileChangeHistory />
+          <QuizHistory />
+        </div>
+      </div>
+
+      <Dialog
       open={avatarDialogOpen}
       onOpenChange={(open) => {
         if (!avatarSaving) {

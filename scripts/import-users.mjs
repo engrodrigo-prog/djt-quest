@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { createClient } from '@supabase/supabase-js';
+import { deriveOrgUnits, buildOrgUpserts } from './utils/org-helpers.mjs';
 
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const projectUrl = process.env.SUPABASE_URL || 'https://eyuehdefoedxcunxiyvb.supabase.co';
@@ -21,11 +22,43 @@ if (!fs.existsSync(csvPath)) {
   throw new Error(`CSV não encontrado em ${csvPath}`);
 }
 
-const rows = fs.readFileSync(csvPath, 'utf-8').split(/\r?\n/).filter(Boolean);
-const users = rows.slice(1).map(line => {
-  const parts = line.split(',');
+const lines = fs.readFileSync(csvPath, 'utf-8').split(/\r?\n/).filter(Boolean);
+
+const parseCsvLine = (line) => {
+  const out = [];
+  let current = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      inQuotes = !inQuotes;
+      continue;
+    }
+    if (ch === ',' && !inQuotes) {
+      out.push(current);
+      current = '';
+    } else {
+      current += ch;
+    }
+  }
+  out.push(current);
+  return out.map((s) => s.trim());
+};
+
+const users = lines.slice(1).map((line) => {
+  const parts = parseCsvLine(line);
   const [nome, matricula, email, cargo, sigla_area, base_operacional, date_of_birth] = parts;
-  return { nome, matricula, email, cargo, sigla_area, base_operacional, date_of_birth };
+  const org = deriveOrgUnits(sigla_area || base_operacional);
+  return {
+    nome,
+    matricula,
+    email,
+    cargo,
+    sigla_area: sigla_area?.trim() || org?.teamId || null,
+    base_operacional: base_operacional?.trim() || org?.teamId || null,
+    date_of_birth,
+    org,
+  };
 });
 
 const resetPassword = '123456';
@@ -38,12 +71,31 @@ const cargoToRole = (cargo = '') => {
   return 'colaborador';
 };
 
+const orgUpserts = buildOrgUpserts(users.map((u) => u.org).filter(Boolean));
+
+const syncOrgTables = async () => {
+  const upsertTable = async (table, payload) => {
+    if (!payload.length) return;
+    const { error } = await supabase.from(table).upsert(payload, { onConflict: 'id' });
+    if (error) {
+      console.warn(`Falha ao sincronizar ${table}:`, error.message);
+    }
+  };
+
+  await upsertTable('divisions', orgUpserts.divisions);
+  await upsertTable('coordinations', orgUpserts.coordinations);
+  await upsertTable('teams', orgUpserts.teams);
+};
+
+await syncOrgTables();
+
 for (const userData of users) {
   const email = userData.email?.trim();
   const nome = userData.nome?.trim();
   if (!email || !nome) continue;
   const role = cargoToRole(userData.cargo);
   const isLeaderRole = ['coordenador_djtx', 'gerente_divisao_djtx', 'gerente_djt'].includes(role);
+  const org = userData.org;
 
   const { data: existingProfile } = await supabase
     .from('profiles')
@@ -87,6 +139,9 @@ for (const userData of users) {
       is_leader: isLeaderRole,
       studio_access: isLeaderRole,
       date_of_birth: userData.date_of_birth || null,
+      division_id: org?.divisionId || null,
+      coord_id: org?.coordinationId || null,
+      team_id: org?.teamId || null,
     })
     .eq('id', userId);
   if (profileErr) {

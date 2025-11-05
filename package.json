@@ -8,7 +8,12 @@
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "import:reset": "node scripts/reset-and-import.mjs",
+    "sync:operational-base": "node scripts/sync-operational-base.mjs",
+    "fix:dob": "node scripts/backfill-date-of-birth.mjs",
+    "cleanup:divisions": "node scripts/cleanup-simulated-divisions.mjs",
+    "seed:org": "node scripts/seed-org-structure.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

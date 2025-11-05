@@ -18,6 +18,7 @@ import { PendingRegistrationsManager } from '@/components/PendingRegistrationsMa
 import { UserManagement } from '@/components/UserManagement';
 import EvaluationManagement from '@/components/EvaluationManagement';
 import { InitialUserImport } from '@/components/InitialUserImport';
+import { PendingApprovals } from '@/components/PendingApprovals';
 
 const Studio = () => {
   const { user, loading, isLeader, studioAccess, userRole } = useAuth();
@@ -83,6 +84,8 @@ const Studio = () => {
         return <InitialUserImport />;
       case 'registrations':
         return <PendingRegistrationsManager />;
+      case 'approvals':
+        return <PendingApprovals />;
       case 'forums':
         return <ForumManagement />;
       case 'system':

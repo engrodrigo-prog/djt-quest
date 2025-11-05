@@ -6,7 +6,9 @@ const corsHeaders = {
 };
 
 interface CleanupRequest {
-  emailsToKeep: string[];
+  emailsToKeep?: string[];
+  emailsToDelete?: string[];
+  deleteAll?: boolean;
 }
 
 Deno.serve(async (req) => {
@@ -42,23 +44,20 @@ Deno.serve(async (req) => {
       .select('role')
       .eq('user_id', user.id);
 
-    const allowedRoles = new Set(['gerente_djt', 'admin']);
+    const allowedRoles = new Set(['gerente_djt', 'gerente_divisao_djtx', 'coordenador_djtx', 'admin']);
     const hasPermission = roles?.some(({ role }) => allowedRoles.has(role));
     if (!hasPermission) {
       throw new Error('Insufficient permissions');
     }
 
-    const { emailsToKeep } = await req.json() as CleanupRequest;
-
-    if (!emailsToKeep || !Array.isArray(emailsToKeep) || emailsToKeep.length === 0) {
-      throw new Error('Invalid emails list');
-    }
+    const { emailsToKeep, emailsToDelete, deleteAll } = await req.json() as CleanupRequest;
 
     console.log('=== CLEANUP STARTED ===');
     console.log('Emails to keep:', emailsToKeep.length);
 
-    // Normalizar emails para comparação
-    const normalizedEmails = emailsToKeep.map(e => e.trim().toLowerCase());
+    // Normalizar
+    const normalizedKeep = (emailsToKeep || []).map(e => e.trim().toLowerCase());
+    const normalizedDelete = (emailsToDelete || []).map(e => e.trim().toLowerCase());
 
     const results = {
       kept: [] as string[],
@@ -78,22 +77,24 @@ Deno.serve(async (req) => {
 
     console.log('Total profiles found:', allProfiles.length);
 
-    // Calcular IDs e emails para deletar usando JavaScript
-    const idsParaDeletar = allProfiles
-      .filter(p => !normalizedEmails.includes(p.email?.toLowerCase().trim() || ''))
-      .map(p => p.id);
+    let idsParaDeletar: string[] = [];
+    let emailsParaDeletar: (string | null)[] = [];
 
-    const emailsParaDeletar = allProfiles
-      .filter(p => !normalizedEmails.includes(p.email?.toLowerCase().trim() || ''))
-      .map(p => p.email);
+    if (deleteAll) {
+      idsParaDeletar = allProfiles.map(p => p.id);
+      emailsParaDeletar = allProfiles.map(p => p.email);
+    } else if (normalizedDelete.length > 0) {
+      const toDelete = allProfiles.filter(p => normalizedDelete.includes((p.email || '').toLowerCase().trim()))
+      idsParaDeletar = toDelete.map(p => p.id);
+      emailsParaDeletar = toDelete.map(p => p.email);
+    } else {
+      // Deletar todos que NÃO estão na lista de manter
+      const toDelete = allProfiles.filter(p => !normalizedKeep.includes((p.email || '').toLowerCase().trim()));
+      idsParaDeletar = toDelete.map(p => p.id);
+      emailsParaDeletar = toDelete.map(p => p.email);
+    }
 
     console.log('Profiles to DELETE:', idsParaDeletar.length);
-    console.log('Expected to delete:', allProfiles.length - emailsToKeep.length);
-    
-    if (idsParaDeletar.length !== (allProfiles.length - emailsToKeep.length)) {
-      console.error('⚠️ WARNING: Deletion count mismatch!');
-      console.error(`Expected ${allProfiles.length - emailsToKeep.length} but got ${idsParaDeletar.length}`);
-    }
 
     // Deletar user_roles e profiles usando .in() com arrays
     if (idsParaDeletar.length > 0) {
@@ -143,10 +144,21 @@ Deno.serve(async (req) => {
 
     // Deletar usuários auth que não estão na lista
     let authDeletedCount = 0;
+    const isKept = (email: string | undefined | null) => {
+      const em = (email || '').toLowerCase();
+      if (deleteAll) return false;
+      if (normalizedDelete.length > 0) {
+        // Em modo de exclusão explícita, mantemos todos que NÃO estão na lista de deleção
+        return !normalizedDelete.includes(em);
+      }
+      // Modo manter lista: mantém apenas emails explicitamente listados
+      return normalizedKeep.includes(em);
+    };
+
     for (const authUser of allUsers.users) {
       const userEmail = authUser.email?.toLowerCase();
       
-      if (!userEmail || normalizedEmails.includes(userEmail)) {
+      if (!userEmail || isKept(userEmail)) {
         results.kept.push(userEmail || 'unknown');
         continue;
       }

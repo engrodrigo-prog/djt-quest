@@ -13,8 +13,11 @@ const Navigation = () => {
   const isActive = (path: string) => location.pathname === path;
 
   return (
-    <nav className="fixed md:static bottom-0 left-0 right-0 bg-card border-t z-50">
-      <div className="container flex items-center justify-around py-2">
+    <nav
+      className="fixed md:static bottom-0 left-0 right-0 bg-card border-t z-50"
+      style={{ paddingBottom: 'max(env(safe-area-inset-bottom), 8px)' }}
+    >
+      <div className="max-w-full px-2 flex items-center justify-between gap-1 py-2 overflow-x-auto">
         <Button
           variant={isActive('/dashboard') ? 'default' : 'ghost'}
           size="sm"

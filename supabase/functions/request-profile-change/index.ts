@@ -26,11 +26,49 @@ Deno.serve(async (req) => {
       throw new Error('Unauthorized');
     }
 
-    const { field_name, new_value } = await req.json();
-
-    if (!field_name || !new_value) {
-      throw new Error('Missing field_name or new_value');
+    type ChangeItem = { field_name: string; new_value: string }
+    const payload = await req.json();
+    let changes: ChangeItem[] = []
+    if (Array.isArray(payload?.changes)) {
+      changes = payload.changes as ChangeItem[];
+    } else if (payload?.field_name && typeof payload?.new_value !== 'undefined') {
+      changes = [{ field_name: payload.field_name, new_value: payload.new_value }];
     }
+
+    if (changes.length === 0) {
+      throw new Error('Missing changes');
+    }
+
+    const allowedFields = new Set(['name', 'email', 'operational_base', 'sigla_area', 'date_of_birth']);
+    const sanitizeChange = (field: string, value: any) => {
+      if (!allowedFields.has(field)) {
+        throw new Error(`Campo não suportado: ${field}`);
+      }
+      if (typeof value !== 'string') {
+        throw new Error(`Valor inválido para ${field}`);
+      }
+      switch (field) {
+        case 'sigla_area':
+          return value.trim().toUpperCase();
+        case 'operational_base':
+          return value.trim();
+        case 'name':
+          return value.trim();
+        case 'email':
+          return value.trim().toLowerCase();
+        case 'date_of_birth':
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(value.trim())) {
+            throw new Error('Data de nascimento deve estar no formato YYYY-MM-DD');
+          }
+          return value.trim();
+        default:
+          return value;
+      }
+    };
+    changes = changes.map((change) => ({
+      field_name: change.field_name,
+      new_value: sanitizeChange(change.field_name, change.new_value),
+    }));
 
     // Verificar se usuário é admin
     const { data: roles } = await supabaseClient
@@ -65,24 +103,37 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Buscar valor atual
     const { data: currentProfile } = await supabaseClient
       .from('profiles')
-      .select(field_name)
+      .select('*')
       .eq('id', user.id)
       .single();
 
-    // Criar solicitação
-    const { error: insertError } = await supabaseClient
-      .from('profile_change_requests')
-      .insert({
+    if (!currentProfile) {
+      throw new Error('Perfil não encontrado');
+    }
+
+    const inserts = changes
+      .filter((change) => String(currentProfile[change.field_name] ?? '').trim() !== change.new_value.trim())
+      .map((change) => ({
         user_id: user.id,
         requested_by: user.id,
-        field_name,
-        old_value: currentProfile?.[field_name] || null,
-        new_value,
+        field_name: change.field_name,
+        old_value: currentProfile?.[change.field_name] ?? null,
+        new_value: change.new_value,
         status: 'pending',
-      });
+      }));
+
+    if (inserts.length === 0) {
+      return new Response(
+        JSON.stringify({ success: true, message: 'Nenhuma alteração detectada' }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const { error: insertError } = await supabaseClient
+      .from('profile_change_requests')
+      .insert(inserts);
 
     if (insertError) throw insertError;
 
@@ -91,6 +142,7 @@ Deno.serve(async (req) => {
         success: true, 
         message: 'Change request created successfully',
         requires_approval: true,
+        count: inserts.length,
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );

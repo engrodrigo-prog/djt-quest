@@ -83,13 +83,21 @@ export const StudioDashboard = ({ onSelectModule, userRole }: StudioDashboardPro
       gradientFrom: 'from-djt-yellow',
       gradientTo: 'to-accent',
     },
-    {
+  {
       id: 'user-management',
       title: 'Gerenciar Usuários',
       description: 'Visualizar, buscar e limpar usuários',
       icon: Users,
       gradientFrom: 'from-djt-blue-dark',
       gradientTo: 'to-primary',
+    },
+    {
+      id: 'approvals',
+      title: 'Aprovações',
+      description: 'Validar pedidos de atualização de perfil',
+      icon: ClipboardCheck,
+      gradientFrom: 'from-emerald-500',
+      gradientTo: 'to-green-600',
     },
     {
       id: 'evaluations',

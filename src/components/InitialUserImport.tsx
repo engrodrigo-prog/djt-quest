@@ -88,6 +88,7 @@ export function InitialUserImport() {
             const mm = m[2].padStart(2, '0');
             return `${m[3]}-${mm}-${dd}`;
           };
+          // @ts-expect-error - backend aceita a propriedade date_of_birth
           parsedUsers.push({
             nome,
             matricula,
@@ -96,12 +97,12 @@ export function InitialUserImport() {
             cargo,
             sigla_area: area,
             base_operacional: area,
-            // @ts-ignore - field aceito no backend
             date_of_birth: toIso(dataNasc),
           } as any);
         } else {
           // Formato convertido
           if (values.length < 7) continue;
+          // @ts-expect-error - backend aceita a propriedade date_of_birth
           parsedUsers.push({
             nome: values[0]?.replace(/^\"|\"$/g, ''),
             matricula: values[1],
@@ -110,7 +111,6 @@ export function InitialUserImport() {
             cargo: values[3],
             sigla_area: values[4],
             base_operacional: values[5],
-            // @ts-ignore - field aceito no backend
             date_of_birth: values[6],
           } as any);
         }
@@ -204,7 +204,7 @@ export function InitialUserImport() {
           </AlertDescription>
         </Alert>
 
-        <div className="flex gap-4">
+        <div className="flex gap-4 flex-wrap">
           <label className="flex-1">
             <Button variant="outline" className="w-full" asChild>
               <span>
@@ -235,6 +235,28 @@ export function InitialUserImport() {
             className="flex-1"
           >
             {isCleaningUp ? 'Limpando...' : 'Limpar Outros Usuários'}
+          </Button>
+
+          <Button
+            onClick={async () => {
+              if (!confirm('⚠️ Isso irá DELETAR TODOS os usuários. Tem certeza?')) return;
+              try {
+                const { data, error } = await supabase.functions.invoke('studio-cleanup-users', {
+                  body: { deleteAll: true }
+                });
+                if (error) throw error;
+                toast.success('Todos os usuários foram removidos', {
+                  description: `${data.summary.totalDeleted} deletados`,
+                });
+              } catch (error) {
+                console.error('Error deleting all users:', error);
+                toast.error('Erro ao deletar todos os usuários');
+              }
+            }}
+            variant="destructive"
+            className="flex-1"
+          >
+            Apagar TODOS os Usuários
           </Button>
         </div>
 
