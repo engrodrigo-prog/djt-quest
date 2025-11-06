@@ -76,8 +76,14 @@ function ProfileContent() {
   const [retryModalOpen, setRetryModalOpen] = useState(false);
   const [selectedEventForRetry, setSelectedEventForRetry] = useState<{ eventId: string; challengeId: string; challengeTitle: string } | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [avatarDialogOpen, setAvatarDialogOpen] = useState(searchParams.get('avatar') === 'open');
+
+  // Abrir/fechar modal conforme query param (?avatar=open)
+  useEffect(() => {
+    setAvatarDialogOpen(searchParams.get('avatar') === 'open');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
   const [avatarSaving, setAvatarSaving] = useState(false);
 
   // Loader we can reuse (initial + manual retry)
@@ -594,8 +600,16 @@ function ProfileContent() {
     <Dialog
       open={avatarDialogOpen}
       onOpenChange={(open) => {
-        if (!avatarSaving) {
-          setAvatarDialogOpen(open);
+        if (avatarSaving) return;
+        setAvatarDialogOpen(open);
+        if (open) {
+          const p = new URLSearchParams(searchParams);
+          p.set('avatar', 'open');
+          setSearchParams(p, { replace: true });
+        } else {
+          const p = new URLSearchParams(searchParams);
+          p.delete('avatar');
+          setSearchParams(p, { replace: true });
         }
       }}
     >
@@ -635,8 +649,9 @@ function ProfileContent() {
 }
 
 const Profile = () => {
-  const { isLeader } = useAuth();
-  return isLeader ? <LeaderTeamDashboard /> : <ProfileContent />;
+  // Sempre renderiza o Perfil do usuário aqui;
+  // líderes seguem acessando o dashboard dedicado via /leader-dashboard
+  return <ProfileContent />;
 };
 
 export default Profile;
