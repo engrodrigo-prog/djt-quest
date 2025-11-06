@@ -33,7 +33,7 @@ const registerSchema = z.object({
     .trim()
     .min(1, "Sigla da área é obrigatória")
     .max(10, "Sigla deve ter no máximo 10 caracteres")
-    .regex(/^[A-Z0-9\-]+$/, "Sigla deve conter apenas letras maiúsculas, números e hífen"),
+    .regex(/^[A-Z0-9-]+$/, "Sigla deve conter apenas letras maiúsculas, números e hífen"),
 });
 
 export default function Register() {

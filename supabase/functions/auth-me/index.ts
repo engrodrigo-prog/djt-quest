@@ -78,7 +78,7 @@ Deno.serve(async (req) => {
     const orgScope = {
       teamId: profile?.team_id || null,
       coordId: profile?.coord_id || null,
-      divisionId: profile?.division_id || 'DJTX',
+      divisionId: profile?.division_id || null,
       departmentId: profile?.department_id || 'DJT'
     };
 

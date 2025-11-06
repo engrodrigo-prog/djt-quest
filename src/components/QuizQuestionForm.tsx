@@ -48,47 +48,87 @@ export function QuizQuestionForm({ challengeId, onQuestionAdded }: QuizQuestionF
 
   const options = watch("options");
 
+  const createViaApi = async (payload: QuizQuestionFormData) => {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+    if (!token) throw new Error('Não autenticado');
+
+    const resp = await fetch('/api/studio-create-quiz-question', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        challengeId,
+        question_text: payload.question_text,
+        difficulty_level: payload.difficulty_level,
+        options: payload.options,
+      }),
+    });
+
+    if (!resp.ok) {
+      const json = await resp.json().catch(() => ({}));
+      throw new Error(json?.error || 'Falha ao criar pergunta');
+    }
+  };
+
+  const createDirect = async (payload: QuizQuestionFormData) => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('Não autenticado');
+
+    const { data: question, error: questionError } = await supabase
+      .from('quiz_questions')
+      .insert({
+        challenge_id: challengeId,
+        question_text: payload.question_text,
+        difficulty_level: payload.difficulty_level,
+        xp_value: difficultyLevels[payload.difficulty_level].xp,
+        created_by: user.id,
+      })
+      .select()
+      .single();
+
+    if (questionError) throw questionError;
+
+    const optionsToInsert = payload.options.map((opt) => ({
+      question_id: question.id,
+      option_text: opt.option_text,
+      is_correct: opt.is_correct,
+      explanation: opt.explanation || null,
+    }));
+
+    const { error: optionsError } = await supabase
+      .from('quiz_options')
+      .insert(optionsToInsert);
+
+    if (optionsError) throw optionsError;
+  };
+
   const onSubmit = async (data: QuizQuestionFormData) => {
     setIsSubmitting(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Não autenticado");
+      try {
+        await createViaApi(data);
+      } catch (apiError) {
+        console.warn('API quiz creation failed, falling back to direct insert:', apiError);
+        await createDirect(data);
+      }
 
-      // Insert question
-      const { data: question, error: questionError } = await supabase
-        .from("quiz_questions")
-        .insert({
-          challenge_id: challengeId,
-          question_text: data.question_text,
-          difficulty_level: data.difficulty_level,
-          xp_value: difficultyLevels[data.difficulty_level].xp,
-          created_by: user.id,
-        })
-        .select()
-        .single();
-
-      if (questionError) throw questionError;
-
-      // Insert options
-      const optionsToInsert = data.options.map((opt) => ({
-        question_id: question.id,
-        option_text: opt.option_text,
-        is_correct: opt.is_correct,
-        explanation: opt.explanation || null,
-      }));
-
-      const { error: optionsError } = await supabase
-        .from("quiz_options")
-        .insert(optionsToInsert);
-
-      if (optionsError) throw optionsError;
-
-      toast.success("Pergunta criada com sucesso!");
-      reset();
+      toast.success('Pergunta criada com sucesso!');
+      reset({
+        question_text: '',
+        difficulty_level: 'basica',
+        options: [
+          { option_text: '', is_correct: true, explanation: '' },
+          { option_text: '', is_correct: false, explanation: '' },
+        ],
+      });
+      setSelectedDifficulty('basica');
       onQuestionAdded();
-    } catch (error) {
-      console.error("Error creating question:", error);
-      toast.error("Erro ao criar pergunta");
+    } catch (error: any) {
+      console.error('Error creating question:', error);
+      toast.error(error?.message || 'Erro ao criar pergunta');
     } finally {
       setIsSubmitting(false);
     }

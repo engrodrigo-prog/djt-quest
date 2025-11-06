@@ -18,6 +18,8 @@ import { PendingRegistrationsManager } from '@/components/PendingRegistrationsMa
 import { UserManagement } from '@/components/UserManagement';
 import EvaluationManagement from '@/components/EvaluationManagement';
 import { InitialUserImport } from '@/components/InitialUserImport';
+import { PendingApprovals } from '@/components/PendingApprovals';
+import { AvatarRegistrationTool } from '@/components/AvatarRegistrationTool';
 
 const Studio = () => {
   const { user, loading, isLeader, studioAccess, userRole } = useAuth();
@@ -83,6 +85,10 @@ const Studio = () => {
         return <InitialUserImport />;
       case 'registrations':
         return <PendingRegistrationsManager />;
+      case 'approvals':
+        return <PendingApprovals />;
+      case 'avatar-tool':
+        return <AvatarRegistrationTool />;
       case 'forums':
         return <ForumManagement />;
       case 'system':

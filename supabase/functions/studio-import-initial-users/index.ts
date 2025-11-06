@@ -9,10 +9,11 @@ interface UserRow {
   nome: string;
   matricula: string;
   email: string;
-  telefone: string;
+  telefone?: string;
   cargo: string;
   sigla_area: string;
   base_operacional: string;
+  date_of_birth?: string; // YYYY-MM-DD
 }
 
 const cargoToRole: Record<string, string> = {
@@ -77,6 +78,7 @@ Deno.serve(async (req) => {
         const siglaArea = userData.sigla_area.trim();
         const baseOperacional = userData.base_operacional.trim();
         const telefone = (userData.telefone || '').trim();
+        const dateOfBirth = (userData.date_of_birth || '').trim() || null;
         const role = cargoToRole[userData.cargo] || 'colaborador';
         const isAdminUser = userData.nome.toLowerCase().includes('rodrigo') || 
                            userData.nome.toLowerCase().includes('cintia');
@@ -115,9 +117,10 @@ Deno.serve(async (req) => {
               operational_base: baseOperacional,
               sigla_area: siglaArea,
               must_change_password: true,
-              needs_profile_completion: !telefone,
+              needs_profile_completion: false,
               is_leader: ['coordenador_djtx','gerente_divisao_djtx','gerente_djt'].includes(role),
               studio_access: ['coordenador_djtx','gerente_divisao_djtx','gerente_djt'].includes(role),
+              date_of_birth: dateOfBirth,
             })
             .eq('id', userId);
           if (updProfileErr) throw updProfileErr;
@@ -143,9 +146,10 @@ Deno.serve(async (req) => {
               operational_base: baseOperacional,
               sigla_area: siglaArea,
               must_change_password: true,
-              needs_profile_completion: !telefone,
+              needs_profile_completion: false,
               is_leader: ['coordenador_djtx','gerente_divisao_djtx','gerente_djt'].includes(role),
               studio_access: ['coordenador_djtx','gerente_divisao_djtx','gerente_djt'].includes(role),
+              date_of_birth: dateOfBirth,
             })
             .eq('id', userId);
           if (profileError) throw profileError;

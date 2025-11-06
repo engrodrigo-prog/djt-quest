@@ -18,6 +18,11 @@ import { useNavigate } from 'react-router-dom';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { getTierInfo, getNextTierLevel } from '@/lib/constants/tiers';
 import { AvatarCapture } from '@/components/AvatarCapture';
+import { ProfileEditor } from '@/components/ProfileEditor';
+import { ProfileChangeHistory } from '@/components/profile/ProfileChangeHistory';
+import { QuizHistory } from '@/components/profile/QuizHistory';
+import { ChangePasswordCard } from '@/components/profile/ChangePasswordCard';
+import Navigation from '@/components/Navigation';
 
 interface UserProfile {
   name: string;
@@ -61,7 +66,7 @@ interface UserBadge {
 }
 
 function ProfileContent() {
-  const { user, refreshUserSession } = useAuth();
+  const { user, refreshUserSession, profile: authProfile } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -74,80 +79,94 @@ function ProfileContent() {
   const [avatarDialogOpen, setAvatarDialogOpen] = useState(false);
   const [avatarSaving, setAvatarSaving] = useState(false);
 
-  useEffect(() => {
-    const loadProfile = async () => {
-      if (!user) return;
+  // Loader we can reuse (initial + manual retry)
+  const loadProfile = async () => {
+    if (!user) return;
 
-      try {
-        // Load profile
-        const { data: profileData } = await supabase
-          .from('profiles')
-          .select('name, email, xp, tier, demotion_cooldown_until, avatar_url, team:teams(name)')
-          .eq('id', user.id)
-          .single();
+    try {
+      setLoading(true);
+      // Load profile
+      const { data: profileData } = await supabase
+        .from('profiles')
+        .select('name, email, xp, tier, demotion_cooldown_until, avatar_url, team:teams(name)')
+        .eq('id', user.id)
+        .maybeSingle();
 
-        if (profileData) {
-          setProfile(profileData as any);
-        }
-
-        // Load events with evaluations
-        const { data: eventsData } = await supabase
-          .from('events')
-          .select(`
-            id,
-            created_at,
-            status,
-            points_calculated,
-            retry_count,
-            parent_event_id,
-            challenge_id,
-            challenge:challenges(id, title, type, xp_reward)
-          `)
-          .eq('user_id', user.id)
-          .order('created_at', { ascending: false });
-
-        if (eventsData) {
-          // Load evaluations for each event
-          const eventsWithEval = await Promise.all(
-            eventsData.map(async (event: any) => {
-              const { data: evalData } = await supabase
-                .from('action_evaluations')
-                .select('rating, feedback_positivo, feedback_construtivo, scores')
-                .eq('event_id', event.id)
-                .maybeSingle();
-
-              return {
-                ...event,
-                evaluation: evalData || undefined
-              };
-            })
-          );
-          
-          setEvents(eventsWithEval as any);
-        }
-
-        // Load badges
-        const { data: badgesData } = await supabase
-          .from('user_badges')
-          .select(`
-            id,
-            earned_at,
-            badge:badges(name, description, icon_url)
-          `)
-          .eq('user_id', user.id)
-          .order('earned_at', { ascending: false });
-
-        if (badgesData) {
-          setBadges(badgesData as any);
-        }
-      } catch (error) {
-        console.error('Error loading profile:', error);
-      } finally {
-        setLoading(false);
+      if (profileData) {
+        setProfile(profileData as any);
+      } else if (authProfile) {
+        // Fallback to auth profile minimal info to avoid blank screen
+        setProfile({
+          name: authProfile.name,
+          email: authProfile.email,
+          xp: authProfile.xp ?? 0,
+          tier: authProfile.tier ?? 'novato',
+          demotion_cooldown_until: authProfile.demotion_cooldown_until ?? null,
+          team: authProfile.teams ? { name: authProfile.teams.name } : null,
+          avatar_url: authProfile.avatar_url ?? null,
+        } as any);
       }
-    };
 
+      // Load events with evaluations
+      const { data: eventsData } = await supabase
+        .from('events')
+        .select(`
+          id,
+          created_at,
+          status,
+          points_calculated,
+          retry_count,
+          parent_event_id,
+          challenge_id,
+          challenge:challenges(id, title, type, xp_reward)
+        `)
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+
+      if (eventsData) {
+        // Load evaluations for each event
+        const eventsWithEval = await Promise.all(
+          eventsData.map(async (event: any) => {
+            const { data: evalData } = await supabase
+              .from('action_evaluations')
+              .select('rating, feedback_positivo, feedback_construtivo, scores')
+              .eq('event_id', event.id)
+              .maybeSingle();
+
+            return {
+              ...event,
+              evaluation: evalData || undefined
+            };
+          })
+        );
+        
+        setEvents(eventsWithEval as any);
+      }
+
+      // Load badges
+      const { data: badgesData } = await supabase
+        .from('user_badges')
+        .select(`
+          id,
+          earned_at,
+          badge:badges(name, description, icon_url)
+        `)
+        .eq('user_id', user.id)
+        .order('earned_at', { ascending: false });
+
+      if (badgesData) {
+        setBadges(badgesData as any);
+      }
+    } catch (error) {
+      console.error('Error loading profile:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
     loadProfile();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
   const handleRetryClick = (eventId: string, challengeTitle: string) => {
@@ -251,7 +270,26 @@ function ProfileContent() {
     );
   }
 
-  if (!profile) return null;
+  if (!profile) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4">
+        <Card className="w-full max-w-md">
+          <CardHeader>
+            <CardTitle>Perfil não encontrado</CardTitle>
+            <CardDescription>
+              Não conseguimos carregar seus dados agora. Atualize sua sessão ou complete seu perfil.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <Button className="w-full" onClick={loadProfile}>Tentar novamente</Button>
+            <Button variant="outline" className="w-full" onClick={() => navigate('/user-setup')}>
+              Completar Perfil
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   const tierInfo = getTierInfo(profile.tier);
   const nextLevel = getNextTierLevel(profile.tier, profile.xp);
@@ -397,7 +435,7 @@ function ProfileContent() {
         </div>
 
         {/* Tabs */}
-        <Tabs defaultValue="learning" className="w-full">
+      <Tabs defaultValue="learning" className="w-full">
           <TabsList className="grid w-full max-w-2xl grid-cols-3">
             <TabsTrigger value="learning">
               <GraduationCap className="h-4 w-4 mr-2" />
@@ -539,9 +577,17 @@ function ProfileContent() {
               </div>
             )}
           </TabsContent>
-      </Tabs>
-    </div>
+        </Tabs>
 
+        <div className="grid gap-6 lg:grid-cols-2">
+          <ProfileEditor />
+          <ChangePasswordCard />
+          <ProfileChangeHistory />
+          <QuizHistory />
+        </div>
+      </div>
+
+      <Navigation />
     <Dialog
       open={avatarDialogOpen}
       onOpenChange={(open) => {

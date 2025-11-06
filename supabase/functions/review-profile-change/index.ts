@@ -21,6 +21,11 @@ Deno.serve(async (req) => {
       }
     );
 
+    const supabaseAdmin = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+    );
+
     const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
     if (userError || !user) {
       throw new Error('Unauthorized');
@@ -72,13 +77,71 @@ Deno.serve(async (req) => {
     if (updateRequestError) throw updateRequestError;
 
     // Se aprovado, atualizar perfil
+    const deriveOrg = (value: string) => {
+      if (!value) return null;
+      const normalized = value
+        .toUpperCase()
+        .replace(/[^A-Z0-9-]/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '');
+      if (!normalized) return null;
+      const parts = normalized.split('-').filter(Boolean);
+      const divisionId = parts[0] || 'DJT';
+      const coordTag = parts[1] || 'SEDE';
+      const teamId = normalized;
+      return {
+        divisionId: divisionId,
+        coordinationId: `${divisionId}-${coordTag}`,
+        teamId,
+      };
+    };
+
     if (action === 'approved') {
+      const updates: Record<string, any> = { [request.field_name]: request.new_value };
+
+      if (request.field_name === 'sigla_area') {
+        const org = deriveOrg(request.new_value);
+        if (org) {
+          updates.division_id = org.divisionId;
+          updates.coord_id = org.coordinationId;
+          updates.team_id = org.teamId;
+          updates.operational_base = request.new_value;
+        }
+      }
+
+      if (request.field_name === 'operational_base') {
+        const { data: profileRow } = await supabaseClient
+          .from('profiles')
+          .select('sigla_area')
+          .eq('id', request.user_id)
+          .single();
+        const org = deriveOrg(profileRow?.sigla_area || request.new_value);
+        if (org) {
+          updates.division_id = org.divisionId;
+          updates.coord_id = org.coordinationId;
+          updates.team_id = org.teamId;
+        }
+      }
+
       const { error: updateProfileError } = await supabaseClient
         .from('profiles')
-        .update({ [request.field_name]: request.new_value })
+        .update(updates)
         .eq('id', request.user_id);
 
       if (updateProfileError) throw updateProfileError;
+
+      if (request.field_name === 'name') {
+        await supabaseAdmin.auth.admin.updateUserById(request.user_id, {
+          user_metadata: { name: request.new_value },
+        });
+      }
+
+      if (request.field_name === 'email') {
+        await supabaseAdmin.auth.admin.updateUserById(request.user_id, {
+          email: request.new_value,
+          email_confirm: true,
+        });
+      }
 
       // Notificar usuário
       await supabaseClient.rpc('create_notification', {

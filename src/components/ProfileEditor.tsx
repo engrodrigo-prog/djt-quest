@@ -1,24 +1,30 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 
-const AREA_OPTIONS = [
-  "DJT", "DJT-PLA", "DJTV", "DJTB", "DJTV-ITP", "DJTV-VOT", "DJTB-ITU", "DJTB-CCP", "DJTB-SOR"
-];
-
 export function ProfileEditor() {
-  const { profile } = useAuth();
+  const { profile, refreshUserSession } = useAuth();
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
+    name: profile?.name || "",
     operational_base: profile?.operational_base || "",
     sigla_area: profile?.sigla_area || "",
+    date_of_birth: profile?.date_of_birth || "",
   });
+
+  useEffect(() => {
+    setFormData({
+      name: profile?.name || "",
+      operational_base: profile?.operational_base || "",
+      sigla_area: profile?.sigla_area || "",
+      date_of_birth: profile?.date_of_birth || "",
+    });
+  }, [profile]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -27,6 +33,10 @@ export function ProfileEditor() {
     try {
       const changes = [];
       
+      if (formData.name && formData.name !== profile?.name) {
+        changes.push({ field: 'name', value: formData.name });
+      }
+
       if (formData.operational_base !== profile?.operational_base) {
         changes.push({
           field: 'operational_base',
@@ -41,6 +51,10 @@ export function ProfileEditor() {
         });
       }
 
+      if ((formData.date_of_birth || '') !== (profile?.date_of_birth || '')) {
+        changes.push({ field: 'date_of_birth', value: formData.date_of_birth || '' });
+      }
+
       if (changes.length === 0) {
         toast.info("Nenhuma alteração detectada");
         setLoading(false);
@@ -48,16 +62,15 @@ export function ProfileEditor() {
       }
 
       // Solicitar cada mudança
-      for (const change of changes) {
-        const { error } = await supabase.functions.invoke('request-profile-change', {
-          body: {
-            field_name: change.field,
-            new_value: change.value,
-          },
-        });
+      const { error } = await supabase.functions.invoke('request-profile-change', {
+        body: {
+          changes: changes.map(({ field, value }) => ({ field_name: field, new_value: value })),
+        },
+      });
 
-        if (error) throw error;
-      }
+      if (error) throw error;
+
+      await refreshUserSession();
 
       toast.success("Solicitação enviada para aprovação!");
     } catch (error) {
@@ -79,6 +92,16 @@ export function ProfileEditor() {
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
+            <Label htmlFor="name">Nome Completo</Label>
+            <Input
+              id="name"
+              value={formData.name}
+              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              placeholder="Digite seu nome"
+            />
+          </div>
+
+          <div className="space-y-2">
             <Label htmlFor="operational_base">Base Operacional</Label>
             <Input
               id="operational_base"
@@ -89,22 +112,23 @@ export function ProfileEditor() {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="sigla_area">Sigla da Área</Label>
-            <Select
+            <Label htmlFor="sigla_area">Sigla da Área / Equipe</Label>
+            <Input
+              id="sigla_area"
               value={formData.sigla_area}
-              onValueChange={(value) => setFormData({ ...formData, sigla_area: value })}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Selecione a área" />
-              </SelectTrigger>
-              <SelectContent>
-                {AREA_OPTIONS.map((area) => (
-                  <SelectItem key={area} value={area}>
-                    {area}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              onChange={(e) => setFormData({ ...formData, sigla_area: e.target.value.toUpperCase() })}
+              placeholder="Ex: DJTB-CUB"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="date_of_birth">Data de Nascimento</Label>
+            <Input
+              id="date_of_birth"
+              type="date"
+              value={formData.date_of_birth || ''}
+              onChange={(e) => setFormData({ ...formData, date_of_birth: e.target.value })}
+            />
           </div>
 
           <Button type="submit" disabled={loading} className="w-full">

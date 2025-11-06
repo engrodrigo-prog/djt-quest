@@ -10,7 +10,8 @@ import {
   Crown,
   ChevronRight,
   Users,
-  ClipboardCheck
+  ClipboardCheck,
+  Camera
 } from "lucide-react";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -84,12 +85,28 @@ export const StudioDashboard = ({ onSelectModule, userRole }: StudioDashboardPro
       gradientTo: 'to-accent',
     },
     {
+      id: 'avatar-tool',
+      title: 'Fotos & Avatares',
+      description: 'Capturar fotos oficiais do perfil',
+      icon: Camera,
+      gradientFrom: 'from-pink-500',
+      gradientTo: 'to-rose-500',
+    },
+    {
       id: 'user-management',
       title: 'Gerenciar Usuários',
       description: 'Visualizar, buscar e limpar usuários',
       icon: Users,
       gradientFrom: 'from-djt-blue-dark',
       gradientTo: 'to-primary',
+    },
+    {
+      id: 'approvals',
+      title: 'Aprovações',
+      description: 'Validar pedidos de atualização de perfil',
+      icon: ClipboardCheck,
+      gradientFrom: 'from-emerald-500',
+      gradientTo: 'to-green-600',
     },
     {
       id: 'evaluations',

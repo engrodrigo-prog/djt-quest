@@ -60,6 +60,42 @@ This project is built with:
 - shadcn-ui
 - Tailwind CSS
 
+## Backend (Supabase)
+
+This repo ships with a Supabase backend (Edge Functions + SQL migrations) designed to work from scratch.
+
+Quick start locally:
+
+1) Install Supabase CLI: `npm i -g supabase`
+2) Start local stack: `supabase start`
+3) Link your project (optional): `supabase link --project-ref <your-ref>`
+4) Apply database schema: `supabase db reset` (or `supabase db push`)
+5) Serve functions locally:
+
+```
+supabase functions serve --env-file .env --no-verify-jwt
+```
+
+Key pieces:
+
+- SQL schema/migrations: `supabase/migrations/`
+- Public storage bucket for avatars created by migration (id: `avatars`)
+- Edge functions used by the app:
+  - `process-avatar`: salva avatar no Storage e atualiza `profiles`
+  - `studio-import-initial-users`: importa/atualiza usuários e papéis
+  - `studio-cleanup-users`: remove usuários de teste/indesejados
+  - `studio-update-user`: atualiza campos e função/role
+
+Environment variables expected by functions (when serving locally):
+
+```
+SUPABASE_URL=...        # http://127.0.0.1:54321 for local
+SUPABASE_ANON_KEY=...
+SUPABASE_SERVICE_ROLE_KEY=...
+```
+
+To reseed org structure or data, check scripts in `scripts/`.
+
 ## How can I deploy this project?
 
 Simply open [Lovable](https://lovable.dev/projects/28f86751-0548-411b-bdca-e0df24d02def) and click on Share -> Publish.
