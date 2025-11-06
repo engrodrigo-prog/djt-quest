@@ -28,7 +28,11 @@ export const AvatarRegistrationTool = () => {
   const [selectedUser, setSelectedUser] = useState<ProfileSummary | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [loading, setLoading] = useState(true);
-  const [updatingAvatar, setUpdatingAvatar] = useState(false);
+  const [avatarSaving, setAvatarSaving] = useState(false);
+  const [avatarGenerating, setAvatarGenerating] = useState(false);
+  const [avatarOptions, setAvatarOptions] = useState<string[]>([]);
+  const [selectedAvatarOption, setSelectedAvatarOption] = useState<string | null>(null);
+  const [avatarSourceImage, setAvatarSourceImage] = useState<string | null>(null);
   const [showMissingOnly, setShowMissingOnly] = useState(true);
   const { toast } = useToast();
 
@@ -69,20 +73,71 @@ export const AvatarRegistrationTool = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleAvatarCaptured = async (imageBase64: string) => {
-    if (!selectedUser || updatingAvatar) return;
+  const resetAvatarFlow = () => {
+    setAvatarOptions([]);
+    setSelectedAvatarOption(null);
+    setAvatarSourceImage(null);
+    setAvatarGenerating(false);
+    setAvatarSaving(false);
+  };
 
+  useEffect(() => {
+    resetAvatarFlow();
+  }, [selectedUser?.id]);
+
+  const generateAvatarOptions = async (imageBase64: string) => {
+    if (!selectedUser) return;
+    setAvatarGenerating(true);
     try {
-      setUpdatingAvatar(true);
-      const { data, error } = await supabase.functions.invoke("process-avatar", {
+      const { data, error } = await supabase.functions.invoke('process-avatar', {
         body: {
-          userId: selectedUser.id,
+          mode: 'preview',
           imageBase64,
           useAiStyle: true,
-          style: 'game-hero'
+          style: 'game-hero',
+          variationCount: 3,
         },
       });
+      if (error) throw error;
+      if (data?.previews?.length) {
+        setAvatarOptions(data.previews);
+        setSelectedAvatarOption(data.previews[0]);
+      } else {
+        toast({ title: 'Não foi possível gerar opções para este colaborador', variant: 'destructive' });
+      }
+    } catch (err) {
+      console.error('Erro ao gerar opções IA:', err);
+      toast({ title: 'Erro ao gerar opções IA', description: 'Verifique a conexão e tente novamente.', variant: 'destructive' });
+    } finally {
+      setAvatarGenerating(false);
+    }
+  };
 
+  const handleAvatarCaptured = async (imageBase64: string) => {
+    if (!selectedUser) {
+      toast({ title: 'Selecione um colaborador primeiro', variant: 'destructive' });
+      return;
+    }
+    setAvatarSourceImage(imageBase64);
+    await generateAvatarOptions(imageBase64);
+  };
+
+  const finalizeAvatarForUser = async () => {
+    if (!selectedUser || !selectedAvatarOption) {
+      toast({ title: 'Selecione uma opção de avatar', variant: 'destructive' });
+      return;
+    }
+    try {
+      setAvatarSaving(true);
+      const { data, error } = await supabase.functions.invoke('process-avatar', {
+        body: {
+          userId: selectedUser.id,
+          imageBase64: selectedAvatarOption,
+          useAiStyle: true,
+          alreadyStylized: true,
+          mode: 'final',
+        },
+      });
       if (error) throw error;
 
       setUsers((prev) =>
@@ -98,18 +153,19 @@ export const AvatarRegistrationTool = () => {
       );
 
       toast({
-        title: "Avatar cadastrado",
+        title: 'Avatar cadastrado',
         description: `${selectedUser.name} já aparece com foto personalizada`,
       });
+      resetAvatarFlow();
     } catch (error) {
-      console.error("Error updating avatar for user:", error);
+      console.error('Error updating avatar for user:', error);
       toast({
-        title: "Não foi possível salvar a foto",
-        description: error instanceof Error ? error.message : "Verifique a conexão e tente novamente",
-        variant: "destructive",
+        title: 'Não foi possível salvar a foto',
+        description: error instanceof Error ? error.message : 'Verifique a conexão e tente novamente',
+        variant: 'destructive',
       });
     } finally {
-      setUpdatingAvatar(false);
+      setAvatarSaving(false);
     }
   };
 
@@ -261,25 +317,73 @@ export const AvatarRegistrationTool = () => {
           </Card>
 
           {selectedUser && (
-            <Card className={cn(updatingAvatar && "opacity-75")}
-            >
+            <Card>
               <CardHeader>
                 <CardTitle>Captura / Upload</CardTitle>
-                <CardDescription>Com consentimento, capture ou envie uma foto atualizada.</CardDescription>
+                <CardDescription>Capture uma foto, gere opções com IA e escolha a melhor.</CardDescription>
               </CardHeader>
-              <CardContent className="space-y-3">
-                <AvatarCapture
-                  onCapture={handleAvatarCaptured}
-                  onSkip={() => {
-                    if (!updatingAvatar) {
-                      setSelectedUser(null);
-                    }
-                  }}
-                />
-                {updatingAvatar && (
-                  <p className="text-sm text-muted-foreground text-center">
-                    Processando foto...
-                  </p>
+              <CardContent className="space-y-4">
+                {avatarOptions.length === 0 ? (
+                  <>
+                    <AvatarCapture
+                      onCapture={handleAvatarCaptured}
+                      onSkip={() => {
+                        setSelectedUser(null);
+                        resetAvatarFlow();
+                      }}
+                    />
+                    {avatarGenerating && (
+                      <p className="text-sm text-muted-foreground text-center">Gerando opções com IA...</p>
+                    )}
+                  </>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      {avatarOptions.map((option, index) => (
+                        <button
+                          key={option + index}
+                          type="button"
+                          onClick={() => setSelectedAvatarOption(option)}
+                          className={cn(
+                            'relative rounded-lg overflow-hidden border-2 focus:outline-none focus-visible:ring-2',
+                            selectedAvatarOption === option ? 'border-primary ring-primary/50' : 'border-border'
+                          )}
+                        >
+                          <img src={option} alt={`Opção ${index + 1}`} className="w-full h-36 object-cover" />
+                          {selectedAvatarOption === option && (
+                            <div className="absolute inset-0 flex items-center justify-center bg-black/30 text-white text-sm font-semibold">
+                              Selecionado
+                            </div>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="flex flex-col sm:flex-row gap-3">
+                      <Button
+                        variant="outline"
+                        onClick={() => {
+                          if (avatarSourceImage) {
+                            generateAvatarOptions(avatarSourceImage);
+                          } else {
+                            resetAvatarFlow();
+                          }
+                        }}
+                        disabled={avatarGenerating}
+                      >
+                        Gerar Novamente
+                      </Button>
+                      <Button
+                        onClick={finalizeAvatarForUser}
+                        disabled={!selectedAvatarOption || avatarSaving}
+                        className="flex-1"
+                      >
+                        {avatarSaving ? 'Salvando...' : 'Salvar Avatar'}
+                      </Button>
+                    </div>
+                    <Button variant="ghost" size="sm" onClick={resetAvatarFlow}>
+                      Capturar outra foto
+                    </Button>
+                  </div>
                 )}
               </CardContent>
             </Card>

@@ -78,6 +78,10 @@ function ProfileContent() {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [searchParams, setSearchParams] = useSearchParams();
   const [avatarDialogOpen, setAvatarDialogOpen] = useState(searchParams.get('avatar') === 'open');
+  const [avatarOptions, setAvatarOptions] = useState<string[]>([]);
+  const [selectedAvatarOption, setSelectedAvatarOption] = useState<string | null>(null);
+  const [avatarSourceImage, setAvatarSourceImage] = useState<string | null>(null);
+  const [avatarGenerating, setAvatarGenerating] = useState(false);
 
   // Abrir/fechar modal conforme query param (?avatar=open)
   useEffect(() => {
@@ -231,41 +235,78 @@ function ProfileContent() {
     }
   };
 
+  const generateAvatarOptions = async (imageBase64: string) => {
+    if (!imageBase64) return;
+    setAvatarGenerating(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('process-avatar', {
+        body: {
+          mode: 'preview',
+          imageBase64,
+          useAiStyle: true,
+          style: 'game-hero',
+          variationCount: 3,
+        },
+      });
+      if (error) throw error;
+      if (data?.previews?.length) {
+        setAvatarOptions(data.previews);
+        setSelectedAvatarOption(data.previews[0]);
+      } else {
+        toast({ title: 'Não foi possível gerar opções com IA', variant: 'destructive' });
+      }
+    } catch (err) {
+      console.error('Erro ao gerar opções de avatar:', err);
+      toast({ title: 'Erro ao gerar opções com IA', description: 'Verifique sua conexão ou tente novamente.', variant: 'destructive' });
+    } finally {
+      setAvatarGenerating(false);
+    }
+  };
+
+  const resetAvatarFlow = () => {
+    setAvatarOptions([]);
+    setSelectedAvatarOption(null);
+    setAvatarSourceImage(null);
+    setAvatarGenerating(false);
+    setAvatarSaving(false);
+  };
+
   const handleAvatarCaptured = async (imageBase64: string) => {
-    if (!user || avatarSaving) return;
+    setAvatarSourceImage(imageBase64);
+    await generateAvatarOptions(imageBase64);
+  };
+
+  const finalizeAvatar = async () => {
+    if (!user || avatarSaving || !selectedAvatarOption) {
+      toast({ title: 'Selecione um avatar para continuar', variant: 'destructive' });
+      return;
+    }
 
     try {
       setAvatarSaving(true);
       const { data, error } = await supabase.functions.invoke('process-avatar', {
         body: {
           userId: user.id,
-          imageBase64,
+          imageBase64: selectedAvatarOption,
           useAiStyle: true,
-          style: 'game-hero'
+          alreadyStylized: true,
+          mode: 'final',
         },
       });
 
-      if (error) {
-        throw error;
-      }
+      if (error) throw error;
 
       await refreshUserSession();
       if (data?.avatarUrl) {
         setProfile((prev) => (prev ? { ...prev, avatar_url: data.avatarUrl } : prev));
       }
 
-      toast({
-        title: 'Avatar atualizado com sucesso!',
-        description: 'Sua foto já aparece para toda a equipe.',
-      });
+      toast({ title: 'Avatar atualizado com sucesso!' });
       setAvatarDialogOpen(false);
+      resetAvatarFlow();
     } catch (error) {
-      console.error('Error updating avatar:', error);
-      toast({
-        title: 'Erro ao atualizar avatar',
-        description: error instanceof Error ? error.message : 'Tente novamente em instantes.',
-        variant: 'destructive',
-      });
+      console.error('Error finalizing avatar:', error);
+      toast({ title: 'Erro ao salvar avatar', variant: 'destructive' });
     } finally {
       setAvatarSaving(false);
     }
@@ -602,33 +643,89 @@ function ProfileContent() {
       onOpenChange={(open) => {
         if (avatarSaving) return;
         setAvatarDialogOpen(open);
+        const p = new URLSearchParams(searchParams);
         if (open) {
-          const p = new URLSearchParams(searchParams);
           p.set('avatar', 'open');
-          setSearchParams(p, { replace: true });
         } else {
-          const p = new URLSearchParams(searchParams);
           p.delete('avatar');
-          setSearchParams(p, { replace: true });
+          resetAvatarFlow();
         }
+        setSearchParams(p, { replace: true });
       }}
     >
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Atualizar avatar</DialogTitle>
         </DialogHeader>
-        <AvatarCapture
-          onCapture={handleAvatarCaptured}
-          onSkip={() => {
-            if (!avatarSaving) {
-              setAvatarDialogOpen(false);
-            }
-          }}
-        />
-        {avatarSaving && (
-          <p className="text-sm text-muted-foreground text-center mt-2">
-            Processando foto...
-          </p>
+        {avatarOptions.length === 0 ? (
+          <>
+            <AvatarCapture
+              onCapture={handleAvatarCaptured}
+              onSkip={() => {
+                if (!avatarSaving) {
+                  setAvatarDialogOpen(false);
+                  resetAvatarFlow();
+                }
+              }}
+            />
+            {avatarGenerating && (
+              <p className="text-sm text-muted-foreground text-center mt-2">
+                Gerando opções com IA...
+              </p>
+            )}
+          </>
+        ) : (
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Escolha o avatar que mais representa você. Pode gerar novamente para novas opções.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {avatarOptions.map((option, index) => {
+                const isSelected = selectedAvatarOption === option;
+                return (
+                  <button
+                    key={option + index}
+                    type="button"
+                    onClick={() => setSelectedAvatarOption(option)}
+                    className={`relative rounded-lg overflow-hidden border-2 ${
+                      isSelected ? 'border-primary ring-2 ring-primary/50' : 'border-border'
+                    }`}
+                  >
+                    <img src={option} alt={`Opção IA ${index + 1}`} className="w-full h-40 object-cover" />
+                    {isSelected && (
+                      <div className="absolute inset-0 flex items-center justify-center bg-black/30 text-white font-semibold">
+                        Selecionado
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="flex flex-col sm:flex-row gap-3">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  if (avatarSourceImage) {
+                    generateAvatarOptions(avatarSourceImage);
+                  } else {
+                    resetAvatarFlow();
+                  }
+                }}
+                disabled={avatarGenerating}
+              >
+                Gerar Novamente
+              </Button>
+              <Button
+                type="button"
+                onClick={finalizeAvatar}
+                disabled={!selectedAvatarOption || avatarSaving}
+                className="flex-1"
+              >
+                {avatarSaving ? 'Salvando...' : 'Usar este Avatar'}
+              </Button>
+            </div>
+          </div>
         )}
       </DialogContent>
     </Dialog>
