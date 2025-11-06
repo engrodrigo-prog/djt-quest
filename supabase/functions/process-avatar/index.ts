@@ -60,9 +60,10 @@ Deno.serve(async (req) => {
     let finalBytes = bytes
 
     // Optional: AI stylization via Replicate
-    const provider = Deno.env.get('AVATAR_AI_PROVIDER') || ''
+    const provider = (Deno.env.get('AVATAR_AI_PROVIDER') || '').toLowerCase()
     const replicateToken = Deno.env.get('REPLICATE_API_TOKEN') || ''
     const modelVersion = Deno.env.get('REPLICATE_MODEL_VERSION') || ''
+    const openaiKey = Deno.env.get('OPENAI_API_KEY') || ''
 
     if (useAiStyle && provider === 'replicate' && replicateToken) {
       try {
@@ -121,6 +122,43 @@ Deno.serve(async (req) => {
         }
       } catch (e) {
         console.error('AI stylization failed:', e)
+      }
+    }
+
+    // OpenAI gpt-image-1 (image-to-image edit)
+    if (useAiStyle && provider === 'openai' && openaiKey) {
+      try {
+        console.log('Stylizing avatar via OpenAI gpt-image-1...')
+        const prompt = `ultra realistic portrait icon of a modern game hero, 3/4 headshot, clean neutral background gradient, crisp edges, cinematic lighting, professional eSports style, corporate-friendly, no text, no watermark, ${style}`
+
+        // Download source (public) to pass as file
+        const srcResp = await fetch(srcUrlData.publicUrl)
+        const srcBuf = await srcResp.arrayBuffer()
+        const srcBlob = new Blob([srcBuf], { type: 'image/png' })
+
+        const form = new FormData()
+        form.append('model', Deno.env.get('OPENAI_IMAGE_MODEL') || 'gpt-image-1')
+        form.append('prompt', prompt)
+        form.append('image[]', srcBlob, 'source.png')
+
+        const aiResp = await fetch('https://api.openai.com/v1/images/edits', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${openaiKey}` },
+          body: form
+        })
+        if (!aiResp.ok) {
+          const errText = await aiResp.text()
+          throw new Error(`OpenAI edit failed: ${errText}`)
+        }
+        const aiJson = await aiResp.json()
+        const b64 = aiJson?.data?.[0]?.b64_json
+        if (b64) {
+          finalBytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))
+        } else {
+          console.warn('OpenAI did not return b64 output; falling back to original image')
+        }
+      } catch (e) {
+        console.error('OpenAI stylization failed:', e)
       }
     }
 
