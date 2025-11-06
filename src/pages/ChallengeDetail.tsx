@@ -9,6 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ArrowLeft, Upload, Shield } from 'lucide-react';
+import { ThemedBackground, domainFromType } from '@/components/ThemedBackground';
 import { useToast } from '@/hooks/use-toast';
 import { QuizPlayer } from '@/components/QuizPlayer';
 
@@ -154,9 +155,12 @@ const ChallengeDetail = () => {
 
   if (!challenge) return null;
 
+  const theme = domainFromType(challenge.type);
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-secondary/5 p-4">
-      <div className="container max-w-2xl mx-auto py-8 space-y-6">
+    <div className="relative min-h-screen bg-background p-4 overflow-hidden">
+      <ThemedBackground theme={theme} />
+      <div className="container max-w-2xl mx-auto py-8 space-y-6 relative">
         <Button variant="ghost" onClick={() => navigate('/profile')}>
           <ArrowLeft className="h-4 w-4 mr-2" />
           Voltar ao Perfil

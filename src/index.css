@@ -2,6 +2,38 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Animated backgrounds and soft motion */
+@keyframes gradientShift {
+  0% { background-position: 0% 0%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 0%; }
+}
+
+@keyframes floatSlow {
+  0% { transform: translateY(0) translateX(0); }
+  50% { transform: translateY(-10px) translateX(6px); }
+  100% { transform: translateY(0) translateX(0); }
+}
+
+@keyframes floatSlow2 {
+  0% { transform: translateY(0) translateX(0); }
+  50% { transform: translateY(12px) translateX(-6px); }
+  100% { transform: translateY(0) translateX(0); }
+}
+
+@keyframes pulseSoft {
+  0%, 100% { opacity: .10; filter: drop-shadow(0 0 0 rgba(0,0,0,0)); }
+  50% { opacity: .20; filter: drop-shadow(0 6px 16px rgba(0,0,0,.12)); }
+}
+
+.animate-gradientShift {
+  background-size: 180% 180%;
+  animation: gradientShift 16s ease infinite;
+}
+.animate-floatSlow { animation: floatSlow 10s ease-in-out infinite; }
+.animate-floatSlow2 { animation: floatSlow2 12s ease-in-out infinite; }
+.animate-pulseSoft { animation: pulseSoft 6s ease-in-out infinite; }
+
 /* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
 All colors MUST be HSL.
 */
