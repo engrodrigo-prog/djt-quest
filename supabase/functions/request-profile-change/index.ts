@@ -39,7 +39,14 @@ Deno.serve(async (req) => {
       throw new Error('Missing changes');
     }
 
-    const allowedFields = new Set(['name', 'email', 'operational_base', 'sigla_area', 'date_of_birth']);
+    const allowedFields = new Set(['name', 'email', 'operational_base', 'sigla_area', 'date_of_birth', 'telefone', 'matricula']);
+    const normalizeSigla = (value: string) =>
+      value
+        .trim()
+        .toUpperCase()
+        .replace(/[^A-Z0-9-]/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '');
     const sanitizeChange = (field: string, value: any) => {
       if (!allowedFields.has(field)) {
         throw new Error(`Campo não suportado: ${field}`);
@@ -49,13 +56,17 @@ Deno.serve(async (req) => {
       }
       switch (field) {
         case 'sigla_area':
-          return value.trim().toUpperCase();
+          return normalizeSigla(value);
         case 'operational_base':
           return value.trim();
         case 'name':
           return value.trim();
         case 'email':
           return value.trim().toLowerCase();
+        case 'telefone':
+          return value.replace(/[^0-9+()\s-]/g, '').trim();
+        case 'matricula':
+          return value.trim().toUpperCase();
         case 'date_of_birth':
           if (!/^\d{4}-\d{2}-\d{2}$/.test(value.trim())) {
             throw new Error('Data de nascimento deve estar no formato YYYY-MM-DD');
@@ -69,39 +80,6 @@ Deno.serve(async (req) => {
       field_name: change.field_name,
       new_value: sanitizeChange(change.field_name, change.new_value),
     }));
-
-    // Verificar se usuário é admin
-    const { data: roles } = await supabaseClient
-      .from('user_roles')
-      .select('role')
-      .eq('user_id', user.id);
-
-    const isAdmin = roles?.some(r => r.role === 'admin');
-
-    if (isAdmin) {
-      // Admin pode editar direto
-      const { data: currentProfile } = await supabaseClient
-        .from('profiles')
-        .select(field_name)
-        .eq('id', user.id)
-        .single();
-
-      const { error: updateError } = await supabaseClient
-        .from('profiles')
-        .update({ [field_name]: new_value })
-        .eq('id', user.id);
-
-      if (updateError) throw updateError;
-
-      return new Response(
-        JSON.stringify({ 
-          success: true, 
-          message: 'Profile updated directly (admin privilege)',
-          updated_immediately: true,
-        }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
 
     const { data: currentProfile } = await supabaseClient
       .from('profiles')

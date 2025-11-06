@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,83 +32,65 @@ export function ProfileEditor() {
     });
   }, [profile]);
 
-  const normalizeSigla = (value?: string | null) => {
-    if (typeof value !== 'string') return '';
-    return value
-      .trim()
-      .toUpperCase()
-      .replace(/[^A-Z0-9-]/g, '-')
-      .replace(/-+/g, '-')
-      .replace(/^-|-$/g, '');
-  };
-
-  const deriveOrg = (sigla?: string | null) => {
-    const s = normalizeSigla(sigla);
-    if (!s) return null;
-    const parts = s.split('-').filter(Boolean);
-    const divisionId = parts[0] || 'DJT';
-    const coordTag = parts[1] || 'SEDE';
-    return {
-      division_id: divisionId,
-      coord_id: `${divisionId}-${coordTag}`,
-      team_id: s,
-      sigla_area: s,
-      operational_base: s,
-    } as const;
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
 
     try {
-      // Atualiza Auth (nome/email) do próprio usuário
-      const wantEmail = formData.email?.trim();
-      const wantName = formData.name?.trim();
-      if (wantEmail || wantName) {
-        const { error: authErr } = await supabase.auth.updateUser({
-          email: wantEmail || undefined,
-          data: wantName ? { name: wantName } : undefined,
-        });
-        if (authErr) {
-          console.warn('Falha ao atualizar auth user:', authErr.message);
-        }
-      }
-
-      // Deriva organização e normaliza sigla/base
-      const org = deriveOrg(formData.sigla_area || formData.operational_base);
-
-      // Atualiza perfil diretamente (RLS permite self-update)
-      const updates: Record<string, unknown> = {
-        name: formData.name,
-        email: formData.email?.toLowerCase(),
-        telefone: formData.telefone || null,
-        matricula: formData.matricula || null,
-        date_of_birth: formData.date_of_birth || null,
+      const normalizeSigla = (value?: string | null) => {
+        if (typeof value !== 'string') return '';
+        return value
+          .trim()
+          .toUpperCase()
+          .replace(/[^A-Z0-9-]/g, '-')
+          .replace(/-+/g, '-')
+          .replace(/^-|-$/g, '');
       };
-      if (org) {
-        updates.sigla_area = org.sigla_area;
-        updates.operational_base = org.operational_base;
-        updates.division_id = org.division_id;
-        updates.coord_id = org.coord_id;
-        updates.team_id = org.team_id;
-      } else {
-        updates.operational_base = formData.operational_base || null;
-        updates.sigla_area = formData.sigla_area || null;
+
+      const trim = (value?: string | null) => (value ?? '').trim();
+      const normalizedSigla = normalizeSigla(formData.sigla_area);
+      const normalizedBase = trim(formData.operational_base);
+      const normalizedName = trim(formData.name);
+      const normalizedEmail = trim(formData.email).toLowerCase();
+      const normalizedPhone = trim(formData.telefone);
+      const normalizedMatricula = trim(formData.matricula).toUpperCase();
+      const normalizedDob = trim(formData.date_of_birth);
+
+      const changes: { field_name: string; new_value: string }[] = [];
+      const compare = (field: string, newValue: string) => {
+        const current = ((profile as any)?.[field] ?? '') + '';
+        if (current.trim() !== newValue.trim()) {
+          changes.push({ field_name: field, new_value: newValue });
+        }
+      };
+
+      compare('name', normalizedName);
+      compare('email', normalizedEmail);
+      compare('telefone', normalizedPhone);
+      compare('matricula', normalizedMatricula);
+      compare('operational_base', normalizedBase);
+      compare('sigla_area', normalizedSigla);
+      if (normalizedDob) {
+        compare('date_of_birth', normalizedDob);
       }
 
-      const { error: profErr } = await supabase
-        .from('profiles')
-        .update(updates)
-        .eq('id', (await supabase.auth.getUser()).data.user?.id);
-      if (profErr) throw profErr;
+      if (changes.length === 0) {
+        toast.info('Nenhuma alteração detectada');
+        setLoading(false);
+        return;
+      }
 
+      const { error } = await supabase.functions.invoke('request-profile-change', {
+        body: { changes },
+      });
+
+      if (error) throw error;
+
+      toast.success('Solicitação enviada! Seu líder aprovará a mudança.');
       await refreshUserSession();
-
-      toast.success("Perfil atualizado com sucesso!");
     } catch (error) {
       console.error('Error requesting profile change:', error);
-      toast.error('Erro ao salvar alterações');
+      toast.error('Erro ao enviar solicitação de alteração');
     } finally {
       setLoading(false);
     }
@@ -119,7 +101,7 @@ export function ProfileEditor() {
       <CardHeader>
         <CardTitle>Editar Perfil</CardTitle>
         <CardDescription>
-          Atualize seus dados. As alterações entram em vigor imediatamente.
+          As alterações precisam de aprovação do seu líder (coordenador ou superior).
         </CardDescription>
       </CardHeader>
       <CardContent>

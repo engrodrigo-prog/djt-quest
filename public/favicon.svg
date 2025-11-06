@@ -1,22 +1,12 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" role="img" aria-label="DJT">
   <defs>
-    <linearGradient id="goGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#0ea5e9" />
-      <stop offset="100%" stop-color="#10b981" />
+    <linearGradient id="djtBlue" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f62fe" />
+      <stop offset="100%" stop-color="#0043ce" />
     </linearGradient>
-    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
-      <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#000" flood-opacity="0.25"/>
-    </filter>
   </defs>
-  <rect width="56" height="56" x="4" y="4" rx="14" fill="url(#goGradient)" filter="url(#shadow)" />
-  <text
-    x="50%"
-    y="56%"
-    text-anchor="middle"
-    font-family="'Inter', 'Segoe UI', Arial, sans-serif"
-    font-size="28"
-    font-weight="800"
-    fill="#ffffff"
-    letter-spacing="1"
-  >GO</text>
+  <rect x="4" y="4" width="56" height="56" rx="16" fill="url(#djtBlue)" />
+  <text x="50%" y="54%" text-anchor="middle" font-family="'Inter', 'Segoe UI', Arial, sans-serif" font-size="28" font-weight="800" fill="#ffffff" letter-spacing="1">
+    DJT
+  </text>
 </svg>

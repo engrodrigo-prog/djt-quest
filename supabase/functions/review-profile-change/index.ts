@@ -43,13 +43,7 @@ Deno.serve(async (req) => {
       .select('role')
       .eq('user_id', user.id);
 
-    const isLeader = roles?.some(r => 
-      ['admin', 'gerente_djt', 'gerente_divisao_djtx', 'coordenador_djtx'].includes(r.role)
-    );
-
-    if (!isLeader) {
-      throw new Error('Unauthorized: Leader access required');
-    }
+    const reviewerRoles = roles?.map((r) => r.role) ?? [];
 
     // Buscar solicitação
     const { data: request, error: fetchError } = await supabaseClient
@@ -61,6 +55,33 @@ Deno.serve(async (req) => {
 
     if (fetchError || !request) {
       throw new Error('Request not found or already processed');
+    }
+
+    const { data: reviewerProfile } = await supabaseClient
+      .from('profiles')
+      .select('division_id, coord_id, team_id')
+      .eq('id', user.id)
+      .single();
+
+    const { data: targetProfile } = await supabaseClient
+      .from('profiles')
+      .select('division_id, coord_id, team_id, sigla_area')
+      .eq('id', request.user_id)
+      .single();
+
+    const canReview = () => {
+      if (reviewerRoles.includes('admin') || reviewerRoles.includes('gerente_djt')) return true;
+      if (reviewerRoles.includes('gerente_divisao_djtx')) {
+        return reviewerProfile?.division_id && reviewerProfile.division_id === targetProfile?.division_id;
+      }
+      if (reviewerRoles.includes('coordenador_djtx')) {
+        return reviewerProfile?.coord_id && reviewerProfile.coord_id === targetProfile?.coord_id;
+      }
+      return false;
+    };
+
+    if (!canReview()) {
+      throw new Error('Sem permissão para aprovar alterações deste colaborador');
     }
 
     // Atualizar status da solicitação
@@ -110,12 +131,7 @@ Deno.serve(async (req) => {
       }
 
       if (request.field_name === 'operational_base') {
-        const { data: profileRow } = await supabaseClient
-          .from('profiles')
-          .select('sigla_area')
-          .eq('id', request.user_id)
-          .single();
-        const org = deriveOrg(profileRow?.sigla_area || request.new_value);
+      const org = deriveOrg(targetProfile?.sigla_area || request.new_value);
         if (org) {
           updates.division_id = org.divisionId;
           updates.coord_id = org.coordinationId;
