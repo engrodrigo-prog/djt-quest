@@ -16,7 +16,7 @@ Deno.serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     )
 
-    const { userId, imageBase64 } = await req.json()
+    const { userId, imageBase64, useAiStyle = true, style = 'game-hero' } = await req.json()
 
     if (!userId || !imageBase64) {
       return new Response(
@@ -38,29 +38,108 @@ Deno.serve(async (req) => {
     // Generate unique filename
     const timestamp = Date.now()
     const hash = crypto.randomUUID().split('-')[0]
-    const filename = `${userId}/${timestamp}-${hash}.png`
-    const thumbnailFilename = `${userId}/${timestamp}-${hash}-thumb.png`
+    const basePath = `${userId}/${timestamp}-${hash}`
+    const srcFilename = `${basePath}-src.png`
+    const outFilename = `${basePath}.png`
+    const thumbnailFilename = `${basePath}-thumb.png`
 
-    // Upload original
-    const { data: uploadData, error: uploadError } = await supabase.storage
+    // Upload source temporarily (will be removed or kept internal)
+    const { error: srcUploadError } = await supabase.storage
       .from('avatars')
-      .upload(filename, bytes, {
+      .upload(srcFilename, bytes, { contentType: 'image/png', upsert: true })
+
+    if (srcUploadError) {
+      console.error('Source upload error:', srcUploadError)
+      throw srcUploadError
+    }
+
+    const { data: srcUrlData } = supabase.storage
+      .from('avatars')
+      .getPublicUrl(srcFilename)
+
+    let finalBytes = bytes
+
+    // Optional: AI stylization via Replicate
+    const provider = Deno.env.get('AVATAR_AI_PROVIDER') || ''
+    const replicateToken = Deno.env.get('REPLICATE_API_TOKEN') || ''
+    const modelVersion = Deno.env.get('REPLICATE_MODEL_VERSION') || ''
+
+    if (useAiStyle && provider === 'replicate' && replicateToken) {
+      try {
+        console.log('Stylizing avatar via Replicate...')
+        const prompt = `ultra realistic portrait icon of a modern game hero, 3/4 headshot, clean background gradient, crisp edges, cinematic lighting, professional eSports style, corporate-friendly, no text, no watermark, ${style}`
+        const negativePrompt = 'text, watermark, logo, blurry, lowres, distorted, extra fingers, cropped, artifacts'
+
+        const version = modelVersion || 'a3fb3a28-5b95-4a1c-9a7c-7d5e5ba9f8aa' // default SDXL image-to-image on Replicate (placeholder)
+        const createResp = await fetch('https://api.replicate.com/v1/predictions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Token ${replicateToken}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            version,
+            input: {
+              prompt,
+              negative_prompt: negativePrompt,
+              image: srcUrlData.publicUrl,
+              strength: 0.6,
+              scheduler: 'K_EULER',
+              num_outputs: 1,
+              guidance_scale: 7
+            }
+          })
+        })
+        if (!createResp.ok) {
+          const errText = await createResp.text()
+          throw new Error(`Replicate create failed: ${errText}`)
+        }
+        const created = await createResp.json()
+        const pollUrl = created.urls?.get
+        let status = created.status
+        let outputUrl = ''
+
+        const startedAt = Date.now()
+        while (status !== 'succeeded' && status !== 'failed' && Date.now() - startedAt < 60000) {
+          await new Promise((r) => setTimeout(r, 1500))
+          const poll = await fetch(pollUrl, { headers: { 'Authorization': `Token ${replicateToken}` } })
+          const pred = await poll.json()
+          status = pred.status
+          if (status === 'succeeded') {
+            const out = pred.output
+            if (Array.isArray(out) && out.length > 0) outputUrl = out[0]
+            else if (typeof out === 'string') outputUrl = out
+          }
+        }
+
+        if (!outputUrl) {
+          console.warn('Replicate did not return output in time; falling back to original image')
+        } else {
+          const outResp = await fetch(outputUrl)
+          const outBuf = new Uint8Array(await outResp.arrayBuffer())
+          finalBytes = outBuf
+        }
+      } catch (e) {
+        console.error('AI stylization failed:', e)
+      }
+    }
+
+    // Upload final avatar
+    const { error: finalUploadError } = await supabase.storage
+      .from('avatars')
+      .upload(outFilename, finalBytes, {
         contentType: 'image/png',
         upsert: true
       })
-
-    if (uploadError) {
-      console.error('Upload error:', uploadError)
-      throw uploadError
+    if (finalUploadError) {
+      console.error('Final upload error:', finalUploadError)
+      throw finalUploadError
     }
 
-    console.log('Avatar uploaded successfully')
-
-    // For thumbnail, we'll upload the same image for now
-    // In production, you'd resize this server-side
+    // For thumbnail, reuse final for now
     await supabase.storage
       .from('avatars')
-      .upload(thumbnailFilename, bytes, {
+      .upload(thumbnailFilename, finalBytes, {
         contentType: 'image/png',
         upsert: true
       })
@@ -68,7 +147,7 @@ Deno.serve(async (req) => {
     // Get public URLs
     const { data: urlData } = supabase.storage
       .from('avatars')
-      .getPublicUrl(filename)
+      .getPublicUrl(outFilename)
 
     const { data: thumbUrlData } = supabase.storage
       .from('avatars')

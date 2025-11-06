@@ -233,6 +233,8 @@ function ProfileContent() {
         body: {
           userId: user.id,
           imageBase64,
+          useAiStyle: true,
+          style: 'game-hero'
         },
       });
 

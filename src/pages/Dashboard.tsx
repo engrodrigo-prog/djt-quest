@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { Shield, Zap, Trophy, Target, LogOut, Star, Menu } from "lucide-react";
+import { Shield, Zap, Trophy, Target, LogOut, Star, Menu, Filter, History, CheckCircle, ListFilter } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import Navigation from "@/components/Navigation";
 import { TeamPerformanceCard } from "@/components/TeamPerformanceCard";
@@ -42,7 +42,10 @@ const Dashboard = () => {
   const { user, signOut, isLeader } = useAuth();
   const navigate = useNavigate();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
-  const [challenges, setChallenges] = useState<Challenge[]>([]);
+  const [allChallenges, setAllChallenges] = useState<Challenge[]>([]);
+  const [userEvents, setUserEvents] = useState<Array<{ id: string; challenge_id: string; status: string; created_at: string }>>([]);
+  const [challengeTab, setChallengeTab] = useState<'vigentes' | 'historico'>('vigentes');
+  const [typeFilters, setTypeFilters] = useState<Set<string>>(new Set());
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -65,7 +68,7 @@ const Dashboard = () => {
 
       try {
         // Parallelize all queries for faster loading
-        const [profileResult, campaignsResult, challengesResult] = await Promise.all([
+        const [profileResult, campaignsResult, challengesResult, eventsResult] = await Promise.all([
           supabase
             .from("profiles")
             .select("name, xp, tier, avatar_url, team:teams(name)")
@@ -81,7 +84,13 @@ const Dashboard = () => {
           supabase
             .from("challenges")
             .select("*")
-            .limit(6)
+            .limit(100),
+
+          supabase
+            .from('events')
+            .select('id, challenge_id, status, created_at')
+            .eq('user_id', user.id)
+            .order('created_at', { ascending: false })
         ]);
 
         if (profileResult.data) {
@@ -93,7 +102,11 @@ const Dashboard = () => {
         }
 
         if (challengesResult.data) {
-          setChallenges(challengesResult.data);
+          setAllChallenges(challengesResult.data);
+        }
+
+        if (eventsResult.data) {
+          setUserEvents(eventsResult.data as any);
         }
         
         console.log('🏠 Dashboard: data loaded successfully');
@@ -130,6 +143,44 @@ const Dashboard = () => {
     await signOut();
     navigate("/auth");
   };
+
+  // Filters and helpers for challenges
+  const typeDomain = (type: string) => {
+    const t = (type || '').toLowerCase();
+    if (t.includes('quiz')) return 'Conhecimento';
+    if (t.includes('forum') || t.includes('mento') || t.includes('atitude')) return 'Atitude';
+    if (t.includes('desafio') || t.includes('inspe') || t.includes('pratic')) return 'Habilidades';
+    if (t.includes('safety') || t.includes('segur')) return 'Segurança';
+    return 'Conhecimento';
+  };
+
+  const toggleType = (t: string) => {
+    setTypeFilters(prev => {
+      const next = new Set(prev);
+      if (next.has(t)) next.delete(t); else next.add(t);
+      return next;
+    });
+  };
+
+  const filteredChallenges = useMemo(() => {
+    let base: Challenge[] = [];
+    if (challengeTab === 'vigentes') {
+      base = allChallenges;
+    } else {
+      const seen = new Set<string>();
+      const ids = userEvents.map(e => e.challenge_id).filter(Boolean);
+      base = allChallenges.filter(c => ids.includes(c.id) && (!seen.has(c.id) && seen.add(c.id)));
+    }
+    if (typeFilters.size === 0) return base;
+    return base.filter(c => typeFilters.has((c.type || '').toLowerCase()));
+  }, [challengeTab, allChallenges, userEvents, typeFilters]);
+
+  const typeOptions = [
+    { key: 'campanha', label: 'Campanha' },
+    { key: 'quiz', label: 'Quiz' },
+    { key: 'forum', label: 'Fórum' },
+    { key: 'desafio', label: 'Desafio' }
+  ];
 
   if (loading) {
     return (
@@ -243,20 +294,42 @@ const Dashboard = () => {
           </div>
         </section>
 
-        {/* Available Challenges */}
+        {/* Challenges with filters */}
         <section>
-          <div className="flex items-center gap-2 mb-3">
-            <Zap className="h-5 w-5 text-secondary" />
-            <h2 className="text-xl font-bold">Desafios Disponíveis</h2>
+          <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
+            <div className="flex items-center gap-2">
+              <Zap className="h-5 w-5 text-secondary" />
+              <h2 className="text-xl font-bold">Desafios</h2>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button variant={challengeTab === 'vigentes' ? 'default' : 'outline'} size="sm" onClick={() => setChallengeTab('vigentes')} className="gap-2">
+                <ListFilter className="h-4 w-4" /> Vigentes
+              </Button>
+              <Button variant={challengeTab === 'historico' ? 'default' : 'outline'} size="sm" onClick={() => setChallengeTab('historico')} className="gap-2">
+                <History className="h-4 w-4" /> Histórico
+              </Button>
+            </div>
           </div>
+
+          <div className="flex items-center gap-2 mb-4 flex-wrap">
+            {typeOptions.map(opt => (
+              <Button key={opt.key} size="sm" variant={typeFilters.has(opt.key) ? 'default' : 'outline'} onClick={() => toggleType(opt.key)}>
+                {opt.label}
+              </Button>
+            ))}
+          </div>
+
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {challenges.map((challenge) => (
+            {filteredChallenges.map((challenge) => (
               <Card key={challenge.id} className="hover:shadow-lg transition-shadow">
                 <CardHeader className="pb-3">
                   <div className="flex items-center justify-between mb-2">
-                    <Badge variant="outline" className="text-[10px]">
-                      {challenge.type}
-                    </Badge>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline" className="text-[10px]">
+                        {challenge.type}
+                      </Badge>
+                      <Badge className="text-[10px]" variant="secondary">{typeDomain(challenge.type)}</Badge>
+                    </div>
                     <span className="text-xs font-semibold text-accent">+{challenge.xp_reward} XP</span>
                   </div>
                   <CardTitle className="text-base leading-tight">{challenge.title}</CardTitle>
@@ -274,7 +347,7 @@ const Dashboard = () => {
                     variant="secondary"
                     onClick={() => navigate(`/challenge/${challenge.id}`)}
                   >
-                    Começar
+                    {challengeTab === 'historico' ? 'Ver novamente' : 'Começar'}
                   </Button>
                 </CardContent>
               </Card>
@@ -289,3 +362,4 @@ const Dashboard = () => {
 };
 
 export default Dashboard;
+  

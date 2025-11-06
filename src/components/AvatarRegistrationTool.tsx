@@ -78,6 +78,8 @@ export const AvatarRegistrationTool = () => {
         body: {
           userId: selectedUser.id,
           imageBase64,
+          useAiStyle: true,
+          style: 'game-hero'
         },
       });
 
