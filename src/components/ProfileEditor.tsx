@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,70 +12,97 @@ export function ProfileEditor() {
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     name: profile?.name || "",
-    operational_base: profile?.operational_base || "",
-    sigla_area: profile?.sigla_area || "",
-    date_of_birth: profile?.date_of_birth || "",
+    email: (profile as any)?.email || "",
+    operational_base: (profile as any)?.operational_base || "",
+    sigla_area: (profile as any)?.sigla_area || "",
+    date_of_birth: (profile as any)?.date_of_birth || "",
   });
 
   useEffect(() => {
     setFormData({
       name: profile?.name || "",
-      operational_base: profile?.operational_base || "",
-      sigla_area: profile?.sigla_area || "",
-      date_of_birth: profile?.date_of_birth || "",
+      email: (profile as any)?.email || "",
+      operational_base: (profile as any)?.operational_base || "",
+      sigla_area: (profile as any)?.sigla_area || "",
+      date_of_birth: (profile as any)?.date_of_birth || "",
     });
   }, [profile]);
+
+  const normalizeSigla = (value?: string | null) => {
+    if (typeof value !== 'string') return '';
+    return value
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9-]/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '');
+  };
+
+  const deriveOrg = (sigla?: string | null) => {
+    const s = normalizeSigla(sigla);
+    if (!s) return null;
+    const parts = s.split('-').filter(Boolean);
+    const divisionId = parts[0] || 'DJT';
+    const coordTag = parts[1] || 'SEDE';
+    return {
+      division_id: divisionId,
+      coord_id: `${divisionId}-${coordTag}`,
+      team_id: s,
+      sigla_area: s,
+      operational_base: s,
+    } as const;
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
 
     try {
-      const changes = [];
-      
-      if (formData.name && formData.name !== profile?.name) {
-        changes.push({ field: 'name', value: formData.name });
-      }
-
-      if (formData.operational_base !== profile?.operational_base) {
-        changes.push({
-          field: 'operational_base',
-          value: formData.operational_base,
+      // Atualiza Auth (nome/email) do próprio usuário
+      const wantEmail = formData.email?.trim();
+      const wantName = formData.name?.trim();
+      if (wantEmail || wantName) {
+        const { error: authErr } = await supabase.auth.updateUser({
+          email: wantEmail || undefined,
+          data: wantName ? { name: wantName } : undefined,
         });
-      }
-      
-      if (formData.sigla_area !== profile?.sigla_area) {
-        changes.push({
-          field: 'sigla_area',
-          value: formData.sigla_area,
-        });
+        if (authErr) {
+          console.warn('Falha ao atualizar auth user:', authErr.message);
+        }
       }
 
-      if ((formData.date_of_birth || '') !== (profile?.date_of_birth || '')) {
-        changes.push({ field: 'date_of_birth', value: formData.date_of_birth || '' });
+      // Deriva organização e normaliza sigla/base
+      const org = deriveOrg(formData.sigla_area || formData.operational_base);
+
+      // Atualiza perfil diretamente (RLS permite self-update)
+      const updates: Record<string, unknown> = {
+        name: formData.name,
+        email: formData.email?.toLowerCase(),
+        date_of_birth: formData.date_of_birth || null,
+      };
+      if (org) {
+        updates.sigla_area = org.sigla_area;
+        updates.operational_base = org.operational_base;
+        updates.division_id = org.division_id;
+        updates.coord_id = org.coord_id;
+        updates.team_id = org.team_id;
+      } else {
+        updates.operational_base = formData.operational_base || null;
+        updates.sigla_area = formData.sigla_area || null;
       }
 
-      if (changes.length === 0) {
-        toast.info("Nenhuma alteração detectada");
-        setLoading(false);
-        return;
-      }
-
-      // Solicitar cada mudança
-      const { error } = await supabase.functions.invoke('request-profile-change', {
-        body: {
-          changes: changes.map(({ field, value }) => ({ field_name: field, new_value: value })),
-        },
-      });
-
-      if (error) throw error;
+      const { error: profErr } = await supabase
+        .from('profiles')
+        .update(updates)
+        .eq('id', (await supabase.auth.getUser()).data.user?.id);
+      if (profErr) throw profErr;
 
       await refreshUserSession();
 
-      toast.success("Solicitação enviada para aprovação!");
+      toast.success("Perfil atualizado com sucesso!");
     } catch (error) {
       console.error('Error requesting profile change:', error);
-      toast.error('Erro ao solicitar alteração');
+      toast.error('Erro ao salvar alterações');
     } finally {
       setLoading(false);
     }
@@ -86,11 +113,21 @@ export function ProfileEditor() {
       <CardHeader>
         <CardTitle>Editar Perfil</CardTitle>
         <CardDescription>
-          Altere sua base operacional ou sigla da área. Mudanças requerem aprovação do seu líder.
+          Atualize seus dados. As alterações entram em vigor imediatamente.
         </CardDescription>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="email">Email</Label>
+            <Input
+              id="email"
+              type="email"
+              value={formData.email}
+              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+              placeholder="seu.email@empresa.com"
+            />
+          </div>
           <div className="space-y-2">
             <Label htmlFor="name">Nome Completo</Label>
             <Input
@@ -132,7 +169,7 @@ export function ProfileEditor() {
           </div>
 
           <Button type="submit" disabled={loading} className="w-full">
-            {loading ? 'Enviando...' : 'Solicitar Alteração'}
+            {loading ? 'Salvando...' : 'Salvar alterações'}
           </Button>
         </form>
       </CardContent>

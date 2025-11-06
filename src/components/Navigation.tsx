@@ -100,15 +100,7 @@ const Navigation = () => {
           <span className="text-xs mt-1">Senha</span>
         </Button>
 
-        <Button
-          variant={isActive('/profile') ? 'default' : 'ghost'}
-          size="sm"
-          onClick={() => navigate('/profile')}
-          className="flex-col h-auto py-2"
-        >
-          <User className="h-5 w-5" />
-          <span className="text-xs mt-1">Perfil</span>
-        </Button>
+        {/* Perfil removido do rodapé conforme solicitação */}
       </div>
 
       <Dialog open={passwordDialogOpen} onOpenChange={setPasswordDialogOpen}>
