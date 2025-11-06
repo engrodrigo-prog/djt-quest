@@ -13,6 +13,8 @@ export function ProfileEditor() {
   const [formData, setFormData] = useState({
     name: profile?.name || "",
     email: (profile as any)?.email || "",
+    telefone: (profile as any)?.telefone || "",
+    matricula: (profile as any)?.matricula || "",
     operational_base: (profile as any)?.operational_base || "",
     sigla_area: (profile as any)?.sigla_area || "",
     date_of_birth: (profile as any)?.date_of_birth || "",
@@ -22,6 +24,8 @@ export function ProfileEditor() {
     setFormData({
       name: profile?.name || "",
       email: (profile as any)?.email || "",
+      telefone: (profile as any)?.telefone || "",
+      matricula: (profile as any)?.matricula || "",
       operational_base: (profile as any)?.operational_base || "",
       sigla_area: (profile as any)?.sigla_area || "",
       date_of_birth: (profile as any)?.date_of_birth || "",
@@ -78,6 +82,8 @@ export function ProfileEditor() {
       const updates: Record<string, unknown> = {
         name: formData.name,
         email: formData.email?.toLowerCase(),
+        telefone: formData.telefone || null,
+        matricula: formData.matricula || null,
         date_of_birth: formData.date_of_birth || null,
       };
       if (org) {
@@ -127,6 +133,28 @@ export function ProfileEditor() {
               onChange={(e) => setFormData({ ...formData, email: e.target.value })}
               placeholder="seu.email@empresa.com"
             />
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="telefone">Telefone</Label>
+              <Input
+                id="telefone"
+                type="tel"
+                value={formData.telefone}
+                onChange={(e) => setFormData({ ...formData, telefone: e.target.value })}
+                placeholder="(00) 00000-0000"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="matricula">Matrícula</Label>
+              <Input
+                id="matricula"
+                value={formData.matricula}
+                onChange={(e) => setFormData({ ...formData, matricula: e.target.value })}
+                placeholder="Seu ID interno"
+              />
+            </div>
           </div>
           <div className="space-y-2">
             <Label htmlFor="name">Nome Completo</Label>
