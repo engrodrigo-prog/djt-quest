@@ -124,9 +124,11 @@ export function Rankings() {
         }
 
         // Filter for "My Team"
-        if (orgScope?.teamId) {
+        if (orgScope?.teamId && (!orgScope.divisionId || orgScope.teamId !== orgScope.divisionId)) {
           const myTeam = ranked.filter(p => p.teamId === orgScope.teamId);
           setMyTeamRankings(myTeam.map((p, i) => ({ ...p, rank: i + 1 })));
+        } else {
+          setMyTeamRankings([]);
         }
       }
 
@@ -134,9 +136,13 @@ export function Rankings() {
       if (teamsResult.data) {
         const teamData = teamsResult.data.map((team: any) => {
           const totalXp = team.profiles.reduce((sum: number, p: any) => sum + (p.xp || 0), 0);
+          const baseTeamName = team.name || 'Equipe';
+          const isBaseMarker = baseTeamName.toLowerCase().includes('base');
+          const displayName = isBaseMarker ? `Base ${baseTeamName.replace(/base/i, '').trim()}` : baseTeamName;
           return {
             teamId: team.id,
-            teamName: team.name,
+            teamName: displayName,
+            isBase: isBaseMarker,
             totalXp,
             memberCount: team.profiles.length,
             teamModifier: team.team_modifier || 1.0
