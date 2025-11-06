@@ -14,7 +14,7 @@ import { RetryModal } from '@/components/profile/RetryModal';
 import { LearningDashboard } from '@/components/profile/LearningDashboard';
 import { LeaderTeamDashboard } from '@/components/LeaderTeamDashboard';
 import { useToast } from '@/hooks/use-toast';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { getTierInfo, getNextTierLevel } from '@/lib/constants/tiers';
 import { AvatarCapture } from '@/components/AvatarCapture';
@@ -76,7 +76,8 @@ function ProfileContent() {
   const [retryModalOpen, setRetryModalOpen] = useState(false);
   const [selectedEventForRetry, setSelectedEventForRetry] = useState<{ eventId: string; challengeId: string; challengeTitle: string } | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [avatarDialogOpen, setAvatarDialogOpen] = useState(false);
+  const [searchParams] = useSearchParams();
+  const [avatarDialogOpen, setAvatarDialogOpen] = useState(searchParams.get('avatar') === 'open');
   const [avatarSaving, setAvatarSaving] = useState(false);
 
   // Loader we can reuse (initial + manual retry)

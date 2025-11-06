@@ -1,6 +1,6 @@
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { AvatarDisplay } from "@/components/AvatarDisplay";
-import { User, Settings, LogOut, Shield, Users } from "lucide-react";
+import { User, Settings, LogOut, Shield, Users, Camera } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 interface ProfileDropdownProps {
@@ -64,6 +64,10 @@ export const ProfileDropdown = ({ profile, isLeader, onSignOut }: ProfileDropdow
         <DropdownMenuSeparator />
         
         {/* Ações */}
+        <DropdownMenuItem onClick={() => navigate('/profile?avatar=open')}>
+          <Camera className="h-4 w-4 mr-2" />
+          Atualizar Foto
+        </DropdownMenuItem>
         <DropdownMenuItem onClick={() => navigate('/profile')}>
           <User className="h-4 w-4 mr-2" />
           Ver Perfil
