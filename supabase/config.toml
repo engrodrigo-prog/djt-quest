@@ -1,4 +1,4 @@
-project_id = "kjalgrgtalwnhhsvirvp"
+project_id = "eyuehdefoedxcunxiyvb"
 
 [functions.seed-test-users]
 verify_jwt = false

@@ -94,7 +94,10 @@ const ChallengeDetail = () => {
           .eq('user_id', user.id)
           .eq('challenge_id', data.id);
 
-        setQuizCompleted((answeredQuestions || 0) >= (totalQuestions || 0));
+        // Considere concluído apenas se houver perguntas (>0) e todas respondidas
+        const total = totalQuestions || 0;
+        const answered = answeredQuestions || 0;
+        setQuizCompleted(total > 0 && answered >= total);
       }
 
       setLoading(false);

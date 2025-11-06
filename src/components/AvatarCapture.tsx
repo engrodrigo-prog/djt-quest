@@ -29,9 +29,9 @@ export const AvatarCapture = ({ onCapture, onSkip }: AvatarCaptureProps) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    // Check file size (max 5MB)
-    if (file.size > 5 * 1024 * 1024) {
-      alert("A imagem deve ter no máximo 5MB");
+    // Check file size (max 3MB) — evita exceder limite do Vercel para payloads
+    if (file.size > 3 * 1024 * 1024) {
+      alert("A imagem deve ter no máximo 3MB");
       return;
     }
 

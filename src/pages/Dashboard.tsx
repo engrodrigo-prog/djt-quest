@@ -8,6 +8,7 @@ import { Progress } from "@/components/ui/progress";
 import { Shield, Zap, Trophy, Target, LogOut, Star, Menu, Filter, History, CheckCircle, ListFilter } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import Navigation from "@/components/Navigation";
+import { ThemedBackground } from "@/components/ThemedBackground";
 import { TeamPerformanceCard } from "@/components/TeamPerformanceCard";
 import { ProfileDropdown } from "@/components/ProfileDropdown";
 import { getTierInfo, getNextTierLevel } from "@/lib/constants/tiers";
@@ -195,23 +196,47 @@ const Dashboard = () => {
     });
   };
 
+  // Map latest status per challenge (events already sorted desc)
+  const latestStatusByChallenge = useMemo(() => {
+    const map = new Map<string, string>();
+    userEvents.forEach((e) => {
+      if (e.challenge_id && !map.has(e.challenge_id)) {
+        map.set(e.challenge_id, e.status);
+      }
+    });
+    return map;
+  }, [userEvents]);
+
+  // Completed non-quiz challenges: any event with terminal-ish status
+  const completedNonQuizIds = useMemo(() => {
+    const set = new Set<string>();
+    userEvents.forEach((e) => {
+      const s = (e.status || '').toLowerCase();
+      if (['approved', 'evaluated', 'rejected'].includes(s)) {
+        if (e.challenge_id) set.add(e.challenge_id);
+      }
+    });
+    return set;
+  }, [userEvents]);
+
+  const completedChallengeIds = useMemo(() => {
+    const u = new Set<string>([...completedNonQuizIds, ...completedQuizIds]);
+    return u;
+  }, [completedNonQuizIds, completedQuizIds]);
+
   const filteredChallenges = useMemo(() => {
     let base: Challenge[] = [];
     if (challengeTab === 'vigentes') {
-      // Ocultar quizzes já concluídos pelo usuário
-      base = allChallenges.filter(ch => {
-        const isQuiz = (ch.type || '').toLowerCase().includes('quiz');
-        if (!isQuiz) return true;
-        return !completedQuizIds.has(ch.id);
-      });
+      // Mostrar apenas desafios que ainda não foram concluídos
+      base = allChallenges.filter((ch) => !completedChallengeIds.has(ch.id));
     } else {
+      // Histórico: apenas concluídos
       const seen = new Set<string>();
-      const ids = userEvents.map(e => e.challenge_id).filter(Boolean);
-      base = allChallenges.filter(c => ids.includes(c.id) && (!seen.has(c.id) && seen.add(c.id)));
+      base = allChallenges.filter((c) => completedChallengeIds.has(c.id) && (!seen.has(c.id) && seen.add(c.id)));
     }
     if (typeFilters.size === 0) return base;
     return base.filter(c => typeFilters.has((c.type || '').toLowerCase()));
-  }, [challengeTab, allChallenges, userEvents, typeFilters, completedQuizIds]);
+  }, [challengeTab, allChallenges, typeFilters, completedChallengeIds]);
 
   const typeOptions = [
     { key: 'campanha', label: 'Campanha' },
@@ -229,7 +254,8 @@ const Dashboard = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-secondary/5 pb-20 md:pb-8">
+    <div className="relative min-h-screen bg-background pb-20 md:pb-8 overflow-hidden">
+      <ThemedBackground theme="habilidades" />
       {/* Header */}
       <header className="border-b bg-card/50 backdrop-blur-sm sticky top-0 z-10">
         <div className="container mx-auto px-3 py-3 flex items-center justify-between">
@@ -273,7 +299,7 @@ const Dashboard = () => {
         </div>
       </header>
 
-      <main className="container mx-auto px-3 py-4 space-y-6">
+      <main className="container relative mx-auto px-3 py-4 space-y-6">
         {/* Team Performance Card */}
         <TeamPerformanceCard />
 
@@ -380,9 +406,14 @@ const Dashboard = () => {
                       <span>Requer avaliação de 2 líderes</span>
                     </p>
                   )}
+                  {challengeTab === 'historico' && (
+                    <div className="mb-2">
+                      <Badge variant="secondary" className="text-[10px]">{(latestStatusByChallenge.get(challenge.id) || 'concluído').toString()}</Badge>
+                    </div>
+                  )}
                   <Button
                     className="w-full h-9 text-sm"
-                    variant="secondary"
+                    variant="game"
                     onClick={() => navigate(`/challenge/${challenge.id}`)}
                   >
                     {challengeTab === 'historico' ? 'Ver novamente' : 'Começar'}

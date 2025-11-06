@@ -6,7 +6,8 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { ThemedBackground } from '@/components/ThemedBackground';
 import { User, Trophy, Star, Target, CheckCircle, Clock, GraduationCap, Filter } from 'lucide-react';
 import { AvatarDisplay } from '@/components/AvatarDisplay';
 import { ActionReviewCard } from '@/components/profile/ActionReviewCard';
@@ -99,7 +100,7 @@ function ProfileContent() {
       // Load profile
       const { data: profileData } = await supabase
         .from('profiles')
-        .select('name, email, xp, tier, demotion_cooldown_until, avatar_url, team:teams(name)')
+        .select('name, email, xp, tier, demotion_cooldown_until, avatar_url, date_of_birth, team:teams(name)')
         .eq('id', user.id)
         .maybeSingle();
 
@@ -239,18 +240,26 @@ function ProfileContent() {
     if (!imageBase64) return;
     setAvatarGenerating(true);
     try {
-      const { data, error } = await supabase.functions.invoke('process-avatar', {
-        body: {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      const resp = await fetch('/api/process-avatar', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
           mode: 'preview',
           imageBase64,
           useAiStyle: true,
           style: 'game-hero',
           variationCount: 3,
-        },
+        }),
       });
-      if (error) throw error;
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data?.error || 'Falha na IA');
       if (data?.previews?.length) {
-        setAvatarOptions(data.previews);
+        setAvatarOptions(data.previews as string[]);
         setSelectedAvatarOption(data.previews[0]);
       } else {
         toast({ title: 'Não foi possível gerar opções com IA', variant: 'destructive' });
@@ -272,29 +281,38 @@ function ProfileContent() {
   };
 
   const handleAvatarCaptured = async (imageBase64: string) => {
-    setAvatarSourceImage(imageBase64);
-    await generateAvatarOptions(imageBase64);
+    // Salva diretamente a foto enviada, sem IA/previews
+    setSelectedAvatarOption(imageBase64);
+    await finalizeAvatar(imageBase64);
   };
 
-  const finalizeAvatar = async () => {
-    if (!user || avatarSaving || !selectedAvatarOption) {
+  const finalizeAvatar = async (overrideBase64?: string) => {
+    const base64ToUse = overrideBase64 || selectedAvatarOption;
+    if (!user || avatarSaving || !base64ToUse) {
       toast({ title: 'Selecione um avatar para continuar', variant: 'destructive' });
       return;
     }
 
     try {
       setAvatarSaving(true);
-      const { data, error } = await supabase.functions.invoke('process-avatar', {
-        body: {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      const resp = await fetch('/api/process-avatar', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
           userId: user.id,
-          imageBase64: selectedAvatarOption,
-          useAiStyle: true,
+          imageBase64: base64ToUse,
+          useAiStyle: false,
           alreadyStylized: true,
           mode: 'final',
-        },
+        }),
       });
-
-      if (error) throw error;
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data?.error || 'Falha ao salvar');
 
       await refreshUserSession();
       if (data?.avatarUrl) {
@@ -403,8 +421,9 @@ function ProfileContent() {
   );
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-secondary/5 p-4">
-      <div className="container max-w-4xl mx-auto py-8 space-y-6">
+    <div className="relative min-h-screen bg-background p-4 overflow-hidden">
+      <ThemedBackground theme="atitude" />
+      <div className="container relative max-w-4xl mx-auto py-8 space-y-6">
         {/* Profile Header */}
         <Card className="bg-gradient-to-r from-primary/10 to-secondary/10">
           <CardHeader>
@@ -417,7 +436,7 @@ function ProfileContent() {
                     size="xl"
                   />
                   <Button
-                    variant="outline"
+                    variant="gameGhost"
                     size="sm"
                     onClick={() => setAvatarDialogOpen(true)}
                     disabled={avatarSaving}
@@ -656,6 +675,9 @@ function ProfileContent() {
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Atualizar avatar</DialogTitle>
+          <DialogDescription>
+            Capture ou envie uma foto e confirme para atualizar seu avatar. Você poderá trocá-la quando quiser.
+          </DialogDescription>
         </DialogHeader>
         {avatarOptions.length === 0 ? (
           <>
@@ -670,14 +692,14 @@ function ProfileContent() {
             />
             {avatarGenerating && (
               <p className="text-sm text-muted-foreground text-center mt-2">
-                Gerando opções com IA...
+                Processando imagem...
               </p>
             )}
           </>
         ) : (
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              Escolha o avatar que mais representa você. Pode gerar novamente para novas opções.
+              Escolha o melhor enquadramento e confirme para usar como seu avatar.
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               {avatarOptions.map((option, index) => {
@@ -704,21 +726,18 @@ function ProfileContent() {
             <div className="flex flex-col sm:flex-row gap-3">
               <Button
                 type="button"
-                variant="outline"
+                variant="gameGhost"
                 onClick={() => {
-                  if (avatarSourceImage) {
-                    generateAvatarOptions(avatarSourceImage);
-                  } else {
-                    resetAvatarFlow();
-                  }
+                  resetAvatarFlow();
                 }}
                 disabled={avatarGenerating}
               >
-                Gerar Novamente
+                Capturar outra foto
               </Button>
               <Button
                 type="button"
-                onClick={finalizeAvatar}
+                onClick={() => finalizeAvatar()}
+                variant="game"
                 disabled={!selectedAvatarOption || avatarSaving}
                 className="flex-1"
               >

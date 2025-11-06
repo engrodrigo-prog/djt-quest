@@ -27,6 +27,23 @@ Deno.serve(async (req) => {
       }
     );
 
+    // Simple org derivation (Divisão -> Coordenação -> Equipe) based on sigla
+    const deriveOrgUnits = (raw: string | null | undefined) => {
+      if (!raw) return null
+      const normalized = String(raw)
+        .toUpperCase()
+        .replace(/[^A-Z0-9-]/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '')
+      if (!normalized) return null
+      const parts = normalized.split('-').filter(Boolean)
+      const divisionId = parts[0] || 'DJT'
+      const coordinationTag = parts[1] || 'SEDE'
+      const coordinationId = `${divisionId}-${coordinationTag}`
+      const teamId = normalized
+      return { divisionId, coordinationId, teamId }
+    }
+
     // Get authenticated user
     const authHeader = req.headers.get('Authorization')!;
     const token = authHeader.replace('Bearer ', '');
@@ -107,6 +124,18 @@ Deno.serve(async (req) => {
     }
 
     console.log('Profile created');
+
+    // Attach org hierarchy if possible
+    const org = deriveOrgUnits(registration.sigla_area || registration.operational_base)
+    if (org) {
+      const { error: orgErr } = await supabaseAdmin
+        .from('profiles')
+        .update({ division_id: org.divisionId, coord_id: org.coordinationId, team_id: org.teamId })
+        .eq('id', newUser.user.id)
+      if (orgErr) {
+        console.warn('Could not attach org hierarchy:', orgErr.message)
+      }
+    }
 
     // Assign default role (colaborador)
     const { error: roleError } = await supabaseAdmin

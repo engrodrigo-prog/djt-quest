@@ -15,6 +15,8 @@ const buttonVariants = cva(
         secondary: "bg-secondary text-secondary-foreground hover:bg-secondary/80",
         ghost: "hover:bg-accent hover:text-accent-foreground",
         link: "text-primary underline-offset-4 hover:underline",
+        game: "relative bg-gradient-to-r from-indigo-600 via-violet-500 to-sky-500 text-white shadow-[0_0_0_0_rgba(0,0,0,0.0)] hover:shadow-[0_10px_25px_-10px_rgba(59,130,246,0.8)] transition-all duration-300 hover:translate-y-[-1px] border border-white/10",
+        gameGhost: "relative bg-transparent text-foreground border border-white/10 hover:border-primary/40 hover:bg-primary/5 transition-all duration-300",
       },
       size: {
         default: "h-10 px-4 py-2",

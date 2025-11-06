@@ -20,6 +20,8 @@ import EvaluationManagement from '@/components/EvaluationManagement';
 import { InitialUserImport } from '@/components/InitialUserImport';
 import { PendingApprovals } from '@/components/PendingApprovals';
 import { AvatarRegistrationTool } from '@/components/AvatarRegistrationTool';
+import { ThemedBackground } from '@/components/ThemedBackground';
+import { AiQuizGenerator } from '@/components/AiQuizGenerator';
 
 const Studio = () => {
   const { user, loading, isLeader, studioAccess, userRole } = useAuth();
@@ -69,6 +71,8 @@ const Studio = () => {
         return <CampaignForm />;
       case 'quiz':
         return <QuizCreationWizard />;
+      case 'ai-quiz':
+        return <AiQuizGenerator />;
       case 'challenges':
         return <ChallengeForm />;
       case 'performance':
@@ -101,8 +105,9 @@ const Studio = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background pb-20 md:pb-8">
-      <div className="container mx-auto p-4 md:p-8 max-w-7xl space-y-6">
+    <div className="relative min-h-screen bg-background pb-20 md:pb-8 overflow-hidden">
+      <ThemedBackground theme="seguranca" />
+      <div className="container relative mx-auto p-4 md:p-8 max-w-7xl space-y-6">
         {/* Botão Voltar */}
         <div>
           <Button

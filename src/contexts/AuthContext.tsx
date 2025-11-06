@@ -85,7 +85,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [hasShownWelcome, setHasShownWelcome] = useState(false);
 
   const fetchUserSession = async (userId: string) => {
-    // Try cache first
     const cached = getCachedAuth();
     if (cached) {
       console.log('🔹 Using cached auth:', cached);
@@ -94,7 +93,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setIsLeader(cached.isLeader);
       setOrgScope(cached.orgScope);
       setProfile(cached.profile);
-      return cached;
     }
 
     try {
@@ -132,6 +130,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return authData;
     } catch (error) {
       console.error('Error fetching user session:', error);
+      if (cached) {
+        return cached;
+      }
       setUserRole('colaborador');
       setStudioAccess(false);
       setIsLeader(false);

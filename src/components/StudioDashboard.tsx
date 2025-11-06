@@ -61,6 +61,14 @@ export const StudioDashboard = ({ onSelectModule, userRole }: StudioDashboardPro
       gradientTo: 'to-djt-blue-dark',
     },
     {
+      id: 'ai-quiz',
+      title: 'Gerar Quiz (IA)',
+      description: 'Use IA para criar perguntas e alternativas',
+      icon: HelpCircle,
+      gradientFrom: 'from-purple-500',
+      gradientTo: 'to-indigo-600',
+    },
+    {
       id: 'challenges',
       title: 'Desafios',
       description: 'Fórum, mentoria, inspeção e atitude',

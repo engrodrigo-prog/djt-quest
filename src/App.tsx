@@ -1,4 +1,4 @@
-import React from "react";
+import React, { Suspense, lazy } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { StudioWelcomeToast } from "@/components/StudioWelcomeToast";
 import { Toaster as Sonner } from "@/components/ui/sonner";
@@ -8,20 +8,20 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { CompleteProfile } from "./components/CompleteProfile";
-import Home from "./pages/Home";
-import Dashboard from "./pages/Dashboard";
-import Auth from "./pages/Auth";
-import Register from "./pages/Register";
-import NotFound from "./pages/NotFound";
-import ChallengeDetail from "./pages/ChallengeDetail";
-import Evaluations from "./pages/Evaluations";
-import Studio from "./pages/Studio";
-import Profile from "./pages/Profile";
-import Rankings from "./pages/Rankings";
-import Forums from "./pages/Forums";
-import ForumTopic from "./pages/ForumTopic";
-import UserSetup from "./pages/UserSetup";
-import LeaderDashboard from "./pages/LeaderDashboard";
+const Home = lazy(() => import("./pages/Home"));
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+const Auth = lazy(() => import("./pages/Auth"));
+const Register = lazy(() => import("./pages/Register"));
+const NotFound = lazy(() => import("./pages/NotFound"));
+const ChallengeDetail = lazy(() => import("./pages/ChallengeDetail"));
+const Evaluations = lazy(() => import("./pages/Evaluations"));
+const Studio = lazy(() => import("./pages/Studio"));
+const Profile = lazy(() => import("./pages/Profile"));
+const Rankings = lazy(() => import("./pages/Rankings"));
+const Forums = lazy(() => import("./pages/Forums"));
+const ForumTopic = lazy(() => import("./pages/ForumTopic"));
+const UserSetup = lazy(() => import("./pages/UserSetup"));
+const LeaderDashboard = lazy(() => import("./pages/LeaderDashboard"));
 
 const queryClient = new QueryClient();
 const LEADER_ALLOWED_ROLES = ['coordenador_djtx', 'gerente_divisao_djtx', 'gerente_djt', 'admin'];
@@ -48,6 +48,13 @@ const App = () => (
       <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <AuthProvider>
           <StudioWelcomeToast />
+          <Suspense
+            fallback={
+              <div className="min-h-screen flex items-center justify-center">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+              </div>
+            }
+          >
           <Routes>
             <Route path="/auth" element={<Auth />} />
             <Route path="/register" element={<Register />} />
@@ -103,6 +110,7 @@ const App = () => (
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
           </Routes>
+          </Suspense>
         </AuthProvider>
       </BrowserRouter>
     </TooltipProvider>

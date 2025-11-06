@@ -89,18 +89,26 @@ export const AvatarRegistrationTool = () => {
     if (!selectedUser) return;
     setAvatarGenerating(true);
     try {
-      const { data, error } = await supabase.functions.invoke('process-avatar', {
-        body: {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      const resp = await fetch('/api/process-avatar', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
           mode: 'preview',
           imageBase64,
           useAiStyle: true,
           style: 'game-hero',
           variationCount: 3,
-        },
+        }),
       });
-      if (error) throw error;
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data?.error || 'Falha na IA');
       if (data?.previews?.length) {
-        setAvatarOptions(data.previews);
+        setAvatarOptions(data.previews as string[]);
         setSelectedAvatarOption(data.previews[0]);
       } else {
         toast({ title: 'Não foi possível gerar opções para este colaborador', variant: 'destructive' });
@@ -118,27 +126,36 @@ export const AvatarRegistrationTool = () => {
       toast({ title: 'Selecione um colaborador primeiro', variant: 'destructive' });
       return;
     }
-    setAvatarSourceImage(imageBase64);
-    await generateAvatarOptions(imageBase64);
+    setSelectedAvatarOption(imageBase64);
+    await finalizeAvatarForUser(imageBase64);
   };
 
-  const finalizeAvatarForUser = async () => {
-    if (!selectedUser || !selectedAvatarOption) {
+  const finalizeAvatarForUser = async (overrideBase64?: string) => {
+    const base64ToUse = overrideBase64 || selectedAvatarOption;
+    if (!selectedUser || !base64ToUse) {
       toast({ title: 'Selecione uma opção de avatar', variant: 'destructive' });
       return;
     }
     try {
       setAvatarSaving(true);
-      const { data, error } = await supabase.functions.invoke('process-avatar', {
-        body: {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      const resp = await fetch('/api/process-avatar', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
           userId: selectedUser.id,
-          imageBase64: selectedAvatarOption,
-          useAiStyle: true,
+          imageBase64: base64ToUse,
+          useAiStyle: false,
           alreadyStylized: true,
           mode: 'final',
-        },
+        }),
       });
-      if (error) throw error;
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data?.error || 'Falha ao salvar');
 
       setUsers((prev) =>
         prev.map((user) =>
@@ -320,7 +337,7 @@ export const AvatarRegistrationTool = () => {
             <Card>
               <CardHeader>
                 <CardTitle>Captura / Upload</CardTitle>
-                <CardDescription>Capture uma foto, gere opções com IA e escolha a melhor.</CardDescription>
+                <CardDescription>Capture ou envie uma foto e confirme para atualizar o avatar.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 {avatarOptions.length === 0 ? (
@@ -333,7 +350,7 @@ export const AvatarRegistrationTool = () => {
                       }}
                     />
                     {avatarGenerating && (
-                      <p className="text-sm text-muted-foreground text-center">Gerando opções com IA...</p>
+                      <p className="text-sm text-muted-foreground text-center">Processando imagem...</p>
                     )}
                   </>
                 ) : (
@@ -360,7 +377,7 @@ export const AvatarRegistrationTool = () => {
                     </div>
                     <div className="flex flex-col sm:flex-row gap-3">
                       <Button
-                        variant="outline"
+                        variant="gameGhost"
                         onClick={() => {
                           if (avatarSourceImage) {
                             generateAvatarOptions(avatarSourceImage);
@@ -373,7 +390,8 @@ export const AvatarRegistrationTool = () => {
                         Gerar Novamente
                       </Button>
                       <Button
-                        onClick={finalizeAvatarForUser}
+                        onClick={() => finalizeAvatarForUser()}
+                        variant="game"
                         disabled={!selectedAvatarOption || avatarSaving}
                         className="flex-1"
                       >
