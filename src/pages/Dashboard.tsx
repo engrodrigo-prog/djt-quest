@@ -47,6 +47,7 @@ const Dashboard = () => {
   const [challengeTab, setChallengeTab] = useState<'vigentes' | 'historico'>('vigentes');
   const [typeFilters, setTypeFilters] = useState<Set<string>>(new Set());
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [completedQuizIds, setCompletedQuizIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -68,7 +69,7 @@ const Dashboard = () => {
 
       try {
         // Parallelize all queries for faster loading
-        const [profileResult, campaignsResult, challengesResult, eventsResult] = await Promise.all([
+        const [profileResult, campaignsResult, challengesResult, eventsResult, userAnswersResult] = await Promise.all([
           supabase
             .from("profiles")
             .select("name, xp, tier, avatar_url, team:teams(name)")
@@ -90,7 +91,13 @@ const Dashboard = () => {
             .from('events')
             .select('id, challenge_id, status, created_at')
             .eq('user_id', user.id)
-            .order('created_at', { ascending: false })
+            .order('created_at', { ascending: false }),
+
+          // Todas as respostas de quiz para determinar conclusão por desafio
+          supabase
+            .from('user_quiz_answers')
+            .select('challenge_id')
+            .eq('user_id', user.id)
         ]);
 
         if (profileResult.data) {
@@ -107,6 +114,32 @@ const Dashboard = () => {
 
         if (eventsResult.data) {
           setUserEvents(eventsResult.data as any);
+        }
+
+        // Calcular quizzes concluídos: respostas >= total de perguntas
+        if (userAnswersResult.data && challengesResult.data) {
+          const quizChallenges = (challengesResult.data as Challenge[]).filter(c => (c.type || '').toLowerCase().includes('quiz'));
+          const questionCounts = new Map<string, number>();
+          // Buscar contagem de perguntas por desafio (apenas para quizzes)
+          const { data: quizQuestions } = await supabase
+            .from('quiz_questions')
+            .select('challenge_id');
+          (quizQuestions || []).forEach((q: any) => {
+            questionCounts.set(q.challenge_id, (questionCounts.get(q.challenge_id) || 0) + 1);
+          });
+
+          const answeredCounts = new Map<string, number>();
+          (userAnswersResult.data as { challenge_id: string }[]).forEach(row => {
+            answeredCounts.set(row.challenge_id, (answeredCounts.get(row.challenge_id) || 0) + 1);
+          });
+
+          const completed = new Set<string>();
+          quizChallenges.forEach(q => {
+            const total = questionCounts.get(q.id) || 0;
+            const answered = answeredCounts.get(q.id) || 0;
+            if (total > 0 && answered >= total) completed.add(q.id);
+          });
+          setCompletedQuizIds(completed);
         }
         
         console.log('🏠 Dashboard: data loaded successfully');
@@ -165,7 +198,12 @@ const Dashboard = () => {
   const filteredChallenges = useMemo(() => {
     let base: Challenge[] = [];
     if (challengeTab === 'vigentes') {
-      base = allChallenges;
+      // Ocultar quizzes já concluídos pelo usuário
+      base = allChallenges.filter(ch => {
+        const isQuiz = (ch.type || '').toLowerCase().includes('quiz');
+        if (!isQuiz) return true;
+        return !completedQuizIds.has(ch.id);
+      });
     } else {
       const seen = new Set<string>();
       const ids = userEvents.map(e => e.challenge_id).filter(Boolean);
@@ -173,7 +211,7 @@ const Dashboard = () => {
     }
     if (typeFilters.size === 0) return base;
     return base.filter(c => typeFilters.has((c.type || '').toLowerCase()));
-  }, [challengeTab, allChallenges, userEvents, typeFilters]);
+  }, [challengeTab, allChallenges, userEvents, typeFilters, completedQuizIds]);
 
   const typeOptions = [
     { key: 'campanha', label: 'Campanha' },

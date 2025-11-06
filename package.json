@@ -14,6 +14,7 @@
     "fix:dob": "node scripts/backfill-date-of-birth.mjs",
     "cleanup:divisions": "node scripts/cleanup-simulated-divisions.mjs",
     "seed:org": "node scripts/seed-org-structure.mjs",
+    "assets:download:avatars": "node scripts/download-avatars.mjs",
     "sanity:backend": "node scripts/sanity-check.mjs"
   },
   "dependencies": {

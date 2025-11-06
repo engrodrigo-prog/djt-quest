@@ -37,6 +37,7 @@ const ChallengeDetail = () => {
   const [description, setDescription] = useState('');
   const [evidenceUrls, setEvidenceUrls] = useState<string[]>([]);
   const [previousFeedback, setPreviousFeedback] = useState<{ positive: string | null; constructive: string | null } | null>(null);
+  const [quizCompleted, setQuizCompleted] = useState(false);
 
   useEffect(() => {
     const loadChallenge = async () => {
@@ -78,6 +79,22 @@ const ChallengeDetail = () => {
             });
           }
         }
+      }
+
+      // Se for quiz, verificar se já foi concluído
+      if (data?.type?.toLowerCase?.().includes('quiz') && user) {
+        const { count: totalQuestions } = await supabase
+          .from('quiz_questions')
+          .select('id', { count: 'exact', head: true })
+          .eq('challenge_id', data.id);
+
+        const { count: answeredQuestions } = await supabase
+          .from('user_quiz_answers')
+          .select('id', { count: 'exact', head: true })
+          .eq('user_id', user.id)
+          .eq('challenge_id', data.id);
+
+        setQuizCompleted((answeredQuestions || 0) >= (totalQuestions || 0));
       }
 
       setLoading(false);
@@ -229,7 +246,21 @@ const ChallengeDetail = () => {
         </Card>
 
         {challenge.type === 'quiz' ? (
-          <QuizPlayer challengeId={challenge.id} />
+          quizCompleted ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Quiz já concluído</CardTitle>
+                <CardDescription>
+                  Você já respondeu este quiz. Consulte o histórico no seu perfil.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button onClick={() => navigate('/dashboard')} className="w-full">Voltar</Button>
+              </CardContent>
+            </Card>
+          ) : (
+            <QuizPlayer challengeId={challenge.id} />
+          )
         ) : (
           <Card>
             <CardHeader>
