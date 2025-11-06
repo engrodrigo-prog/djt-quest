@@ -124,7 +124,7 @@ export default function LeaderDashboard() {
       : scope === 'coord' ? { col: 'coord_id', val: orgScope?.coordId }
       : { col: 'division_id', val: orgScope?.divisionId };
 
-    const { data: members } = await supabase
+    const { data: members } = await (supabase as any)
       .from('profiles')
       .select('xp, id')
       .eq(scopeFilter.col as any, scopeFilter.val as any)
@@ -210,7 +210,7 @@ export default function LeaderDashboard() {
       : scope === 'coord' ? { col: 'coord_id', val: orgScope?.coordId }
       : { col: 'division_id', val: orgScope?.divisionId };
 
-    const { data } = await supabase
+    const { data } = await (supabase as any)
       .from('profiles')
       .select('id, name, xp, tier')
       .eq(scopeFilter.col as any, scopeFilter.val as any)

@@ -54,6 +54,10 @@ export const AvatarCapture = ({ onCapture, onSkip }: AvatarCaptureProps) => {
   const handleConfirm = () => {
     if (capturedImage) {
       onCapture(capturedImage);
+      setCapturedImage(null);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
     }
   };
 

@@ -55,7 +55,11 @@ export function LeaderTeamDashboard() {
 
   useEffect(() => {
     const loadTeamData = async () => {
-      if (!user || !orgScope?.teamId) return;
+      if (!user || !orgScope?.teamId) {
+        // No team bound yet; avoid infinite loading spinner
+        setLoading(false);
+        return;
+      }
 
       try {
         // Load team members (only collaborators)

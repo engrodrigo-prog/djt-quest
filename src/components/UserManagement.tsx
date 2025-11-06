@@ -106,6 +106,7 @@ export const UserManagement = () => {
       matricula: user.matricula || '',
       sigla_area: user.sigla_area || user.operational_base || '',
       operational_base: user.sigla_area || user.operational_base || '',
+      team_id: '',
       is_leader: Boolean(user.is_leader),
       studio_access: Boolean(user.studio_access),
     });

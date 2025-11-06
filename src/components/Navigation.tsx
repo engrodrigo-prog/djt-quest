@@ -1,14 +1,18 @@
+import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Home, Target, Shield, Trophy, User, MessageSquare, Lock } from 'lucide-react';
+import { Home, Target, Shield, Trophy, User, MessageSquare, Lock, Key } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { ChangePasswordCard } from '@/components/profile/ChangePasswordCard';
 
 const Navigation = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { studioAccess, isLeader } = useAuth();
+  const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
 
   const isActive = (path: string) => location.pathname === path;
 
@@ -87,6 +91,16 @@ const Navigation = () => {
         </TooltipProvider>
         
         <Button
+          variant={'ghost'}
+          size="sm"
+          onClick={() => setPasswordDialogOpen(true)}
+          className="flex-col h-auto py-2"
+        >
+          <Key className="h-5 w-5" />
+          <span className="text-xs mt-1">Senha</span>
+        </Button>
+
+        <Button
           variant={isActive('/profile') ? 'default' : 'ghost'}
           size="sm"
           onClick={() => navigate('/profile')}
@@ -96,6 +110,15 @@ const Navigation = () => {
           <span className="text-xs mt-1">Perfil</span>
         </Button>
       </div>
+
+      <Dialog open={passwordDialogOpen} onOpenChange={setPasswordDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Alterar Senha</DialogTitle>
+          </DialogHeader>
+          <ChangePasswordCard compact />
+        </DialogContent>
+      </Dialog>
     </nav>
   );
 };

@@ -13,7 +13,8 @@
     "sync:operational-base": "node scripts/sync-operational-base.mjs",
     "fix:dob": "node scripts/backfill-date-of-birth.mjs",
     "cleanup:divisions": "node scripts/cleanup-simulated-divisions.mjs",
-    "seed:org": "node scripts/seed-org-structure.mjs"
+    "seed:org": "node scripts/seed-org-structure.mjs",
+    "sanity:backend": "node scripts/sanity-check.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

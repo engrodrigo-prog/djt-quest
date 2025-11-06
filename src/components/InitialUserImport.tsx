@@ -78,7 +78,7 @@ export function InitialUserImport() {
           const area = values[0];
           const matricula = values[1];
           const email = values[2];
-          const nome = values[3]?.replace(/^\"|\"$/g, '');
+          const nome = values[3]?.replace(/^"|"$/g, '');
           const cargo = values[4];
           const dataNasc = values[5];
           const toIso = (s: string) => {
@@ -88,7 +88,6 @@ export function InitialUserImport() {
             const mm = m[2].padStart(2, '0');
             return `${m[3]}-${mm}-${dd}`;
           };
-          // @ts-expect-error - backend aceita a propriedade date_of_birth
           parsedUsers.push({
             nome,
             matricula,
@@ -102,9 +101,8 @@ export function InitialUserImport() {
         } else {
           // Formato convertido
           if (values.length < 7) continue;
-          // @ts-expect-error - backend aceita a propriedade date_of_birth
           parsedUsers.push({
-            nome: values[0]?.replace(/^\"|\"$/g, ''),
+            nome: values[0]?.replace(/^"|"$/g, ''),
             matricula: values[1],
             email: values[2],
             telefone: '',

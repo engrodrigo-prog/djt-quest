@@ -129,6 +129,9 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
   };
 
   const handleNextQuestion = () => {
+    // Clear UI state early for smoother transitions
+    setSelectedOption("");
+    setAnswerResult(null);
     if (answerResult?.isCompleted) {
       toast.success(`Quiz concluído! Total: ${answerResult.totalXpEarned} XP`);
       navigate("/dashboard");
@@ -185,7 +188,7 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
         </CardHeader>
         <CardContent className="space-y-6">
           {/* Options */}
-          <RadioGroup value={selectedOption} onValueChange={setSelectedOption} disabled={!!answerResult}>
+          <RadioGroup value={selectedOption} onValueChange={setSelectedOption}>
             <div className="space-y-3">
               {options.map((option, index) => {
                 const isSelected = selectedOption === option.id;
@@ -206,7 +209,7 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
                         : "border-border"
                     }`}
                   >
-                    <RadioGroupItem value={option.id} id={option.id} />
+                    <RadioGroupItem value={option.id} id={option.id} disabled={!!answerResult} />
                     <div className="flex-1">
                       <Label htmlFor={option.id} className="cursor-pointer">
                         <span className="font-medium mr-2">{String.fromCharCode(65 + index)}.</span>
