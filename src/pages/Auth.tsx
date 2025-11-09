@@ -62,56 +62,6 @@ const Auth = () => {
 
   const filteredUsers = users.filter(u => matchesSearch(u, normalizedQuery));
 
-  const handleQueryChange = (value: string) => {
-    setQuery(value);
-    setOpen(true);
-    const digitsOnly = normalizeMatricula(value);
-    if (digitsOnly.length >= 3) {
-      const localMatch = users.find(
-        (u) => normalizeMatricula(u.matricula) === digitsOnly,
-      );
-      if (localMatch) {
-        selectUser(localMatch, true);
-        return;
-      }
-      if (digitsOnly.length >= MATRICULA_LOOKUP_MIN_LENGTH) {
-        fetchUserByMatriculaDigits(digitsOnly);
-      }
-    }
-  };
-
-  const fetchUserByMatriculaDigits = useCallback(async (digits: string) => {
-    if (matriculaLookupRef.current === digits) return;
-    matriculaLookupRef.current = digits;
-    try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('id, name, email, matricula')
-        .or(`matricula.eq.${digits},matricula.ilike.%${digits}%`)
-        .limit(1)
-        .maybeSingle();
-
-      if (error || !data) return;
-
-      const option = data as UserOption;
-      setUsers((prev) => {
-        if (prev.some((u) => u.id === option.id)) return prev;
-        return [option, ...prev];
-      });
-      selectUser(option, true);
-    } catch (error) {
-      console.error('Lookup error:', error);
-    } finally {
-      if (matriculaLookupRef.current === digits) {
-        matriculaLookupRef.current = null;
-      }
-    }
-  }, [selectUser]);
-
-  useEffect(() => {
-    fetchUsers();
-  }, [fetchUsers]);
-
   const attemptLogin = useCallback(async (user: UserOption) => {
     setLoading(true);
     try {
@@ -159,6 +109,52 @@ const Auth = () => {
     }
   }, [attemptLogin, loading, password]);
 
+  const handleQueryChange = (value: string) => {
+    setQuery(value);
+    setOpen(true);
+    const digitsOnly = normalizeMatricula(value);
+    if (digitsOnly.length >= 3) {
+      const localMatch = users.find(
+        (u) => normalizeMatricula(u.matricula) === digitsOnly,
+      );
+      if (localMatch) {
+        selectUser(localMatch, true);
+        return;
+      }
+      if (digitsOnly.length >= MATRICULA_LOOKUP_MIN_LENGTH) {
+        fetchUserByMatriculaDigits(digitsOnly);
+      }
+    }
+  };
+
+  const fetchUserByMatriculaDigits = useCallback(async (digits: string) => {
+    if (matriculaLookupRef.current === digits) return;
+    matriculaLookupRef.current = digits;
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, name, email, matricula')
+        .or(`matricula.eq.${digits},matricula.ilike.%${digits}%`)
+        .limit(1)
+        .maybeSingle();
+
+      if (error || !data) return;
+
+      const option = data as UserOption;
+      setUsers((prev) => {
+        if (prev.some((u) => u.id === option.id)) return prev;
+        return [option, ...prev];
+      });
+      selectUser(option, true);
+    } catch (error) {
+      console.error('Lookup error:', error);
+    } finally {
+      if (matriculaLookupRef.current === digits) {
+        matriculaLookupRef.current = null;
+      }
+    }
+  }, [selectUser]);
+
   const fetchUsers = useCallback(async () => {
     try {
       const { data, error } = await supabase
@@ -182,6 +178,10 @@ const Auth = () => {
       toast.error('Erro ao carregar usuários');
     }
   }, [selectUser]);
+
+  useEffect(() => {
+    fetchUsers();
+  }, [fetchUsers]);
 
   const handleForgotSubmit = async () => {
     if (!resetIdentifier.trim()) {
