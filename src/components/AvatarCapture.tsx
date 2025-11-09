@@ -148,19 +148,21 @@ export const AvatarCapture = ({ onCapture, onSkip }: AvatarCaptureProps) => {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Consentimento de Uso de Imagem</AlertDialogTitle>
-            <AlertDialogDescription className="space-y-3">
-              <p>
-                Sua foto será usada apenas para fins de personalização no DJT Go,
-                facilitando sua identificação na plataforma.
-              </p>
-              <p className="text-sm">
-                <strong>Seus direitos (LGPD):</strong>
-              </p>
-              <ul className="text-sm list-disc pl-5 space-y-1">
-                <li>Seus dados serão usados apenas internamente</li>
-                <li>Você pode solicitar a exclusão a qualquer momento</li>
-                <li>Suas informações não serão compartilhadas externamente</li>
-              </ul>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <p>
+                  Sua foto será usada apenas para fins de personalização no DJT Go,
+                  facilitando sua identificação na plataforma.
+                </p>
+                <p className="text-sm font-semibold">
+                  Seus direitos (LGPD):
+                </p>
+                <ul className="text-sm list-disc pl-5 space-y-1">
+                  <li>Seus dados serão usados apenas internamente</li>
+                  <li>Você pode solicitar a exclusão a qualquer momento</li>
+                  <li>Suas informações não serão compartilhadas externamente</li>
+                </ul>
+              </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
