@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, MouseEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -10,10 +10,21 @@ const Home = () => {
   const { hasActiveSession } = useAuth();
   const [isTransitioning, setIsTransitioning] = useState(false);
 
-  const handleGo = () => {
+  const targetPath = hasActiveSession ? '/dashboard' : '/auth';
+
+  const handleGo = (event?: MouseEvent<HTMLAnchorElement | HTMLButtonElement>) => {
+    event?.preventDefault();
+    if (isTransitioning) return;
+
     setIsTransitioning(true);
-    const target = hasActiveSession ? '/dashboard' : '/auth';
-    navigate(target);
+    navigate(targetPath);
+
+    // Fallback: if client-side routing fails (e.g. hydration error), force a hard navigation.
+    setTimeout(() => {
+      if (window.location.pathname !== targetPath) {
+        window.location.href = targetPath;
+      }
+    }, 500);
   };
 
   return (
@@ -29,6 +40,7 @@ const Home = () => {
       <div className="relative z-10 flex flex-col items-center gap-8 mb-4 animate-fade-in">
         {/* GO Button - Gigante */}
         <Button 
+          asChild
           onClick={handleGo}
           disabled={isTransitioning}
           size="lg"
@@ -38,8 +50,10 @@ const Home = () => {
               : 'hover:scale-110 hover:shadow-[0_0_60px_rgba(255,215,0,0.5)] transition-all duration-300'
           }`}
         >
-          <Play className="mr-3 h-12 w-12 group-hover:translate-x-1 transition-transform" />
-          GO
+          <a href={targetPath} className="flex items-center">
+            <Play className="mr-3 h-12 w-12 group-hover:translate-x-1 transition-transform" />
+            GO
+          </a>
         </Button>
 
         {/* Badges - Minimalistas */}
