@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -43,11 +43,7 @@ export default function EvaluationManagement() {
   const navigate = useNavigate();
   const { toast } = useToast();
 
-  useEffect(() => {
-    loadEvaluations();
-  }, []);
-
-  const loadEvaluations = async () => {
+  const loadEvaluations = useCallback(async () => {
     setLoading(true);
     try {
       // Buscar avaliações pendentes (1ª)
@@ -113,7 +109,11 @@ export default function EvaluationManagement() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [toast]);
+
+  useEffect(() => {
+    loadEvaluations();
+  }, [loadEvaluations]);
 
   const handleReassign = async (queueId: string) => {
     try {

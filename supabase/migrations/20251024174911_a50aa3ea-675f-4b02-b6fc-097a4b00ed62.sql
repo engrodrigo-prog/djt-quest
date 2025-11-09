@@ -1,5 +1,6 @@
 -- Dropar policies que dependem do enum
 DROP POLICY IF EXISTS "Admins can manage all roles" ON user_roles;
+DROP POLICY IF EXISTS "UserRoles: admin manage" ON public.user_roles;
 DROP POLICY IF EXISTS "Admins and gerentes can manage campaigns" ON campaigns;
 DROP POLICY IF EXISTS "Admins and leaders can create challenges" ON challenges;
 DROP POLICY IF EXISTS "Leaders can view events in their area" ON events;
@@ -12,6 +13,9 @@ DROP POLICY IF EXISTS "Leaders can view all incidents" ON safety_incidents;
 DROP POLICY IF EXISTS "Leaders can create incidents" ON safety_incidents;
 DROP POLICY IF EXISTS "Leaders can view all progression requests" ON tier_progression_requests;
 DROP POLICY IF EXISTS "System can manage progression requests" ON tier_progression_requests;
+
+-- Policies criadas em bootstrap que dependem de is_staff/has_role e do tipo de user_roles.role
+DROP POLICY IF EXISTS "Pending: staff read/update" ON public.pending_registrations;
 
 -- Dropar função has_role
 DROP FUNCTION IF EXISTS has_role(uuid, app_role);

@@ -44,7 +44,7 @@ serve(async (req) => {
       .select('id')
       .eq('user_id', user.id)
       .eq('question_id', question_id)
-      .single();
+      .maybeSingle();
 
     if (existingAnswer) {
       return new Response(
@@ -65,8 +65,17 @@ serve(async (req) => {
     }
 
     const isCorrect = option.is_correct;
-    const xpEarned = isCorrect ? option.quiz_questions.xp_value : 0;
     const challengeId = option.quiz_questions.challenge_id;
+
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('xp, is_leader')
+      .eq('id', user.id)
+      .maybeSingle();
+
+    const isLeader = profile?.is_leader === true;
+    const xpEarned = isCorrect && !isLeader ? option.quiz_questions.xp_value : 0;
+    const xpBlockedForLeader = isCorrect && isLeader;
 
     // Insert user answer
     const { error: insertError } = await supabase
@@ -86,20 +95,11 @@ serve(async (req) => {
     }
 
     // Update user XP if correct
-    if (isCorrect) {
-      // Get current XP
-      const { data: profile } = await supabase
+    if (xpEarned > 0 && profile) {
+      await supabase
         .from('profiles')
-        .select('xp')
-        .eq('id', user.id)
-        .single();
-
-      if (profile) {
-        await supabase
-          .from('profiles')
-          .update({ xp: profile.xp + xpEarned })
-          .eq('id', user.id);
-      }
+        .update({ xp: profile.xp + xpEarned })
+        .eq('id', user.id);
     }
 
     // Check if quiz is completed
@@ -163,7 +163,8 @@ serve(async (req) => {
         explanation: option.explanation,
         correctOptionId,
         isCompleted,
-        totalXpEarned: isCompleted ? totalXpEarned : undefined
+        totalXpEarned: isCompleted ? totalXpEarned : undefined,
+        xpBlockedForLeader
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );

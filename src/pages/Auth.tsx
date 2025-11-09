@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,6 +11,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Check, ChevronsUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 import djtCover from '@/assets/backgrounds/djt-quest-cover.png';
 
 interface UserOption {
@@ -21,6 +23,10 @@ interface UserOption {
 }
 
 const LAST_USER_KEY = 'djt_last_user_id';
+const MATRICULA_LOOKUP_MIN_LENGTH = 4;
+
+const normalizeMatricula = (value?: string | null) =>
+  (value ?? '').replace(/\D/g, '');
 
 const Auth = () => {
   const [selectedUserId, setSelectedUserId] = useState("");
@@ -30,6 +36,12 @@ const Auth = () => {
   const [password, setPassword] = useState("123456");
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
+  const [forgotOpen, setForgotOpen] = useState(false);
+  const [resetIdentifier, setResetIdentifier] = useState("");
+  const [resetReason, setResetReason] = useState("");
+  const [resetLoading, setResetLoading] = useState(false);
+  const passwordRef = useRef<HTMLInputElement>(null);
+  const matriculaLookupRef = useRef<string | null>(null);
   const { signIn, refreshUserSession } = useAuth();
   const navigate = useNavigate();
 
@@ -37,45 +49,70 @@ const Auth = () => {
 
   const matchesSearch = (u: UserOption, needle: string) => {
     if (!needle) return true;
-    const m = (u.matricula ?? '').toLowerCase();
-    const n = (u.name ?? '').toLowerCase();
-    const e = (u.email ?? '').toLowerCase();
-    return m.includes(needle) || n.includes(needle) || e.includes(needle);
+    const digitsNeedle = normalizeMatricula(needle);
+    const matricula = normalizeMatricula(u.matricula);
+    const name = (u.name ?? '').toLowerCase();
+    const email = (u.email ?? '').toLowerCase();
+    return (
+      (digitsNeedle && matricula.includes(digitsNeedle)) ||
+      name.includes(needle) ||
+      email.includes(needle)
+    );
   };
 
   const filteredUsers = users.filter(u => matchesSearch(u, normalizedQuery));
 
-  useEffect(() => {
-    fetchUsers();
-  }, []);
+  const handleQueryChange = (value: string) => {
+    setQuery(value);
+    setOpen(true);
+    const digitsOnly = normalizeMatricula(value);
+    if (digitsOnly.length >= 3) {
+      const localMatch = users.find(
+        (u) => normalizeMatricula(u.matricula) === digitsOnly,
+      );
+      if (localMatch) {
+        selectUser(localMatch, true);
+        return;
+      }
+      if (digitsOnly.length >= MATRICULA_LOOKUP_MIN_LENGTH) {
+        fetchUserByMatriculaDigits(digitsOnly);
+      }
+    }
+  };
 
-  const fetchUsers = async () => {
+  const fetchUserByMatriculaDigits = useCallback(async (digits: string) => {
+    if (matriculaLookupRef.current === digits) return;
+    matriculaLookupRef.current = digits;
     try {
       const { data, error } = await supabase
         .from('profiles')
         .select('id, name, email, matricula')
-        .order('name', { ascending: true });
+        .or(`matricula.eq.${digits},matricula.ilike.%${digits}%`)
+        .limit(1)
+        .maybeSingle();
 
-      if (error) throw error;
-      setUsers(data || []);
+      if (error || !data) return;
 
-      // Check for last user in localStorage
-      const lastUserId = localStorage.getItem(LAST_USER_KEY);
-      if (lastUserId && data) {
-        const lastUser = data.find(u => u.id === lastUserId);
-        if (lastUser) {
-          setSelectedUserId(lastUser.id);
-          setSelectedUserName(lastUser.name);
-          setQuery(lastUser.matricula ?? "");
-        }
-      }
+      const option = data as UserOption;
+      setUsers((prev) => {
+        if (prev.some((u) => u.id === option.id)) return prev;
+        return [option, ...prev];
+      });
+      selectUser(option, true);
     } catch (error) {
-      console.error('Error fetching users:', error);
-      toast.error('Erro ao carregar usuários');
+      console.error('Lookup error:', error);
+    } finally {
+      if (matriculaLookupRef.current === digits) {
+        matriculaLookupRef.current = null;
+      }
     }
-  };
+  }, [selectUser]);
 
-  const attemptLogin = async (user: UserOption) => {
+  useEffect(() => {
+    fetchUsers();
+  }, [fetchUsers]);
+
+  const attemptLogin = useCallback(async (user: UserOption) => {
     setLoading(true);
     try {
       const { error } = await signIn(user.email, password);
@@ -90,7 +127,15 @@ const Auth = () => {
 
       await refreshUserSession();
       localStorage.setItem(LAST_USER_KEY, user.id);
-      navigate("/dashboard");
+      // Se ainda está com a senha padrão, direciona ao Perfil e abre o diálogo de troca de senha
+      if (password === '123456') {
+        navigate('/profile');
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent('open-password-dialog'));
+        }, 300);
+      } else {
+        navigate("/dashboard");
+      }
     } catch (error) {
       console.error("Login error:", error);
       toast.error("Falha inesperada ao entrar", {
@@ -98,6 +143,68 @@ const Auth = () => {
       });
     } finally {
       setLoading(false);
+    }
+  }, [navigate, password, refreshUserSession, signIn]);
+
+  const selectUser = useCallback((user: UserOption, autoAttempt = false) => {
+    setSelectedUserId(user.id);
+    setSelectedUserName(user.name);
+    setQuery(user.matricula ?? user.name);
+    setOpen(false);
+    requestAnimationFrame(() => {
+      passwordRef.current?.focus();
+    });
+    if (autoAttempt && password && !loading) {
+      attemptLogin(user);
+    }
+  }, [attemptLogin, loading, password]);
+
+  const fetchUsers = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, name, email, matricula')
+        .order('name', { ascending: true });
+
+      if (error) throw error;
+      setUsers(data || []);
+
+      // Check for last user in localStorage
+      const lastUserId = localStorage.getItem(LAST_USER_KEY);
+      if (lastUserId && data) {
+        const lastUser = data.find(u => u.id === lastUserId);
+        if (lastUser) {
+          selectUser(lastUser);
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching users:', error);
+      toast.error('Erro ao carregar usuários');
+    }
+  }, [selectUser]);
+
+  const handleForgotSubmit = async () => {
+    if (!resetIdentifier.trim()) {
+      toast.error("Informe sua matrícula ou email");
+      return;
+    }
+    setResetLoading(true);
+    try {
+      const response = await fetch('/api/request-password-reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identifier: resetIdentifier, reason: resetReason }),
+      });
+      const json = await response.json();
+      if (!response.ok) throw new Error(json?.error || 'Falha ao enviar solicitação');
+      toast.success('Solicitação enviada! Aguarde aprovação do líder.');
+      setResetIdentifier('');
+      setResetReason('');
+      setForgotOpen(false);
+    } catch (error: any) {
+      toast.error(error?.message || 'Erro ao enviar solicitação');
+    } finally {
+      setResetLoading(false);
     }
   };
 
@@ -146,10 +253,7 @@ const Auth = () => {
                       placeholder="Digite nome ou matrícula..."
                       value={query}
                       inputMode="numeric"
-                      onChange={(e) => {
-                        setQuery(e.target.value);
-                        setOpen(true);
-                      }}
+                      onChange={(e) => handleQueryChange(e.target.value)}
                       onFocus={() => setOpen(true)}
                       onKeyDown={async (e) => {
                         if (e.key === 'Escape') {
@@ -176,17 +280,11 @@ const Auth = () => {
                           }
 
                           if (exactMatch) {
-                            setSelectedUserId(exactMatch.id);
-                            setSelectedUserName(exactMatch.name);
-                            setQuery(exactMatch.matricula ?? "");
-                            setOpen(false);
+                            selectUser(exactMatch);
                             await attemptLogin(exactMatch);
                           } else if (filteredUsers.length === 1) {
                             const onlyUser = filteredUsers[0];
-                            setSelectedUserId(onlyUser.id);
-                            setSelectedUserName(onlyUser.name);
-                            setQuery(onlyUser.matricula ?? onlyUser.name);
-                            setOpen(false);
+                            selectUser(onlyUser);
                             await attemptLogin(onlyUser);
                           }
                         }
@@ -220,10 +318,7 @@ const Auth = () => {
                               e.preventDefault();
                             }}
                             onSelect={() => {
-                              setSelectedUserId(user.id);
-                              setSelectedUserName(user.name);
-                              setQuery(user.matricula ?? user.name);
-                              setOpen(false);
+                              selectUser(user);
                             }}
                             className={cn(selectedUserId === user.id && "bg-accent")}
                           >
@@ -253,10 +348,19 @@ const Auth = () => {
                 required
                 placeholder="Digite sua senha"
                 autoFocus={!!selectedUserName}
+                ref={passwordRef}
               />
               <p className="text-xs text-muted-foreground">
                 Senha padrão: <code className="bg-muted px-1 rounded">123456</code>
               </p>
+              <Button
+                type="button"
+                variant="link"
+                className="px-0"
+                onClick={() => setForgotOpen(true)}
+              >
+                Esqueci minha senha
+              </Button>
             </div>
             
             <Button type="submit" className="w-full" disabled={!selectedUserId || loading}>
@@ -275,6 +379,50 @@ const Auth = () => {
           </form>
         </CardContent>
       </Card>
+
+      <Dialog open={forgotOpen} onOpenChange={(open) => {
+        setForgotOpen(open);
+        if (!open) {
+          setResetIdentifier('');
+          setResetReason('');
+        }
+      }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Solicitar reset de senha</DialogTitle>
+            <DialogDescription>
+              Informe sua matrícula ou email para pedir uma nova senha. Seu líder precisará aprovar o reset.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-2">
+              <Label htmlFor="reset-identifier">Matrícula ou email</Label>
+              <Input
+                id="reset-identifier"
+                placeholder="Ex.: 601555 ou seu.email@cpfl.com.br"
+                value={resetIdentifier}
+                onChange={(e) => setResetIdentifier(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="reset-reason">Motivo (opcional)</Label>
+              <Textarea
+                id="reset-reason"
+                placeholder="Descreva o motivo do reset"
+                value={resetReason}
+                onChange={(e) => setResetReason(e.target.value)}
+                rows={3}
+              />
+            </div>
+          </div>
+          <DialogFooter className="mt-4">
+            <Button variant="outline" onClick={() => setForgotOpen(false)}>Cancelar</Button>
+            <Button onClick={handleForgotSubmit} disabled={resetLoading}>
+              {resetLoading ? 'Enviando...' : 'Solicitar reset'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

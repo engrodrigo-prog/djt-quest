@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -50,15 +50,7 @@ export const UserManagement = () => {
   });
   const { toast } = useToast();
 
-  useEffect(() => {
-    loadUsers();
-  }, []);
-
-  useEffect(() => {
-    filterUsers();
-  }, [searchTerm, users]);
-
-  const loadUsers = async () => {
+  const loadUsers = useCallback(async () => {
     try {
       setLoading(true);
       const { data, error } = await supabase
@@ -96,7 +88,11 @@ export const UserManagement = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [toast]);
+
+  useEffect(() => {
+    loadUsers();
+  }, [loadUsers]);
 
   const openEditor = async (user: UserProfile) => {
     setEditingUser(user);
@@ -175,7 +171,7 @@ export const UserManagement = () => {
     updateForm('operational_base', formatted);
   };
 
-  const filterUsers = () => {
+  const filterUsers = useCallback(() => {
     if (!searchTerm) {
       setFilteredUsers(users);
       return;
@@ -189,7 +185,11 @@ export const UserManagement = () => {
       user.sigla_area?.toLowerCase().includes(term)
     );
     setFilteredUsers(filtered);
-  };
+  }, [searchTerm, users]);
+
+  useEffect(() => {
+    filterUsers();
+  }, [filterUsers]);
 
   const toggleSelect = (userId: string) => {
     setSelectedIds(prev => {

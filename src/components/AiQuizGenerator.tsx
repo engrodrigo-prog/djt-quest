@@ -9,6 +9,8 @@ import { Textarea } from '@/components/ui/textarea'
 import { toast } from 'sonner'
 
 interface Challenge { id: string; title: string; type: string }
+const WRONG_COUNT = 4;
+const MIN_LENGTH = 5;
 
 export const AiQuizGenerator = () => {
   const [topic, setTopic] = useState('')
@@ -21,11 +23,9 @@ export const AiQuizGenerator = () => {
   const [question, setQuestion] = useState('')
   const [correctText, setCorrectText] = useState('')
   const [correctExplanation, setCorrectExplanation] = useState('')
-  const [wrongs, setWrongs] = useState<Array<{ text: string; explanation: string }>>([
-    { text: '', explanation: '' },
-    { text: '', explanation: '' },
-    { text: '', explanation: '' },
-  ])
+  const [wrongs, setWrongs] = useState<Array<{ text: string; explanation: string }>>(
+    Array.from({ length: WRONG_COUNT }, () => ({ text: '', explanation: '' }))
+  )
 
   useEffect(() => {
     (async () => {
@@ -62,11 +62,10 @@ export const AiQuizGenerator = () => {
       setCorrectText(json.draft.correct?.text || '')
       setCorrectExplanation(json.draft.correct?.explanation || '')
       const wrong = Array.isArray(json.draft.wrong) ? json.draft.wrong : []
-      setWrongs([
-        { text: wrong[0]?.text || '', explanation: wrong[0]?.explanation || '' },
-        { text: wrong[1]?.text || '', explanation: wrong[1]?.explanation || '' },
-        { text: wrong[2]?.text || '', explanation: wrong[2]?.explanation || '' },
-      ])
+      setWrongs(Array.from({ length: WRONG_COUNT }, (_, idx) => ({
+        text: wrong[idx]?.text || '',
+        explanation: wrong[idx]?.explanation || '',
+      })))
       toast('Rascunho gerado com sucesso!')
     } catch (e: any) {
       toast(`Erro ao gerar: ${e?.message || e}`)
@@ -75,15 +74,60 @@ export const AiQuizGenerator = () => {
     }
   }
 
+  const generateWrongsOnly = async () => {
+    if (question.trim().length < MIN_LENGTH || correctText.trim().length < MIN_LENGTH) {
+      toast('Preencha a pergunta e a resposta correta antes de gerar alternativas erradas.')
+      return
+    }
+    try {
+      setLoading(true)
+      const { data: session } = await supabase.auth.getSession()
+      const token = session.session?.access_token
+      const resp = await fetch('/api/ai-generate-wrongs', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ question, correct: correctText })
+      })
+      const json = await resp.json()
+      if (!resp.ok) throw new Error(json?.error || 'Falha ao gerar alternativas')
+      const wrong = Array.isArray(json?.wrong) ? json.wrong : []
+      setWrongs(Array.from({ length: WRONG_COUNT }, (_, idx) => ({
+        text: wrong[idx]?.text || '',
+        explanation: wrong[idx]?.explanation || '',
+      })))
+      toast('Alternativas erradas atualizadas!')
+    } catch (error: any) {
+      toast(`Erro: ${error?.message || error}`)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const validateFields = () => {
+    if (question.trim().length < MIN_LENGTH) {
+      toast('A pergunta deve ter pelo menos 5 caracteres.')
+      return false
+    }
+    if (correctText.trim().length < MIN_LENGTH) {
+      toast('A alternativa correta deve ter pelo menos 5 caracteres.')
+      return false
+    }
+    if (wrongs.some((w, idx) => w.text.trim().length < MIN_LENGTH)) {
+      toast('Cada alternativa errada deve ter pelo menos 5 caracteres.')
+      return false
+    }
+    return true
+  }
+
   const save = async () => {
     if (!challengeId) {
       toast('Selecione um desafio para salvar a pergunta.')
       return
     }
-    if (!question.trim() || !correctText.trim()) {
-      toast('Preencha a pergunta e a alternativa correta.')
-      return
-    }
+    if (!validateFields()) return
     setSaving(true)
     try {
       const { data: session } = await supabase.auth.getSession()
@@ -112,7 +156,7 @@ export const AiQuizGenerator = () => {
       setQuestion('')
       setCorrectText('')
       setCorrectExplanation('')
-      setWrongs([{ text: '', explanation: '' }, { text: '', explanation: '' }, { text: '', explanation: '' }])
+      setWrongs(Array.from({ length: WRONG_COUNT }, () => ({ text: '', explanation: '' })))
     } catch (e: any) {
       toast(`Erro ao salvar: ${e?.message || e}`)
     } finally {
@@ -151,9 +195,12 @@ export const AiQuizGenerator = () => {
             </div>
           </div>
 
-          <div className="space-y-2">
+          <div className="flex flex-col sm:flex-row gap-3">
             <Button variant="game" onClick={generate} disabled={loading}>
-              {loading ? 'Gerando...' : 'Gerar com IA'}
+              {loading ? 'Gerando pergunta...' : 'Gerar pergunta completa'}
+            </Button>
+            <Button variant="outline" onClick={generateWrongsOnly} disabled={loading}>
+              {loading ? 'Gerando opções...' : 'Gerar alternativas erradas'}
             </Button>
           </div>
 
@@ -206,4 +253,3 @@ export const AiQuizGenerator = () => {
     </div>
   )
 }
-

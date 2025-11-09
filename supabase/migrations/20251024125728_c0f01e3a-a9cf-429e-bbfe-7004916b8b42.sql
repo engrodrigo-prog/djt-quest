@@ -1,28 +1,38 @@
 -- 1. Criar ENUM para os 15 níveis
-CREATE TYPE public.player_tier AS ENUM (
-  'EX-1', 'EX-2', 'EX-3', 'EX-4', 'EX-5',
-  'FO-1', 'FO-2', 'FO-3', 'FO-4', 'FO-5',
-  'GU-1', 'GU-2', 'GU-3', 'GU-4', 'GU-5'
-);
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'player_tier') THEN
+    CREATE TYPE public.player_tier AS ENUM (
+      'EX-1', 'EX-2', 'EX-3', 'EX-4', 'EX-5',
+      'FO-1', 'FO-2', 'FO-3', 'FO-4', 'FO-5',
+      'GU-1', 'GU-2', 'GU-3', 'GU-4', 'GU-5'
+    );
+  END IF;
+END $$;
 
 -- 2. Criar tipo para status de progressão de patamar
-CREATE TYPE public.tier_progression_status AS ENUM (
-  'pending',
-  'challenge_created',
-  'in_progress',
-  'under_review',
-  'approved',
-  'rejected'
-);
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'tier_progression_status') THEN
+    CREATE TYPE public.tier_progression_status AS ENUM (
+      'pending',
+      'challenge_created',
+      'in_progress',
+      'under_review',
+      'approved',
+      'rejected'
+    );
+  END IF;
+END $$;
 
 -- 3. Modificar tabela profiles (RESETAR DADOS)
 TRUNCATE TABLE public.profiles RESTART IDENTITY CASCADE;
 
 ALTER TABLE public.profiles 
   DROP COLUMN IF EXISTS level,
-  ADD COLUMN tier player_tier NOT NULL DEFAULT 'EX-1',
-  ADD COLUMN demotion_cooldown_until TIMESTAMPTZ,
-  ADD COLUMN tier_progression_locked BOOLEAN DEFAULT FALSE;
+  ADD COLUMN IF NOT EXISTS tier player_tier NOT NULL DEFAULT 'EX-1',
+  ADD COLUMN IF NOT EXISTS demotion_cooldown_until TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS tier_progression_locked BOOLEAN DEFAULT FALSE;
 
 -- 4. Criar tabela de solicitações de progressão de patamar
 CREATE TABLE public.tier_progression_requests (

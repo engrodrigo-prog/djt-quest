@@ -22,6 +22,7 @@ import { PendingApprovals } from '@/components/PendingApprovals';
 import { AvatarRegistrationTool } from '@/components/AvatarRegistrationTool';
 import { ThemedBackground } from '@/components/ThemedBackground';
 import { AiQuizGenerator } from '@/components/AiQuizGenerator';
+import { PasswordResetManager } from '@/components/PasswordResetManager';
 
 const Studio = () => {
   const { user, loading, isLeader, studioAccess, userRole } = useAuth();
@@ -91,6 +92,8 @@ const Studio = () => {
         return <PendingRegistrationsManager />;
       case 'approvals':
         return <PendingApprovals />;
+      case 'password-resets':
+        return <PasswordResetManager />;
       case 'avatar-tool':
         return <AvatarRegistrationTool />;
       case 'forums':

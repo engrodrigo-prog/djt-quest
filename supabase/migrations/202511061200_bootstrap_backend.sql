@@ -12,6 +12,12 @@ do $$ begin
   end if;
 end $$;
 
+do $$ begin
+  if not exists (select 1 from pg_type where typname = 'password_reset_status') then
+    create type password_reset_status as enum ('pending','approved','rejected');
+  end if;
+end $$;
+
 -- Org hierarchy
 create table if not exists public.divisions (
   id text primary key,
@@ -80,6 +86,19 @@ create table if not exists public.pending_registrations (
   status registration_status not null default 'pending'
 );
 create index if not exists idx_pending_registrations_status on public.pending_registrations(status);
+
+create table if not exists public.password_reset_requests (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  identifier text not null,
+  reason text,
+  status password_reset_status not null default 'pending',
+  requested_at timestamptz not null default now(),
+  processed_by uuid references public.profiles(id) on delete set null,
+  processed_at timestamptz,
+  reviewer_notes text
+);
+create index if not exists idx_password_reset_requests_status on public.password_reset_requests(status);
 
 -- Gamification: challenges, events, badges
 create table if not exists public.challenges (
@@ -314,4 +333,3 @@ do $$ begin
       for select using (bucket_id = 'avatars');
   end if;
 end $$;
-

@@ -1035,6 +1035,57 @@ export type Database = {
           },
         ]
       }
+      password_reset_requests: {
+        Row: {
+          id: string
+          identifier: string
+          processed_at: string | null
+          processed_by: string | null
+          reason: string | null
+          requested_at: string
+          reviewer_notes: string | null
+          status: string
+          user_id: string
+        }
+        Insert: {
+          id?: string
+          identifier: string
+          processed_at?: string | null
+          processed_by?: string | null
+          reason?: string | null
+          requested_at?: string
+          reviewer_notes?: string | null
+          status?: string
+          user_id: string
+        }
+        Update: {
+          id?: string
+          identifier?: string
+          processed_at?: string | null
+          processed_by?: string | null
+          reason?: string | null
+          requested_at?: string
+          reviewer_notes?: string | null
+          status?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "password_reset_requests_processed_by_fkey"
+            columns: ["processed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "password_reset_requests_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profile_change_requests: {
         Row: {
           created_at: string | null

@@ -12,6 +12,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, RefreshCw, Search, Camera } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { fetchTeamNames } from "@/lib/teamLookup";
 
 interface ProfileSummary {
   id: string;
@@ -20,6 +21,7 @@ interface ProfileSummary {
   avatar_url: string | null;
   avatar_thumbnail_url: string | null;
   sigla_area: string | null;
+  team_id?: string | null;
   team?: { name: string | null } | null;
 }
 
@@ -41,17 +43,22 @@ export const AvatarRegistrationTool = () => {
       setLoading(true);
       const { data, error } = await supabase
         .from("profiles")
-        .select("id, name, email, avatar_url, avatar_thumbnail_url, sigla_area, team:teams(name)")
+        .select("id, name, email, avatar_url, avatar_thumbnail_url, sigla_area, team_id")
         .order("avatar_url", { ascending: true })
         .order("name");
 
       if (error) throw error;
 
       const typedData = (data as ProfileSummary[]) || [];
-      setUsers(typedData);
+      const teamMap = await fetchTeamNames(typedData.map((user) => user.team_id));
+      const hydrated = typedData.map((user) => ({
+        ...user,
+        team: user.team_id ? { name: teamMap[user.team_id] || null } : null,
+      }));
+      setUsers(hydrated);
 
       if (selectedUser) {
-        const refreshed = typedData.find((user) => user.id === selectedUser.id);
+        const refreshed = hydrated.find((user) => user.id === selectedUser.id);
         if (refreshed) {
           setSelectedUser(refreshed);
         }

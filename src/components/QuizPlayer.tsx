@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { CheckCircle2, XCircle, ArrowRight, Trophy, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -35,6 +35,7 @@ interface AnswerResult {
   correctOptionId: string | null;
   isCompleted: boolean;
   totalXpEarned?: number;
+  xpBlockedForLeader?: boolean;
 }
 
 export function QuizPlayer({ challengeId }: QuizPlayerProps) {
@@ -47,17 +48,7 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    loadQuestions();
-  }, [challengeId]);
-
-  useEffect(() => {
-    if (questions.length > 0) {
-      loadOptions(questions[currentQuestionIndex].id);
-    }
-  }, [currentQuestionIndex, questions]);
-
-  const loadQuestions = async () => {
+  const loadQuestions = useCallback(async () => {
     try {
       const { data, error } = await supabase
         .from("quiz_questions")
@@ -73,9 +64,9 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [challengeId]);
 
-  const loadOptions = async (questionId: string) => {
+  const loadOptions = useCallback(async (questionId: string) => {
     try {
       const { data, error } = await supabase
         .from("quiz_options")
@@ -90,7 +81,17 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
       console.error("Error loading options:", error);
       toast.error("Erro ao carregar alternativas");
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    loadQuestions();
+  }, [loadQuestions]);
+
+  useEffect(() => {
+    if (questions.length > 0) {
+      loadOptions(questions[currentQuestionIndex].id);
+    }
+  }, [currentQuestionIndex, loadOptions, questions]);
 
   const handleSubmitAnswer = async () => {
     if (!selectedOption) {
@@ -116,7 +117,11 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
       setAnswerResult(result);
 
       if (result.isCorrect) {
-        toast.success(`Correto! +${result.xpEarned} XP`);
+        const xpMsg = result.xpBlockedForLeader ? 'Resposta correta registrada' : `Correto! +${result.xpEarned} XP`;
+        toast.success(xpMsg);
+        if (result.xpBlockedForLeader) {
+          toast.info('Líderes não acumulam XP nos quizzes.');
+        }
       } else {
         toast.error("Resposta incorreta");
       }
@@ -249,6 +254,11 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
                   </>
                 )}
               </div>
+              {answerResult.xpBlockedForLeader && (
+                <p className="text-xs text-muted-foreground">
+                  Líderes não acumulam XP nos quizzes, mas o acerto foi registrado no histórico.
+                </p>
+              )}
             </div>
           )}
 

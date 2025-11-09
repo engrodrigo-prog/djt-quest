@@ -11,7 +11,8 @@ import {
   ChevronRight,
   Users,
   ClipboardCheck,
-  Camera
+  Camera,
+  Key
 } from "lucide-react";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -115,6 +116,14 @@ export const StudioDashboard = ({ onSelectModule, userRole }: StudioDashboardPro
       icon: ClipboardCheck,
       gradientFrom: 'from-emerald-500',
       gradientTo: 'to-green-600',
+    },
+    {
+      id: 'password-resets',
+      title: 'Reset de Senha',
+      description: 'Aprovar solicitações de redefinição',
+      icon: Key,
+      gradientFrom: 'from-slate-500',
+      gradientTo: 'to-slate-900',
     },
     {
       id: 'evaluations',

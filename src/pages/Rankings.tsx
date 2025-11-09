@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -48,76 +48,59 @@ export function Rankings() {
   const [divisionRankings, setDivisionRankings] = useState<DivisionRanking[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchRankings();
-  }, []);
-
-  const fetchRankings = async () => {
+  const fetchRankings = useCallback(async () => {
     try {
       // Parallelize all queries for faster loading
       const [profilesResult, teamsResult, divisionsResult] = await Promise.all([
         supabase
           .from('profiles')
-          .select(`
-            id,
-            name,
-            xp,
-            avatar_url,
-            tier,
-            team_id,
-            coord_id,
-            division_id,
-            teams (
-              name
-            )
-          `)
-          .order('xp', { ascending: false })
-          .limit(100),
-        
+          .select('id, name, xp, avatar_url, tier, team_id, coord_id, division_id, is_leader')
+          .limit(1000),
         supabase
           .from('teams')
-          .select(`
-            id,
-            name,
-            team_modifier,
-            profiles!inner (
-              xp
-            )
-          `),
-        
+          .select('id, name, team_modifier'),
         supabase
           .from('divisions')
-          .select(`
-            id,
-            name,
-            coordinations (
-              teams (
-                profiles (
-                  xp
-                )
-              )
-            )
-          `)
+          .select('id, name')
       ]);
 
       // Process individual rankings
-      if (profilesResult.data) {
-        const ranked = profilesResult.data.map((profile, index) => {
-          const xp = Number(profile.xp ?? 0);
-          return {
-            rank: index + 1,
-            userId: profile.id,
-            name: profile.name,
-            xp,
-            level: Math.floor(xp / 100),
-            avatarUrl: profile.avatar_url,
-            tier: profile.tier,
-            teamName: profile.teams?.name || 'Sem equipe',
-            coordId: profile.coord_id,
-            divisionId: profile.division_id,
-            teamId: profile.team_id
-          };
-        });
+      if (profilesResult.error) {
+        console.warn('Rankings: erro ao carregar perfis', profilesResult.error.message);
+      }
+      if (teamsResult.error) {
+        console.warn('Rankings: erro ao carregar equipes', teamsResult.error.message);
+      }
+      if (divisionsResult.error) {
+        console.warn('Rankings: erro ao carregar divisões', divisionsResult.error.message);
+      }
+
+      const profilesData = (profilesResult.data || []).filter((profile) => !profile.is_leader);
+
+      if (profilesData.length) {
+        const teamMap = (teamsResult.data || []).reduce<Record<string, string>>((acc, team) => {
+          acc[team.id] = team.name;
+          return acc;
+        }, {});
+
+        const ranked = [...profilesData]
+          .sort((a, b) => (b.xp || 0) - (a.xp || 0))
+          .map((profile, index) => {
+            const xp = Number(profile.xp ?? 0);
+            return {
+              rank: index + 1,
+              userId: profile.id,
+              name: profile.name,
+              xp,
+              level: Math.floor(xp / 100),
+              avatarUrl: profile.avatar_url,
+              tier: profile.tier,
+              teamName: profile.team_id ? (teamMap[profile.team_id] || 'Sem equipe') : 'Sem equipe',
+              coordId: profile.coord_id,
+              divisionId: profile.division_id,
+              teamId: profile.team_id
+            };
+          });
         setIndividualRankings(ranked);
 
         // Filter for "My Team"
@@ -131,8 +114,16 @@ export function Rankings() {
 
       // Process team rankings
       if (teamsResult.data) {
+        const membersByTeam = profilesData.reduce<Record<string, { count: number; xp: number }>>((acc, profile) => {
+          if (!profile.team_id) return acc;
+          if (!acc[profile.team_id]) acc[profile.team_id] = { count: 0, xp: 0 };
+          acc[profile.team_id].count += 1;
+          acc[profile.team_id].xp += profile.xp || 0;
+          return acc;
+        }, {});
+
         const teamData = teamsResult.data.map((team: any) => {
-          const totalXp = team.profiles.reduce((sum: number, p: any) => sum + (p.xp || 0), 0);
+          const stats = membersByTeam[team.id] || { count: 0, xp: 0 };
           const baseTeamName = team.name || 'Equipe';
           const isBaseMarker = baseTeamName.toLowerCase().includes('base');
           const displayName = isBaseMarker ? `Base ${baseTeamName.replace(/base/i, '').trim()}` : baseTeamName;
@@ -140,8 +131,8 @@ export function Rankings() {
             teamId: team.id,
             teamName: displayName,
             isBase: isBaseMarker,
-            totalXp,
-            memberCount: team.profiles.length,
+            totalXp: stats.xp,
+            memberCount: stats.count,
             teamModifier: team.team_modifier || 1.0
           };
         }).sort((a, b) => b.totalXp - a.totalXp);
@@ -151,35 +142,30 @@ export function Rankings() {
 
       // Process division rankings
       if (divisionsResult.data) {
-        const divisionData = divisionsResult.data.map((div: any) => {
-          let totalXp = 0;
-          let teamCount = 0;
-          
-          div.coordinations?.forEach((coord: any) => {
-            coord.teams?.forEach((team: any) => {
-              teamCount++;
-              team.profiles?.forEach((p: any) => {
-                totalXp += p.xp || 0;
-              });
-            });
-          });
-
+        const divisionTotals = divisionsResult.data.map((division: any) => {
+          const members = profilesData.filter((profile) => profile.division_id === division.id);
+          const totalXp = members.reduce((sum, member) => sum + (member.xp || 0), 0);
+          const teamCount = new Set(members.map((member) => member.team_id).filter(Boolean)).size;
           return {
-            divisionId: div.id,
-            divisionName: div.name,
+            divisionId: division.id,
+            divisionName: division.name,
             totalXp,
             teamCount
           };
         }).sort((a, b) => b.totalXp - a.totalXp);
 
-        setDivisionRankings(divisionData.map((d, i) => ({ ...d, rank: i + 1 })));
+        setDivisionRankings(divisionTotals.map((d, i) => ({ ...d, rank: i + 1 })));
       }
     } catch (error) {
       console.error('Error fetching rankings:', error);
     } finally {
       setLoading(false);
     }
-  };
+  }, [orgScope?.divisionId, orgScope?.teamId]);
+
+  useEffect(() => {
+    fetchRankings();
+  }, [fetchRankings]);
 
   const getMedalEmoji = (position: number) => {
     if (position === 1) return '🥇';

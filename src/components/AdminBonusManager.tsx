@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -37,11 +37,7 @@ export function AdminBonusManager() {
   const [points, setPoints] = useState('');
   const [reason, setReason] = useState('');
 
-  useEffect(() => {
-    loadTeams();
-  }, []);
-
-  const loadTeams = async () => {
+  const loadTeams = useCallback(async () => {
     if (!user || !orgScope) return;
 
     let query = supabase
@@ -76,7 +72,11 @@ export function AdminBonusManager() {
     if (!error && data) {
       setTeams(data);
     }
-  };
+  }, [orgScope, user, userRole]);
+
+  useEffect(() => {
+    loadTeams();
+  }, [loadTeams]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

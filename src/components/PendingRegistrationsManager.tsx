@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -30,11 +30,7 @@ export function PendingRegistrationsManager() {
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [reviewNotes, setReviewNotes] = useState<{ [key: string]: string }>({});
 
-  useEffect(() => {
-    fetchRegistrations();
-  }, []);
-
-  const fetchRegistrations = async () => {
+  const fetchRegistrations = useCallback(async () => {
     try {
       const { data, error } = await supabase
         .from("pending_registrations")
@@ -53,7 +49,11 @@ export function PendingRegistrationsManager() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [toast]);
+
+  useEffect(() => {
+    fetchRegistrations();
+  }, [fetchRegistrations]);
 
   const handleApprove = async (registration: PendingRegistration) => {
     setProcessingId(registration.id);

@@ -32,8 +32,8 @@ while (true) {
         id: user.id,
         email: user.email.toLowerCase(),
         name: user.user_metadata?.name || user.email,
-        must_change_password: true,
-        needs_profile_completion: true,
+        must_change_password: false,
+        needs_profile_completion: false,
       }, { onConflict: 'id' });
     if (upsertError) {
       console.error('Falha ao upsert profile', user.email, upsertError.message);

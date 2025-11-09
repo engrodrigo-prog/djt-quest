@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -28,11 +28,7 @@ export function ActionReviewCard({ eventId }: ActionReviewCardProps) {
   const [loading, setLoading] = useState(true);
   const [eventData, setEventData] = useState<any>(null);
 
-  useEffect(() => {
-    loadEvaluations();
-  }, [eventId]);
-
-  const loadEvaluations = async () => {
+  const loadEvaluations = useCallback(async () => {
     setLoading(true);
     try {
       // Buscar avaliações
@@ -64,7 +60,11 @@ export function ActionReviewCard({ eventId }: ActionReviewCardProps) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [eventId]);
+
+  useEffect(() => {
+    loadEvaluations();
+  }, [loadEvaluations]);
 
   if (loading) {
     return (

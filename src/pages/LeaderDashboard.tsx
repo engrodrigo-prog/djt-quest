@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,6 +11,7 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { TeamTierProgressCard } from "@/components/TeamTierProgressCard";
 import { ProfileDropdown } from "@/components/ProfileDropdown";
+import { fetchTeamNames } from "@/lib/teamLookup";
 
 interface TeamStats {
   total_members: number;
@@ -67,30 +68,166 @@ export default function LeaderDashboard() {
   const [topMembers, setTopMembers] = useState<TeamMember[]>([]);
   const [userProfile, setUserProfile] = useState<{ name: string; avatar_url: string | null; team: { name: string } | null; tier: string } | null>(null);
   const [scope, setScope] = useState<Scope>('team');
+  const teamId = orgScope?.teamId;
+  const coordId = orgScope?.coordId;
+  const divisionId = orgScope?.divisionId;
 
-  useEffect(() => {
-    loadDashboardData();
-    loadUserProfile();
-  }, [orgScope, user, scope]);
-
-  const loadUserProfile = async () => {
+  const loadUserProfile = useCallback(async () => {
     if (!user) return;
     
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("profiles")
-      .select("name, tier, avatar_url, team:teams(name)")
+      .select("name, tier, avatar_url, team_id")
       .eq("id", user.id)
       .single();
     
-    if (data) {
-      setUserProfile(data);
+    if (error) {
+      console.warn('LeaderDashboard: perfil indisponível', error.message);
     }
-  };
 
-  const loadDashboardData = async () => {
+    if (data) {
+      let teamName: string | null = null;
+      if (data.team_id) {
+        const map = await fetchTeamNames([data.team_id]);
+        teamName = map[data.team_id] || null;
+      }
+      setUserProfile({
+        ...data,
+        team: teamName ? { name: teamName } : null,
+      } as any);
+    }
+  }, [user]);
+
+  const loadTeamStats = useCallback(async () => {
+    const scopeFilter = scope === 'team' ? { col: 'team_id', val: teamId }
+      : scope === 'coord' ? { col: 'coord_id', val: coordId }
+      : { col: 'division_id', val: divisionId };
+
+    if (!scopeFilter.val) {
+      setTeamStats(null);
+      return;
+    }
+
+    const { data: members } = await (supabase as any)
+      .from('profiles')
+      .select('xp, id')
+      .eq(scopeFilter.col as any, scopeFilter.val as any)
+      .eq('is_leader', false);
+
+    if (members) {
+      const totalMembers = members.length;
+      const totalXP = members.reduce((sum, m) => sum + (m.xp || 0), 0);
+      const avgXP = totalMembers > 0 ? Math.floor(totalXP / totalMembers) : 0;
+
+      const engagementRate = 85;
+
+      let rankPosition = 0;
+      if (scope === 'team' && teamId) {
+        const { data: rankings } = await supabase
+          .from('team_xp_summary')
+          .select('*')
+          .order('total_xp', { ascending: false });
+        rankPosition = (rankings?.findIndex(r => r.team_id === teamId) ?? -1) + 1 || 0;
+      }
+
+      setTeamStats({
+        total_members: totalMembers,
+        avg_xp: avgXP,
+        total_xp: totalXP,
+        engagement_rate: engagementRate,
+        rank_position: rankPosition
+      });
+    }
+  }, [coordId, divisionId, scope, teamId]);
+
+  const loadCampaigns = useCallback(async () => {
+    if (!teamId) {
+      setCampaigns([]);
+      return;
+    }
+
+    const { data } = await supabase
+      .from('team_campaign_performance')
+      .select('*')
+      .eq('team_id', teamId);
+
+    if (data) {
+      setCampaigns(data);
+    }
+  }, [teamId]);
+
+  const loadChallenges = useCallback(async () => {
+    if (!teamId) {
+      setChallenges([]);
+      return;
+    }
+
+    const { data } = await supabase
+      .from('team_challenge_performance')
+      .select('*')
+      .eq('team_id', teamId)
+      .order('adhesion_percentage', { ascending: false })
+      .limit(5);
+
+    if (data) {
+      setChallenges(data);
+    }
+  }, [teamId]);
+
+  const loadForums = useCallback(async () => {
+    if (!teamId) {
+      setForums([]);
+      return;
+    }
+
+    const { data: memberIds } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('team_id', teamId);
+
+    if (memberIds && memberIds.length > 0) {
+      const { data } = await supabase
+        .from('forum_topics')
+        .select('id, title, posts_count, last_post_at')
+        .eq('is_active', true)
+        .order('last_post_at', { ascending: false })
+        .limit(5);
+
+      if (data) {
+        setForums(data);
+      }
+    } else {
+      setForums([]);
+    }
+  }, [teamId]);
+
+  const loadTopMembers = useCallback(async () => {
+    const scopeFilter = scope === 'team' ? { col: 'team_id', val: teamId }
+      : scope === 'coord' ? { col: 'coord_id', val: coordId }
+      : { col: 'division_id', val: divisionId };
+
+    if (!scopeFilter.val) {
+      setTopMembers([]);
+      return;
+    }
+
+    const { data } = await (supabase as any)
+      .from('profiles')
+      .select('id, name, xp, tier')
+      .eq(scopeFilter.col as any, scopeFilter.val as any)
+      .eq('is_leader', false)
+      .order('xp', { ascending: false })
+      .limit(5);
+
+    if (data) {
+      setTopMembers(data);
+    }
+  }, [coordId, divisionId, scope, teamId]);
+
+  const loadDashboardData = useCallback(async () => {
     setLoading(true);
     try {
-      const requiredVal = scope === 'team' ? orgScope?.teamId : scope === 'coord' ? orgScope?.coordId : orgScope?.divisionId;
+      const requiredVal = scope === 'team' ? teamId : scope === 'coord' ? coordId : divisionId;
       if (!requiredVal) {
         setTeamStats(null);
         setCampaigns([]);
@@ -112,116 +249,18 @@ export default function LeaderDashboard() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [coordId, divisionId, loadCampaigns, loadChallenges, loadForums, loadTeamStats, loadTopMembers, scope, teamId]);
+
+  useEffect(() => {
+    loadDashboardData();
+    loadUserProfile();
+  }, [loadDashboardData, loadUserProfile]);
 
   const handleSignOut = async () => {
     await signOut();
     navigate("/auth");
   };
 
-  const loadTeamStats = async () => {
-    const scopeFilter = scope === 'team' ? { col: 'team_id', val: orgScope?.teamId }
-      : scope === 'coord' ? { col: 'coord_id', val: orgScope?.coordId }
-      : { col: 'division_id', val: orgScope?.divisionId };
-
-    const { data: members } = await (supabase as any)
-      .from('profiles')
-      .select('xp, id')
-      .eq(scopeFilter.col as any, scopeFilter.val as any)
-      .eq('is_leader', false);
-
-    if (members) {
-      const totalMembers = members.length;
-      const totalXP = members.reduce((sum, m) => sum + (m.xp || 0), 0);
-      const avgXP = totalMembers > 0 ? Math.floor(totalXP / totalMembers) : 0;
-
-      // Calcular engajamento (últimos 7 dias - simulado com base no XP)
-      const engagementRate = 85; // TODO: calcular baseado em login real
-
-      // Buscar posição no ranking (apenas para escopo de equipe)
-      let rankPosition = 0;
-      if (scope === 'team') {
-        const { data: rankings } = await supabase
-          .from('team_xp_summary')
-          .select('*')
-          .order('total_xp', { ascending: false });
-        rankPosition = (rankings?.findIndex(r => r.team_id === orgScope?.teamId) ?? -1) + 1 || 0;
-      }
-
-      setTeamStats({
-        total_members: totalMembers,
-        avg_xp: avgXP,
-        total_xp: totalXP,
-        engagement_rate: engagementRate,
-        rank_position: rankPosition
-      });
-    }
-  };
-
-  const loadCampaigns = async () => {
-    const { data } = await supabase
-      .from('team_campaign_performance')
-      .select('*')
-      .eq('team_id', orgScope?.teamId);
-
-    if (data) {
-      setCampaigns(data);
-    }
-  };
-
-  const loadChallenges = async () => {
-    const { data } = await supabase
-      .from('team_challenge_performance')
-      .select('*')
-      .eq('team_id', orgScope?.teamId)
-      .order('adhesion_percentage', { ascending: false })
-      .limit(5);
-
-    if (data) {
-      setChallenges(data);
-    }
-  };
-
-  const loadForums = async () => {
-    // Buscar tópicos com posts recentes da equipe
-    const { data: memberIds } = await supabase
-      .from('profiles')
-      .select('id')
-      .eq('team_id', orgScope?.teamId);
-
-    if (memberIds && memberIds.length > 0) {
-      const ids = memberIds.map(m => m.id);
-      
-      const { data } = await supabase
-        .from('forum_topics')
-        .select('id, title, posts_count, last_post_at')
-        .eq('is_active', true)
-        .order('last_post_at', { ascending: false })
-        .limit(5);
-
-      if (data) {
-        setForums(data);
-      }
-    }
-  };
-
-  const loadTopMembers = async () => {
-    const scopeFilter = scope === 'team' ? { col: 'team_id', val: orgScope?.teamId }
-      : scope === 'coord' ? { col: 'coord_id', val: orgScope?.coordId }
-      : { col: 'division_id', val: orgScope?.divisionId };
-
-    const { data } = await (supabase as any)
-      .from('profiles')
-      .select('id, name, xp, tier')
-      .eq(scopeFilter.col as any, scopeFilter.val as any)
-      .eq('is_leader', false)
-      .order('xp', { ascending: false })
-      .limit(5);
-
-    if (data) {
-      setTopMembers(data);
-    }
-  };
 
   if (loading) {
     return (

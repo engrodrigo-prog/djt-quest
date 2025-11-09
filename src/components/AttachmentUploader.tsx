@@ -47,7 +47,7 @@ export const AttachmentUploader = ({
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [isDragging, setIsDragging] = useState(false);
 
-  const validateFile = (file: File): string | null => {
+  const validateFile = useCallback((file: File): string | null => {
     if (!Object.keys(ALLOWED_TYPES).includes(file.type)) {
       return `Tipo de arquivo não permitido: ${file.type}`;
     }
@@ -55,7 +55,7 @@ export const AttachmentUploader = ({
       return `Arquivo muito grande: ${(file.size / 1024 / 1024).toFixed(1)}MB (máx: ${maxSizeMB}MB)`;
     }
     return null;
-  };
+  }, [maxSizeMB]);
 
   const createPreview = async (file: File): Promise<string | undefined> => {
     if (!file.type.startsWith('image/')) return undefined;
@@ -153,7 +153,7 @@ export const AttachmentUploader = ({
         toast.error(`Erro ao fazer upload de ${attachment.file.name}`);
       }
     }
-  }, [attachments, maxFiles]);
+  }, [attachments, maxFiles, validateFile]);
 
   // Atualizar callback quando anexos mudarem
   useEffect(() => {

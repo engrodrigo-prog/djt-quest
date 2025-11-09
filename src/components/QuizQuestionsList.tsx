@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -24,11 +24,7 @@ export function QuizQuestionsList({ challengeId, onUpdate }: QuizQuestionsListPr
   const [questions, setQuestions] = useState<Question[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    loadQuestions();
-  }, [challengeId]);
-
-  const loadQuestions = async () => {
+  const loadQuestions = useCallback(async () => {
     try {
       const { data, error } = await supabase
         .from("quiz_questions")
@@ -43,9 +39,13 @@ export function QuizQuestionsList({ challengeId, onUpdate }: QuizQuestionsListPr
     } finally {
       setLoading(false);
     }
-  };
+  }, [challengeId]);
 
-  const handleDelete = async (questionId: string) => {
+  useEffect(() => {
+    loadQuestions();
+  }, [loadQuestions]);
+
+  const handleDelete = useCallback(async (questionId: string) => {
     if (!confirm("Deseja realmente excluir esta pergunta?")) return;
 
     try {
@@ -60,7 +60,7 @@ export function QuizQuestionsList({ challengeId, onUpdate }: QuizQuestionsListPr
       console.error("Error deleting question:", error);
       toast.error("Erro ao excluir pergunta");
     }
-  };
+  }, [loadQuestions, onUpdate]);
 
   if (loading) return <div className="text-center text-sm text-muted-foreground">Carregando...</div>;
 

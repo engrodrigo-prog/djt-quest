@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -40,15 +40,7 @@ const Evaluations = () => {
   const [feedbackPositivo, setFeedbackPositivo] = useState('');
   const [feedbackConstrutivo, setFeedbackConstrutivo] = useState('');
 
-  useEffect(() => {
-    if (user && studioAccess) {
-      loadPendingEvaluations();
-    } else {
-      setLoading(false);
-    }
-  }, [user, studioAccess]);
-
-  const loadPendingEvaluations = async () => {
+  const loadPendingEvaluations = useCallback(async () => {
     try {
       const { data: events, error } = await supabase
         .from('events')
@@ -88,7 +80,15 @@ const Evaluations = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [toast]);
+
+  useEffect(() => {
+    if (user && studioAccess) {
+      loadPendingEvaluations();
+    } else {
+      setLoading(false);
+    }
+  }, [loadPendingEvaluations, studioAccess, user]);
 
   const handleSubmitEvaluation = async () => {
     if (!selectedEvent) return;

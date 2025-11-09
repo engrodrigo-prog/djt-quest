@@ -134,7 +134,7 @@ for (const userData of users) {
       matricula: userData.matricula,
       operational_base: userData.base_operacional,
       sigla_area: userData.sigla_area,
-      must_change_password: true,
+      must_change_password: false,
       needs_profile_completion: false,
       is_leader: isLeaderRole,
       studio_access: isLeaderRole,

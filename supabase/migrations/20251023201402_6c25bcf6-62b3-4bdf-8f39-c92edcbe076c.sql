@@ -1,18 +1,41 @@
--- Create enums for type safety
-CREATE TYPE public.app_role AS ENUM ('admin', 'gerente', 'lider_divisao', 'coordenador', 'colaborador');
-CREATE TYPE public.challenge_type AS ENUM ('quiz', 'mentoria', 'atitude', 'inspecao', 'forum');
-CREATE TYPE public.event_status AS ENUM ('submitted', 'awaiting_evaluation', 'evaluated', 'rejected');
-CREATE TYPE public.reviewer_level AS ENUM ('divisao', 'coordenacao');
+-- Create enums for type safety (idempotent)
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'app_role') THEN
+    CREATE TYPE public.app_role AS ENUM ('admin', 'gerente', 'lider_divisao', 'coordenador', 'colaborador');
+  END IF;
+END$$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'challenge_type') THEN
+    CREATE TYPE public.challenge_type AS ENUM ('quiz', 'mentoria', 'atitude', 'inspecao', 'forum');
+  END IF;
+END$$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'event_status') THEN
+    CREATE TYPE public.event_status AS ENUM ('submitted', 'awaiting_evaluation', 'evaluated', 'rejected');
+  END IF;
+END$$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'reviewer_level') THEN
+    CREATE TYPE public.reviewer_level AS ENUM ('divisao', 'coordenacao');
+  END IF;
+END$$;
 
 -- Departments (top level)
-CREATE TABLE public.departments (
+CREATE TABLE IF NOT EXISTS public.departments (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name TEXT NOT NULL,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- Divisions (belong to departments)
-CREATE TABLE public.divisions (
+CREATE TABLE IF NOT EXISTS public.divisions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   department_id UUID REFERENCES public.departments(id) ON DELETE CASCADE NOT NULL,
   name TEXT NOT NULL,
@@ -20,7 +43,7 @@ CREATE TABLE public.divisions (
 );
 
 -- Coordinations (belong to divisions)
-CREATE TABLE public.coordinations (
+CREATE TABLE IF NOT EXISTS public.coordinations (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   division_id UUID REFERENCES public.divisions(id) ON DELETE CASCADE NOT NULL,
   name TEXT NOT NULL,
@@ -28,7 +51,7 @@ CREATE TABLE public.coordinations (
 );
 
 -- Teams (belong to coordinations)
-CREATE TABLE public.teams (
+CREATE TABLE IF NOT EXISTS public.teams (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   coordination_id UUID REFERENCES public.coordinations(id) ON DELETE CASCADE NOT NULL,
   name TEXT NOT NULL,
@@ -36,7 +59,7 @@ CREATE TABLE public.teams (
 );
 
 -- User profiles
-CREATE TABLE public.profiles (
+CREATE TABLE IF NOT EXISTS public.profiles (
   id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   email TEXT,
   name TEXT NOT NULL,
@@ -49,7 +72,7 @@ CREATE TABLE public.profiles (
 );
 
 -- User roles (secure role management)
-CREATE TABLE public.user_roles (
+CREATE TABLE IF NOT EXISTS public.user_roles (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
   role app_role NOT NULL,
@@ -67,12 +90,12 @@ AS $$
   SELECT EXISTS (
     SELECT 1
     FROM public.user_roles
-    WHERE user_id = _user_id AND role = _role
+    WHERE user_id = _user_id AND role::text = _role::text
   )
 $$;
 
 -- Campaigns (LiveOps)
-CREATE TABLE public.campaigns (
+CREATE TABLE IF NOT EXISTS public.campaigns (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   title TEXT NOT NULL,
   description TEXT,
@@ -85,7 +108,7 @@ CREATE TABLE public.campaigns (
 );
 
 -- Challenges (activities within campaigns)
-CREATE TABLE public.challenges (
+CREATE TABLE IF NOT EXISTS public.challenges (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   campaign_id UUID REFERENCES public.campaigns(id) ON DELETE CASCADE,
   type challenge_type NOT NULL,
@@ -103,7 +126,7 @@ CREATE TABLE public.challenges (
 );
 
 -- Events (user actions/submissions)
-CREATE TABLE public.events (
+CREATE TABLE IF NOT EXISTS public.events (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
   challenge_id UUID REFERENCES public.challenges(id) ON DELETE CASCADE,
@@ -119,7 +142,7 @@ CREATE TABLE public.events (
 );
 
 -- Action evaluations (2-leader system)
-CREATE TABLE public.action_evaluations (
+CREATE TABLE IF NOT EXISTS public.action_evaluations (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   event_id UUID REFERENCES public.events(id) ON DELETE CASCADE NOT NULL,
   reviewer_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
@@ -137,7 +160,7 @@ CREATE TABLE public.action_evaluations (
 );
 
 -- Badges
-CREATE TABLE public.badges (
+CREATE TABLE IF NOT EXISTS public.badges (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name TEXT NOT NULL,
   description TEXT,
@@ -147,7 +170,7 @@ CREATE TABLE public.badges (
 );
 
 -- User badges
-CREATE TABLE public.user_badges (
+CREATE TABLE IF NOT EXISTS public.user_badges (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
   badge_id UUID REFERENCES public.badges(id) ON DELETE CASCADE NOT NULL,
@@ -169,66 +192,38 @@ ALTER TABLE public.action_evaluations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.badges ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.user_badges ENABLE ROW LEVEL SECURITY;
 
--- RLS Policies for profiles
-CREATE POLICY "Users can view all profiles"
-  ON public.profiles FOR SELECT
-  TO authenticated
-  USING (true);
-
-CREATE POLICY "Users can update own profile"
-  ON public.profiles FOR UPDATE
-  TO authenticated
-  USING (auth.uid() = id);
-
--- RLS Policies for user_roles
-CREATE POLICY "Users can view own roles"
-  ON public.user_roles FOR SELECT
-  TO authenticated
-  USING (auth.uid() = user_id);
-
-CREATE POLICY "Admins can manage all roles"
-  ON public.user_roles FOR ALL
-  TO authenticated
-  USING (public.has_role(auth.uid(), 'admin'));
-
--- RLS Policies for organizational structure (readable by all authenticated)
-CREATE POLICY "All can view departments"
-  ON public.departments FOR SELECT
-  TO authenticated
-  USING (true);
-
-CREATE POLICY "All can view divisions"
-  ON public.divisions FOR SELECT
-  TO authenticated
-  USING (true);
-
 CREATE POLICY "All can view coordinations"
   ON public.coordinations FOR SELECT
   TO authenticated
   USING (true);
 
+DROP POLICY IF EXISTS "All can view teams" ON public.teams;
 CREATE POLICY "All can view teams"
   ON public.teams FOR SELECT
   TO authenticated
   USING (true);
 
 -- RLS Policies for campaigns
+DROP POLICY IF EXISTS "All can view active campaigns" ON public.campaigns;
 CREATE POLICY "All can view active campaigns"
   ON public.campaigns FOR SELECT
   TO authenticated
   USING (is_active = true);
 
+DROP POLICY IF EXISTS "Admins and gerentes can manage campaigns" ON public.campaigns;
 CREATE POLICY "Admins and gerentes can manage campaigns"
   ON public.campaigns FOR ALL
   TO authenticated
   USING (public.has_role(auth.uid(), 'admin') OR public.has_role(auth.uid(), 'gerente'));
 
 -- RLS Policies for challenges
+DROP POLICY IF EXISTS "All can view challenges" ON public.challenges;
 CREATE POLICY "All can view challenges"
   ON public.challenges FOR SELECT
   TO authenticated
   USING (true);
 
+DROP POLICY IF EXISTS "Admins and leaders can create challenges" ON public.challenges;
 CREATE POLICY "Admins and leaders can create challenges"
   ON public.challenges FOR INSERT
   TO authenticated
@@ -240,11 +235,13 @@ CREATE POLICY "Admins and leaders can create challenges"
   );
 
 -- RLS Policies for events
+DROP POLICY IF EXISTS "Users can view own events" ON public.events;
 CREATE POLICY "Users can view own events"
   ON public.events FOR SELECT
   TO authenticated
   USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Leaders can view events in their area" ON public.events;
 CREATE POLICY "Leaders can view events in their area"
   ON public.events FOR SELECT
   TO authenticated
@@ -255,12 +252,14 @@ CREATE POLICY "Leaders can view events in their area"
     public.has_role(auth.uid(), 'coordenador')
   );
 
+DROP POLICY IF EXISTS "Users can create events" ON public.events;
 CREATE POLICY "Users can create events"
   ON public.events FOR INSERT
   TO authenticated
   WITH CHECK (auth.uid() = user_id);
 
 -- RLS Policies for action_evaluations
+DROP POLICY IF EXISTS "Users can view evaluations for own events" ON public.action_evaluations;
 CREATE POLICY "Users can view evaluations for own events"
   ON public.action_evaluations FOR SELECT
   TO authenticated
@@ -272,6 +271,7 @@ CREATE POLICY "Users can view evaluations for own events"
     )
   );
 
+DROP POLICY IF EXISTS "Leaders can view evaluations" ON public.action_evaluations;
 CREATE POLICY "Leaders can view evaluations"
   ON public.action_evaluations FOR SELECT
   TO authenticated
@@ -282,6 +282,7 @@ CREATE POLICY "Leaders can view evaluations"
     public.has_role(auth.uid(), 'coordenador')
   );
 
+DROP POLICY IF EXISTS "Leaders can create evaluations" ON public.action_evaluations;
 CREATE POLICY "Leaders can create evaluations"
   ON public.action_evaluations FOR INSERT
   TO authenticated
@@ -293,11 +294,13 @@ CREATE POLICY "Leaders can create evaluations"
   );
 
 -- RLS Policies for badges
+DROP POLICY IF EXISTS "All can view badges" ON public.badges;
 CREATE POLICY "All can view badges"
   ON public.badges FOR SELECT
   TO authenticated
   USING (true);
 
+DROP POLICY IF EXISTS "All can view user badges" ON public.user_badges;
 CREATE POLICY "All can view user badges"
   ON public.user_badges FOR SELECT
   TO authenticated

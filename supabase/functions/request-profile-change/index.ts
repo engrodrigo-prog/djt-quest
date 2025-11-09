@@ -21,6 +21,15 @@ Deno.serve(async (req) => {
       }
     );
 
+    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+    const supabaseAdmin = serviceRoleKey
+      ? createClient(
+          Deno.env.get('SUPABASE_URL') ?? '',
+          serviceRoleKey,
+          { auth: { autoRefreshToken: false, persistSession: false } }
+        )
+      : null;
+
     const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
     if (userError || !user) {
       throw new Error('Unauthorized');
@@ -91,6 +100,29 @@ Deno.serve(async (req) => {
       throw new Error('Perfil não encontrado');
     }
 
+    const { data: roleRows } = await supabaseClient
+      .from('user_roles')
+      .select('role')
+      .eq('user_id', user.id);
+
+    const deriveOrgUnits = (raw: string | null | undefined) => {
+      if (!raw) return null;
+      const normalized = raw
+        .toUpperCase()
+        .replace(/[^A-Z0-9-]/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '');
+      if (!normalized) return null;
+      const parts = normalized.split('-').filter(Boolean);
+      const divisionId = parts[0] || 'DJT';
+      const coordinationTag = parts[1] || 'SEDE';
+      return {
+        divisionId,
+        coordinationId: `${divisionId}-${coordinationTag}`,
+        teamId: normalized,
+      };
+    };
+
     const inserts = changes
       .filter((change) => String(currentProfile[change.field_name] ?? '').trim() !== change.new_value.trim())
       .map((change) => ({
@@ -109,6 +141,85 @@ Deno.serve(async (req) => {
       );
     }
 
+    const autoApproveRoles = new Set(['admin', 'gerente_djt']);
+    const canAutoApprove = (roleRows || []).some((r) => autoApproveRoles.has(r.role));
+
+    if (canAutoApprove) {
+      const updates: Record<string, any> = {};
+
+      inserts.forEach((change) => {
+        if (change.field_name === 'sigla_area') {
+          updates.sigla_area = change.new_value;
+          const org = deriveOrgUnits(change.new_value);
+          if (org) {
+            updates.division_id = org.divisionId;
+            updates.coord_id = org.coordinationId;
+            updates.team_id = org.teamId;
+            updates.operational_base = change.new_value;
+          }
+        } else if (change.field_name === 'operational_base') {
+          updates.operational_base = change.new_value;
+          const org = deriveOrgUnits(currentProfile.sigla_area || change.new_value);
+          if (org) {
+            updates.division_id = org.divisionId;
+            updates.coord_id = org.coordinationId;
+            updates.team_id = org.teamId;
+          }
+        } else {
+          updates[change.field_name] = change.new_value;
+        }
+      });
+
+      if (Object.keys(updates).length > 0) {
+        const { error: profileUpdateError } = await (supabaseAdmin ?? supabaseClient)
+          .from('profiles')
+          .update(updates)
+          .eq('id', user.id);
+        if (profileUpdateError) throw profileUpdateError;
+
+        if (supabaseAdmin) {
+          if (typeof updates.name === 'string') {
+            await supabaseAdmin.auth.admin.updateUserById(user.id, {
+              user_metadata: { name: updates.name },
+            });
+          }
+          if (typeof updates.email === 'string') {
+            await supabaseAdmin.auth.admin.updateUserById(user.id, {
+              email: updates.email,
+              email_confirm: true,
+            });
+          }
+        }
+      }
+
+      const now = new Date().toISOString();
+      const approvedRecords = inserts.map((change) => ({
+        user_id: user.id,
+        requested_by: user.id,
+        field_name: change.field_name,
+        old_value: currentProfile?.[change.field_name] ?? null,
+        new_value: change.new_value,
+        status: 'approved',
+        reviewed_by: user.id,
+        reviewed_at: now,
+      }));
+
+      const { error: insertApprovedError } = await supabaseClient
+        .from('profile_change_requests')
+        .insert(approvedRecords);
+      if (insertApprovedError) throw insertApprovedError;
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          message: 'Alterações aplicadas imediatamente',
+          requires_approval: false,
+          count: inserts.length,
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
     const { error: insertError } = await supabaseClient
       .from('profile_change_requests')
       .insert(inserts);
@@ -116,8 +227,8 @@ Deno.serve(async (req) => {
     if (insertError) throw insertError;
 
     return new Response(
-      JSON.stringify({ 
-        success: true, 
+      JSON.stringify({
+        success: true,
         message: 'Change request created successfully',
         requires_approval: true,
         count: inserts.length,

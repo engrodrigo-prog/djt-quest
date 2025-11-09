@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Home, Target, Shield, Trophy, User, MessageSquare, Lock, Key } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -13,6 +13,12 @@ const Navigation = () => {
   const location = useLocation();
   const { studioAccess, isLeader } = useAuth();
   const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
+
+  useEffect(() => {
+    const handler = () => setPasswordDialogOpen(true);
+    window.addEventListener('open-password-dialog', handler as any);
+    return () => window.removeEventListener('open-password-dialog', handler as any);
+  }, []);
 
   const isActive = (path: string) => location.pathname === path;
 

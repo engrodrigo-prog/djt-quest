@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -48,18 +48,7 @@ export function TeamPerformanceManager() {
   const [performanceLog, setPerformanceLog] = useState<PerformanceLog[]>([]);
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    fetchManagedTeams();
-    fetchAllTeams();
-  }, []);
-
-  useEffect(() => {
-    if (selectedTeamId) {
-      fetchPerformanceLog(selectedTeamId);
-    }
-  }, [selectedTeamId]);
-
-  const fetchManagedTeams = async () => {
+  const fetchManagedTeams = useCallback(async () => {
     if (!user || !orgScope) return;
 
     let query = supabase
@@ -92,9 +81,9 @@ export function TeamPerformanceManager() {
     }
 
     setManagedTeams(data || []);
-  };
+  }, [orgScope, toast, user, userRole]);
 
-  const fetchAllTeams = async () => {
+  const fetchAllTeams = useCallback(async () => {
     const { data, error } = await supabase
       .from('teams')
       .select('*')
@@ -110,9 +99,9 @@ export function TeamPerformanceManager() {
     }
 
     setAllTeams(data || []);
-  };
+  }, [toast]);
 
-  const fetchPerformanceLog = async (teamId: string) => {
+  const fetchPerformanceLog = useCallback(async (teamId: string) => {
     const { data } = await supabase
       .from("team_performance_log")
       .select(`
@@ -130,7 +119,18 @@ export function TeamPerformanceManager() {
     if (data) {
       setPerformanceLog(data as any);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    fetchManagedTeams();
+    fetchAllTeams();
+  }, [fetchAllTeams, fetchManagedTeams]);
+
+  useEffect(() => {
+    if (selectedTeamId) {
+      fetchPerformanceLog(selectedTeamId);
+    }
+  }, [fetchPerformanceLog, selectedTeamId]);
 
   const handleTeamChange = (teamId: string) => {
     setSelectedTeamId(teamId);

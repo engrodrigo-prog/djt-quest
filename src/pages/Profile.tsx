@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -24,6 +24,7 @@ import { ProfileChangeHistory } from '@/components/profile/ProfileChangeHistory'
 import { QuizHistory } from '@/components/profile/QuizHistory';
 import { ChangePasswordCard } from '@/components/profile/ChangePasswordCard';
 import Navigation from '@/components/Navigation';
+import { fetchTeamNames } from '@/lib/teamLookup';
 
 interface UserProfile {
   name: string;
@@ -87,25 +88,36 @@ function ProfileContent() {
   // Abrir/fechar modal conforme query param (?avatar=open)
   useEffect(() => {
     setAvatarDialogOpen(searchParams.get('avatar') === 'open');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
   const [avatarSaving, setAvatarSaving] = useState(false);
 
   // Loader we can reuse (initial + manual retry)
-  const loadProfile = async () => {
+  const loadProfile = useCallback(async () => {
     if (!user) return;
 
     try {
       setLoading(true);
       // Load profile
-      const { data: profileData } = await supabase
+      const { data: profileData, error: profileError } = await supabase
         .from('profiles')
-        .select('name, email, xp, tier, demotion_cooldown_until, avatar_url, date_of_birth, team:teams(name)')
+        .select('name, email, xp, tier, avatar_url, date_of_birth, team_id')
         .eq('id', user.id)
         .maybeSingle();
 
+      if (profileError) {
+        console.warn('Erro ao carregar perfil (profiles table):', profileError.message);
+      }
+
       if (profileData) {
-        setProfile(profileData as any);
+        let teamName: string | null = null;
+        if (profileData.team_id) {
+          const map = await fetchTeamNames([profileData.team_id]);
+          teamName = map[profileData.team_id] || null;
+        }
+        setProfile({
+          ...profileData,
+          team: teamName ? { name: teamName } : null,
+        } as any);
       } else if (authProfile) {
         // Fallback to auth profile minimal info to avoid blank screen
         setProfile({
@@ -114,7 +126,7 @@ function ProfileContent() {
           xp: authProfile.xp ?? 0,
           tier: authProfile.tier ?? 'novato',
           demotion_cooldown_until: authProfile.demotion_cooldown_until ?? null,
-          team: authProfile.teams ? { name: authProfile.teams.name } : null,
+          team: authProfile.team ? { name: authProfile.team.name } : null,
           avatar_url: authProfile.avatar_url ?? null,
         } as any);
       }
@@ -174,12 +186,11 @@ function ProfileContent() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [authProfile, user]);
 
   useEffect(() => {
     loadProfile();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user]);
+  }, [loadProfile]);
 
   const handleRetryClick = (eventId: string, challengeTitle: string) => {
     const event = events.find(e => e.id === eventId);

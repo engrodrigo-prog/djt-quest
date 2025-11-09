@@ -37,18 +37,42 @@ Deno.serve(async (req) => {
     // Fetch complete profile with organizational data
     const { data: profile } = await supabase
       .from('profiles')
-      .select(`
-        *,
-        teams (
-          id, name,
-          coordinations (
-            id, name,
-            divisions (id, name, department_id)
-          )
-        )
-      `)
+      .select('*')
       .eq('id', user.id)
       .single();
+
+    let teamRecord: { id: string; name: string; coord_id: string | null } | null = null;
+    let coordRecord: { id: string; name: string; division_id: string | null } | null = null;
+    let divisionRecord: { id: string; name: string; department_id: string | null } | null = null;
+
+    if (profile?.team_id) {
+      const { data } = await supabase
+        .from('teams')
+        .select('id, name, coord_id')
+        .eq('id', profile.team_id)
+        .maybeSingle();
+      teamRecord = data;
+    }
+
+    const coordId = profile?.coord_id || teamRecord?.coord_id;
+    if (coordId) {
+      const { data } = await supabase
+        .from('coordinations')
+        .select('id, name, division_id')
+        .eq('id', coordId)
+        .maybeSingle();
+      coordRecord = data;
+    }
+
+    const divisionId = profile?.division_id || coordRecord?.division_id;
+    if (divisionId) {
+      const { data } = await supabase
+        .from('divisions')
+        .select('id, name, department_id')
+        .eq('id', divisionId)
+        .maybeSingle();
+      divisionRecord = data;
+    }
 
     // Define role hierarchy (highest to lowest privilege)
     const roleHierarchy = [
@@ -77,10 +101,20 @@ Deno.serve(async (req) => {
     // Build organizational scope
     const orgScope = {
       teamId: profile?.team_id || null,
-      coordId: profile?.coord_id || null,
-      divisionId: profile?.division_id || null,
-      departmentId: profile?.department_id || 'DJT'
+      teamName: teamRecord?.name,
+      coordId: coordRecord?.id || profile?.coord_id || null,
+      coordName: coordRecord?.name,
+      divisionId: divisionRecord?.id || profile?.division_id || null,
+      divisionName: divisionRecord?.name,
+      departmentId: profile?.department_id || divisionRecord?.department_id || 'DJT'
     };
+
+    const enrichedProfile = profile
+      ? {
+          ...profile,
+          team: teamRecord ? { id: teamRecord.id, name: teamRecord.name } : null,
+        }
+      : null;
 
     return new Response(
       JSON.stringify({
@@ -93,7 +127,7 @@ Deno.serve(async (req) => {
         studioAccess,
         isLeader,
         orgScope,
-        profile
+        profile: enrichedProfile
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );

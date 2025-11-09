@@ -12,6 +12,7 @@ import { ThemedBackground } from "@/components/ThemedBackground";
 import { TeamPerformanceCard } from "@/components/TeamPerformanceCard";
 import { ProfileDropdown } from "@/components/ProfileDropdown";
 import { getTierInfo, getNextTierLevel } from "@/lib/constants/tiers";
+import { fetchTeamNames } from "@/lib/teamLookup";
 
 interface Campaign {
   id: string;
@@ -73,9 +74,9 @@ const Dashboard = () => {
         const [profileResult, campaignsResult, challengesResult, eventsResult, userAnswersResult] = await Promise.all([
           supabase
             .from("profiles")
-            .select("name, xp, tier, avatar_url, team:teams(name)")
+            .select("name, xp, tier, avatar_url, team_id")
             .eq("id", user.id)
-            .single(),
+            .maybeSingle(),
           
           supabase
             .from("campaigns")
@@ -101,8 +102,20 @@ const Dashboard = () => {
             .eq('user_id', user.id)
         ]);
 
+        if (profileResult.error) {
+          console.warn('Dashboard: erro carregando perfil', profileResult.error.message);
+        }
+
         if (profileResult.data) {
-          setProfile(profileResult.data);
+          let teamName: string | null = null;
+          if (profileResult.data.team_id) {
+            const teamMap = await fetchTeamNames([profileResult.data.team_id]);
+            teamName = teamMap[profileResult.data.team_id] || null;
+          }
+          setProfile({
+            ...profileResult.data,
+            team: teamName ? { name: teamName } : null,
+          } as any);
         }
 
         if (campaignsResult.data) {
@@ -113,18 +126,26 @@ const Dashboard = () => {
           setAllChallenges(challengesResult.data);
         }
 
-        if (eventsResult.data) {
+        if (eventsResult.error) {
+          console.warn('Dashboard: eventos indisponíveis', eventsResult.error.message);
+        } else if (eventsResult.data) {
           setUserEvents(eventsResult.data as any);
         }
 
         // Calcular quizzes concluídos: respostas >= total de perguntas
-        if (userAnswersResult.data && challengesResult.data) {
+        if (userAnswersResult.error) {
+          console.warn('Dashboard: respostas de quiz indisponíveis', userAnswersResult.error.message);
+        } else if (userAnswersResult.data && challengesResult.data) {
           const quizChallenges = (challengesResult.data as Challenge[]).filter(c => (c.type || '').toLowerCase().includes('quiz'));
           const questionCounts = new Map<string, number>();
           // Buscar contagem de perguntas por desafio (apenas para quizzes)
-          const { data: quizQuestions } = await supabase
+          const { data: quizQuestions, error: quizQuestionsError } = await supabase
             .from('quiz_questions')
             .select('challenge_id');
+
+          if (quizQuestionsError) {
+            console.warn('Dashboard: quiz_questions indisponível', quizQuestionsError.message);
+          }
           (quizQuestions || []).forEach((q: any) => {
             questionCounts.set(q.challenge_id, (questionCounts.get(q.challenge_id) || 0) + 1);
           });

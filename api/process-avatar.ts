@@ -117,7 +117,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // Permission check when saving for a different user
-    let targetUserId = requestedUserId || callerId;
+    const targetUserId = requestedUserId || callerId;
     if (!targetUserId) return res.status(400).json({ error: 'Missing target userId' });
     if (callerId && requestedUserId && requestedUserId !== callerId) {
       // Check leader roles

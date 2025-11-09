@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, ReactNode, useRef } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import { useNavigate } from 'react-router-dom';
@@ -83,6 +83,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<any | null>(null);
   const [previousRole, setPreviousRole] = useState<string | null>(null);
   const [hasShownWelcome, setHasShownWelcome] = useState(false);
+  const roleRef = useRef<string | null>(null);
+  const welcomeRef = useRef(false);
+  const userIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    roleRef.current = userRole;
+  }, [userRole]);
+
+  useEffect(() => {
+    welcomeRef.current = hasShownWelcome;
+  }, [hasShownWelcome]);
+
+  useEffect(() => {
+    userIdRef.current = user?.id ?? null;
+  }, [user?.id]);
 
   const fetchUserSession = async (userId: string) => {
     const cached = getCachedAuth();
@@ -154,7 +169,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Set up auth state listener
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
-        const previousUserId = user?.id;
+        const previousUserId = userIdRef.current;
 
         // Clear cache if user changed
         if (session?.user.id !== previousUserId && previousUserId) {
@@ -170,10 +185,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setLoading(false);
 
         if (session) {
-          const oldRole = userRole;
+          const oldRole = roleRef.current;
           fetchUserSession(session.user.id)
             .then((authData) => {
-              console.log('👤 AuthContext: role check', { oldRole, newRole: authData?.role, hasShownWelcome });
+              console.log('👤 AuthContext: role check', { oldRole, newRole: authData?.role, hasShownWelcome: welcomeRef.current });
 
               if (authData?.isLeader && window.location.pathname === '/auth') {
                 setTimeout(() => {
@@ -181,7 +196,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 }, 500);
               }
 
-              if (oldRole === 'colaborador' && authData?.role && authData.role.includes('gerente') && !hasShownWelcome) {
+              if (oldRole === 'colaborador' && authData?.role && authData.role.includes('gerente') && !welcomeRef.current) {
                 setHasShownWelcome(true);
                 console.log('🎉 AuthContext: Triggering welcome toast');
                 setTimeout(() => {

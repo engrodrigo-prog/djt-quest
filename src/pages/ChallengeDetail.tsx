@@ -104,7 +104,7 @@ const ChallengeDetail = () => {
     };
 
     loadChallenge();
-  }, [id, retryEventId, navigate, toast]);
+  }, [id, retryEventId, navigate, toast, user]);
 
   const handleSubmit = async () => {
     if (!challenge || !user) return;
