@@ -29,8 +29,8 @@ create policy if not exists "Leaders can review password resets"
   for select
   to authenticated
   using (
-    public.has_role(auth.uid(), 'admin'::app_role) or
-    public.has_role(auth.uid(), 'gerente_djt'::app_role) or
-    public.has_role(auth.uid(), 'gerente_divisao_djtx'::app_role) or
-    public.has_role(auth.uid(), 'coordenador_djtx'::app_role)
+    public.has_role(auth.uid(), 'admin') or
+    public.has_role(auth.uid(), 'gerente_djt') or
+    public.has_role(auth.uid(), 'gerente_divisao_djtx') or
+    public.has_role(auth.uid(), 'coordenador_djtx')
   );

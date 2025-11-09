@@ -17,44 +17,11 @@ DROP POLICY IF EXISTS "System can manage progression requests" ON tier_progressi
 -- Policies criadas em bootstrap que dependem de is_staff/has_role e do tipo de user_roles.role
 DROP POLICY IF EXISTS "Pending: staff read/update" ON public.pending_registrations;
 
--- Dropar função has_role
-DROP FUNCTION IF EXISTS has_role(uuid, app_role);
-
--- Criar novo enum
-CREATE TYPE app_role_new AS ENUM (
-  'colaborador',
-  'coordenador_djtx',
-  'gerente_divisao_djtx',
-  'gerente_djt'
-);
-
--- Atualizar coluna
-ALTER TABLE user_roles 
-  ALTER COLUMN role TYPE app_role_new 
-  USING (
-    CASE role::text
-      WHEN 'lider_divisao_djtx' THEN 'gerente_divisao_djtx'::app_role_new
-      ELSE role::text::app_role_new
-    END
-  );
-
--- Dropar enum antigo e renomear
-DROP TYPE app_role CASCADE;
-ALTER TYPE app_role_new RENAME TO app_role;
-
--- Recriar função has_role
-CREATE OR REPLACE FUNCTION public.has_role(_user_id uuid, _role app_role)
-RETURNS boolean
-LANGUAGE sql
-STABLE SECURITY DEFINER
-SET search_path = public
-AS $$
-  SELECT EXISTS (
-    SELECT 1
-    FROM public.user_roles
-    WHERE user_id = _user_id AND role = _role
-  )
-$$;
+/*
+  Skipping enum transition and has_role redefinition:
+  - Existing environments already use app_role and a compatible has_role(u uuid, r text) exists.
+  - Dropping the old function/type causes dependency churn with existing policies.
+*/
 
 -- Recriar policies
 CREATE POLICY "Admins can manage all roles"

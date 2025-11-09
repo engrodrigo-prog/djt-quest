@@ -82,6 +82,8 @@ const syncOrgTables = async () => {
     }
   };
 
+  // Ensure department exists first (older schema needs it)
+  await upsertTable('departments', orgUpserts.departments);
   await upsertTable('divisions', orgUpserts.divisions);
   await upsertTable('coordinations', orgUpserts.coordinations);
   await upsertTable('teams', orgUpserts.teams);

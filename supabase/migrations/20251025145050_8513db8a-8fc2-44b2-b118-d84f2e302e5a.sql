@@ -3,7 +3,7 @@
 -- ================================
 
 -- 1. TABELA DE TÓPICOS
-CREATE TABLE forum_topics (
+CREATE TABLE IF NOT EXISTS public.forum_topics (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   title TEXT NOT NULL CHECK (LENGTH(title) >= 10 AND LENGTH(title) <= 200),
   description TEXT NOT NULL CHECK (LENGTH(description) >= 50),
@@ -40,12 +40,12 @@ CREATE TABLE forum_topics (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_forum_topics_active ON forum_topics(is_active, is_pinned, last_post_at DESC);
-CREATE INDEX idx_forum_topics_category ON forum_topics(category);
-ALTER TABLE forum_topics ENABLE ROW LEVEL SECURITY;
+CREATE INDEX IF NOT EXISTS idx_forum_topics_active ON public.forum_topics(is_active, is_pinned, last_post_at DESC);
+CREATE INDEX IF NOT EXISTS idx_forum_topics_category ON public.forum_topics(category);
+ALTER TABLE public.forum_topics ENABLE ROW LEVEL SECURITY;
 
 -- 2. TABELA DE POSTS
-CREATE TABLE forum_posts (
+CREATE TABLE IF NOT EXISTS public.forum_posts (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   topic_id UUID REFERENCES forum_topics(id) ON DELETE CASCADE NOT NULL,
   author_id UUID REFERENCES profiles(id) NOT NULL,
@@ -70,12 +70,12 @@ CREATE TABLE forum_posts (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_forum_posts_topic ON forum_posts(topic_id, created_at);
-CREATE INDEX idx_forum_posts_parent ON forum_posts(parent_post_id);
-ALTER TABLE forum_posts ENABLE ROW LEVEL SECURITY;
+CREATE INDEX IF NOT EXISTS idx_forum_posts_topic ON public.forum_posts(topic_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_forum_posts_parent ON public.forum_posts(parent_post_id);
+ALTER TABLE public.forum_posts ENABLE ROW LEVEL SECURITY;
 
 -- 3. TABELA DE MENÇÕES
-CREATE TABLE forum_mentions (
+CREATE TABLE IF NOT EXISTS public.forum_mentions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   post_id UUID REFERENCES forum_posts(id) ON DELETE CASCADE NOT NULL,
   mentioned_user_id UUID REFERENCES profiles(id) NOT NULL,
@@ -86,29 +86,29 @@ CREATE TABLE forum_mentions (
   UNIQUE (post_id, mentioned_user_id)
 );
 
-CREATE INDEX idx_forum_mentions_user ON forum_mentions(mentioned_user_id, is_read);
-ALTER TABLE forum_mentions ENABLE ROW LEVEL SECURITY;
+CREATE INDEX IF NOT EXISTS idx_forum_mentions_user ON public.forum_mentions(mentioned_user_id, is_read);
+ALTER TABLE public.forum_mentions ENABLE ROW LEVEL SECURITY;
 
 -- 4. TABELA DE HASHTAGS
-CREATE TABLE forum_hashtags (
+CREATE TABLE IF NOT EXISTS public.forum_hashtags (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   tag TEXT NOT NULL UNIQUE CHECK (LENGTH(tag) >= 3 AND LENGTH(tag) <= 50),
   usage_count INTEGER DEFAULT 0,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE TABLE forum_post_hashtags (
+CREATE TABLE IF NOT EXISTS public.forum_post_hashtags (
   post_id UUID REFERENCES forum_posts(id) ON DELETE CASCADE NOT NULL,
   hashtag_id UUID REFERENCES forum_hashtags(id) ON DELETE CASCADE NOT NULL,
   PRIMARY KEY (post_id, hashtag_id)
 );
 
-CREATE INDEX idx_forum_hashtags_usage ON forum_hashtags(usage_count DESC);
-ALTER TABLE forum_hashtags ENABLE ROW LEVEL SECURITY;
-ALTER TABLE forum_post_hashtags ENABLE ROW LEVEL SECURITY;
+CREATE INDEX IF NOT EXISTS idx_forum_hashtags_usage ON public.forum_hashtags(usage_count DESC);
+ALTER TABLE public.forum_hashtags ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.forum_post_hashtags ENABLE ROW LEVEL SECURITY;
 
 -- 5. TABELA DE CURTIDAS
-CREATE TABLE forum_likes (
+CREATE TABLE IF NOT EXISTS public.forum_likes (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   post_id UUID REFERENCES forum_posts(id) ON DELETE CASCADE NOT NULL,
   user_id UUID REFERENCES profiles(id) NOT NULL,
@@ -117,10 +117,10 @@ CREATE TABLE forum_likes (
   UNIQUE (post_id, user_id)
 );
 
-ALTER TABLE forum_likes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.forum_likes ENABLE ROW LEVEL SECURITY;
 
 -- 6. TABELA DE INSCRIÇÕES
-CREATE TABLE forum_subscriptions (
+CREATE TABLE IF NOT EXISTS public.forum_subscriptions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   topic_id UUID REFERENCES forum_topics(id) ON DELETE CASCADE NOT NULL,
   user_id UUID REFERENCES profiles(id) NOT NULL,
@@ -130,10 +130,10 @@ CREATE TABLE forum_subscriptions (
   UNIQUE (topic_id, user_id)
 );
 
-ALTER TABLE forum_subscriptions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.forum_subscriptions ENABLE ROW LEVEL SECURITY;
 
 -- 7. VIEW DE CONHECIMENTO
-CREATE VIEW forum_knowledge_base AS
+CREATE OR REPLACE VIEW public.forum_knowledge_base AS
 SELECT 
   ft.id AS topic_id,
   ft.title,
@@ -152,11 +152,11 @@ SELECT
   
   ARRAY_AGG(DISTINCT fh.tag) FILTER (WHERE fh.tag IS NOT NULL) AS hashtags
   
-FROM forum_topics ft
-JOIN forum_posts fp ON fp.topic_id = ft.id
-JOIN profiles p ON p.id = fp.author_id
-LEFT JOIN forum_post_hashtags fph ON fph.post_id = fp.id
-LEFT JOIN forum_hashtags fh ON fh.id = fph.hashtag_id
+FROM public.forum_topics ft
+JOIN public.forum_posts fp ON fp.topic_id = ft.id
+JOIN public.profiles p ON p.id = fp.author_id
+LEFT JOIN public.forum_post_hashtags fph ON fph.post_id = fp.id
+LEFT JOIN public.forum_hashtags fh ON fh.id = fph.hashtag_id
 
 WHERE ft.is_active = TRUE 
   AND (fp.is_solution = TRUE OR fp.is_featured = TRUE OR fp.likes_count >= 5)
@@ -179,8 +179,9 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS after_forum_post_insert ON public.forum_posts;
 CREATE TRIGGER after_forum_post_insert
-AFTER INSERT ON forum_posts
+AFTER INSERT ON public.forum_posts
 FOR EACH ROW
 EXECUTE FUNCTION increment_topic_post_count();
 
@@ -194,8 +195,9 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS after_forum_like_insert ON public.forum_likes;
 CREATE TRIGGER after_forum_like_insert
-AFTER INSERT ON forum_likes
+AFTER INSERT ON public.forum_likes
 FOR EACH ROW
 EXECUTE FUNCTION increment_post_likes();
 
@@ -209,20 +211,23 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS after_post_hashtag_insert ON public.forum_post_hashtags;
 CREATE TRIGGER after_post_hashtag_insert
-AFTER INSERT ON forum_post_hashtags
+AFTER INSERT ON public.forum_post_hashtags
 FOR EACH ROW
 EXECUTE FUNCTION increment_hashtag_usage();
 
 -- 9. RLS POLICIES - forum_topics
+DROP POLICY IF EXISTS "Leaders can create topics" ON public.forum_topics;
 CREATE POLICY "Leaders can create topics"
-ON forum_topics FOR INSERT
+ON public.forum_topics FOR INSERT
 WITH CHECK (
   EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND studio_access = TRUE)
 );
 
+DROP POLICY IF EXISTS "Users can view targeted topics" ON public.forum_topics;
 CREATE POLICY "Users can view targeted topics"
-ON forum_topics FOR SELECT
+ON public.forum_topics FOR SELECT
 USING (
   is_active = TRUE AND (
     target_team_ids IS NULL OR
@@ -230,85 +235,103 @@ USING (
     target_div_ids IS NULL OR
     target_dept_ids IS NULL OR
     auth.uid() IN (
-      SELECT id FROM profiles 
+      SELECT id FROM public.profiles 
       WHERE 
-        (team_id = ANY(target_team_ids) OR target_team_ids IS NULL) AND
-        (coord_id = ANY(target_coord_ids) OR target_coord_ids IS NULL) AND
-        (division_id = ANY(target_div_ids) OR target_div_ids IS NULL) AND
-        (department_id = ANY(target_dept_ids) OR target_dept_ids IS NULL)
+        (team_id::text = ANY(target_team_ids::text[]) OR target_team_ids IS NULL) AND
+        (coord_id::text = ANY(target_coord_ids::text[]) OR target_coord_ids IS NULL) AND
+        (division_id::text = ANY(target_div_ids::text[]) OR target_div_ids IS NULL) AND
+        (department_id::text = ANY(target_dept_ids::text[]) OR target_dept_ids IS NULL)
     )
   )
 );
 
+DROP POLICY IF EXISTS "Leaders can moderate topics" ON public.forum_topics;
 CREATE POLICY "Leaders can moderate topics"
-ON forum_topics FOR UPDATE
+ON public.forum_topics FOR UPDATE
 USING (
   EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND studio_access = TRUE)
 );
 
 -- 10. RLS POLICIES - forum_posts
+DROP POLICY IF EXISTS "Users can create posts" ON public.forum_posts;
 CREATE POLICY "Users can create posts"
-ON forum_posts FOR INSERT
+ON public.forum_posts FOR INSERT
 WITH CHECK (
   author_id = auth.uid() AND
   EXISTS (
-    SELECT 1 FROM forum_topics 
+    SELECT 1 FROM public.forum_topics 
     WHERE id = topic_id AND is_active = TRUE AND is_locked = FALSE
   )
 );
 
+DROP POLICY IF EXISTS "Users can view posts" ON public.forum_posts;
 CREATE POLICY "Users can view posts"
-ON forum_posts FOR SELECT
+ON public.forum_posts FOR SELECT
 USING (
   EXISTS (
-    SELECT 1 FROM forum_topics ft
+    SELECT 1 FROM public.forum_topics ft
     WHERE ft.id = topic_id AND ft.is_active = TRUE
   )
 );
 
+DROP POLICY IF EXISTS "Users can edit own posts" ON public.forum_posts;
 CREATE POLICY "Users can edit own posts"
-ON forum_posts FOR UPDATE
+ON public.forum_posts FOR UPDATE
 USING (
   author_id = auth.uid() AND
   created_at > NOW() - INTERVAL '24 hours'
 );
 
+DROP POLICY IF EXISTS "Leaders can moderate posts" ON public.forum_posts;
 CREATE POLICY "Leaders can moderate posts"
-ON forum_posts FOR UPDATE
+ON public.forum_posts FOR UPDATE
 USING (
   EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND studio_access = TRUE)
 );
 
 -- 11. RLS POLICIES - outras tabelas
+DROP POLICY IF EXISTS "Users can view own mentions" ON public.forum_mentions;
 CREATE POLICY "Users can view own mentions"
-ON forum_mentions FOR SELECT
+ON public.forum_mentions FOR SELECT
 USING (mentioned_user_id = auth.uid());
 
+DROP POLICY IF EXISTS "Users can like posts" ON public.forum_likes;
 CREATE POLICY "Users can like posts"
-ON forum_likes FOR INSERT
+ON public.forum_likes FOR INSERT
 WITH CHECK (user_id = auth.uid());
 
+DROP POLICY IF EXISTS "Users can view likes" ON public.forum_likes;
 CREATE POLICY "Users can view likes"
-ON forum_likes FOR SELECT
+ON public.forum_likes FOR SELECT
 USING (TRUE);
 
+DROP POLICY IF EXISTS "Users manage own subscriptions" ON public.forum_subscriptions;
 CREATE POLICY "Users manage own subscriptions"
-ON forum_subscriptions FOR ALL
+ON public.forum_subscriptions FOR ALL
 USING (user_id = auth.uid());
 
+DROP POLICY IF EXISTS "Anyone can view hashtags" ON public.forum_hashtags;
 CREATE POLICY "Anyone can view hashtags"
-ON forum_hashtags FOR SELECT
+ON public.forum_hashtags FOR SELECT
 USING (TRUE);
 
+DROP POLICY IF EXISTS "Anyone can view post hashtags" ON public.forum_post_hashtags;
 CREATE POLICY "Anyone can view post hashtags"
-ON forum_post_hashtags FOR SELECT
+ON public.forum_post_hashtags FOR SELECT
 USING (TRUE);
 
 -- 12. Adicionar coluna de busca full-text
-ALTER TABLE forum_posts 
-ADD COLUMN search_vector tsvector 
-GENERATED ALWAYS AS (
-  to_tsvector('portuguese', coalesce(content, ''))
-) STORED;
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_schema='public' AND table_name='forum_posts' AND column_name='search_vector'
+  ) THEN
+    ALTER TABLE public.forum_posts 
+    ADD COLUMN search_vector tsvector 
+    GENERATED ALWAYS AS (
+      to_tsvector('portuguese', coalesce(content, ''))
+    ) STORED;
+  END IF;
+END $$;
 
-CREATE INDEX idx_forum_posts_search ON forum_posts USING GIN(search_vector);
+CREATE INDEX IF NOT EXISTS idx_forum_posts_search ON public.forum_posts USING GIN(search_vector);

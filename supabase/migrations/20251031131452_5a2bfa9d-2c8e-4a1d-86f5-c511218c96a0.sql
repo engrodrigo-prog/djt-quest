@@ -36,24 +36,26 @@ ON public.profile_change_requests
 FOR INSERT
 WITH CHECK (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Leaders can view requests in their hierarchy" ON public.profile_change_requests;
 CREATE POLICY "Leaders can view requests in their hierarchy"
 ON public.profile_change_requests
 FOR SELECT
 USING (
-  has_role(auth.uid(), 'admin'::app_role) OR
-  has_role(auth.uid(), 'gerente_djt'::app_role) OR
-  has_role(auth.uid(), 'gerente_divisao_djtx'::app_role) OR
-  has_role(auth.uid(), 'coordenador_djtx'::app_role)
+  has_role(auth.uid(), 'admin') OR
+  has_role(auth.uid(), 'gerente_djt') OR
+  has_role(auth.uid(), 'gerente_divisao_djtx') OR
+  has_role(auth.uid(), 'coordenador_djtx')
 );
 
+DROP POLICY IF EXISTS "Leaders can update requests" ON public.profile_change_requests;
 CREATE POLICY "Leaders can update requests"
 ON public.profile_change_requests
 FOR UPDATE
 USING (
-  has_role(auth.uid(), 'admin'::app_role) OR
-  has_role(auth.uid(), 'gerente_djt'::app_role) OR
-  has_role(auth.uid(), 'gerente_divisao_djtx'::app_role) OR
-  has_role(auth.uid(), 'coordenador_djtx'::app_role)
+  has_role(auth.uid(), 'admin') OR
+  has_role(auth.uid(), 'gerente_djt') OR
+  has_role(auth.uid(), 'gerente_divisao_djtx') OR
+  has_role(auth.uid(), 'coordenador_djtx')
 );
 
 -- Trigger para atualizar updated_at

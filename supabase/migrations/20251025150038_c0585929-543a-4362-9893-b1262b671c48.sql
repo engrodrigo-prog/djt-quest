@@ -12,7 +12,7 @@ CREATE INDEX IF NOT EXISTS idx_profiles_is_leader ON public.profiles(is_leader) 
 -- 1.3 Criar tabela de eventos de equipe (bônus/penalidade)
 CREATE TABLE IF NOT EXISTS public.team_events (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  team_id UUID REFERENCES public.teams(id) NOT NULL,
+  team_id TEXT NOT NULL,
   created_by UUID REFERENCES public.profiles(id) NOT NULL,
   event_type TEXT NOT NULL CHECK (event_type IN ('bonus', 'penalty')),
   points INTEGER NOT NULL CHECK (points > 0),

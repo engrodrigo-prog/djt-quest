@@ -165,7 +165,7 @@ create or replace function public.has_role(u uuid, r text)
 returns boolean language sql stable as $$
   select exists (
     select 1 from public.user_roles ur
-    where ur.user_id = u and ur.role = r
+    where ur.user_id = u and ur.role::text = r::text
   );
 $$;
 

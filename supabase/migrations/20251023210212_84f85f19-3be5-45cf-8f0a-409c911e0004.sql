@@ -9,7 +9,7 @@ ALTER TABLE public.teams
 -- Create team performance log table
 CREATE TABLE IF NOT EXISTS public.team_performance_log (
   id UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
-  team_id TEXT NOT NULL REFERENCES public.teams(id) ON DELETE CASCADE,
+  team_id TEXT NOT NULL,
   previous_modifier NUMERIC NOT NULL,
   new_modifier NUMERIC NOT NULL,
   reason TEXT,
@@ -33,10 +33,10 @@ CREATE POLICY "Leaders can log performance changes"
 ON public.team_performance_log
 FOR INSERT
 WITH CHECK (
-  has_role(auth.uid(), 'coordenador'::app_role) OR 
-  has_role(auth.uid(), 'lider_divisao'::app_role) OR 
-  has_role(auth.uid(), 'gerente'::app_role) OR
-  has_role(auth.uid(), 'admin'::app_role)
+  has_role(auth.uid(), 'coordenador_djtx') OR 
+  has_role(auth.uid(), 'gerente_divisao_djtx') OR 
+  has_role(auth.uid(), 'gerente_djt') OR
+  has_role(auth.uid(), 'admin')
 );
 
 -- Add evaluation assignment fields to events
@@ -65,10 +65,10 @@ CREATE POLICY "Leaders can view evaluation queue"
 ON public.evaluation_queue
 FOR SELECT
 USING (
-  has_role(auth.uid(), 'coordenador'::app_role) OR 
-  has_role(auth.uid(), 'lider_divisao'::app_role) OR 
-  has_role(auth.uid(), 'gerente'::app_role) OR
-  has_role(auth.uid(), 'admin'::app_role)
+  has_role(auth.uid(), 'coordenador_djtx') OR 
+  has_role(auth.uid(), 'gerente_divisao_djtx') OR 
+  has_role(auth.uid(), 'gerente_djt') OR
+  has_role(auth.uid(), 'admin')
 );
 
 -- Policy: System can insert into evaluation queue
@@ -77,8 +77,8 @@ CREATE POLICY "System can manage evaluation queue"
 ON public.evaluation_queue
 FOR ALL
 USING (
-  has_role(auth.uid(), 'admin'::app_role) OR
-  has_role(auth.uid(), 'gerente'::app_role)
+  has_role(auth.uid(), 'admin') OR
+  has_role(auth.uid(), 'gerente_djt')
 );
 
 -- Add trigger to update team modifier timestamp

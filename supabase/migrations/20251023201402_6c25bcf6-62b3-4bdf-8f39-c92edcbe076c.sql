@@ -192,6 +192,7 @@ ALTER TABLE public.action_evaluations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.badges ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.user_badges ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "All can view coordinations" ON public.coordinations;
 CREATE POLICY "All can view coordinations"
   ON public.coordinations FOR SELECT
   TO authenticated
@@ -329,10 +330,19 @@ BEGIN
 END;
 $$;
 
--- Trigger for automatic profile creation
-CREATE TRIGGER on_auth_user_created
-  AFTER INSERT ON auth.users
-  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+-- Trigger for automatic profile creation (guarded)
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger t
+    JOIN pg_class c ON c.oid = t.tgrelid
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE t.tgname = 'on_auth_user_created' AND n.nspname = 'auth' AND c.relname = 'users'
+  ) THEN
+    CREATE TRIGGER on_auth_user_created
+      AFTER INSERT ON auth.users
+      FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+  END IF;
+END $$;
 
 -- Function to update updated_at timestamps
 CREATE OR REPLACE FUNCTION public.update_updated_at_column()
@@ -346,18 +356,54 @@ END;
 $$;
 
 -- Triggers for updated_at
-CREATE TRIGGER update_profiles_updated_at
-  BEFORE UPDATE ON public.profiles
-  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger t
+    JOIN pg_class c ON c.oid = t.tgrelid
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE t.tgname = 'update_profiles_updated_at' AND n.nspname = 'public' AND c.relname = 'profiles'
+  ) THEN
+    CREATE TRIGGER update_profiles_updated_at
+      BEFORE UPDATE ON public.profiles
+      FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+  END IF;
+END $$;
 
-CREATE TRIGGER update_campaigns_updated_at
-  BEFORE UPDATE ON public.campaigns
-  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger t
+    JOIN pg_class c ON c.oid = t.tgrelid
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE t.tgname = 'update_campaigns_updated_at' AND n.nspname = 'public' AND c.relname = 'campaigns'
+  ) THEN
+    CREATE TRIGGER update_campaigns_updated_at
+      BEFORE UPDATE ON public.campaigns
+      FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+  END IF;
+END $$;
 
-CREATE TRIGGER update_challenges_updated_at
-  BEFORE UPDATE ON public.challenges
-  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger t
+    JOIN pg_class c ON c.oid = t.tgrelid
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE t.tgname = 'update_challenges_updated_at' AND n.nspname = 'public' AND c.relname = 'challenges'
+  ) THEN
+    CREATE TRIGGER update_challenges_updated_at
+      BEFORE UPDATE ON public.challenges
+      FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+  END IF;
+END $$;
 
-CREATE TRIGGER update_events_updated_at
-  BEFORE UPDATE ON public.events
-  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger t
+    JOIN pg_class c ON c.oid = t.tgrelid
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE t.tgname = 'update_events_updated_at' AND n.nspname = 'public' AND c.relname = 'events'
+  ) THEN
+    CREATE TRIGGER update_events_updated_at
+      BEFORE UPDATE ON public.events
+      FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+  END IF;
+END $$;

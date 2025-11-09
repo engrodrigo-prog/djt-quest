@@ -11,33 +11,53 @@ VALUES (
     'video/mp4', 'video/webm', 'video/quicktime',
     'application/pdf'
   ]
-);
+)
+ON CONFLICT (id) DO UPDATE SET
+  public = EXCLUDED.public;
 
 -- RLS: Usuários autenticados podem fazer upload
-CREATE POLICY "Authenticated users can upload forum attachments"
-ON storage.objects FOR INSERT
-TO authenticated
-WITH CHECK (bucket_id = 'forum-attachments');
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE schemaname='storage' AND tablename='objects' AND policyname='Authenticated users can upload forum attachments'
+  ) THEN
+    CREATE POLICY "Authenticated users can upload forum attachments"
+    ON storage.objects FOR INSERT
+    TO authenticated
+    WITH CHECK (bucket_id = 'forum-attachments');
+  END IF;
+END $$;
 
 -- RLS: Todos podem visualizar anexos
-CREATE POLICY "Public can view forum attachments"
-ON storage.objects FOR SELECT
-TO public
-USING (bucket_id = 'forum-attachments');
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE schemaname='storage' AND tablename='objects' AND policyname='Public can view forum attachments'
+  ) THEN
+    CREATE POLICY "Public can view forum attachments"
+    ON storage.objects FOR SELECT
+    TO public
+    USING (bucket_id = 'forum-attachments');
+  END IF;
+END $$;
 
 -- RLS: Autor pode deletar seus anexos
-CREATE POLICY "Authors can delete their attachments"
-ON storage.objects FOR DELETE
-TO authenticated
-USING (
-  bucket_id = 'forum-attachments' AND
-  owner = auth.uid()
-);
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE schemaname='storage' AND tablename='objects' AND policyname='Authors can delete their attachments'
+  ) THEN
+    CREATE POLICY "Authors can delete their attachments"
+    ON storage.objects FOR DELETE
+    TO authenticated
+    USING (
+      bucket_id = 'forum-attachments' AND
+      owner = auth.uid()
+    );
+  END IF;
+END $$;
 
 -- Criar tabela de metadados de anexos
-CREATE TABLE forum_attachment_metadata (
+CREATE TABLE IF NOT EXISTS public.forum_attachment_metadata (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  post_id UUID REFERENCES forum_posts(id) ON DELETE CASCADE,
+  post_id UUID REFERENCES public.forum_posts(id) ON DELETE CASCADE,
   storage_path TEXT NOT NULL,
   file_type TEXT NOT NULL,
   mime_type TEXT NOT NULL,
@@ -65,19 +85,32 @@ CREATE TABLE forum_attachment_metadata (
 );
 
 -- Índices para performance
-CREATE INDEX idx_attachment_post ON forum_attachment_metadata(post_id);
-CREATE INDEX idx_attachment_location ON forum_attachment_metadata(gps_latitude, gps_longitude) 
+CREATE INDEX IF NOT EXISTS idx_attachment_post ON public.forum_attachment_metadata(post_id);
+CREATE INDEX IF NOT EXISTS idx_attachment_location ON public.forum_attachment_metadata(gps_latitude, gps_longitude) 
   WHERE gps_latitude IS NOT NULL;
-CREATE INDEX idx_attachment_type ON forum_attachment_metadata(file_type);
+CREATE INDEX IF NOT EXISTS idx_attachment_type ON public.forum_attachment_metadata(file_type);
 
 -- RLS: Todos podem visualizar metadados de anexos
-CREATE POLICY "Anyone can view attachment metadata"
-ON forum_attachment_metadata FOR SELECT
-TO public
-USING (true);
+ALTER TABLE public.forum_attachment_metadata ENABLE ROW LEVEL SECURITY;
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='forum_attachment_metadata' AND policyname='Anyone can view attachment metadata'
+  ) THEN
+    CREATE POLICY "Anyone can view attachment metadata"
+    ON public.forum_attachment_metadata FOR SELECT
+    TO public
+    USING (true);
+  END IF;
+END $$;
 
 -- RLS: Sistema pode inserir metadados
-CREATE POLICY "Authenticated users can insert attachment metadata"
-ON forum_attachment_metadata FOR INSERT
-TO authenticated
-WITH CHECK (true);
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='forum_attachment_metadata' AND policyname='Authenticated users can insert attachment metadata'
+  ) THEN
+    CREATE POLICY "Authenticated users can insert attachment metadata"
+    ON public.forum_attachment_metadata FOR INSERT
+    TO authenticated
+    WITH CHECK (true);
+  END IF;
+END $$;

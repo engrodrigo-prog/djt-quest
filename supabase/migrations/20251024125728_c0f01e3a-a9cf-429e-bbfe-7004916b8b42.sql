@@ -35,7 +35,7 @@ ALTER TABLE public.profiles
   ADD COLUMN IF NOT EXISTS tier_progression_locked BOOLEAN DEFAULT FALSE;
 
 -- 4. Criar tabela de solicitações de progressão de patamar
-CREATE TABLE public.tier_progression_requests (
+CREATE TABLE IF NOT EXISTS public.tier_progression_requests (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
   current_tier player_tier NOT NULL,
@@ -51,7 +51,7 @@ CREATE TABLE public.tier_progression_requests (
 );
 
 -- 5. Criar tabela de incidentes de segurança
-CREATE TABLE public.safety_incidents (
+CREATE TABLE IF NOT EXISTS public.safety_incidents (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
   incident_type TEXT NOT NULL,
@@ -70,7 +70,7 @@ CREATE TABLE public.safety_incidents (
 );
 
 -- 6. Criar tabela de log de rebaixamentos
-CREATE TABLE public.tier_demotion_log (
+CREATE TABLE IF NOT EXISTS public.tier_demotion_log (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
   incident_id UUID REFERENCES public.safety_incidents(id),
@@ -83,7 +83,7 @@ CREATE TABLE public.tier_demotion_log (
 );
 
 -- 7. Criar tabela de notificações
-CREATE TABLE public.notifications (
+CREATE TABLE IF NOT EXISTS public.notifications (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
   type TEXT NOT NULL,
@@ -96,13 +96,13 @@ CREATE TABLE public.notifications (
 );
 
 -- 8. Criar índices para performance
-CREATE INDEX idx_profiles_tier ON public.profiles(tier);
-CREATE INDEX idx_safety_incidents_user_id ON public.safety_incidents(user_id);
-CREATE INDEX idx_safety_incidents_created_at ON public.safety_incidents(created_at);
-CREATE INDEX idx_tier_progression_user_id ON public.tier_progression_requests(user_id);
-CREATE INDEX idx_tier_progression_status ON public.tier_progression_requests(status);
-CREATE INDEX idx_notifications_user_id ON public.notifications(user_id);
-CREATE INDEX idx_notifications_read ON public.notifications(read);
+CREATE INDEX IF NOT EXISTS idx_profiles_tier ON public.profiles(tier);
+CREATE INDEX IF NOT EXISTS idx_safety_incidents_user_id ON public.safety_incidents(user_id);
+CREATE INDEX IF NOT EXISTS idx_safety_incidents_created_at ON public.safety_incidents(created_at);
+CREATE INDEX IF NOT EXISTS idx_tier_progression_user_id ON public.tier_progression_requests(user_id);
+CREATE INDEX IF NOT EXISTS idx_tier_progression_status ON public.tier_progression_requests(status);
+CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON public.notifications(user_id);
+CREATE INDEX IF NOT EXISTS idx_notifications_read ON public.notifications(read);
 
 -- 9. Função: Calcular tier baseado em XP
 CREATE OR REPLACE FUNCTION public.calculate_tier_from_xp(
@@ -254,31 +254,35 @@ $$;
 -- 12. RLS Policies para safety_incidents
 ALTER TABLE public.safety_incidents ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Leaders can view all incidents" ON public.safety_incidents;
 CREATE POLICY "Leaders can view all incidents"
 ON public.safety_incidents FOR SELECT
 USING (
-  has_role(auth.uid(), 'admin'::app_role) OR 
-  has_role(auth.uid(), 'gerente'::app_role) OR
-  has_role(auth.uid(), 'lider_divisao'::app_role) OR
-  has_role(auth.uid(), 'coordenador'::app_role)
+  has_role(auth.uid(), 'admin') OR 
+  has_role(auth.uid(), 'gerente_djt') OR
+  has_role(auth.uid(), 'gerente_divisao_djtx') OR
+  has_role(auth.uid(), 'coordenador_djtx')
 );
 
+DROP POLICY IF EXISTS "Users can view own incidents" ON public.safety_incidents;
 CREATE POLICY "Users can view own incidents"
 ON public.safety_incidents FOR SELECT
 USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Leaders can create incidents" ON public.safety_incidents;
 CREATE POLICY "Leaders can create incidents"
 ON public.safety_incidents FOR INSERT
 WITH CHECK (
-  has_role(auth.uid(), 'lider_divisao'::app_role) OR
-  has_role(auth.uid(), 'coordenador'::app_role) OR
-  has_role(auth.uid(), 'gerente'::app_role) OR
-  has_role(auth.uid(), 'admin'::app_role)
+  has_role(auth.uid(), 'gerente_divisao_djtx') OR
+  has_role(auth.uid(), 'coordenador_djtx') OR
+  has_role(auth.uid(), 'gerente_djt') OR
+  has_role(auth.uid(), 'admin')
 );
 
 -- 13. RLS Policies para tier_demotion_log
 ALTER TABLE public.tier_demotion_log ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "All can view demotion log" ON public.tier_demotion_log;
 CREATE POLICY "All can view demotion log"
 ON public.tier_demotion_log FOR SELECT
 USING (TRUE);
@@ -286,34 +290,39 @@ USING (TRUE);
 -- 14. RLS Policies para tier_progression_requests
 ALTER TABLE public.tier_progression_requests ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users can view own progression requests" ON public.tier_progression_requests;
 CREATE POLICY "Users can view own progression requests"
 ON public.tier_progression_requests FOR SELECT
 USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Leaders can view all progression requests" ON public.tier_progression_requests;
 CREATE POLICY "Leaders can view all progression requests"
 ON public.tier_progression_requests FOR SELECT
 USING (
-  has_role(auth.uid(), 'admin'::app_role) OR 
-  has_role(auth.uid(), 'gerente'::app_role) OR
-  has_role(auth.uid(), 'lider_divisao'::app_role) OR
-  has_role(auth.uid(), 'coordenador'::app_role)
+  has_role(auth.uid(), 'admin') OR 
+  has_role(auth.uid(), 'gerente_djt') OR
+  has_role(auth.uid(), 'gerente_divisao_djtx') OR
+  has_role(auth.uid(), 'coordenador_djtx')
 );
 
+DROP POLICY IF EXISTS "System can manage progression requests" ON public.tier_progression_requests;
 CREATE POLICY "System can manage progression requests"
 ON public.tier_progression_requests FOR ALL
 USING (
-  has_role(auth.uid(), 'admin'::app_role) OR 
-  has_role(auth.uid(), 'gerente'::app_role) OR
-  has_role(auth.uid(), 'coordenador'::app_role)
+  has_role(auth.uid(), 'admin') OR 
+  has_role(auth.uid(), 'gerente_djt') OR
+  has_role(auth.uid(), 'coordenador_djtx')
 );
 
 -- 15. RLS Policies para notifications
 ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users can view own notifications" ON public.notifications;
 CREATE POLICY "Users can view own notifications"
 ON public.notifications FOR SELECT
 USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can update own notifications" ON public.notifications;
 CREATE POLICY "Users can update own notifications"
 ON public.notifications FOR UPDATE
 USING (auth.uid() = user_id);
