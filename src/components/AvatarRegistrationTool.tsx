@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Loader2, RefreshCw, Search, Camera } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { fetchTeamNames } from "@/lib/teamLookup";
+import { apiFetch } from "@/lib/api";
 
 interface ProfileSummary {
   id: string;
@@ -98,7 +99,7 @@ export const AvatarRegistrationTool = () => {
     try {
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData.session?.access_token;
-      const resp = await fetch('/api/process-avatar', {
+      const resp = await apiFetch('/api/process-avatar', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -147,7 +148,7 @@ export const AvatarRegistrationTool = () => {
       setAvatarSaving(true);
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData.session?.access_token;
-      const resp = await fetch('/api/process-avatar', {
+      const resp = await apiFetch('/api/process-avatar', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

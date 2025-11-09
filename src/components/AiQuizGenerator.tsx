@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { toast } from 'sonner'
+import { apiFetch } from '@/lib/api'
 
 interface Challenge { id: string; title: string; type: string }
 const WRONG_COUNT = 4;
@@ -47,7 +48,7 @@ export const AiQuizGenerator = () => {
     try {
       const { data: session } = await supabase.auth.getSession()
       const token = session.session?.access_token
-      const resp = await fetch('/api/ai-quiz-draft', {
+      const resp = await apiFetch('/api/ai-quiz-draft', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -83,7 +84,7 @@ export const AiQuizGenerator = () => {
       setLoading(true)
       const { data: session } = await supabase.auth.getSession()
       const token = session.session?.access_token
-      const resp = await fetch('/api/ai-generate-wrongs', {
+      const resp = await apiFetch('/api/ai-generate-wrongs', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -142,7 +143,7 @@ export const AiQuizGenerator = () => {
         ]
       }
 
-      const resp = await fetch('/api/studio-create-quiz-question', {
+      const resp = await apiFetch('/api/studio-create-quiz-question', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

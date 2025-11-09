@@ -12,6 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { quizQuestionSchema, difficultyLevels, type QuizQuestionFormData, type DifficultyLevel } from "@/lib/validations/quiz";
+import { apiFetch } from "@/lib/api";
 
 interface QuizQuestionFormProps {
   challengeId: string;
@@ -53,7 +54,7 @@ export function QuizQuestionForm({ challengeId, onQuestionAdded }: QuizQuestionF
     const token = sessionData.session?.access_token;
     if (!token) throw new Error('Não autenticado');
 
-    const resp = await fetch('/api/studio-create-quiz-question', {
+    const resp = await apiFetch('/api/studio-create-quiz-question', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

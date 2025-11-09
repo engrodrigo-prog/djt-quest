@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import djtCover from '@/assets/backgrounds/djt-quest-cover.png';
+import { apiFetch } from "@/lib/api";
 
 interface UserOption {
   id: string;
@@ -190,7 +191,7 @@ const Auth = () => {
     }
     setResetLoading(true);
     try {
-      const response = await fetch('/api/request-password-reset', {
+      const response = await apiFetch('/api/request-password-reset', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ identifier: resetIdentifier, reason: resetReason }),

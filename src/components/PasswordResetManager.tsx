@@ -7,6 +7,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Loader2, Mail, User, CheckCircle, XCircle } from 'lucide-react';
 import { fetchTeamNames } from '@/lib/teamLookup';
+import { apiFetch } from '@/lib/api';
 
 interface PasswordResetRequest {
   id: string;
@@ -78,7 +79,7 @@ export function PasswordResetManager() {
       const token = session.session?.access_token;
       if (!token) throw new Error('Sessão expirada');
 
-      const response = await fetch('/api/review-password-reset', {
+      const response = await apiFetch('/api/review-password-reset', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

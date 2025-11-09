@@ -25,6 +25,7 @@ import { QuizHistory } from '@/components/profile/QuizHistory';
 import { ChangePasswordCard } from '@/components/profile/ChangePasswordCard';
 import Navigation from '@/components/Navigation';
 import { fetchTeamNames } from '@/lib/teamLookup';
+import { apiFetch } from '@/lib/api';
 
 interface UserProfile {
   name: string;
@@ -253,7 +254,7 @@ function ProfileContent() {
     try {
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData.session?.access_token;
-      const resp = await fetch('/api/process-avatar', {
+      const resp = await apiFetch('/api/process-avatar', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -308,7 +309,7 @@ function ProfileContent() {
       setAvatarSaving(true);
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData.session?.access_token;
-      const resp = await fetch('/api/process-avatar', {
+      const resp = await apiFetch('/api/process-avatar', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

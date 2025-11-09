@@ -11,6 +11,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { useToast } from '@/hooks/use-toast';
 import { Search, Trash2, Users, AlertTriangle, CheckCircle, Loader2 } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { apiFetch } from '@/lib/api';
 
 interface UserProfile {
   id: string;
@@ -144,7 +145,7 @@ export const UserManagement = () => {
 
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData.session?.access_token;
-      const resp = await fetch('/api/studio-update-user', {
+      const resp = await apiFetch('/api/studio-update-user', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
