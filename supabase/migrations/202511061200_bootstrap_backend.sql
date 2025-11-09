@@ -262,9 +262,17 @@ do $$ begin
   end if;
 end $$;
 do $$ begin
-  if not exists (select 1 from pg_policies where schemaname='public' and tablename='forum_posts' and policyname='ForumPosts: read') then
-    create policy "ForumPosts: read" on public.forum_posts for select using (true);
-    create policy "ForumPosts: create" on public.forum_posts for insert with check (auth.uid() = user_id);
+  if not exists (select 1 from information_schema.columns where table_schema='public' and table_name='forum_posts' and column_name='author_id') then
+    -- Fallback to user_id if author_id does not exist
+    if not exists (select 1 from pg_policies where schemaname='public' and tablename='forum_posts' and policyname='ForumPosts: read') then
+      create policy "ForumPosts: read" on public.forum_posts for select using (true);
+      create policy "ForumPosts: create" on public.forum_posts for insert with check (auth.uid() = user_id);
+    end if;
+  else
+    if not exists (select 1 from pg_policies where schemaname='public' and tablename='forum_posts' and policyname='ForumPosts: read') then
+      create policy "ForumPosts: read" on public.forum_posts for select using (true);
+      create policy "ForumPosts: create" on public.forum_posts for insert with check (auth.uid() = author_id);
+    end if;
   end if;
 end $$;
 

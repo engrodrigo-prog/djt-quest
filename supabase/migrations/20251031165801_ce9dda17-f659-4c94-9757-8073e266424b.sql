@@ -1,5 +1,5 @@
 -- Create pending_registrations table for self-registration with approval
-CREATE TABLE public.pending_registrations (
+CREATE TABLE IF NOT EXISTS public.pending_registrations (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name TEXT NOT NULL,
   email TEXT NOT NULL UNIQUE,
@@ -18,23 +18,41 @@ CREATE TABLE public.pending_registrations (
 ALTER TABLE public.pending_registrations ENABLE ROW LEVEL SECURITY;
 
 -- Policy: Anyone (even anonymous) can register
-CREATE POLICY "Anyone can register"
-  ON public.pending_registrations 
-  FOR INSERT
-  WITH CHECK (true);
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='pending_registrations' AND policyname='Anyone can register'
+  ) THEN
+    CREATE POLICY "Anyone can register"
+      ON public.pending_registrations 
+      FOR INSERT
+      WITH CHECK (true);
+  END IF;
+END $$;
 
 -- Policy: Coordinators can view pending registrations
-CREATE POLICY "Coordinators can view pending"
-  ON public.pending_registrations 
-  FOR SELECT
-  USING (has_role(auth.uid(), 'coordenador_djtx') 
-         OR has_role(auth.uid(), 'gerente_divisao_djtx') 
-         OR has_role(auth.uid(), 'gerente_djt'));
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='pending_registrations' AND policyname='Coordinators can view pending'
+  ) THEN
+    CREATE POLICY "Coordinators can view pending"
+      ON public.pending_registrations 
+      FOR SELECT
+      USING (has_role(auth.uid(), 'coordenador_djtx') 
+             OR has_role(auth.uid(), 'gerente_divisao_djtx') 
+             OR has_role(auth.uid(), 'gerente_djt'));
+  END IF;
+END $$;
 
 -- Policy: Coordinators can update registration status
-CREATE POLICY "Coordinators can update status"
-  ON public.pending_registrations 
-  FOR UPDATE
-  USING (has_role(auth.uid(), 'coordenador_djtx') 
-         OR has_role(auth.uid(), 'gerente_divisao_djtx') 
-         OR has_role(auth.uid(), 'gerente_djt'));
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='pending_registrations' AND policyname='Coordinators can update status'
+  ) THEN
+    CREATE POLICY "Coordinators can update status"
+      ON public.pending_registrations 
+      FOR UPDATE
+      USING (has_role(auth.uid(), 'coordenador_djtx') 
+             OR has_role(auth.uid(), 'gerente_divisao_djtx') 
+             OR has_role(auth.uid(), 'gerente_djt'));
+  END IF;
+END $$;

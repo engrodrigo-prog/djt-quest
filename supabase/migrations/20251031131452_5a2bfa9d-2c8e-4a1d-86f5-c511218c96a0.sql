@@ -26,11 +26,13 @@ CREATE TABLE IF NOT EXISTS public.profile_change_requests (
 ALTER TABLE public.profile_change_requests ENABLE ROW LEVEL SECURITY;
 
 -- Policies
+DROP POLICY IF EXISTS "Users can view own change requests" ON public.profile_change_requests;
 CREATE POLICY "Users can view own change requests"
 ON public.profile_change_requests
 FOR SELECT
 USING (auth.uid() = user_id OR auth.uid() = requested_by);
 
+DROP POLICY IF EXISTS "Users can create change requests for themselves" ON public.profile_change_requests;
 CREATE POLICY "Users can create change requests for themselves"
 ON public.profile_change_requests
 FOR INSERT
@@ -71,10 +73,19 @@ BEGIN
 END;
 $$;
 
-CREATE TRIGGER update_profile_change_requests_updated_at
-BEFORE UPDATE ON public.profile_change_requests
-FOR EACH ROW
-EXECUTE FUNCTION update_profile_change_requests_updated_at();
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger t
+    JOIN pg_class c ON c.oid = t.tgrelid
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE t.tgname = 'update_profile_change_requests_updated_at' AND n.nspname = 'public' AND c.relname = 'profile_change_requests'
+  ) THEN
+    CREATE TRIGGER update_profile_change_requests_updated_at
+    BEFORE UPDATE ON public.profile_change_requests
+    FOR EACH ROW
+    EXECUTE FUNCTION update_profile_change_requests_updated_at();
+  END IF;
+END $$;
 
 -- Índices para performance
 CREATE INDEX IF NOT EXISTS idx_profile_change_requests_user_id ON public.profile_change_requests(user_id);

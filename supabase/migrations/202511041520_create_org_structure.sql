@@ -1,14 +1,15 @@
 -- Ensure helper function exists
-create or replace function public.has_role(uid uuid, role text)
-returns boolean
-language sql
-stable
-as $$
-  select exists(
-    select 1 from public.user_roles ur
-    where ur.user_id = uid and ur.role = has_role.role
-  );
-$$;
+do $$ begin
+  if to_regprocedure('public.has_role(uuid,text)') is null then
+    create function public.has_role(uid uuid, role text)
+    returns boolean language sql stable as $func$
+      select exists(
+        select 1 from public.user_roles ur
+        where ur.user_id = uid and ur.role = has_role.role
+      );
+    $func$;
+  end if;
+end $$;
 
 -- Departments
 create table if not exists public.departments (
@@ -38,10 +39,11 @@ create table if not exists public.coordinations (
 );
 
 -- Teams
+-- Note: teams table exists with coord_id on some environments; keep this block safe
 create table if not exists public.teams (
   id text primary key,
   name text not null,
-  coordination_id text references public.coordinations(id) on delete cascade,
+  coord_id text references public.coordinations(id) on delete cascade,
   team_modifier numeric default 1.0,
   modifier_reason text,
   last_modifier_update timestamptz,

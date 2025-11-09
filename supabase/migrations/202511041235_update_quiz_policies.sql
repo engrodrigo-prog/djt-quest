@@ -7,6 +7,10 @@ drop policy if exists "Coordinators can insert options" on public.quiz_options;
 drop policy if exists "Coordinators can update options" on public.quiz_options;
 drop policy if exists "Coordinators can delete options" on public.quiz_options;
 
+do $$ begin
+  if not exists (
+    select 1 from pg_policies where schemaname='public' and tablename='quiz_questions' and policyname='Studio can create questions'
+  ) then
 create policy "Studio can create questions"
   on public.quiz_questions for insert
   to authenticated
@@ -20,7 +24,13 @@ create policy "Studio can create questions"
         and (coalesce(p.is_leader, false) OR coalesce(p.studio_access, false))
     )
   );
+  end if;
+end $$;
 
+do $$ begin
+  if not exists (
+    select 1 from pg_policies where schemaname='public' and tablename='quiz_questions' and policyname='Studio can update questions'
+  ) then
 create policy "Studio can update questions"
   on public.quiz_questions for update
   to authenticated
@@ -34,7 +44,13 @@ create policy "Studio can update questions"
         and (coalesce(p.is_leader, false) OR coalesce(p.studio_access, false))
     )
   );
+  end if;
+end $$;
 
+do $$ begin
+  if not exists (
+    select 1 from pg_policies where schemaname='public' and tablename='quiz_questions' and policyname='Studio can delete questions'
+  ) then
 create policy "Studio can delete questions"
   on public.quiz_questions for delete
   to authenticated
@@ -48,7 +64,13 @@ create policy "Studio can delete questions"
         and (coalesce(p.is_leader, false) OR coalesce(p.studio_access, false))
     )
   );
+  end if;
+end $$;
 
+do $$ begin
+  if not exists (
+    select 1 from pg_policies where schemaname='public' and tablename='quiz_options' and policyname='Studio can insert options'
+  ) then
 create policy "Studio can insert options"
   on public.quiz_options for insert
   to authenticated
@@ -69,7 +91,13 @@ create policy "Studio can insert options"
         )
     )
   );
+  end if;
+end $$;
 
+do $$ begin
+  if not exists (
+    select 1 from pg_policies where schemaname='public' and tablename='quiz_options' and policyname='Studio can update options'
+  ) then
 create policy "Studio can update options"
   on public.quiz_options for update
   to authenticated
@@ -83,7 +111,13 @@ create policy "Studio can update options"
         and (coalesce(p.is_leader, false) OR coalesce(p.studio_access, false))
     )
   );
+  end if;
+end $$;
 
+do $$ begin
+  if not exists (
+    select 1 from pg_policies where schemaname='public' and tablename='quiz_options' and policyname='Studio can delete options'
+  ) then
 create policy "Studio can delete options"
   on public.quiz_options for delete
   to authenticated
@@ -97,7 +131,14 @@ create policy "Studio can delete options"
         and (coalesce(p.is_leader, false) OR coalesce(p.studio_access, false))
     )
   );
+  end if;
+end $$;
 
+-- duplicates protection (legacy block repeated)
+do $$ begin
+  if not exists (
+    select 1 from pg_policies where schemaname='public' and tablename='quiz_questions' and policyname='Studio can delete questions'
+  ) then
 create policy "Studio can delete questions"
   on public.quiz_questions for delete
   to authenticated
@@ -111,7 +152,13 @@ create policy "Studio can delete questions"
         and (coalesce(p.is_leader, false) OR coalesce(p.studio_access, false))
     )
   );
+  end if;
+end $$;
 
+do $$ begin
+  if not exists (
+    select 1 from pg_policies where schemaname='public' and tablename='quiz_options' and policyname='Studio can insert options'
+  ) then
 create policy "Studio can insert options"
   on public.quiz_options for insert
   to authenticated
@@ -131,7 +178,13 @@ create policy "Studio can insert options"
         )
     )
   );
+  end if;
+end $$;
 
+do $$ begin
+  if not exists (
+    select 1 from pg_policies where schemaname='public' and tablename='quiz_options' and policyname='Studio can update options'
+  ) then
 create policy "Studio can update options"
   on public.quiz_options for update
   to authenticated
@@ -145,7 +198,13 @@ create policy "Studio can update options"
         and (coalesce(p.is_leader, false) OR coalesce(p.studio_access, false))
     )
   );
+  end if;
+end $$;
 
+do $$ begin
+  if not exists (
+    select 1 from pg_policies where schemaname='public' and tablename='quiz_options' and policyname='Studio can delete options'
+  ) then
 create policy "Studio can delete options"
   on public.quiz_options for delete
   to authenticated
@@ -159,3 +218,5 @@ create policy "Studio can delete options"
         and (coalesce(p.is_leader, false) OR coalesce(p.studio_access, false))
     )
   );
+  end if;
+end $$;

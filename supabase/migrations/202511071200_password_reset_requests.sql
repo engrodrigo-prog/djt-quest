@@ -1,5 +1,9 @@
 -- Password reset workflow
-create type if not exists password_reset_status as enum ('pending','approved','rejected');
+do $$ begin
+  if not exists (select 1 from pg_type where typname = 'password_reset_status') then
+    create type password_reset_status as enum ('pending','approved','rejected');
+  end if;
+end $$;
 
 create table if not exists public.password_reset_requests (
   id uuid primary key default gen_random_uuid(),
@@ -18,19 +22,31 @@ create index if not exists idx_password_reset_requests_requested_at on public.pa
 
 alter table public.password_reset_requests enable row level security;
 
-create policy if not exists "Users can view their password resets"
-  on public.password_reset_requests
-  for select
-  to authenticated
-  using (auth.uid() = user_id);
+do $$ begin
+  if not exists (
+    select 1 from pg_policies where schemaname='public' and tablename='password_reset_requests' and policyname='Users can view their password resets'
+  ) then
+    create policy "Users can view their password resets"
+      on public.password_reset_requests
+      for select
+      to authenticated
+      using (auth.uid() = user_id);
+  end if;
+end $$;
 
-create policy if not exists "Leaders can review password resets"
-  on public.password_reset_requests
-  for select
-  to authenticated
-  using (
-    public.has_role(auth.uid(), 'admin') or
-    public.has_role(auth.uid(), 'gerente_djt') or
-    public.has_role(auth.uid(), 'gerente_divisao_djtx') or
-    public.has_role(auth.uid(), 'coordenador_djtx')
-  );
+do $$ begin
+  if not exists (
+    select 1 from pg_policies where schemaname='public' and tablename='password_reset_requests' and policyname='Leaders can review password resets'
+  ) then
+    create policy "Leaders can review password resets"
+      on public.password_reset_requests
+      for select
+      to authenticated
+      using (
+        public.has_role(auth.uid(), 'admin') or
+        public.has_role(auth.uid(), 'gerente_djt') or
+        public.has_role(auth.uid(), 'gerente_divisao_djtx') or
+        public.has_role(auth.uid(), 'coordenador_djtx')
+      );
+  end if;
+end $$;
