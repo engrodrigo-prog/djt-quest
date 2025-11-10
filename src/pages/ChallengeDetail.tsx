@@ -102,20 +102,28 @@ const ChallengeDetail = () => {
 
       // Se for quiz, verificar se já foi concluído
       if (data?.type?.toLowerCase?.().includes('quiz') && user) {
-        // Prefer attempt table if present
-        const { data: attempt } = await supabase
-          .from('quiz_attempts')
-          .select('submitted_at')
-          .eq('user_id', user.id)
-          .eq('challenge_id', data.id)
-          .maybeSingle();
-        if (attempt?.submitted_at) {
-          setQuizCompleted(true);
-        } else {
-          const { count: totalQuestions } = await supabase
-            .from('quiz_questions')
-            .select('id', { count: 'exact', head: true })
-            .eq('challenge_id', data.id);
+        const hasAttempts = (import.meta as any).env?.VITE_HAS_QUIZ_ATTEMPTS === '1';
+        if (hasAttempts) {
+          try {
+            const { data: attempt } = await supabase
+              .from('quiz_attempts')
+              .select('submitted_at')
+              .eq('user_id', user.id)
+              .eq('challenge_id', data.id)
+              .maybeSingle();
+            if (attempt?.submitted_at) {
+              setQuizCompleted(true);
+              setLoading(false);
+              return;
+            }
+          } catch {
+            // ignore if table not present
+          }
+        }
+        const { count: totalQuestions } = await supabase
+          .from('quiz_questions')
+          .select('id', { count: 'exact', head: true })
+          .eq('challenge_id', data.id);
 
           const { count: answeredQuestions } = await supabase
             .from('user_quiz_answers')
@@ -125,8 +133,7 @@ const ChallengeDetail = () => {
 
           const total = totalQuestions || 0;
           const answered = answeredQuestions || 0;
-          setQuizCompleted(total > 0 && answered >= total);
-        }
+        setQuizCompleted(total > 0 && answered >= total);
       }
 
       setLoading(false);
@@ -633,8 +640,17 @@ const ChallengeDetail = () => {
             <CardContent className="flex flex-wrap gap-2">
               <Button type="button" variant="outline" onClick={async () => {
                 try {
-                  const { error } = await supabase.from('challenges').update({ status: 'active' }).eq('id', challenge.id);
-                  if (error) throw error;
+                  // Prefer API route with service role for compatibility (RLS differences across envs)
+                  const { data: session } = await supabase.auth.getSession();
+                  const token = session.session?.access_token;
+                  const resp = await fetch('/api/challenges-update-status', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+                    body: JSON.stringify({ id: challenge.id, status: 'active' })
+                  });
+                  if (!resp.ok) {
+                    const j = await resp.json().catch(()=>({}));
+                    throw new Error(j?.error || 'Falha ao reabrir');
+                  }
                   toast({ title: 'Quiz reaberto para coleta' });
                   setChallenge({ ...challenge, status: 'active' });
                 } catch (e: any) {
@@ -644,8 +660,16 @@ const ChallengeDetail = () => {
 
               <Button type="button" variant="secondary" onClick={async () => {
                 try {
-                  const { error } = await supabase.from('challenges').update({ status: 'closed' }).eq('id', challenge.id);
-                  if (error) throw error;
+                  const { data: session } = await supabase.auth.getSession();
+                  const token = session.session?.access_token;
+                  const resp = await fetch('/api/challenges-update-status', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+                    body: JSON.stringify({ id: challenge.id, status: 'closed' })
+                  });
+                  if (!resp.ok) {
+                    const j = await resp.json().catch(()=>({}));
+                    throw new Error(j?.error || 'Falha ao encerrar');
+                  }
                   toast({ title: 'Coleta encerrada' });
                   setChallenge({ ...challenge, status: 'closed' });
                 } catch (e: any) {

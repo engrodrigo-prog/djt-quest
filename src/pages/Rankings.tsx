@@ -98,7 +98,6 @@ export function Rankings() {
           acc[team.id] = team.name;
           return acc;
         }, {});
-        setTeamNames(teamMap);
 
         const ranked = [...profilesData]
           .sort((a, b) => (b.xp || 0) - (a.xp || 0))

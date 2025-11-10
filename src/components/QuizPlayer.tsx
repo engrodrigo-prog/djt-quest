@@ -50,21 +50,26 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
 
   const loadQuestions = useCallback(async () => {
     try {
-      // If attempt already submitted, don't show questions
-      const { data: session } = await supabase.auth.getSession();
-      const uid = session.session?.user?.id;
-      if (uid) {
-        const { data: attempt } = await supabase
-          .from('quiz_attempts')
-          .select('submitted_at')
-          .eq('user_id', uid)
-          .eq('challenge_id', challengeId)
-          .maybeSingle();
-        if (attempt?.submitted_at) {
-          setQuestions([]);
-          setLoading(false);
-          toast("Quiz já concluído. Consulte o histórico em Perfil.");
-          return;
+      // If attempt already submitted, don't show questions (only when attempts table is available)
+      const hasAttempts = (import.meta as any).env?.VITE_HAS_QUIZ_ATTEMPTS === '1';
+      if (hasAttempts) {
+        const { data: session } = await supabase.auth.getSession();
+        const uid = session.session?.user?.id;
+        if (uid) {
+          try {
+            const { data: attempt } = await supabase
+              .from('quiz_attempts')
+              .select('submitted_at')
+              .eq('user_id', uid)
+              .eq('challenge_id', challengeId)
+              .maybeSingle();
+            if (attempt?.submitted_at) {
+              setQuestions([]);
+              setLoading(false);
+              toast("Quiz já concluído. Consulte o histórico em Perfil.");
+              return;
+            }
+          } catch {/* ignore if table not present */}
         }
       }
       const { data, error } = await supabase
