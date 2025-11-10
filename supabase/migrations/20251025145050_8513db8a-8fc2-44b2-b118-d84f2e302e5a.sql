@@ -222,7 +222,7 @@ DROP POLICY IF EXISTS "Leaders can create topics" ON public.forum_topics;
 CREATE POLICY "Leaders can create topics"
 ON public.forum_topics FOR INSERT
 WITH CHECK (
-  EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND studio_access = TRUE)
+  EXISTS (SELECT 1 FROM profiles WHERE id = (select auth.uid()) AND studio_access = TRUE)
 );
 
 DROP POLICY IF EXISTS "Users can view targeted topics" ON public.forum_topics;
@@ -234,7 +234,7 @@ USING (
     target_coord_ids IS NULL OR
     target_div_ids IS NULL OR
     target_dept_ids IS NULL OR
-    auth.uid() IN (
+    (select auth.uid()) IN (
       SELECT id FROM public.profiles 
       WHERE 
         (team_id::text = ANY(target_team_ids::text[]) OR target_team_ids IS NULL) AND
@@ -249,7 +249,7 @@ DROP POLICY IF EXISTS "Leaders can moderate topics" ON public.forum_topics;
 CREATE POLICY "Leaders can moderate topics"
 ON public.forum_topics FOR UPDATE
 USING (
-  EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND studio_access = TRUE)
+  EXISTS (SELECT 1 FROM profiles WHERE id = (select auth.uid()) AND studio_access = TRUE)
 );
 
 -- 10. RLS POLICIES - forum_posts
@@ -257,7 +257,7 @@ DROP POLICY IF EXISTS "Users can create posts" ON public.forum_posts;
 CREATE POLICY "Users can create posts"
 ON public.forum_posts FOR INSERT
 WITH CHECK (
-  author_id = auth.uid() AND
+  author_id = (select auth.uid()) AND
   EXISTS (
     SELECT 1 FROM public.forum_topics 
     WHERE id = topic_id AND is_active = TRUE AND is_locked = FALSE
@@ -278,7 +278,7 @@ DROP POLICY IF EXISTS "Users can edit own posts" ON public.forum_posts;
 CREATE POLICY "Users can edit own posts"
 ON public.forum_posts FOR UPDATE
 USING (
-  author_id = auth.uid() AND
+  author_id = (select auth.uid()) AND
   created_at > NOW() - INTERVAL '24 hours'
 );
 
@@ -286,19 +286,19 @@ DROP POLICY IF EXISTS "Leaders can moderate posts" ON public.forum_posts;
 CREATE POLICY "Leaders can moderate posts"
 ON public.forum_posts FOR UPDATE
 USING (
-  EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND studio_access = TRUE)
+  EXISTS (SELECT 1 FROM profiles WHERE id = (select auth.uid()) AND studio_access = TRUE)
 );
 
 -- 11. RLS POLICIES - outras tabelas
 DROP POLICY IF EXISTS "Users can view own mentions" ON public.forum_mentions;
 CREATE POLICY "Users can view own mentions"
 ON public.forum_mentions FOR SELECT
-USING (mentioned_user_id = auth.uid());
+USING (mentioned_user_id = (select auth.uid()));
 
 DROP POLICY IF EXISTS "Users can like posts" ON public.forum_likes;
 CREATE POLICY "Users can like posts"
 ON public.forum_likes FOR INSERT
-WITH CHECK (user_id = auth.uid());
+WITH CHECK (user_id = (select auth.uid()));
 
 DROP POLICY IF EXISTS "Users can view likes" ON public.forum_likes;
 CREATE POLICY "Users can view likes"
@@ -308,7 +308,7 @@ USING (TRUE);
 DROP POLICY IF EXISTS "Users manage own subscriptions" ON public.forum_subscriptions;
 CREATE POLICY "Users manage own subscriptions"
 ON public.forum_subscriptions FOR ALL
-USING (user_id = auth.uid());
+USING (user_id = (select auth.uid()));
 
 DROP POLICY IF EXISTS "Anyone can view hashtags" ON public.forum_hashtags;
 CREATE POLICY "Anyone can view hashtags"

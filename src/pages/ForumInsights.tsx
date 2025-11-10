@@ -1,0 +1,107 @@
+import { useEffect, useState } from 'react'
+import { ThemedBackground } from '@/components/ThemedBackground'
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { useAuth } from '@/contexts/AuthContext'
+import { useToast } from '@/hooks/use-toast'
+import { HelpInfo } from '@/components/HelpInfo'
+
+interface InsightItem {
+  topic_id: string
+  title: string
+  priority: number
+  chas: 'C'|'H'|'A'|'S'
+  specialties: string[]
+  summary: string
+  proposed_actions: Array<{ type: string; title: string; description: string; target: string }>
+  justification: string
+}
+
+export default function ForumInsights() {
+  const { isLeader } = useAuth()
+  const { toast } = useToast()
+  const [items, setItems] = useState<InsightItem[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    ;(async () => {
+      try {
+        const resp = await fetch('/api/forum-top-insights')
+        const j = await resp.json()
+        if (!resp.ok) throw new Error(j?.error || 'Falha ao carregar insights')
+        setItems(j.items || [])
+      } catch (e: any) {
+        toast({ title: 'Erro', description: e?.message || 'Falha ao carregar insights', variant: 'destructive' })
+      } finally { setLoading(false) }
+    })()
+  }, [toast])
+
+  const sendToStudio = (ins: InsightItem, kind: 'quiz' | 'desafio' | 'campanha') => {
+    // Store a draft locally for Studio to pick up later
+    const draft = { kind, title: ins.title, summary: ins.summary, actions: ins.proposed_actions, chas: ins.chas, specialties: ins.specialties }
+    localStorage.setItem('studio_compendium_draft', JSON.stringify(draft))
+    window.location.href = '/studio'
+  }
+
+  const chasLabel = (c: string) => ({ C: 'Conhecimento', H: 'Habilidade', A: 'Atitude', S: 'Segurança' } as any)[c] || c
+
+  return (
+    <div className="relative min-h-screen pb-40">
+      <ThemedBackground theme="atitude" />
+      <HelpInfo kind="forum" />
+      <div className="container relative mx-auto p-4 md:p-6 max-w-5xl space-y-4">
+        <div>
+          <h1 className="text-3xl font-bold">Top Temas & Ações (Fórum)</h1>
+          <p className="text-muted-foreground">Curadoria por IA dos 10 temas mais relevantes com propostas de ações alinhadas ao CHAS.</p>
+        </div>
+        {loading ? (
+          <Card><CardContent className="p-6">Carregando...</CardContent></Card>
+        ) : items.length === 0 ? (
+          <Card><CardContent className="p-6">Sem insights no período.</CardContent></Card>
+        ) : (
+          <div className="space-y-3">
+            {items.map((ins, idx) => (
+              <Card key={ins.topic_id}>
+                <CardHeader>
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <CardTitle className="truncate">#{idx+1} — {ins.title}</CardTitle>
+                      <CardDescription className="mt-1 line-clamp-2">{ins.summary}</CardDescription>
+                    </div>
+                    <div className="flex flex-col items-end gap-2 flex-shrink-0">
+                      <Badge>{chasLabel(ins.chas)}</Badge>
+                      <div className="flex gap-1 flex-wrap justify-end">
+                        {ins.specialties?.slice(0,4).map(s => (<Badge key={s} variant="outline" className="text-xs">{s}</Badge>))}
+                      </div>
+                      <Badge variant={ins.priority >=4 ? 'destructive' : ins.priority>=3 ? 'default' : 'secondary'}>Prioridade {ins.priority}</Badge>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="text-sm">
+                    <div className="font-semibold mb-1">Propostas de Ação</div>
+                    <ul className="list-disc pl-6 space-y-1">
+                      {ins.proposed_actions?.map((a, i) => (
+                        <li key={i}><span className="font-medium capitalize">{a.type}</span>: {a.title} — {a.description} <span className="text-xs text-muted-foreground">(alvo: {a.target})</span></li>
+                      ))}
+                    </ul>
+                  </div>
+                  {isLeader && (
+                    <div className="flex gap-2">
+                      <Button size="sm" variant="outline" onClick={()=>sendToStudio(ins, 'quiz')}>Criar Quiz (rascunho)</Button>
+                      <Button size="sm" variant="outline" onClick={()=>sendToStudio(ins, 'desafio')}>Criar Desafio (rascunho)</Button>
+                      <Button size="sm" variant="outline" onClick={()=>sendToStudio(ins, 'campanha')}>Criar Campanha (rascunho)</Button>
+                    </div>
+                  )}
+                  <div className="text-xs text-muted-foreground">{ins.justification}</div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+

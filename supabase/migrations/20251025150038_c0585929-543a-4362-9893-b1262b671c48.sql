@@ -31,7 +31,7 @@ ON public.team_events FOR INSERT
 WITH CHECK (
   EXISTS (
     SELECT 1 FROM public.profiles 
-    WHERE id = auth.uid() 
+    WHERE id = (select auth.uid()) 
       AND is_leader = TRUE 
       AND team_id = team_events.team_id
   )
@@ -42,16 +42,16 @@ DROP POLICY IF EXISTS "Team members can view team events" ON public.team_events;
 CREATE POLICY "Team members can view team events"
 ON public.team_events FOR SELECT
 USING (
-  auth.uid() = created_by OR
-  auth.uid() = ANY(affected_users) OR
+  (select auth.uid()) = created_by OR
+  (select auth.uid()) = ANY(affected_users) OR
   EXISTS (
     SELECT 1 FROM public.profiles 
-    WHERE id = auth.uid() 
+    WHERE id = (select auth.uid()) 
       AND team_id = team_events.team_id
   )
 );
 
--- 1.4 Criar view para XP médio por equipe
+DROP VIEW IF EXISTS public.team_xp_summary;
 CREATE OR REPLACE VIEW public.team_xp_summary AS
 SELECT 
   t.id AS team_id,

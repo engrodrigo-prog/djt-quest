@@ -18,6 +18,9 @@ import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/ca
 import { Badge } from "@/components/ui/badge";
 import { UserManagement } from "./UserManagement";
 import EvaluationManagement from "./EvaluationManagement";
+import { useEffect, useState } from "react";
+import { apiFetch, apiBaseUrl } from "@/lib/api";
+import { supabase } from "@/integrations/supabase/client";
 
 interface StudioModule {
   id: string;
@@ -36,46 +39,81 @@ interface StudioDashboardProps {
 }
 
 export const StudioDashboard = ({ onSelectModule, userRole }: StudioDashboardProps) => {
+  const [badges, setBadges] = useState<{ approvals: number; passwordResets: number; evaluations: number; forumMentions: number; registrations: number }>({ approvals: 0, passwordResets: 0, evaluations: 0, forumMentions: 0, registrations: 0 });
+
+  useEffect(() => {
+    let active = true;
+    let timer: any;
+
+    const fetchCounts = async () => {
+      try {
+        const canUseApi = !import.meta.env.DEV || (!!apiBaseUrl && apiBaseUrl.length > 0);
+        if (canUseApi) {
+          const resp = await apiFetch('/api/studio-pending-counts');
+          const json = await resp.json();
+          if (!resp.ok) throw new Error('api_failed');
+          if (active) setBadges({
+            approvals: json.approvals || 0,
+            passwordResets: json.passwordResets || 0,
+            evaluations: json.evaluations || 0,
+            forumMentions: json.forumMentions || 0,
+            registrations: json.registrations || 0,
+          });
+          return;
+        }
+        throw new Error('skip_api_in_dev');
+      } catch {
+        // Fallback via Supabase client
+        try {
+          const { data: userData } = await supabase.auth.getUser();
+          const uid = userData.user?.id;
+          const q = (tbl: string, filter: (rq: any) => any) => filter(supabase.from(tbl)).select('id', { count: 'exact', head: true });
+          const [ap, pr, rg, ev, la, fm] = await Promise.all([
+            q('profile_change_requests', (rq) => rq.eq('status','pending')),
+            q('password_reset_requests', (rq) => rq.eq('status','pending')),
+            q('pending_registrations', (rq) => rq.eq('status','pending')),
+            uid ? q('evaluation_queue', (rq) => rq.eq('assigned_to', uid).is('completed_at', null)) : Promise.resolve({ count: 0 }),
+            uid ? q('leadership_challenge_assignments', (rq) => rq.eq('user_id', uid).eq('status','assigned')) : Promise.resolve({ count: 0 }),
+            uid ? q('forum_mentions', (rq) => rq.eq('mentioned_user_id', uid).eq('is_read', false)) : Promise.resolve({ count: 0 }),
+          ] as any);
+          const next = {
+            approvals: ap?.count || 0,
+            passwordResets: pr?.count || 0,
+            registrations: rg?.count || 0,
+            evaluations: (ev as any)?.count || 0,
+            forumMentions: (fm as any)?.count || 0,
+          } as any;
+          if (active) setBadges(next);
+        } catch {}
+      }
+    };
+
+    fetchCounts();
+    timer = setInterval(fetchCounts, 30000);
+    const onFocus = () => fetchCounts();
+    const onVisibility = () => { if (document.visibilityState === 'visible') fetchCounts(); };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+
+    return () => { active = false; clearInterval(timer); window.removeEventListener('focus', onFocus); document.removeEventListener('visibilitychange', onVisibility); };
+  }, []);
+
   const modules: StudioModule[] = [
     {
-      id: 'campaigns',
-      title: 'Campanhas',
-      description: 'Criar e gerenciar campanhas temáticas',
+      id: 'content',
+      title: 'Campanhas • Desafios • Quizzes',
+      description: 'Gerenciar conteúdos de engajamento',
       icon: Target,
       gradientFrom: 'from-djt-blue-medium',
       gradientTo: 'to-djt-blue-dark',
     },
     {
-      id: 'import-users',
-      title: 'Importar Usuários',
-      description: 'Carregar CSV e sobrescrever existentes',
-      icon: UserPlus,
-      gradientFrom: 'from-emerald-500',
-      gradientTo: 'to-green-600',
-    },
-    {
-      id: 'quiz',
-      title: 'Quiz',
-      description: 'Perguntas com alternativas e XP por acerto',
-      icon: HelpCircle,
+      id: 'user-management',
+      title: 'Gerenciar Usuários',
+      description: 'Criar, editar e limpar usuários',
+      icon: Users,
       gradientFrom: 'from-primary',
       gradientTo: 'to-djt-blue-dark',
-    },
-    {
-      id: 'ai-quiz',
-      title: 'Gerar Quiz (IA)',
-      description: 'Use IA para criar perguntas e alternativas',
-      icon: HelpCircle,
-      gradientFrom: 'from-purple-500',
-      gradientTo: 'to-indigo-600',
-    },
-    {
-      id: 'challenges',
-      title: 'Desafios',
-      description: 'Fórum, mentoria, inspeção e atitude',
-      icon: Zap,
-      gradientFrom: 'from-accent',
-      gradientTo: 'to-djt-orange',
     },
     {
       id: 'performance',
@@ -101,21 +139,15 @@ export const StudioDashboard = ({ onSelectModule, userRole }: StudioDashboardPro
       gradientFrom: 'from-pink-500',
       gradientTo: 'to-rose-500',
     },
+    
     {
-      id: 'user-management',
-      title: 'Gerenciar Usuários',
-      description: 'Visualizar, buscar e limpar usuários',
-      icon: Users,
-      gradientFrom: 'from-djt-blue-dark',
-      gradientTo: 'to-primary',
-    },
-    {
-      id: 'approvals',
-      title: 'Aprovações',
-      description: 'Validar pedidos de atualização de perfil',
+      id: 'user-approvals',
+      title: 'Cadastros & Aprovações',
+      description: 'Aprovar cadastros e mudanças de perfil',
       icon: ClipboardCheck,
       gradientFrom: 'from-emerald-500',
       gradientTo: 'to-green-600',
+      badge: (badges.approvals || 0) + (badges.registrations || 0),
     },
     {
       id: 'password-resets',
@@ -124,6 +156,7 @@ export const StudioDashboard = ({ onSelectModule, userRole }: StudioDashboardPro
       icon: Key,
       gradientFrom: 'from-slate-500',
       gradientTo: 'to-slate-900',
+      badge: badges.passwordResets,
     },
     {
       id: 'evaluations',
@@ -132,22 +165,7 @@ export const StudioDashboard = ({ onSelectModule, userRole }: StudioDashboardPro
       icon: ClipboardCheck,
       gradientFrom: 'from-purple-500',
       gradientTo: 'to-pink-500',
-    },
-    {
-      id: 'users',
-      title: 'Criar Usuário',
-      description: 'Adicionar novo usuário ao sistema',
-      icon: UserPlus,
-      gradientFrom: 'from-primary',
-      gradientTo: 'to-djt-blue-dark',
-    },
-    {
-      id: 'registrations',
-      title: 'Cadastros',
-      description: 'Aprovar solicitações de cadastro',
-      icon: UserPlus,
-      gradientFrom: 'from-primary',
-      gradientTo: 'to-djt-blue-medium',
+      badge: badges.evaluations,
     },
     {
       id: 'forums',
@@ -156,6 +174,7 @@ export const StudioDashboard = ({ onSelectModule, userRole }: StudioDashboardPro
       icon: MessageSquare,
       gradientFrom: 'from-muted-foreground',
       gradientTo: 'to-djt-blue-medium',
+      badge: badges.forumMentions,
     },
     {
       id: 'system',
@@ -181,14 +200,14 @@ export const StudioDashboard = ({ onSelectModule, userRole }: StudioDashboardPro
   );
 
   return (
-    <div className="min-h-screen bg-background p-4 md:p-8">
+    <div className="min-h-screen bg-transparent p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-6">
-          <h1 className="text-2xl md:text-3xl font-bold text-foreground mb-1">
+          <h1 className="text-2xl md:text-3xl font-bold text-blue-50 mb-1">
             DJT Quest Studio
           </h1>
-          <p className="text-muted-foreground text-sm md:text-base">
+          <p className="text-blue-100/80 text-sm md:text-base">
             Console de gestão | Modo Líder
           </p>
         </div>
@@ -199,14 +218,14 @@ export const StudioDashboard = ({ onSelectModule, userRole }: StudioDashboardPro
             const Icon = module.icon;
             return (
               <Card
-                key={module.id}
-                className="relative overflow-hidden cursor-pointer group hover:shadow-2xl transition-all duration-300 hover:-translate-y-2 border-border"
+                key={`module-${module.id}`}
+                className="relative overflow-hidden cursor-pointer group hover:shadow-2xl transition-all duration-300 hover:-translate-y-2 border-cyan-800/40 bg-white/5"
                 onClick={() => onSelectModule(module.id)}
               >
                 {/* Badge de contagem (opcional) */}
-                {module.badge && module.badge > 0 && (
-                  <Badge className="absolute top-3 right-3 z-10 bg-destructive text-destructive-foreground">
-                    {module.badge}
+                {typeof module.badge !== 'undefined' && (
+                  <Badge className={`absolute top-3 right-3 z-10 ${module.badge >= 1 ? 'bg-destructive text-destructive-foreground' : 'bg-green-600 text-white'}`}>
+                    {module.badge > 99 ? '99+' : module.badge}
                   </Badge>
                 )}
 
@@ -217,8 +236,8 @@ export const StudioDashboard = ({ onSelectModule, userRole }: StudioDashboardPro
 
                 {/* Conteúdo */}
                 <CardHeader className="pb-4 pt-0">
-                  <CardTitle className="text-lg mb-1 text-card-foreground">{module.title}</CardTitle>
-                  <CardDescription className="text-xs text-muted-foreground">
+                  <CardTitle className="text-lg mb-1 text-blue-50">{module.title}</CardTitle>
+                  <CardDescription className="text-xs text-blue-100/80">
                     {module.description}
                   </CardDescription>
                 </CardHeader>

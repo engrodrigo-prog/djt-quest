@@ -19,6 +19,7 @@ interface PendingEvent {
   user_name: string;
   sla_status: 'green' | 'yellow' | 'red';
   days_remaining: number;
+  evidenceUrls?: string[];
 }
 
 const Evaluations = () => {
@@ -42,30 +43,37 @@ const Evaluations = () => {
 
   const loadPendingEvaluations = useCallback(async () => {
     try {
-      const { data: events, error } = await supabase
-        .from('events')
+      if (!user) return;
+      // Load from evaluation_queue assigned to me and not completed
+      const { data: rows, error } = await supabase
+        .from('evaluation_queue')
         .select(`
-          id,
-          challenge_id,
-          created_at,
-          challenges!inner(title, description),
-          profiles!inner(name)
+          event_id,
+          events!inner(
+            id, created_at, payload,
+            challenges(title, description),
+            profiles:profiles!events_user_id_fkey(name)
+          )
         `)
-        .eq('status', 'awaiting_evaluation')
-        .limit(10);
+        .eq('assigned_to', user.id)
+        .is('completed_at', null)
+        .limit(25);
 
       if (error) throw error;
 
-      const mappedEvents: PendingEvent[] = (events || []).map((event: any) => {
-        const daysOld = Math.floor((Date.now() - new Date(event.created_at).getTime()) / (1000 * 60 * 60 * 24));
+      const mappedEvents: PendingEvent[] = (rows || []).map((row: any) => {
+        const event = row.events;
+        const daysOld = Math.floor((Date.now() - new Date(event?.created_at).getTime()) / (1000 * 60 * 60 * 24));
+        const payload = event?.payload || {};
         return {
-          id: event.id,
-          title: event.challenges?.title || 'Sem título',
-          description: event.challenges?.description || 'Sem descrição',
-          submitted_at: event.created_at,
-          user_name: event.profiles?.name || 'Desconhecido',
+          id: event?.id,
+          title: event?.challenges?.title || 'Sem título',
+          description: payload.description || event?.challenges?.description || 'Sem descrição',
+          submitted_at: event?.created_at,
+          user_name: event?.profiles?.name || 'Desconhecido',
           days_remaining: 5 - daysOld,
-          sla_status: daysOld < 3 ? 'green' : daysOld < 5 ? 'yellow' : 'red'
+          sla_status: daysOld < 3 ? 'green' : daysOld < 5 ? 'yellow' : 'red',
+          evidenceUrls: Array.isArray(payload.evidence_urls) ? payload.evidence_urls : [],
         };
       });
 
@@ -80,7 +88,7 @@ const Evaluations = () => {
     } finally {
       setLoading(false);
     }
-  }, [toast]);
+  }, [toast, user]);
 
   useEffect(() => {
     if (user && studioAccess) {
@@ -182,7 +190,7 @@ const Evaluations = () => {
   const canSubmit = feedbackPositivo.length >= 140 && feedbackConstrutivo.length >= 140;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-secondary/5 pb-20 md:pb-8">
+    <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-secondary/5 pb-40 md:pb-20">
       <div className="container mx-auto p-4 md:p-6 space-y-6">
         <div>
           <h1 className="text-3xl md:text-4xl font-bold flex items-center gap-2">
@@ -251,6 +259,19 @@ const Evaluations = () => {
                   <h3 className="font-semibold mb-2">Descrição da Ação</h3>
                   <p className="text-sm text-muted-foreground">{selectedEvent.description}</p>
                 </div>
+
+                {selectedEvent.evidenceUrls && selectedEvent.evidenceUrls.length > 0 && (
+                  <div>
+                    <h3 className="font-semibold mb-2">Evidências</h3>
+                    <div className="grid grid-cols-3 gap-2">
+                      {selectedEvent.evidenceUrls.slice(0,6).map((url, idx) => (
+                        <a href={url} target="_blank" rel="noreferrer" key={idx} className="block group">
+                          <img src={url} alt={`evidência ${idx+1}`} className="w-full h-24 object-cover rounded-md border group-hover:opacity-90" />
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 <div className="space-y-4">
                   <h3 className="font-semibold">Critérios de Avaliação (1.0 - 5.0)</h3>

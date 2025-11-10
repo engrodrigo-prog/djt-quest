@@ -33,7 +33,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const hasPermission = (roles || []).some((r: any) => allowed.has(r.role))
     if (!hasPermission) return res.status(403).json({ error: 'Sem permissão (apenas líderes)' })
 
-    const { topic, difficulty = 'basica', language = 'pt-BR' } = req.body || {}
+    const { topic, difficulty = 'basico', language = 'pt-BR' } = req.body || {}
     if (!topic || typeof topic !== 'string') return res.status(400).json({ error: 'Informe um tema (topic)' })
 
     const system = `Você é um gerador de questões de múltipla escolha para treinamento corporativo em ${language}. Gere 1 questão objetiva sobre o tema fornecido. Inclua:
@@ -89,4 +89,3 @@ Responda apenas em JSON válido, sem comentários.`
 }
 
 export const config = { api: { bodyParser: true } }
-

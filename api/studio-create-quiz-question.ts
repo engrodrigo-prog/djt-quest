@@ -29,8 +29,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const hasCorrect = options.some((o: any) => o.is_correct === true);
     if (!hasCorrect) return res.status(400).json({ error: 'Uma alternativa correta é obrigatória' });
 
-    const xpMap: Record<string, number> = { basica: 10, intermediaria: 20, avancada: 30, especialista: 50 };
-    const xp = xpMap[difficulty_level];
+    const xpMap: Record<string, number> = { basico: 5, intermediario: 10, avancado: 20, especialista: 40 };
+    const xp = xpMap[difficulty_level as keyof typeof xpMap];
     if (!xp) return res.status(400).json({ error: 'Dificuldade inválida' });
 
     const { data: question, error: qErr } = await supabase
@@ -62,4 +62,3 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 }
 
 export const config = { api: { bodyParser: true } };
-

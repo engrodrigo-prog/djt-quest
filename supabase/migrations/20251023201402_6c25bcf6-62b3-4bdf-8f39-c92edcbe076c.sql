@@ -215,7 +215,7 @@ DROP POLICY IF EXISTS "Admins and gerentes can manage campaigns" ON public.campa
 CREATE POLICY "Admins and gerentes can manage campaigns"
   ON public.campaigns FOR ALL
   TO authenticated
-  USING (public.has_role(auth.uid(), 'admin') OR public.has_role(auth.uid(), 'gerente'));
+  USING (public.has_role((select auth.uid()), 'admin') OR public.has_role((select auth.uid()), 'gerente'));
 
 -- RLS Policies for challenges
 DROP POLICY IF EXISTS "All can view challenges" ON public.challenges;
@@ -229,10 +229,34 @@ CREATE POLICY "Admins and leaders can create challenges"
   ON public.challenges FOR INSERT
   TO authenticated
   WITH CHECK (
-    public.has_role(auth.uid(), 'admin') OR 
-    public.has_role(auth.uid(), 'gerente') OR
-    public.has_role(auth.uid(), 'lider_divisao') OR
-    public.has_role(auth.uid(), 'coordenador')
+    public.has_role((select auth.uid()), 'admin') OR 
+    public.has_role((select auth.uid()), 'gerente') OR
+    public.has_role((select auth.uid()), 'lider_divisao') OR
+    public.has_role((select auth.uid()), 'coordenador')
+  );
+
+-- Allow leaders/managers to update challenges
+DROP POLICY IF EXISTS "Admins and leaders can update challenges" ON public.challenges;
+CREATE POLICY "Admins and leaders can update challenges"
+  ON public.challenges FOR UPDATE
+  TO authenticated
+  USING (
+    public.has_role((select auth.uid()), 'admin') OR 
+    public.has_role((select auth.uid()), 'gerente') OR
+    public.has_role((select auth.uid()), 'lider_divisao') OR
+    public.has_role((select auth.uid()), 'coordenador')
+  );
+
+-- Allow leaders/managers to delete (cancel) challenges
+DROP POLICY IF EXISTS "Admins and leaders can delete challenges" ON public.challenges;
+CREATE POLICY "Admins and leaders can delete challenges"
+  ON public.challenges FOR DELETE
+  TO authenticated
+  USING (
+    public.has_role((select auth.uid()), 'admin') OR 
+    public.has_role((select auth.uid()), 'gerente') OR
+    public.has_role((select auth.uid()), 'lider_divisao') OR
+    public.has_role((select auth.uid()), 'coordenador')
   );
 
 -- RLS Policies for events
@@ -240,24 +264,24 @@ DROP POLICY IF EXISTS "Users can view own events" ON public.events;
 CREATE POLICY "Users can view own events"
   ON public.events FOR SELECT
   TO authenticated
-  USING (auth.uid() = user_id);
+  USING ((select auth.uid()) = user_id);
 
 DROP POLICY IF EXISTS "Leaders can view events in their area" ON public.events;
 CREATE POLICY "Leaders can view events in their area"
   ON public.events FOR SELECT
   TO authenticated
   USING (
-    public.has_role(auth.uid(), 'admin') OR 
-    public.has_role(auth.uid(), 'gerente') OR
-    public.has_role(auth.uid(), 'lider_divisao') OR
-    public.has_role(auth.uid(), 'coordenador')
+    public.has_role((select auth.uid()), 'admin') OR 
+    public.has_role((select auth.uid()), 'gerente') OR
+    public.has_role((select auth.uid()), 'lider_divisao') OR
+    public.has_role((select auth.uid()), 'coordenador')
   );
 
 DROP POLICY IF EXISTS "Users can create events" ON public.events;
 CREATE POLICY "Users can create events"
   ON public.events FOR INSERT
   TO authenticated
-  WITH CHECK (auth.uid() = user_id);
+  WITH CHECK ((select auth.uid()) = user_id);
 
 -- RLS Policies for action_evaluations
 DROP POLICY IF EXISTS "Users can view evaluations for own events" ON public.action_evaluations;
@@ -268,7 +292,7 @@ CREATE POLICY "Users can view evaluations for own events"
     EXISTS (
       SELECT 1 FROM public.events 
       WHERE events.id = action_evaluations.event_id 
-      AND events.user_id = auth.uid()
+      AND events.user_id = (select auth.uid())
     )
   );
 
@@ -277,10 +301,10 @@ CREATE POLICY "Leaders can view evaluations"
   ON public.action_evaluations FOR SELECT
   TO authenticated
   USING (
-    public.has_role(auth.uid(), 'admin') OR 
-    public.has_role(auth.uid(), 'gerente') OR
-    public.has_role(auth.uid(), 'lider_divisao') OR
-    public.has_role(auth.uid(), 'coordenador')
+    public.has_role((select auth.uid()), 'admin') OR 
+    public.has_role((select auth.uid()), 'gerente') OR
+    public.has_role((select auth.uid()), 'lider_divisao') OR
+    public.has_role((select auth.uid()), 'coordenador')
   );
 
 DROP POLICY IF EXISTS "Leaders can create evaluations" ON public.action_evaluations;
@@ -288,9 +312,9 @@ CREATE POLICY "Leaders can create evaluations"
   ON public.action_evaluations FOR INSERT
   TO authenticated
   WITH CHECK (
-    auth.uid() = reviewer_id AND (
-      public.has_role(auth.uid(), 'lider_divisao') OR
-      public.has_role(auth.uid(), 'coordenador')
+    (select auth.uid()) = reviewer_id AND (
+      public.has_role((select auth.uid()), 'lider_divisao') OR
+      public.has_role((select auth.uid()), 'coordenador')
     )
   );
 

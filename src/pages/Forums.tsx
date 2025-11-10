@@ -1,137 +1,67 @@
-import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
-import { supabase } from '@/integrations/supabase/client';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import Navigation from '@/components/Navigation';
-import { MessageSquare, Pin, Lock, CheckCircle, Search, Flame } from 'lucide-react';
+import { useEffect, useState, useCallback } from 'react'
+import { supabase } from '@/integrations/supabase/client'
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Badge } from '@/components/ui/badge'
+import { useNavigate } from 'react-router-dom'
+import { useAuth } from '@/contexts/AuthContext'
+import { ThemedBackground } from '@/components/ThemedBackground'
+import { HelpInfo } from '@/components/HelpInfo'
+
+interface Topic { id: string; title: string; description: string | null; status: string; chas_dimension: 'C'|'H'|'A'|'S'; quiz_specialties: string[] | null; tags: string[] | null; created_at: string }
 
 export default function Forums() {
-  const navigate = useNavigate();
-  const [searchQuery, setSearchQuery] = useState('');
+  const { isLeader, studioAccess } = useAuth()
+  const nav = useNavigate()
+  const [topics, setTopics] = useState<Topic[]>([])
+  const [q, setQ] = useState('')
 
-  const { data: topics, isLoading } = useQuery({
-    queryKey: ['forum-topics', searchQuery],
-    queryFn: async () => {
-      let query = supabase
-        .from('forum_topics')
-        .select('*, profiles(name)')
-        .eq('is_active', true)
-        .order('is_pinned', { ascending: false })
-        .order('last_post_at', { ascending: false, nullsFirst: false });
+  const load = useCallback(async () => {
+    const { data } = await supabase.from('forum_topics').select('*').order('created_at', { ascending: false }).limit(200)
+    setTopics((data || []) as any)
+  }, [])
 
-      if (searchQuery) {
-        query = query.ilike('title', `%${searchQuery}%`);
-      }
+  useEffect(() => { load() }, [load])
 
-      const { data, error } = await query;
-      if (error) throw error;
-      return data;
-    }
-  });
-
-  const getCategoryLabel = (category: string) => {
-    const labels: Record<string, string> = {
-      conhecimento_tecnico: 'Conhecimento Técnico',
-      boas_praticas: 'Boas Práticas',
-      campanhas: 'Campanhas',
-      seguranca: 'Segurança',
-      inovacao: 'Inovação',
-      duvidas: 'Dúvidas',
-      feedback: 'Feedback'
-    };
-    return labels[category] || category;
-  };
-
-  if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
-      </div>
-    );
-  }
+  const filtered = topics.filter(t => !q || t.title.toLowerCase().includes(q.toLowerCase()) || (t.tags||[]).some(tag => tag.includes(q.toLowerCase())))
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="container mx-auto p-4 pb-24 space-y-6">
-        <div>
-          <h1 className="text-3xl font-bold mb-2">Fóruns de Conhecimento</h1>
-          <p className="text-muted-foreground">Compartilhe experiências e aprenda com a equipe</p>
-        </div>
-
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Buscar tópicos..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-10"
-          />
-        </div>
-
-        <div className="space-y-4">
-          {topics?.length === 0 && (
-            <Card>
-              <CardContent className="p-8 text-center">
-                <MessageSquare className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
-                <p className="text-muted-foreground">Nenhum tópico encontrado</p>
-              </CardContent>
-            </Card>
+    <div className="relative min-h-screen pb-40">
+      <ThemedBackground theme="atitude" />
+      <HelpInfo kind="forum" />
+      <div className="container relative mx-auto p-4 md:p-6 max-w-5xl space-y-4">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h1 className="text-3xl font-bold">Fóruns de Conhecimento</h1>
+            <p className="text-muted-foreground">Temas curados por líderes; contribua com ideias, dúvidas e casos.</p>
+          </div>
+          {(isLeader && studioAccess) && (
+            <Button onClick={() => nav('/studio')}>Criar Tema</Button>
           )}
-
-          {topics?.map(topic => (
-            <Card
-              key={topic.id}
-              className="cursor-pointer hover:border-primary transition-colors"
-              onClick={() => navigate(`/forum/${topic.id}`)}
-            >
+        </div>
+        <div className="flex gap-3 items-center">
+          <Input placeholder="Buscar por título ou #tag" value={q} onChange={(e)=>setQ(e.target.value)} />
+          <Button variant="outline" onClick={()=>nav('/forums/insights')}>Top Temas & Ações</Button>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {filtered.map(t => (
+            <Card key={t.id} className="cursor-pointer hover:-translate-y-1 transition" onClick={()=>nav(`/forum/${t.id}`)}>
               <CardHeader>
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex-1">
-                    <CardTitle className="flex items-center gap-2 flex-wrap">
-                      {topic.is_pinned && (
-                        <Badge variant="secondary" className="gap-1">
-                          <Pin className="h-3 w-3" />
-                          Fixado
-                        </Badge>
-                      )}
-                      {topic.is_locked && (
-                        <Badge variant="outline" className="gap-1">
-                          <Lock className="h-3 w-3" />
-                          Fechado
-                        </Badge>
-                      )}
-                      {topic.title}
-                    </CardTitle>
-                    <CardDescription className="mt-2">{topic.description}</CardDescription>
-                  </div>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="truncate">{t.title}</CardTitle>
+                  <Badge variant={t.status === 'closed' ? 'secondary' : 'default'}>{t.status}</Badge>
+                </div>
+                <CardDescription className="line-clamp-2">{t.description}</CardDescription>
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {t.quiz_specialties?.map(s => (<Badge key={s} variant="outline">{s}</Badge>))}
+                  {t.tags?.slice(0,4).map(tag => (<Badge key={tag} className="bg-primary/10">#{tag}</Badge>))}
                 </div>
               </CardHeader>
-              <CardContent>
-                <div className="flex items-center gap-4 text-sm text-muted-foreground flex-wrap">
-                  <span className="flex items-center gap-1">
-                    <MessageSquare className="h-4 w-4" />
-                    {topic.posts_count || 0} respostas
-                  </span>
-                  {topic.category && (
-                    <Badge variant="outline">{getCategoryLabel(topic.category)}</Badge>
-                  )}
-                  {topic.posts_count > 10 && (
-                    <Badge variant="secondary" className="gap-1">
-                      <Flame className="h-3 w-3" />
-                      Ativo
-                    </Badge>
-                  )}
-                </div>
-              </CardContent>
             </Card>
           ))}
         </div>
       </div>
-      <Navigation />
     </div>
-  );
+  )
 }

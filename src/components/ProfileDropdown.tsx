@@ -1,6 +1,7 @@
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { AvatarDisplay } from "@/components/AvatarDisplay";
-import { User, Settings, LogOut, Shield, Users, Camera } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { User, Settings, LogOut, Shield, Users, Camera, Key } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 interface ProfileDropdownProps {
@@ -44,6 +45,16 @@ export const ProfileDropdown = ({ profile, isLeader, onSignOut }: ProfileDropdow
                 <Users className="h-3 w-3 flex-shrink-0" />
                 <span className="truncate">DJTX-{profile.team?.name || 'Sem equipe'}</span>
               </p>
+              {isLeader && (
+                <div className="mt-1">
+                  <Badge 
+                    className="cursor-pointer bg-blue-600 hover:bg-blue-500 text-white"
+                    onClick={() => navigate('/leader-dashboard')}
+                  >
+                    Líder
+                  </Badge>
+                </div>
+              )}
               <p className="text-xs text-muted-foreground flex items-center gap-1 mt-1">
                 {isLeader ? (
                   <>
@@ -71,6 +82,10 @@ export const ProfileDropdown = ({ profile, isLeader, onSignOut }: ProfileDropdow
         <DropdownMenuItem onClick={() => navigate('/profile')}>
           <User className="h-4 w-4 mr-2" />
           Ver Perfil
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => window.dispatchEvent(new CustomEvent('open-password-dialog'))}>
+          <Key className="h-4 w-4 mr-2" />
+          Alterar Senha
         </DropdownMenuItem>
         
         <DropdownMenuItem disabled>

@@ -24,6 +24,7 @@ import { ProfileChangeHistory } from '@/components/profile/ProfileChangeHistory'
 import { QuizHistory } from '@/components/profile/QuizHistory';
 import { ChangePasswordCard } from '@/components/profile/ChangePasswordCard';
 import Navigation from '@/components/Navigation';
+import { ForumMentions } from '@/components/profile/ForumMentions';
 import { fetchTeamNames } from '@/lib/teamLookup';
 import { apiFetch } from '@/lib/api';
 
@@ -433,7 +434,7 @@ function ProfileContent() {
   );
 
   return (
-    <div className="relative min-h-screen bg-background p-4 overflow-hidden">
+    <div className="relative min-h-screen bg-background p-4 pb-40 overflow-hidden">
       <ThemedBackground theme="atitude" />
       <div className="container relative max-w-4xl mx-auto py-8 space-y-6">
         {/* Profile Header */}
@@ -464,12 +465,15 @@ function ProfileContent() {
                   )}
                 </div>
               </div>
-              <div className="text-right">
+              <div className="text-right space-y-2">
                 <div className="flex items-center gap-2 justify-end mb-1">
                   <Star className="h-5 w-5 text-accent" />
                   <span className="text-2xl font-bold">{tierInfo?.name || profile.tier}</span>
                 </div>
                 <p className="text-sm text-muted-foreground">{profile.xp} XP Total</p>
+                <div>
+                  <Button variant="outline" size="sm" onClick={() => navigate('/')}>Voltar à Página Inicial</Button>
+                </div>
               </div>
             </div>
           </CardHeader>
@@ -665,6 +669,7 @@ function ProfileContent() {
           <ChangePasswordCard />
           <ProfileChangeHistory />
           <QuizHistory />
+          <ForumMentions />
         </div>
       </div>
 

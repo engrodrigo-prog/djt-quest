@@ -40,39 +40,39 @@ All colors MUST be HSL.
 
 @layer base {
   :root {
-    /* DJT Quest Color Palette */
+    /* DJT Quest Dark Palette as default */
     --djt-blue-dark: 197 65% 28%;
     --djt-blue-medium: 199 66% 44%;
     --djt-orange: 36 100% 50%;
     --djt-yellow: 45 100% 51%;
     
-    --background: 210 20% 98%;
-    --foreground: 210 15% 10%;
-    --card: 0 0% 100%;
-    --card-foreground: 210 15% 10%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 210 15% 10%;
-    --primary: 200 95% 35%;
+    --background: 210 20% 8%;
+    --foreground: 210 10% 95%;
+    --card: 210 20% 12%;
+    --card-foreground: 210 10% 95%;
+    --popover: 210 20% 12%;
+    --popover-foreground: 210 10% 95%;
+    --primary: 200 95% 45%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 142 76% 36%;
+    --secondary: 142 76% 40%;
     --secondary-foreground: 0 0% 100%;
-    --muted: 210 15% 92%;
-    --muted-foreground: 210 10% 45%;
-    --accent: 39 100% 50%;
-    --accent-foreground: 210 15% 10%;
-    --destructive: 0 84% 60%;
+    --muted: 210 15% 20%;
+    --muted-foreground: 210 15% 80%;
+    --accent: 39 100% 55%;
+    --accent-foreground: 210 20% 8%;
+    --destructive: 0 62% 50%;
     --destructive-foreground: 0 0% 98%;
-    --border: 210 15% 85%;
-    --input: 210 15% 85%;
-    --ring: 200 95% 35%;
+    --border: 210 15% 20%;
+    --input: 210 15% 20%;
+    --ring: 200 95% 45%;
     --radius: 0.75rem;
-    --sidebar-background: 0 0% 98%;
-    --sidebar-foreground: 240 5.3% 26.1%;
-    --sidebar-primary: 240 5.9% 10%;
-    --sidebar-primary-foreground: 0 0% 98%;
-    --sidebar-accent: 240 4.8% 95.9%;
-    --sidebar-accent-foreground: 240 5.9% 10%;
-    --sidebar-border: 220 13% 91%;
+    --sidebar-background: 240 5.9% 10%;
+    --sidebar-foreground: 240 4.8% 95.9%;
+    --sidebar-primary: 224.3 76.3% 48%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 240 3.7% 15.9%;
+    --sidebar-accent-foreground: 240 4.8% 95.9%;
+    --sidebar-border: 240 3.7% 15.9%;
     --sidebar-ring: 217.2 91.2% 59.8%;
   }
 
@@ -121,4 +121,13 @@ All colors MUST be HSL.
   body {
     @apply bg-background text-foreground;
   }
+
+  /* Reserve space for the bottom navigation so it never covers content */
+  :root { --bottom-nav-height: 112px; }
+  #root {
+    padding-bottom: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom, 0px));
+  }
+
+  /* Fluid base font size: adapts to screen width without extremes */
+  html { font-size: clamp(14px, 1.0vw + 12px, 18px); }
 }

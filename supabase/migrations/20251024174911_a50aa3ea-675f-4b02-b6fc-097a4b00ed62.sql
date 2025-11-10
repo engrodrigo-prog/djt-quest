@@ -27,47 +27,47 @@ DROP POLICY IF EXISTS "Pending: staff read/update" ON public.pending_registratio
 CREATE POLICY "Admins can manage all roles"
 ON user_roles FOR ALL
 TO authenticated
-USING (has_role(auth.uid(), 'gerente_djt'));
+USING (has_role((select auth.uid()), 'gerente_djt'));
 
 CREATE POLICY "Admins and gerentes can manage campaigns"
 ON campaigns FOR ALL
 TO authenticated
-USING (has_role(auth.uid(), 'gerente_djt'));
+USING (has_role((select auth.uid()), 'gerente_djt'));
 
 CREATE POLICY "Admins and leaders can create challenges"
 ON challenges FOR INSERT
 TO authenticated
 WITH CHECK (
-  has_role(auth.uid(), 'gerente_djt') OR 
-  has_role(auth.uid(), 'gerente_divisao_djtx') OR 
-  has_role(auth.uid(), 'coordenador_djtx')
+  has_role((select auth.uid()), 'gerente_djt') OR 
+  has_role((select auth.uid()), 'gerente_divisao_djtx') OR 
+  has_role((select auth.uid()), 'coordenador_djtx')
 );
 
 CREATE POLICY "Leaders can view events in their area"
 ON events FOR SELECT
 TO authenticated
 USING (
-  has_role(auth.uid(), 'gerente_djt') OR 
-  has_role(auth.uid(), 'gerente_divisao_djtx') OR 
-  has_role(auth.uid(), 'coordenador_djtx')
+  has_role((select auth.uid()), 'gerente_djt') OR 
+  has_role((select auth.uid()), 'gerente_divisao_djtx') OR 
+  has_role((select auth.uid()), 'coordenador_djtx')
 );
 
 CREATE POLICY "Leaders can view evaluations"
 ON action_evaluations FOR SELECT
 TO authenticated
 USING (
-  has_role(auth.uid(), 'gerente_djt') OR 
-  has_role(auth.uid(), 'gerente_divisao_djtx') OR 
-  has_role(auth.uid(), 'coordenador_djtx')
+  has_role((select auth.uid()), 'gerente_djt') OR 
+  has_role((select auth.uid()), 'gerente_divisao_djtx') OR 
+  has_role((select auth.uid()), 'coordenador_djtx')
 );
 
 CREATE POLICY "Leaders can create evaluations"
 ON action_evaluations FOR INSERT
 TO authenticated
 WITH CHECK (
-  auth.uid() = reviewer_id AND (
-    has_role(auth.uid(), 'gerente_divisao_djtx') OR 
-    has_role(auth.uid(), 'coordenador_djtx')
+  (select auth.uid()) = reviewer_id AND (
+    has_role((select auth.uid()), 'gerente_divisao_djtx') OR 
+    has_role((select auth.uid()), 'coordenador_djtx')
   )
 );
 
@@ -75,58 +75,58 @@ CREATE POLICY "Leaders can log performance changes"
 ON team_performance_log FOR INSERT
 TO authenticated
 WITH CHECK (
-  has_role(auth.uid(), 'coordenador_djtx') OR 
-  has_role(auth.uid(), 'gerente_divisao_djtx') OR 
-  has_role(auth.uid(), 'gerente_djt')
+  has_role((select auth.uid()), 'coordenador_djtx') OR 
+  has_role((select auth.uid()), 'gerente_divisao_djtx') OR 
+  has_role((select auth.uid()), 'gerente_djt')
 );
 
 CREATE POLICY "Leaders can view evaluation queue"
 ON evaluation_queue FOR SELECT
 TO authenticated
 USING (
-  has_role(auth.uid(), 'coordenador_djtx') OR 
-  has_role(auth.uid(), 'gerente_divisao_djtx') OR 
-  has_role(auth.uid(), 'gerente_djt')
+  has_role((select auth.uid()), 'coordenador_djtx') OR 
+  has_role((select auth.uid()), 'gerente_divisao_djtx') OR 
+  has_role((select auth.uid()), 'gerente_djt')
 );
 
 CREATE POLICY "System can manage evaluation queue"
 ON evaluation_queue FOR ALL
 TO authenticated
 USING (
-  has_role(auth.uid(), 'gerente_djt')
+  has_role((select auth.uid()), 'gerente_djt')
 );
 
 CREATE POLICY "Leaders can view all incidents"
 ON safety_incidents FOR SELECT
 TO authenticated
 USING (
-  has_role(auth.uid(), 'gerente_djt') OR 
-  has_role(auth.uid(), 'gerente_divisao_djtx') OR 
-  has_role(auth.uid(), 'coordenador_djtx')
+  has_role((select auth.uid()), 'gerente_djt') OR 
+  has_role((select auth.uid()), 'gerente_divisao_djtx') OR 
+  has_role((select auth.uid()), 'coordenador_djtx')
 );
 
 CREATE POLICY "Leaders can create incidents"
 ON safety_incidents FOR INSERT
 TO authenticated
 WITH CHECK (
-  has_role(auth.uid(), 'gerente_divisao_djtx') OR 
-  has_role(auth.uid(), 'coordenador_djtx') OR 
-  has_role(auth.uid(), 'gerente_djt')
+  has_role((select auth.uid()), 'gerente_divisao_djtx') OR 
+  has_role((select auth.uid()), 'coordenador_djtx') OR 
+  has_role((select auth.uid()), 'gerente_djt')
 );
 
 CREATE POLICY "Leaders can view all progression requests"
 ON tier_progression_requests FOR SELECT
 TO authenticated
 USING (
-  has_role(auth.uid(), 'gerente_djt') OR 
-  has_role(auth.uid(), 'gerente_divisao_djtx') OR 
-  has_role(auth.uid(), 'coordenador_djtx')
+  has_role((select auth.uid()), 'gerente_djt') OR 
+  has_role((select auth.uid()), 'gerente_divisao_djtx') OR 
+  has_role((select auth.uid()), 'coordenador_djtx')
 );
 
 CREATE POLICY "System can manage progression requests"
 ON tier_progression_requests FOR ALL
 TO authenticated
 USING (
-  has_role(auth.uid(), 'gerente_djt') OR 
-  has_role(auth.uid(), 'coordenador_djtx')
+  has_role((select auth.uid()), 'gerente_djt') OR 
+  has_role((select auth.uid()), 'coordenador_djtx')
 );

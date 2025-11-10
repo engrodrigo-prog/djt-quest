@@ -18,6 +18,7 @@ CREATE INDEX IF NOT EXISTS idx_quiz_questions_challenge ON public.quiz_questions
 ALTER TABLE public.quiz_questions ENABLE ROW LEVEL SECURITY;
 
 -- RLS: Users can view quiz questions
+DROP POLICY IF EXISTS "Users can view quiz questions" ON public.quiz_questions;
 CREATE POLICY "Users can view quiz questions"
   ON public.quiz_questions FOR SELECT
   TO authenticated
@@ -29,33 +30,36 @@ CREATE POLICY "Users can view quiz questions"
   );
 
 -- RLS: Coordinators can create questions
+DROP POLICY IF EXISTS "Coordinators can create questions" ON public.quiz_questions;
 CREATE POLICY "Coordinators can create questions"
   ON public.quiz_questions FOR INSERT
   TO authenticated
   WITH CHECK (
-    has_role(auth.uid(), 'coordenador_djtx') OR
-    has_role(auth.uid(), 'gerente_divisao_djtx') OR
-    has_role(auth.uid(), 'gerente_djt')
+    has_role((select auth.uid()), 'coordenador_djtx') OR
+    has_role((select auth.uid()), 'gerente_divisao_djtx') OR
+    has_role((select auth.uid()), 'gerente_djt')
   );
 
 -- RLS: Coordinators can update questions
+DROP POLICY IF EXISTS "Coordinators can update questions" ON public.quiz_questions;
 CREATE POLICY "Coordinators can update questions"
   ON public.quiz_questions FOR UPDATE
   TO authenticated
   USING (
-    has_role(auth.uid(), 'coordenador_djtx') OR
-    has_role(auth.uid(), 'gerente_divisao_djtx') OR
-    has_role(auth.uid(), 'gerente_djt')
+    has_role((select auth.uid()), 'coordenador_djtx') OR
+    has_role((select auth.uid()), 'gerente_divisao_djtx') OR
+    has_role((select auth.uid()), 'gerente_djt')
   );
 
 -- RLS: Coordinators can delete questions
+DROP POLICY IF EXISTS "Coordinators can delete questions" ON public.quiz_questions;
 CREATE POLICY "Coordinators can delete questions"
   ON public.quiz_questions FOR DELETE
   TO authenticated
   USING (
-    has_role(auth.uid(), 'coordenador_djtx') OR
-    has_role(auth.uid(), 'gerente_divisao_djtx') OR
-    has_role(auth.uid(), 'gerente_djt')
+    has_role((select auth.uid()), 'coordenador_djtx') OR
+    has_role((select auth.uid()), 'gerente_divisao_djtx') OR
+    has_role((select auth.uid()), 'gerente_djt')
   );
 
 -- 2. Create quiz_options table
@@ -72,6 +76,7 @@ CREATE INDEX IF NOT EXISTS idx_quiz_options_question ON public.quiz_options(ques
 ALTER TABLE public.quiz_options ENABLE ROW LEVEL SECURITY;
 
 -- RLS: Users can view options
+DROP POLICY IF EXISTS "Users can view options" ON public.quiz_options;
 CREATE POLICY "Users can view options"
   ON public.quiz_options FOR SELECT
   TO authenticated
@@ -83,6 +88,7 @@ CREATE POLICY "Users can view options"
   );
 
 -- RLS: Coordinators can manage options
+DROP POLICY IF EXISTS "Coordinators can insert options" ON public.quiz_options;
 CREATE POLICY "Coordinators can insert options"
   ON public.quiz_options FOR INSERT
   TO authenticated
@@ -91,29 +97,31 @@ CREATE POLICY "Coordinators can insert options"
       SELECT 1 FROM quiz_questions qq
       WHERE qq.id = quiz_options.question_id
       AND (
-        has_role(auth.uid(), 'coordenador_djtx') OR
-        has_role(auth.uid(), 'gerente_divisao_djtx') OR
-        has_role(auth.uid(), 'gerente_djt')
+        has_role((select auth.uid()), 'coordenador_djtx') OR
+        has_role((select auth.uid()), 'gerente_divisao_djtx') OR
+        has_role((select auth.uid()), 'gerente_djt')
       )
     )
   );
 
+DROP POLICY IF EXISTS "Coordinators can update options" ON public.quiz_options;
 CREATE POLICY "Coordinators can update options"
   ON public.quiz_options FOR UPDATE
   TO authenticated
   USING (
-    has_role(auth.uid(), 'coordenador_djtx') OR
-    has_role(auth.uid(), 'gerente_divisao_djtx') OR
-    has_role(auth.uid(), 'gerente_djt')
+    has_role((select auth.uid()), 'coordenador_djtx') OR
+    has_role((select auth.uid()), 'gerente_divisao_djtx') OR
+    has_role((select auth.uid()), 'gerente_djt')
   );
 
+DROP POLICY IF EXISTS "Coordinators can delete options" ON public.quiz_options;
 CREATE POLICY "Coordinators can delete options"
   ON public.quiz_options FOR DELETE
   TO authenticated
   USING (
-    has_role(auth.uid(), 'coordenador_djtx') OR
-    has_role(auth.uid(), 'gerente_divisao_djtx') OR
-    has_role(auth.uid(), 'gerente_djt')
+    has_role((select auth.uid()), 'coordenador_djtx') OR
+    has_role((select auth.uid()), 'gerente_divisao_djtx') OR
+    has_role((select auth.uid()), 'gerente_djt')
   );
 
 -- 3. Create user_quiz_answers table
@@ -135,25 +143,28 @@ CREATE INDEX IF NOT EXISTS idx_user_quiz_answers_challenge ON public.user_quiz_a
 ALTER TABLE public.user_quiz_answers ENABLE ROW LEVEL SECURITY;
 
 -- RLS: Users can view own answers
+DROP POLICY IF EXISTS "Users can view own answers" ON public.user_quiz_answers;
 CREATE POLICY "Users can view own answers"
   ON public.user_quiz_answers FOR SELECT
   TO authenticated
-  USING (auth.uid() = user_id);
+  USING ((select auth.uid()) = user_id);
 
 -- RLS: Users can submit answers
+DROP POLICY IF EXISTS "Users can submit answers" ON public.user_quiz_answers;
 CREATE POLICY "Users can submit answers"
   ON public.user_quiz_answers FOR INSERT
   TO authenticated
-  WITH CHECK (auth.uid() = user_id);
+  WITH CHECK ((select auth.uid()) = user_id);
 
 -- RLS: Leaders can view all answers
+DROP POLICY IF EXISTS "Leaders can view all answers" ON public.user_quiz_answers;
 CREATE POLICY "Leaders can view all answers"
   ON public.user_quiz_answers FOR SELECT
   TO authenticated
   USING (
-    has_role(auth.uid(), 'coordenador_djtx') OR
-    has_role(auth.uid(), 'gerente_divisao_djtx') OR
-    has_role(auth.uid(), 'gerente_djt')
+    has_role((select auth.uid()), 'coordenador_djtx') OR
+    has_role((select auth.uid()), 'gerente_divisao_djtx') OR
+    has_role((select auth.uid()), 'gerente_djt')
   );
 
 -- 4. Create function to notify users when quiz is published
@@ -207,6 +218,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 -- Create trigger for quiz publication
+DROP TRIGGER IF EXISTS on_quiz_published ON public.challenges;
 CREATE TRIGGER on_quiz_published
   AFTER INSERT ON challenges
   FOR EACH ROW

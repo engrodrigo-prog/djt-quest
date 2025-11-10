@@ -20,6 +20,7 @@ const Profile = lazy(() => import("./pages/Profile"));
 const Rankings = lazy(() => import("./pages/Rankings"));
 const Forums = lazy(() => import("./pages/Forums"));
 const ForumTopic = lazy(() => import("./pages/ForumTopic"));
+const ForumInsights = lazy(() => import("./pages/ForumInsights"));
 const UserSetup = lazy(() => import("./pages/UserSetup"));
 const LeaderDashboard = lazy(() => import("./pages/LeaderDashboard"));
 
@@ -100,6 +101,11 @@ const App = () => (
             <Route path="/forums" element={
               <ProtectedRoute>
                 <Forums />
+              </ProtectedRoute>
+            } />
+            <Route path="/forums/insights" element={
+              <ProtectedRoute>
+                <ForumInsights />
               </ProtectedRoute>
             } />
             <Route path="/forum/:topicId" element={

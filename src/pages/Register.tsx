@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -39,6 +40,7 @@ const registerSchema = z.object({
 export default function Register() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
+  const [teams, setTeams] = useState<Array<{ id: string; name: string }>>([]);
   const [formData, setFormData] = useState({
     name: "",
     email: "",
@@ -47,6 +49,19 @@ export default function Register() {
     operational_base: "",
     sigla_area: "",
   });
+
+  // Carregar equipes (bases operacionais) para as listas suspensas
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      const { data } = await supabase
+        .from('teams')
+        .select('id, name')
+        .order('name');
+      if (active && data) setTeams(data as any);
+    })();
+    return () => { active = false };
+  }, []);
 
   const handleChange = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -179,32 +194,41 @@ export default function Register() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="operational_base">Base Operacional *</Label>
-              <Input
-                id="operational_base"
-                type="text"
-                placeholder="Ex: Base São Paulo"
+              <Label htmlFor="operational_base">Base Operacional (Equipe) *</Label>
+              <Select
+                onValueChange={(val) => {
+                  handleChange('operational_base', val);
+                  // por padrão, manter sigla igual à base escolhida
+                  handleChange('sigla_area', val.toUpperCase());
+                }}
                 value={formData.operational_base}
-                onChange={(e) => handleChange("operational_base", e.target.value)}
-                required
-                maxLength={100}
-              />
+              >
+                <SelectTrigger id="operational_base">
+                  <SelectValue placeholder="Selecione sua base/equipe" />
+                </SelectTrigger>
+                <SelectContent>
+                  {teams.map((t) => (
+                    <SelectItem key={t.id} value={t.id}>{t.name || t.id}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="sigla_area">Sigla da Área *</Label>
-              <Input
-                id="sigla_area"
-                type="text"
-                placeholder="Ex: DJTX"
+              <Label htmlFor="sigla_area">Equipe/Sigla *</Label>
+              <Select
+                onValueChange={(val) => handleChange('sigla_area', val.toUpperCase())}
                 value={formData.sigla_area}
-                onChange={(e) => handleChange("sigla_area", e.target.value.toUpperCase())}
-                required
-                maxLength={10}
-              />
-              <p className="text-xs text-muted-foreground">
-                Apenas letras maiúsculas, números e hífen
-              </p>
+              >
+                <SelectTrigger id="sigla_area">
+                  <SelectValue placeholder="Selecione sua equipe/sigla" />
+                </SelectTrigger>
+                <SelectContent>
+                  {teams.map((t) => (
+                    <SelectItem key={t.id} value={t.id}>{t.id}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <Button type="submit" className="w-full" disabled={loading}>

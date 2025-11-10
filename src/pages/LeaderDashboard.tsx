@@ -68,6 +68,9 @@ export default function LeaderDashboard() {
   const [topMembers, setTopMembers] = useState<TeamMember[]>([]);
   const [userProfile, setUserProfile] = useState<{ name: string; avatar_url: string | null; team: { name: string } | null; tier: string } | null>(null);
   const [scope, setScope] = useState<Scope>('team');
+  const [windowSel, setWindowSel] = useState<'30d' | '90d' | '365d'>('30d');
+  const [xpPossible, setXpPossible] = useState<number>(0);
+  const [xpAchieved, setXpAchieved] = useState<number>(0);
   const teamId = orgScope?.teamId;
   const coordId = orgScope?.coordId;
   const divisionId = orgScope?.divisionId;
@@ -244,12 +247,60 @@ export default function LeaderDashboard() {
         jobs.push(loadChallenges());
       }
       await Promise.all(jobs);
+
+      // XP possível vs atingido (janela temporal)
+      const now = new Date();
+      const msBack = windowSel === '30d' ? 30*24*60*60*1000 : windowSel === '90d' ? 90*24*60*60*1000 : 365*24*60*60*1000;
+      const start = new Date(now.getTime() - msBack);
+
+      // Desafios válidos na janela
+      const { data: chs } = await supabase
+        .from('challenges')
+        .select('id, xp_reward, target_div_ids, target_coord_ids, target_team_ids, status, due_date, audience')
+        .or('status.eq.active,status.eq.scheduled')
+        .gte('due_date', start.toISOString());
+
+      const sFilter = (c: any) => {
+        // Filtra por escopo do líder
+        const tOk = !c.target_team_ids || (teamId && (c.target_team_ids as string[]).includes(teamId));
+        const cOk = !c.target_coord_ids || (coordId && (c.target_coord_ids as string[]).includes(coordId));
+        const dOk = !c.target_div_ids || (divisionId && (c.target_div_ids as string[]).includes(divisionId));
+        if (scope === 'team') return tOk || cOk || dOk;
+        if (scope === 'coord') return cOk || dOk;
+        return dOk;
+      };
+
+      const xpPos = (chs || []).filter(sFilter).reduce((sum, c: any) => sum + (c.xp_reward || 0), 0);
+      setXpPossible(xpPos);
+
+      // XP atingido: soma de final_points dos colaboradores no escopo e janela
+      const idFilter = scope === 'team' ? teamId : scope === 'coord' ? coordId : divisionId;
+      let members: Array<{ id: string }> = [];
+      if (idFilter) {
+        const { data: m } = await (supabase as any)
+          .from('profiles')
+          .select('id')
+          .eq(scope === 'team' ? 'team_id' : scope === 'coord' ? 'coord_id' : 'division_id', idFilter)
+          .eq('is_leader', false);
+        members = m || [];
+      }
+      let xpAch = 0;
+      if (members.length) {
+        const ids = members.map((m) => m.id);
+        const { data: evs } = await supabase
+          .from('events')
+          .select('final_points, created_at, user_id')
+          .gte('created_at', start.toISOString())
+          .in('user_id', ids);
+        xpAch = (evs || []).reduce((sum, e: any) => sum + (e.final_points || 0), 0);
+      }
+      setXpAchieved(xpAch);
     } catch (error) {
       console.error("Error loading dashboard:", error);
     } finally {
       setLoading(false);
     }
-  }, [coordId, divisionId, loadCampaigns, loadChallenges, loadForums, loadTeamStats, loadTopMembers, scope, teamId]);
+  }, [coordId, divisionId, loadCampaigns, loadChallenges, loadForums, loadTeamStats, loadTopMembers, scope, teamId, windowSel]);
 
   useEffect(() => {
     loadDashboardData();
@@ -271,22 +322,18 @@ export default function LeaderDashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-secondary/5 pb-20 md:pb-8">
+    <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-secondary/5 pb-40 md:pb-20">
       {/* Header */}
-      <header className="border-b bg-card/50 backdrop-blur-sm sticky top-0 z-10">
+      <header className="sticky top-0 z-20 bg-[#0b2a34]/85 text-blue-50 border-b border-cyan-700/30">
         <div className="container mx-auto px-3 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-1.5">
-              <Shield className="h-6 w-6 text-primary" />
-              <Zap className="h-6 w-6 text-secondary" />
+              <Shield className="h-6 w-6 text-blue-300" />
+              <Zap className="h-6 w-6 text-blue-200" />
             </div>
             <div>
-              <h1 className="text-xl font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
-                DJT Go
-              </h1>
-              <p className="text-[8px] text-muted-foreground leading-none">
-                CPFL Piratininga e Santa Cruz Subtransmissão
-              </p>
+              <h1 className="text-xl font-bold text-blue-50">DJT Go</h1>
+              <p className="text-[10px] text-blue-100/80 leading-none">CPFL Piratininga e Santa Cruz Subtransmissão</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -297,6 +344,9 @@ export default function LeaderDashboard() {
                 onSignOut={handleSignOut}
               />
             )}
+            <Button onClick={() => navigate('/dashboard')} variant="ghost" size="sm" aria-label="Entrar">
+              Entrar
+            </Button>
             <Button onClick={() => navigate('/studio')} variant="ghost" size="sm">
               <Award className="h-4 w-4 mr-2" />
               Studio
@@ -309,25 +359,63 @@ export default function LeaderDashboard() {
         <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
           <div>
             <h2 className="text-2xl font-bold">Dashboard de Liderança</h2>
-            <p className="text-muted-foreground text-sm">
+            <p className="text-blue-100/80 text-sm">
               XP agregado do seu escopo ({scope === 'team' ? 'Equipe' : scope === 'coord' ? 'Coordenação' : 'Divisão'})
             </p>
+            <p className="text-xs text-blue-50/80 mt-1">
+              Atuando como: {orgScope?.divisionName || '—'}{orgScope?.coordName ? ` • ${orgScope.coordName}` : ''}{orgScope?.teamName ? ` • ${orgScope.teamName}` : ''}
+            </p>
           </div>
-          <div className="w-full md:w-64">
-            <Select value={scope} onValueChange={(v) => setScope(v as Scope)}>
-              <SelectTrigger aria-label="Selecionar Escopo">
-                <SelectValue placeholder="Selecionar escopo" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="team">Minha Equipe</SelectItem>
-                <SelectItem value="coord">Minha Coordenação</SelectItem>
-                <SelectItem value="division">Minha Divisão</SelectItem>
-              </SelectContent>
-            </Select>
+          <div className="flex gap-2 w-full md:w-auto">
+            <div className="w-full md:w-48">
+              <Select value={scope} onValueChange={(v) => setScope(v as Scope)}>
+                <SelectTrigger aria-label="Selecionar Escopo">
+                  <SelectValue placeholder="Selecionar escopo" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="team">Minha Equipe</SelectItem>
+                  <SelectItem value="coord">Minha Coordenação</SelectItem>
+                  <SelectItem value="division">Minha Divisão</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="w-full md:w-40">
+              <Select value={windowSel} onValueChange={(v) => setWindowSel(v as any)}>
+                <SelectTrigger aria-label="Janela de tempo">
+                  <SelectValue placeholder="Janela" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="30d">30 dias</SelectItem>
+                  <SelectItem value="90d">Trimestre</SelectItem>
+                  <SelectItem value="365d">Ano</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </div>
 
-      {/* Estatísticas Gerais */}
+        {/* XP Possível x Atingido */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">XP possível vs XP atingido</CardTitle>
+            <CardDescription>
+              Janela: {windowSel === '30d' ? 'últimos 30 dias' : windowSel === '90d' ? 'últimos 90 dias' : 'últimos 12 meses'}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center justify-between mb-2 text-sm">
+              <span className="text-muted-foreground">Possível</span>
+              <span className="font-semibold">{xpPossible} XP</span>
+            </div>
+            <Progress value={xpPossible ? Math.min(100, Math.round((xpAchieved / Math.max(1, xpPossible)) * 100)) : 0} className="h-2" />
+            <div className="flex items-center justify-between mt-2 text-sm">
+              <span className="text-muted-foreground">Atingido</span>
+              <span className="font-semibold">{xpAchieved} XP</span>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Estatísticas Gerais */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">

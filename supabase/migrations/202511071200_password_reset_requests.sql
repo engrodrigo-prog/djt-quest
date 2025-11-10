@@ -30,7 +30,7 @@ do $$ begin
       on public.password_reset_requests
       for select
       to authenticated
-      using (auth.uid() = user_id);
+      using ((select auth.uid()) = user_id);
   end if;
 end $$;
 
@@ -43,10 +43,10 @@ do $$ begin
       for select
       to authenticated
       using (
-        public.has_role(auth.uid(), 'admin') or
-        public.has_role(auth.uid(), 'gerente_djt') or
-        public.has_role(auth.uid(), 'gerente_divisao_djtx') or
-        public.has_role(auth.uid(), 'coordenador_djtx')
+        public.has_role((select auth.uid()), 'admin') or
+        public.has_role((select auth.uid()), 'gerente_djt') or
+        public.has_role((select auth.uid()), 'gerente_divisao_djtx') or
+        public.has_role((select auth.uid()), 'coordenador_djtx')
       );
   end if;
 end $$;

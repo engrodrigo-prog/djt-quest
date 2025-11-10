@@ -9,9 +9,10 @@ import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
-import { Search, Trash2, Users, AlertTriangle, CheckCircle, Loader2 } from 'lucide-react';
+import { Search, Trash2, Users, AlertTriangle, CheckCircle, Loader2, UserPlus } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { apiFetch } from '@/lib/api';
+import { UserCreationForm } from '@/components/UserCreationForm';
 
 interface UserProfile {
   id: string;
@@ -50,6 +51,7 @@ export const UserManagement = () => {
     studio_access: false,
   });
   const { toast } = useToast();
+  const [createOpen, setCreateOpen] = useState(false);
 
   const loadUsers = useCallback(async () => {
     try {
@@ -358,6 +360,10 @@ export const UserManagement = () => {
                 className="pl-10"
               />
             </div>
+            <Button onClick={() => setCreateOpen(true)} className="gap-2">
+              <UserPlus className="h-4 w-4" />
+              Criar Usuário
+            </Button>
             <Button
               variant="destructive"
               onClick={() => setShowCleanupDialog(true)}
@@ -385,6 +391,15 @@ export const UserManagement = () => {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Novo Usuário</DialogTitle>
+          </DialogHeader>
+          <UserCreationForm />
+        </DialogContent>
+      </Dialog>
 
       {/* Lista de Usuários */}
       <Card>

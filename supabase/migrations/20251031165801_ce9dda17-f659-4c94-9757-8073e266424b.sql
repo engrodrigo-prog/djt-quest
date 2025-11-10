@@ -37,9 +37,9 @@ DO $$ BEGIN
     CREATE POLICY "Coordinators can view pending"
       ON public.pending_registrations 
       FOR SELECT
-      USING (has_role(auth.uid(), 'coordenador_djtx') 
-             OR has_role(auth.uid(), 'gerente_divisao_djtx') 
-             OR has_role(auth.uid(), 'gerente_djt'));
+      USING (has_role((select auth.uid()), 'coordenador_djtx') 
+             OR has_role((select auth.uid()), 'gerente_divisao_djtx') 
+             OR has_role((select auth.uid()), 'gerente_djt'));
   END IF;
 END $$;
 
@@ -51,8 +51,8 @@ DO $$ BEGIN
     CREATE POLICY "Coordinators can update status"
       ON public.pending_registrations 
       FOR UPDATE
-      USING (has_role(auth.uid(), 'coordenador_djtx') 
-             OR has_role(auth.uid(), 'gerente_divisao_djtx') 
-             OR has_role(auth.uid(), 'gerente_djt'));
+      USING (has_role((select auth.uid()), 'coordenador_djtx') 
+             OR has_role((select auth.uid()), 'gerente_divisao_djtx') 
+             OR has_role((select auth.uid()), 'gerente_djt'));
   END IF;
 END $$;

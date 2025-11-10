@@ -21,7 +21,7 @@ interface QuizQuestionFormProps {
 
 export function QuizQuestionForm({ challengeId, onQuestionAdded }: QuizQuestionFormProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [selectedDifficulty, setSelectedDifficulty] = useState<DifficultyLevel>("basica");
+  const [selectedDifficulty, setSelectedDifficulty] = useState<DifficultyLevel>("basico");
 
   const {
     register,
@@ -34,7 +34,7 @@ export function QuizQuestionForm({ challengeId, onQuestionAdded }: QuizQuestionF
     resolver: zodResolver(quizQuestionSchema),
     defaultValues: {
       question_text: "",
-      difficulty_level: "basica",
+      difficulty_level: "basico",
       options: [
         { option_text: "", is_correct: true, explanation: "" },
         { option_text: "", is_correct: false, explanation: "" },
@@ -119,13 +119,13 @@ export function QuizQuestionForm({ challengeId, onQuestionAdded }: QuizQuestionF
       toast.success('Pergunta criada com sucesso!');
       reset({
         question_text: '',
-        difficulty_level: 'basica',
+        difficulty_level: 'basico',
         options: [
           { option_text: '', is_correct: true, explanation: '' },
           { option_text: '', is_correct: false, explanation: '' },
         ],
       });
-      setSelectedDifficulty('basica');
+      setSelectedDifficulty('basico');
       onQuestionAdded();
     } catch (error: any) {
       console.error('Error creating question:', error);

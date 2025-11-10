@@ -6,4 +6,10 @@ VALUES (
   '00000031-0000-0000-0000-000000000001',
   0.85,
   'Time novo em formação - precisa desenvolvimento'
-);
+)
+ON CONFLICT (id) DO UPDATE
+SET
+  name = EXCLUDED.name,
+  coordination_id = EXCLUDED.coordination_id,
+  team_modifier = EXCLUDED.team_modifier,
+  modifier_reason = EXCLUDED.modifier_reason;

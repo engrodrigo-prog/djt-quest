@@ -15,7 +15,7 @@ export const TeamTierProgressCard = ({ avgXp, totalMembers, totalXp }: TeamTierP
   const nextTierInfo = getNextTierInfo(avgXp, avgTierCode);
 
   return (
-    <Card className="p-6 bg-gradient-to-br from-primary/10 via-primary/5 to-background border-primary/20">
+    <Card className="p-6 bg-gradient-to-br from-primary/10 via-primary/5 to-background border-primary/20 backdrop-blur-sm">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-lg font-semibold flex items-center gap-2">
           <TrendingUp className="h-5 w-5 text-primary" />

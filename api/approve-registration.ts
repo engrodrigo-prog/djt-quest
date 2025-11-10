@@ -1,0 +1,135 @@
+import type { VercelRequest, VercelResponse } from '@vercel/node'
+import { createClient } from '@supabase/supabase-js'
+
+type ApprovalRequest = { registrationId: string; notes?: string }
+
+const SUPABASE_URL = process.env.SUPABASE_URL as string
+const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY) as string
+
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  if (req.method === 'OPTIONS') return res.status(204).send('')
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
+
+  try {
+    if (!SUPABASE_URL || !SERVICE_KEY) return res.status(500).json({ error: 'Missing Supabase config' })
+
+    const admin = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { autoRefreshToken: false, persistSession: false } })
+    const authHeader = (req.headers['authorization'] as string | undefined) || ''
+    let requesterId: string | null = null
+    if (authHeader) {
+      try {
+        const { data } = await admin.auth.getUser(authHeader.replace('Bearer ', ''))
+        requesterId = data.user?.id || null
+      } catch {}
+    }
+
+    // Verify permissions
+    if (!requesterId) return res.status(401).json({ error: 'Unauthorized' })
+    const { data: roles } = await admin.from('user_roles').select('role').eq('user_id', requesterId)
+    const allowed = (roles || []).some(r => ['coordenador_djtx','gerente_divisao_djtx','gerente_djt'].includes((r as any).role))
+    if (!allowed) return res.status(403).json({ error: 'Insufficient permissions' })
+
+    const body = req.body as ApprovalRequest
+    if (!body?.registrationId) return res.status(400).json({ error: 'registrationId required' })
+
+    const { data: reg, error: regErr } = await admin
+      .from('pending_registrations')
+      .select('*')
+      .eq('id', body.registrationId)
+      .eq('status', 'pending')
+      .single()
+    if (regErr || !reg) return res.status(404).json({ error: 'Registration not found or processed' })
+
+    // Prevent duplicate approvals
+    const { data: existingProfile } = await admin
+      .from('profiles')
+      .select('id')
+      .eq('email', reg.email)
+      .maybeSingle()
+    if (existingProfile?.id) {
+      return res.status(400).json({ error: 'Já existe um perfil ativo com este e-mail. Rejeite ou edite o usuário existente.' })
+    }
+
+    // Create auth user
+    const { data: created, error: createErr } = await admin.auth.admin.createUser({
+      email: reg.email,
+      password: '123456',
+      email_confirm: true,
+      user_metadata: { name: reg.name },
+    })
+    if (createErr) return res.status(400).json({ error: createErr.message })
+    const newUserId = created.user!.id
+
+    // Create or update profile to avoid duplicate key on retries
+    const { error: profErr } = await admin.from('profiles').upsert({
+      id: newUserId,
+      name: reg.name,
+      email: reg.email,
+      matricula: reg.matricula,
+      operational_base: reg.operational_base,
+      sigla_area: reg.sigla_area,
+      must_change_password: true,
+      needs_profile_completion: true,
+    }, { onConflict: 'id' })
+    if (profErr) {
+      await admin.auth.admin.deleteUser(newUserId)
+      return res.status(400).json({ error: profErr.message })
+    }
+
+    // Derive org from DB
+    const deriveOrg = async (raw?: string | null) => {
+      const s = (String(raw || '').toUpperCase().replace(/[^A-Z0-9-]/g,'-').replace(/-+/g,'-').replace(/^-|-$/g,''))
+      if (!s) return null
+      let teamId: string | null = null
+      let coordId: string | null = null
+      let divisionId: string | null = null
+      // Try direct team id
+      const { data: team } = await admin.from('teams').select('id, coord_id').eq('id', s).maybeSingle()
+      if (team?.id) {
+        teamId = team.id
+        coordId = team.coord_id
+        if (coordId) {
+          const { data: coord } = await admin.from('coordinations').select('division_id').eq('id', coordId).maybeSingle()
+          divisionId = coord?.division_id || null
+        }
+      } else if (s.includes('-')) {
+        const [div, tag] = s.split('-', 2)
+        divisionId = div || null
+        coordId = div && tag ? `${div}-${tag}` : null
+        if (tag) {
+          const { data: t2 } = await admin.from('teams').select('id').eq('id', tag).maybeSingle()
+          if (t2?.id) teamId = t2.id
+        }
+      }
+      if (!divisionId && coordId) {
+        const { data: coord } = await admin.from('coordinations').select('division_id').eq('id', coordId).maybeSingle()
+        divisionId = coord?.division_id || null
+      }
+      if (!divisionId && !coordId && !teamId) return null
+      return { divisionId, coordId, teamId }
+    }
+    const org = await deriveOrg(reg.sigla_area || reg.operational_base)
+    if (org) {
+      await admin.from('profiles').update({ division_id: org.divisionId, coord_id: org.coordId, team_id: org.teamId }).eq('id', newUserId)
+    }
+
+    // Assign default role
+    const { error: roleErr } = await admin.from('user_roles').insert({ user_id: newUserId, role: 'colaborador' })
+    if (roleErr && !String(roleErr.message || '').toLowerCase().includes('duplicate')) {
+      await admin.auth.admin.deleteUser(newUserId)
+      return res.status(400).json({ error: roleErr.message })
+    }
+
+    // Update registration
+    await admin
+      .from('pending_registrations')
+      .update({ status: 'approved', reviewed_by: requesterId, reviewed_at: new Date().toISOString(), review_notes: body.notes || null })
+      .eq('id', body.registrationId)
+
+    return res.status(200).json({ success: true, userId: newUserId })
+  } catch (err: any) {
+    return res.status(400).json({ error: err?.message || 'Unknown error' })
+  }
+}
+
+export const config = { api: { bodyParser: true } }

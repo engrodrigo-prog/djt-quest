@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Activity, CheckCircle2, XCircle, AlertCircle, Database, Users } from 'lucide-react';
+import { Activity, CheckCircle2, XCircle, AlertCircle, Settings, Sparkles } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 
@@ -21,6 +21,10 @@ export const SystemHealthCheck = () => {
   const [checking, setChecking] = useState(false);
   const [seedingTest, setSeedingTest] = useState(false);
   const [seedingProd, setSeedingProd] = useState(false);
+  const [forumBonusEnabled, setForumBonusEnabled] = useState<boolean>(true);
+  const [forumBonusMaxPct, setForumBonusMaxPct] = useState<number>(0.20);
+  const [savingBonus, setSavingBonus] = useState(false);
+  const [applyingBonus, setApplyingBonus] = useState(false);
 
   const checkSystem = async () => {
     setChecking(true);
@@ -67,6 +71,53 @@ export const SystemHealthCheck = () => {
       setHealth([]);
     } finally {
       setChecking(false);
+    }
+  };
+
+  const loadForumBonusSettings = async () => {
+    try {
+      const { data } = await supabase.from('system_settings').select('value').eq('key', 'forumBonus').maybeSingle();
+      if (data?.value) {
+        setForumBonusEnabled(!!data.value.enabled);
+        setForumBonusMaxPct(typeof data.value.maxPct === 'number' ? data.value.maxPct : 0.20);
+      }
+    } catch {}
+  };
+
+  const saveForumBonusSettings = async () => {
+    setSavingBonus(true);
+    try {
+      const { data: session } = await supabase.auth.getSession();
+      const token = session.session?.access_token;
+      // Save via RLS (leaders only)
+      const { error } = await supabase
+        .from('system_settings')
+        .upsert({ key: 'forumBonus', value: { enabled: forumBonusEnabled, maxPct: forumBonusMaxPct } } as any);
+      if (error) throw error;
+      toast.success('Configurações salvas');
+    } catch (e: any) {
+      toast.error('Falha ao salvar', { description: e?.message || '' });
+    } finally {
+      setSavingBonus(false);
+    }
+  };
+
+  const applyMonthlyBonus = async () => {
+    if (!confirm('Aplicar bônus de engajamento do fórum neste mês?')) return;
+    setApplyingBonus(true);
+    try {
+      const { data: session } = await supabase.auth.getSession();
+      const token = session.session?.access_token;
+      const resp = await fetch('/api/forum-apply-monthly-bonus', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }
+      });
+      const j = await resp.json();
+      if (!resp.ok) throw new Error(j?.error || 'Falha ao aplicar bônus');
+      toast.success('Bônus aplicado', { description: `${j?.awards?.length || 0} usuários bonificados` });
+    } catch (e: any) {
+      toast.error('Erro ao aplicar bônus', { description: e?.message || '' });
+    } finally {
+      setApplyingBonus(false);
     }
   };
 
@@ -215,6 +266,51 @@ export const SystemHealthCheck = () => {
           </div>
         </CardContent>
       )}
+      </Card>
+
+      {/* Fórum: bônus mensal de engajamento */}
+      <Card className="border-primary/20 bg-primary/5">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Settings className="h-5 w-5" />
+                Bônus de Engajamento (Fórum)
+              </CardTitle>
+              <CardDescription>
+                Multiplicador mensal (até 20%) para top 10 do fórum. Ative e ajuste o teto.
+              </CardDescription>
+            </div>
+            <Button variant="outline" size="sm" onClick={loadForumBonusSettings}>Carregar</Button>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex items-center gap-3">
+            <label className="inline-flex items-center gap-2">
+              <input type="checkbox" checked={forumBonusEnabled} onChange={(e)=>setForumBonusEnabled(e.target.checked)} />
+              <span>Habilitar bônus mensal</span>
+            </label>
+          </div>
+          <div className="flex items-center gap-3">
+            <label className="text-sm">Teto (máx 20%)</label>
+            <input type="number" min={0.05} max={0.20} step={0.01} value={forumBonusMaxPct}
+              onChange={(e)=>setForumBonusMaxPct(Math.max(0.05, Math.min(0.20, Number(e.target.value) || 0.20)))}
+              className="h-9 w-28 rounded-md bg-transparent border px-2"
+            />
+            <span className="text-xs text-muted-foreground">Ex.: 0.20 = 20%</span>
+          </div>
+          <div className="flex gap-3">
+            <Button variant="outline" onClick={saveForumBonusSettings} disabled={savingBonus}>
+              {savingBonus ? 'Salvando...' : 'Salvar Configuração'}
+            </Button>
+            <Button onClick={applyMonthlyBonus} disabled={applyingBonus}>
+              {applyingBonus ? 'Aplicando...' : 'Aplicar bônus deste mês'}
+            </Button>
+          </div>
+          <div className="text-xs text-muted-foreground">
+            Regras: top 10 recebem de 5% a {Math.round(forumBonusMaxPct*100)}% sobre XP mensal (quizzes + ações). Proporcional ao engajamento.
+          </div>
+        </CardContent>
       </Card>
     </div>
   );

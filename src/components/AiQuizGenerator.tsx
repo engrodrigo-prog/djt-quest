@@ -15,7 +15,9 @@ const MIN_LENGTH = 5;
 
 export const AiQuizGenerator = () => {
   const [topic, setTopic] = useState('')
-  const [difficulty, setDifficulty] = useState<'basica'|'intermediaria'|'avancada'|'especialista'>('basica')
+  const [difficulty, setDifficulty] = useState<'basico'|'intermediario'|'avancado'|'especialista'>('basico')
+  const [specialties, setSpecialties] = useState<string[]>([])
+  const [context, setContext] = useState<string>('')
   const [challenges, setChallenges] = useState<Challenge[]>([])
   const [challengeId, setChallengeId] = useState('')
   const [loading, setLoading] = useState(false)
@@ -90,7 +92,7 @@ export const AiQuizGenerator = () => {
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ question, correct: correctText })
+        body: JSON.stringify({ question, correct: correctText, difficulty, specialties, context })
       })
       const json = await resp.json()
       if (!resp.ok) throw new Error(json?.error || 'Falha ao gerar alternativas')
@@ -187,12 +189,29 @@ export const AiQuizGenerator = () => {
                   <SelectValue placeholder="Selecione" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="basica">Básica</SelectItem>
-                  <SelectItem value="intermediaria">Intermediária</SelectItem>
-                  <SelectItem value="avancada">Avançada</SelectItem>
-                  <SelectItem value="especialista">Especialista</SelectItem>
+              <SelectItem value="basico">Básico</SelectItem>
+              <SelectItem value="intermediario">Intermediário</SelectItem>
+              <SelectItem value="avancado">Avançado</SelectItem>
+              <SelectItem value="especialista">Especialista</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="space-y-2">
+              <Label>Especialidades (opcional)</Label>
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                {[{id:'seguranca',label:'Segurança'},{id:'protecao_automacao',label:'Proteção & Automação'},{id:'telecom',label:'Telecom'},{id:'equipamentos_manobras',label:'Equipamentos & Manobras'},{id:'instrumentacao',label:'Instrumentação'},{id:'gerais',label:'Gerais'}].map(s => (
+                  <label key={s.id} className="inline-flex items-center gap-2">
+                    <input type="checkbox" checked={specialties.includes(s.id)} onChange={(e)=>setSpecialties(prev=> e.target.checked ? Array.from(new Set([...prev, s.id])) : prev.filter(x=>x!==s.id))} />
+                    <span>{s.label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Contexto (opcional)</Label>
+              <Textarea rows={2} value={context} onChange={(e)=>setContext(e.target.value)} placeholder="Cenários, normas, restrições, etc." />
             </div>
           </div>
 

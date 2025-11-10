@@ -1,10 +1,10 @@
 import { z } from "zod";
 
 export const difficultyLevels = {
-  basica: { label: "Básica", xp: 10 },
-  intermediaria: { label: "Intermediária", xp: 20 },
-  avancada: { label: "Avançada", xp: 30 },
-  especialista: { label: "Especialista", xp: 50 },
+  basico: { label: "Básico", xp: 5 },
+  intermediario: { label: "Intermediário", xp: 10 },
+  avancado: { label: "Avançado", xp: 20 },
+  especialista: { label: "Especialista", xp: 40 },
 } as const;
 
 export type DifficultyLevel = keyof typeof difficultyLevels;
@@ -20,7 +20,7 @@ export const quizQuestionSchema = z.object({
     .string()
     .min(10, "Pergunta deve ter no mínimo 10 caracteres")
     .max(500, "Pergunta deve ter no máximo 500 caracteres"),
-  difficulty_level: z.enum(["basica", "intermediaria", "avancada", "especialista"]),
+  difficulty_level: z.enum(["basico", "intermediario", "avancado", "especialista"]),
   options: z
     .array(quizOptionSchema)
     .min(2, "Mínimo 2 alternativas")

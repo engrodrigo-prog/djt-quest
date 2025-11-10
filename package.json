@@ -13,9 +13,11 @@
     "sync:operational-base": "node scripts/sync-operational-base.mjs",
     "fix:dob": "node scripts/backfill-date-of-birth.mjs",
     "cleanup:divisions": "node scripts/cleanup-simulated-divisions.mjs",
+    "cleanup:resanitize": "node scripts/resanitize-org.mjs",
     "seed:org": "node scripts/seed-org-structure.mjs",
     "assets:download:avatars": "node scripts/download-avatars.mjs",
-    "sanity:backend": "node scripts/sanity-check.mjs"
+    "sanity:backend": "node scripts/sanity-check.mjs",
+    "cleanup:teams": "node scripts/cleanup-teams.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

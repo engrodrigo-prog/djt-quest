@@ -33,10 +33,10 @@ CREATE POLICY "Leaders can log performance changes"
 ON public.team_performance_log
 FOR INSERT
 WITH CHECK (
-  has_role(auth.uid(), 'coordenador_djtx') OR 
-  has_role(auth.uid(), 'gerente_divisao_djtx') OR 
-  has_role(auth.uid(), 'gerente_djt') OR
-  has_role(auth.uid(), 'admin')
+  has_role((select auth.uid()), 'coordenador_djtx') OR 
+  has_role((select auth.uid()), 'gerente_divisao_djtx') OR 
+  has_role((select auth.uid()), 'gerente_djt') OR
+  has_role((select auth.uid()), 'admin')
 );
 
 -- Add evaluation assignment fields to events
@@ -65,10 +65,10 @@ CREATE POLICY "Leaders can view evaluation queue"
 ON public.evaluation_queue
 FOR SELECT
 USING (
-  has_role(auth.uid(), 'coordenador_djtx') OR 
-  has_role(auth.uid(), 'gerente_divisao_djtx') OR 
-  has_role(auth.uid(), 'gerente_djt') OR
-  has_role(auth.uid(), 'admin')
+  has_role((select auth.uid()), 'coordenador_djtx') OR 
+  has_role((select auth.uid()), 'gerente_divisao_djtx') OR 
+  has_role((select auth.uid()), 'gerente_djt') OR
+  has_role((select auth.uid()), 'admin')
 );
 
 -- Policy: System can insert into evaluation queue
@@ -77,8 +77,8 @@ CREATE POLICY "System can manage evaluation queue"
 ON public.evaluation_queue
 FOR ALL
 USING (
-  has_role(auth.uid(), 'admin') OR
-  has_role(auth.uid(), 'gerente_djt')
+  has_role((select auth.uid()), 'admin') OR
+  has_role((select auth.uid()), 'gerente_djt')
 );
 
 -- Add trigger to update team modifier timestamp

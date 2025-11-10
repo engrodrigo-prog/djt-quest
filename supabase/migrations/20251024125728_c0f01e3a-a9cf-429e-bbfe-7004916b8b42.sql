@@ -258,25 +258,25 @@ DROP POLICY IF EXISTS "Leaders can view all incidents" ON public.safety_incident
 CREATE POLICY "Leaders can view all incidents"
 ON public.safety_incidents FOR SELECT
 USING (
-  has_role(auth.uid(), 'admin') OR 
-  has_role(auth.uid(), 'gerente_djt') OR
-  has_role(auth.uid(), 'gerente_divisao_djtx') OR
-  has_role(auth.uid(), 'coordenador_djtx')
+  has_role((select auth.uid()), 'admin') OR 
+  has_role((select auth.uid()), 'gerente_djt') OR
+  has_role((select auth.uid()), 'gerente_divisao_djtx') OR
+  has_role((select auth.uid()), 'coordenador_djtx')
 );
 
 DROP POLICY IF EXISTS "Users can view own incidents" ON public.safety_incidents;
 CREATE POLICY "Users can view own incidents"
 ON public.safety_incidents FOR SELECT
-USING (auth.uid() = user_id);
+USING ((select auth.uid()) = user_id);
 
 DROP POLICY IF EXISTS "Leaders can create incidents" ON public.safety_incidents;
 CREATE POLICY "Leaders can create incidents"
 ON public.safety_incidents FOR INSERT
 WITH CHECK (
-  has_role(auth.uid(), 'gerente_divisao_djtx') OR
-  has_role(auth.uid(), 'coordenador_djtx') OR
-  has_role(auth.uid(), 'gerente_djt') OR
-  has_role(auth.uid(), 'admin')
+  has_role((select auth.uid()), 'gerente_divisao_djtx') OR
+  has_role((select auth.uid()), 'coordenador_djtx') OR
+  has_role((select auth.uid()), 'gerente_djt') OR
+  has_role((select auth.uid()), 'admin')
 );
 
 -- 13. RLS Policies para tier_demotion_log
@@ -293,25 +293,25 @@ ALTER TABLE public.tier_progression_requests ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Users can view own progression requests" ON public.tier_progression_requests;
 CREATE POLICY "Users can view own progression requests"
 ON public.tier_progression_requests FOR SELECT
-USING (auth.uid() = user_id);
+USING ((select auth.uid()) = user_id);
 
 DROP POLICY IF EXISTS "Leaders can view all progression requests" ON public.tier_progression_requests;
 CREATE POLICY "Leaders can view all progression requests"
 ON public.tier_progression_requests FOR SELECT
 USING (
-  has_role(auth.uid(), 'admin') OR 
-  has_role(auth.uid(), 'gerente_djt') OR
-  has_role(auth.uid(), 'gerente_divisao_djtx') OR
-  has_role(auth.uid(), 'coordenador_djtx')
+  has_role((select auth.uid()), 'admin') OR 
+  has_role((select auth.uid()), 'gerente_djt') OR
+  has_role((select auth.uid()), 'gerente_divisao_djtx') OR
+  has_role((select auth.uid()), 'coordenador_djtx')
 );
 
 DROP POLICY IF EXISTS "System can manage progression requests" ON public.tier_progression_requests;
 CREATE POLICY "System can manage progression requests"
 ON public.tier_progression_requests FOR ALL
 USING (
-  has_role(auth.uid(), 'admin') OR 
-  has_role(auth.uid(), 'gerente_djt') OR
-  has_role(auth.uid(), 'coordenador_djtx')
+  has_role((select auth.uid()), 'admin') OR 
+  has_role((select auth.uid()), 'gerente_djt') OR
+  has_role((select auth.uid()), 'coordenador_djtx')
 );
 
 -- 15. RLS Policies para notifications
@@ -320,9 +320,9 @@ ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Users can view own notifications" ON public.notifications;
 CREATE POLICY "Users can view own notifications"
 ON public.notifications FOR SELECT
-USING (auth.uid() = user_id);
+USING ((select auth.uid()) = user_id);
 
 DROP POLICY IF EXISTS "Users can update own notifications" ON public.notifications;
 CREATE POLICY "Users can update own notifications"
 ON public.notifications FOR UPDATE
-USING (auth.uid() = user_id);
+USING ((select auth.uid()) = user_id);

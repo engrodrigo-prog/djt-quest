@@ -40,7 +40,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(403).json({ error: 'Sem permissão (apenas líderes)' })
     }
 
-    const { question, correct, language = 'pt-BR' } = req.body || {}
+    const { question, correct, language = 'pt-BR', difficulty = 'basico', specialties = [], context = '' } = req.body || {}
     if (typeof question !== 'string' || question.trim().length < 5) {
       return res.status(400).json({ error: 'Pergunta inválida' })
     }
@@ -48,13 +48,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ error: 'Resposta correta inválida' })
     }
 
-    const system = `Você gera alternativas erradas plausíveis para questões de múltipla escolha em ${language}.
-Retorne exatamente 4 alternativas erradas em formato JSON simples: { "wrong": [{ "text": "...", "explanation": "..." }, ...] }.
-Cada alternativa deve ser convincente e diferente entre si, sem repetir a resposta correta fornecida. Use frases curtas e assertivas.`
+    const system = `Você gera alternativas erradas plausíveis e de alta qualidade para questões de múltipla escolha em ${language}.
+Requisitos:
+- NUNCA repita a resposta correta nem versões equivalentes.
+- Use o nível de dificuldade para calibrar o tipo de erro: basico=conceitos simples, intermediario=pegadinhas comuns, avancado=nuances técnicas, especialista=armadilhas conceituais específicas.
+- Considere especialidades e contexto para criar alternativas verossímeis no domínio.
+Formato de saída ESTRITO (JSON):
+{ "wrong": [ { "text": "...", "explanation": "...", "error_type": "near-miss|misconception|irrelevant", "difficulty_hint": "basico|intermediario|avancado|especialista" }, x4 ] }`
 
-    const userPrompt = `Pergunta: ${question.trim()}
+    const userPrompt = `
+Pergunta: ${question.trim()}
 Resposta correta: ${correct.trim()}
-Gere 4 alternativas erradas e explique resumidamente porque estão incorretas.`
+Nível de dificuldade: ${difficulty}
+Especialidades: ${(Array.isArray(specialties) ? specialties : []).join(', ') || 'nenhuma'}
+Contexto adicional: ${context || 'n/a'}
+
+Gere 4 alternativas erradas verossímeis e explique por que estão incorretas.`
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -65,7 +74,7 @@ Gere 4 alternativas erradas e explique resumidamente porque estão incorretas.`
       body: JSON.stringify({
         model: 'gpt-4o-mini',
         temperature: 0.6,
-        max_tokens: 400,
+        max_tokens: 600,
         messages: [
           { role: 'system', content: system },
           { role: 'user', content: userPrompt },
@@ -95,6 +104,8 @@ Gere 4 alternativas erradas e explique resumidamente porque estão incorretas.`
     const wrong = parsed.wrong.slice(0, 4).map((item: any) => ({
       text: typeof item?.text === 'string' ? item.text.trim() : '',
       explanation: item?.explanation ? String(item.explanation).trim() : '',
+      error_type: typeof item?.error_type === 'string' ? item.error_type : null,
+      difficulty_hint: typeof item?.difficulty_hint === 'string' ? item.difficulty_hint : difficulty,
     }))
 
     while (wrong.length < 4) {

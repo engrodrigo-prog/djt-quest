@@ -27,8 +27,8 @@ Deno.serve(async (req) => {
       }
     );
 
-    // Simple org derivation (Divisão -> Coordenação -> Equipe) based on sigla
-    const deriveOrgUnits = (raw: string | null | undefined) => {
+    // Derive org units by looking up teams/coord tables
+    const deriveOrgUnits = async (raw: string | null | undefined) => {
       if (!raw) return null
       const normalized = String(raw)
         .toUpperCase()
@@ -36,12 +36,67 @@ Deno.serve(async (req) => {
         .replace(/-+/g, '-')
         .replace(/^-|-$/g, '')
       if (!normalized) return null
-      const parts = normalized.split('-').filter(Boolean)
-      const divisionId = parts[0] || 'DJT'
-      const coordinationTag = parts[1] || 'SEDE'
-      const coordinationId = `${divisionId}-${coordinationTag}`
-      const teamId = normalized
-      return { divisionId, coordinationId, teamId }
+
+      // 1) Try direct lookup: teams.id equals normalized (base code like CUB, SAN, ITP, PLA...)
+      let teamId: string | null = null
+      let coordId: string | null = null
+      let divisionId: string | null = null
+      {
+        const { data: team } = await supabaseAdmin
+          .from('teams')
+          .select('id, coord_id')
+          .eq('id', normalized)
+          .maybeSingle()
+        if (team?.id) {
+          teamId = team.id
+          coordId = team.coord_id || null
+          if (coordId) {
+            const { data: coord } = await supabaseAdmin
+              .from('coordinations')
+              .select('division_id')
+              .eq('id', coordId)
+              .maybeSingle()
+            divisionId = coord?.division_id || null
+          }
+        }
+      }
+
+      // 2) Fallback: string like DJTB-CUB
+      if (!teamId && normalized.includes('-')) {
+        const [div, tag] = normalized.split('-', 2)
+        divisionId = div || null
+        coordId = div && tag ? `${div}-${tag}` : null
+        // Try to find team by base tag under this coord
+        if (tag) {
+          const { data: t2 } = await supabaseAdmin
+            .from('teams')
+            .select('id')
+            .eq('id', tag)
+            .maybeSingle()
+          if (t2?.id) teamId = t2.id
+        }
+      }
+
+      if (!divisionId && teamId) {
+        // As a last resort, deduce division from coord again
+        const { data: team } = await supabaseAdmin
+          .from('teams')
+          .select('coord_id')
+          .eq('id', teamId)
+          .maybeSingle()
+        if (team?.coord_id) {
+          const { data: coord } = await supabaseAdmin
+            .from('coordinations')
+            .select('division_id')
+            .eq('id', team.coord_id)
+            .maybeSingle()
+          coordId = coordId || team.coord_id
+          divisionId = coord?.division_id || null
+        }
+      }
+
+      if (!divisionId && !coordId && !teamId) return null
+      return { divisionId, coordinationId: coordId, teamId }
     }
 
     // Get authenticated user
@@ -83,6 +138,16 @@ Deno.serve(async (req) => {
       throw new Error('Registration not found or already processed');
     }
 
+    // Prevent duplicate approvals for same email
+    const { data: existingProfile } = await supabaseAdmin
+      .from('profiles')
+      .select('id')
+      .eq('email', registration.email)
+      .maybeSingle()
+    if (existingProfile?.id) {
+      throw new Error('Já existe um perfil ativo com este e-mail. Rejeite ou atualize o cadastro existente.');
+    }
+
     console.log('Creating user:', registration.email);
 
     // Create user in Supabase Auth with default password
@@ -102,10 +167,10 @@ Deno.serve(async (req) => {
 
     console.log('User created:', newUser.user.id);
 
-    // Create profile
+    // Create or update profile (avoid duplicate key on retries)
     const { error: profileError } = await supabaseAdmin
       .from('profiles')
-      .insert({
+      .upsert({
         id: newUser.user.id,
         name: registration.name,
         email: registration.email,
@@ -114,7 +179,7 @@ Deno.serve(async (req) => {
         sigla_area: registration.sigla_area,
         must_change_password: true,
         needs_profile_completion: true,
-      });
+      }, { onConflict: 'id' });
 
     if (profileError) {
       console.error('Error creating profile:', profileError);
@@ -126,7 +191,7 @@ Deno.serve(async (req) => {
     console.log('Profile created');
 
     // Attach org hierarchy if possible
-    const org = deriveOrgUnits(registration.sigla_area || registration.operational_base)
+    const org = await deriveOrgUnits(registration.sigla_area || registration.operational_base)
     if (org) {
       const { error: orgErr } = await supabaseAdmin
         .from('profiles')
@@ -138,12 +203,15 @@ Deno.serve(async (req) => {
     }
 
     // Assign default role (colaborador)
+    // Assign default role; ignore if already assigned
     const { error: roleError } = await supabaseAdmin
       .from('user_roles')
-      .insert({
-        user_id: newUser.user.id,
-        role: 'colaborador',
-      });
+      .insert({ user_id: newUser.user.id, role: 'colaborador' });
+    if (roleError && !String(roleError.message || '').toLowerCase().includes('duplicate')) {
+      console.error('Error assigning role:', roleError)
+      await supabaseAdmin.auth.admin.deleteUser(newUser.user.id);
+      throw roleError;
+    }
 
     if (roleError) {
       console.error('Error assigning role:', roleError);

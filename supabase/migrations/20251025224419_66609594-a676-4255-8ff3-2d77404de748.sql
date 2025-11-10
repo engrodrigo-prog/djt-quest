@@ -49,7 +49,7 @@ DO $$ BEGIN
     TO authenticated
     USING (
       bucket_id = 'forum-attachments' AND
-      owner = auth.uid()
+      owner = (select auth.uid())
     );
   END IF;
 END $$;

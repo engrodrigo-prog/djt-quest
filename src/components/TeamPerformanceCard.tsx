@@ -30,7 +30,7 @@ export const TeamPerformanceCard = () => {
         .from("teams")
         .select("name, team_modifier, last_modifier_update, modifier_reason")
         .eq("id", teamId)
-        .single();
+        .maybeSingle();
 
       if (team) {
         setTeamData(team);
@@ -50,7 +50,7 @@ export const TeamPerformanceCard = () => {
   const isNegative = modifier < 1.0;
 
   return (
-    <Card className="p-6 bg-gradient-to-br from-primary/5 to-primary/10">
+    <Card className="p-6 bg-gradient-to-br from-primary/5 to-primary/10 backdrop-blur-sm">
       <div className="flex items-start justify-between mb-4">
         <div>
           <h3 className="text-lg font-semibold text-foreground">Performance da Equipe</h3>

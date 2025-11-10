@@ -12,6 +12,7 @@ import { ArrowLeft, Upload, Shield } from 'lucide-react';
 import { ThemedBackground, domainFromType } from '@/components/ThemedBackground';
 import { useToast } from '@/hooks/use-toast';
 import { QuizPlayer } from '@/components/QuizPlayer';
+import { HelpInfo } from '@/components/HelpInfo';
 
 interface Challenge {
   id: string;
@@ -22,11 +23,12 @@ interface Challenge {
   require_two_leader_eval: boolean;
   campaign_id: string;
   evidence_required: boolean;
+  status?: string;
 }
 
 const ChallengeDetail = () => {
   const { id } = useParams();
-  const { user } = useAuth();
+  const { user, isLeader, studioAccess, userRole } = useAuth() as any;
   const navigate = useNavigate();
   const { toast } = useToast();
   const [searchParams] = useSearchParams();
@@ -36,8 +38,25 @@ const ChallengeDetail = () => {
   const [submitting, setSubmitting] = useState(false);
   const [description, setDescription] = useState('');
   const [evidenceUrls, setEvidenceUrls] = useState<string[]>([]);
+  const [imageUploads, setImageUploads] = useState<File[]>([]);
+  const [audioFile, setAudioFile] = useState<File | null>(null);
+  const [transcribing, setTranscribing] = useState(false);
+  // Mic recording state
+  const [recording, setRecording] = useState(false);
+  const [recordSeconds, setRecordSeconds] = useState(0);
+  const [recordedUrl, setRecordedUrl] = useState<string | null>(null);
+  const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
+  const [mediaStream, setMediaStream] = useState<MediaStream | null>(null);
   const [previousFeedback, setPreviousFeedback] = useState<{ positive: string | null; constructive: string | null } | null>(null);
   const [quizCompleted, setQuizCompleted] = useState(false);
+  const [actionDate, setActionDate] = useState<string>('');
+  const [actionLocation, setActionLocation] = useState<string>('');
+  const [sapNote, setSapNote] = useState<string>('');
+  // Participants
+  const [allUsers, setAllUsers] = useState<Array<{ id: string; name: string; team_id: string | null }>>([]);
+  const [participantSearch, setParticipantSearch] = useState('');
+  const [selectedParticipants, setSelectedParticipants] = useState<Set<string>>(new Set());
+  const [myTeamId, setMyTeamId] = useState<string | null>(null);
 
   useEffect(() => {
     const loadChallenge = async () => {
@@ -45,7 +64,7 @@ const ChallengeDetail = () => {
 
       const { data, error } = await supabase
         .from('challenges')
-        .select('*')
+        .select('*, created_by')
         .eq('id', id)
         .single();
 
@@ -83,21 +102,31 @@ const ChallengeDetail = () => {
 
       // Se for quiz, verificar se já foi concluído
       if (data?.type?.toLowerCase?.().includes('quiz') && user) {
-        const { count: totalQuestions } = await supabase
-          .from('quiz_questions')
-          .select('id', { count: 'exact', head: true })
-          .eq('challenge_id', data.id);
-
-        const { count: answeredQuestions } = await supabase
-          .from('user_quiz_answers')
-          .select('id', { count: 'exact', head: true })
+        // Prefer attempt table if present
+        const { data: attempt } = await supabase
+          .from('quiz_attempts')
+          .select('submitted_at')
           .eq('user_id', user.id)
-          .eq('challenge_id', data.id);
+          .eq('challenge_id', data.id)
+          .maybeSingle();
+        if (attempt?.submitted_at) {
+          setQuizCompleted(true);
+        } else {
+          const { count: totalQuestions } = await supabase
+            .from('quiz_questions')
+            .select('id', { count: 'exact', head: true })
+            .eq('challenge_id', data.id);
 
-        // Considere concluído apenas se houver perguntas (>0) e todas respondidas
-        const total = totalQuestions || 0;
-        const answered = answeredQuestions || 0;
-        setQuizCompleted(total > 0 && answered >= total);
+          const { count: answeredQuestions } = await supabase
+            .from('user_quiz_answers')
+            .select('id', { count: 'exact', head: true })
+            .eq('user_id', user.id)
+            .eq('challenge_id', data.id);
+
+          const total = totalQuestions || 0;
+          const answered = answeredQuestions || 0;
+          setQuizCompleted(total > 0 && answered >= total);
+        }
       }
 
       setLoading(false);
@@ -106,12 +135,57 @@ const ChallengeDetail = () => {
     loadChallenge();
   }, [id, retryEventId, navigate, toast, user]);
 
+  // Load participants catalog (alphabetical; same team first)
+  useEffect(() => {
+    const loadUsers = async () => {
+      if (!user) return;
+      try {
+        // get my team id
+        const { data: myProfile } = await supabase
+          .from('profiles')
+          .select('team_id')
+          .eq('id', user.id)
+          .maybeSingle();
+        const teamId = myProfile?.team_id || null;
+        setMyTeamId(teamId);
+
+        const { data: users } = await supabase
+          .from('profiles')
+          .select('id, name, team_id')
+          .order('name');
+        const list = (users || []) as Array<{ id: string; name: string; team_id: string | null }>;
+        // sort: same team first then by name
+        list.sort((a, b) => {
+          const aSame = a.team_id && teamId && a.team_id === teamId ? 0 : 1;
+          const bSame = b.team_id && teamId && b.team_id === teamId ? 0 : 1;
+          if (aSame !== bSame) return aSame - bSame;
+          return (a.name || '').localeCompare(b.name || '');
+        });
+        setAllUsers(list);
+        // default select me
+        setSelectedParticipants(new Set([user.id]));
+      } catch (e) {
+        // ignore
+      }
+    };
+    loadUsers();
+  }, [user]);
+
   const handleSubmit = async () => {
     if (!challenge || !user) return;
     
     if (description.length < 50) {
       toast({ title: 'Erro', description: 'Descrição deve ter pelo menos 50 caracteres', variant: 'destructive' });
       return;
+    }
+
+    // For non-quiz actions, require date/location/SAP to avoid duplicates
+    const isQuiz = (challenge.type || '').toLowerCase().includes('quiz');
+    if (!isQuiz) {
+      if (!actionDate || !actionLocation || !sapNote) {
+        toast({ title: 'Campos obrigatórios', description: 'Informe data, local e nota SAP para registrar a ação', variant: 'destructive' });
+        return;
+      }
     }
 
     setSubmitting(true);
@@ -122,13 +196,18 @@ const ChallengeDetail = () => {
         const { error } = await supabase
           .from('events')
           .update({
-            payload: { description },
-            evidence_urls: evidenceUrls.length > 0 ? evidenceUrls : null,
+            payload: { description, ...(evidenceUrls.length > 0 ? { evidence_urls: evidenceUrls } : {}), action_date: actionDate || null, action_location: actionLocation || null, sap_service_note: sapNote || null },
             status: 'submitted'
           })
           .eq('id', retryEventId);
 
         if (error) throw error;
+
+        // Upsert participants
+        const parts = new Set(selectedParticipants);
+        parts.add(user.id);
+        const rows = Array.from(parts).map(uid => ({ event_id: retryEventId, user_id: uid }));
+        await supabase.from('event_participants').upsert(rows as any, { onConflict: 'event_id,user_id' } as any);
 
         toast({
           title: 'Sucesso!',
@@ -136,17 +215,25 @@ const ChallengeDetail = () => {
         });
       } else {
         // Create new event
-        const { error } = await supabase
+        const { data: newEvent, error } = await supabase
           .from('events')
           .insert([{
             user_id: user.id,
             challenge_id: challenge.id,
-            payload: { description },
-            evidence_urls: evidenceUrls.length > 0 ? evidenceUrls : null,
+            payload: { description, ...(evidenceUrls.length > 0 ? { evidence_urls: evidenceUrls } : {}), action_date: actionDate || null, action_location: actionLocation || null, sap_service_note: sapNote || null },
             status: challenge.require_two_leader_eval ? 'submitted' : 'evaluated'
-          }]);
+          }])
+          .select('id')
+          .single();
 
         if (error) throw error;
+
+        // Upsert participants (include me)
+        const newEventId = newEvent?.id as string;
+        const parts = new Set(selectedParticipants);
+        parts.add(user.id);
+        const rows = Array.from(parts).map(uid => ({ event_id: newEventId, user_id: uid }));
+        await supabase.from('event_participants').upsert(rows as any, { onConflict: 'event_id,user_id' } as any);
 
         toast({
           title: 'Sucesso!',
@@ -159,7 +246,12 @@ const ChallengeDetail = () => {
       navigate('/profile');
     } catch (error) {
       console.error('Error submitting:', error);
-      toast({ title: 'Erro', description: 'Não foi possível submeter a ação', variant: 'destructive' });
+      const msg = (error as any)?.message || '';
+      if (msg.includes('uq_events_dedup_meta') || msg.includes('duplicate')) {
+        toast({ title: 'Ação duplicada', description: 'Já existe uma ação com este desafio, data, local e nota SAP', variant: 'destructive' });
+      } else {
+        toast({ title: 'Erro', description: 'Não foi possível submeter a ação', variant: 'destructive' });
+      }
     } finally {
       setSubmitting(false);
     }
@@ -178,8 +270,9 @@ const ChallengeDetail = () => {
   const theme = domainFromType(challenge.type);
 
   return (
-    <div className="relative min-h-screen bg-background p-4 overflow-hidden">
+    <div className="relative min-h-screen bg-background p-4 pb-40 overflow-hidden">
       <ThemedBackground theme={theme} />
+      <HelpInfo kind={challenge.type === 'quiz' ? 'quiz' : 'challenge'} />
       <div className="container max-w-2xl mx-auto py-8 space-y-6 relative">
         <Button variant="ghost" onClick={() => navigate('/profile')}>
           <ArrowLeft className="h-4 w-4 mr-2" />
@@ -242,7 +335,7 @@ const ChallengeDetail = () => {
             {challenge.require_two_leader_eval && (
               <div className="flex items-center gap-2 text-sm text-muted-foreground mt-4 p-3 bg-muted rounded-lg">
                 <Shield className="h-4 w-4" />
-                Este desafio requer avaliação de 2 líderes (1 Divisão + 1 Coordenação)
+                Este desafio requer 3 avaliações: 1 líder imediato, 1 outro líder e 1 gerente.
               </div>
             )}
           </CardHeader>
@@ -273,8 +366,86 @@ const ChallengeDetail = () => {
                   ? 'Revise e melhore sua resposta com base no feedback recebido' 
                   : 'Descreva como você completou este desafio'}
               </CardDescription>
+              {/* Ações de gestão (editar/cancelar) apenas para criador ou liderança superior */}
+              {user && studioAccess && (
+                (challenge.created_by === user.id || ['coordenador_djtx','gerente_divisao_djtx','gerente_djt','admin'].includes(userRole))
+              ) && (
+                <div className="flex items-center gap-2 pt-2">
+                  <Button type="button" variant="outline" onClick={() => window.location.href = '/studio'}>
+                    Editar no Studio
+                  </Button>
+                  <Button type="button" variant="destructive" onClick={async () => {
+                    if (!confirm('Cancelar este desafio para todos?')) return;
+                    try {
+                      const { error } = await supabase
+                        .from('challenges')
+                        .update({ status: 'canceled', canceled_at: new Date().toISOString() })
+                        .eq('id', challenge.id);
+                      if (error) throw error;
+                      toast({ title: 'Desafio cancelado' });
+                      navigate('/dashboard');
+                    } catch (e: any) {
+                      toast({ title: 'Falha ao cancelar', description: e?.message || 'Tente novamente', variant: 'destructive' })
+                    }
+                  }}>
+                    Cancelar desafio
+                  </Button>
+                </div>
+              )}
             </CardHeader>
             <CardContent className="space-y-4">
+              {/* Participants selector */}
+              <div>
+                <Label>Participantes</Label>
+                <p className="text-xs text-muted-foreground">Selecione quem participou com você nesta ação. Você já está incluído.</p>
+                <div className="mt-2 flex items-center gap-2">
+                  <Input placeholder="Buscar por nome..." value={participantSearch} onChange={(e)=>setParticipantSearch(e.target.value)} className="max-w-sm" />
+                </div>
+                <div className="mt-2 max-h-64 overflow-auto rounded-md border p-2 space-y-1 bg-black/20">
+                  {allUsers
+                    .filter(u => (u.name || '').toLowerCase().includes(participantSearch.toLowerCase()))
+                    .map(u => {
+                      const checked = selectedParticipants.has(u.id) || u.id === user?.id;
+                      const disabled = u.id === user?.id;
+                      return (
+                        <label key={u.id} className="flex items-center gap-2 text-sm cursor-pointer select-none px-2 py-1 rounded hover:bg-white/5">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            disabled={disabled}
+                            onChange={(e) => {
+                              setSelectedParticipants(prev => {
+                                const next = new Set(prev);
+                                if (e.target.checked) next.add(u.id); else next.delete(u.id);
+                                return next;
+                              })
+                            }}
+                          />
+                          <span className="flex-1">
+                            {u.name}
+                            {myTeamId && u.team_id === myTeamId && <span className="text-xs text-primary ml-2">(minha equipe)</span>}
+                          </span>
+                        </label>
+                      )
+                    })}
+                </div>
+              </div>
+              {!challenge.type.toLowerCase().includes('quiz') && (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <Label htmlFor="action_date">Data da Ação *</Label>
+                    <Input id="action_date" type="date" value={actionDate} onChange={(e)=>setActionDate(e.target.value)} className="mt-1" />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <Label htmlFor="action_location">Local/Subestação *</Label>
+                    <Input id="action_location" placeholder="Ex.: Subestação XYZ" value={actionLocation} onChange={(e)=>setActionLocation(e.target.value)} className="mt-1" />
+                  </div>
+                  <div className="sm:col-span-3">
+                    <Label htmlFor="sap_note">Nota de Serviço SAP *</Label>
+                    <Input id="sap_note" placeholder="Ex.: 4001234567" value={sapNote} onChange={(e)=>setSapNote(e.target.value)} className="mt-1" />
+                  </div>
+                </div>
+              )}
               <div>
                 <Label htmlFor="description">Descrição da Ação *</Label>
                 <Textarea
@@ -288,33 +459,223 @@ const ChallengeDetail = () => {
                 <p className="text-xs text-muted-foreground mt-1">
                   {description.length}/50 caracteres mínimos
                 </p>
+
+                {/* Áudio integrado à descrição: gravar/anexar e transcrever para preencher o texto */}
+                <div className="mt-3 space-y-2">
+                  <Label className="text-xs">Preferir falar? Grave ou anexe um áudio e nós transcrevemos e organizamos com IA.</Label>
+                  {/* Upload de arquivo de áudio existente */}
+                  <Input type="file" accept="audio/*" onChange={(e) => setAudioFile(e.target.files?.[0] || null)} />
+
+                  {/* Gravação pelo microfone */}
+                  <div className="flex items-center gap-2">
+                    <Button type="button" variant={recording ? 'destructive' : 'outline'} onClick={async () => {
+                      try {
+                        if (!recording) {
+                          // start
+                          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                          const rec = new MediaRecorder(stream);
+                          const chunks: BlobPart[] = [];
+                          rec.ondataavailable = (ev) => { if (ev.data.size > 0) chunks.push(ev.data); };
+                          rec.onstop = () => {
+                            const blob = new Blob(chunks, { type: rec.mimeType || 'audio/webm' });
+                            const file = new File([blob], `gravacao-${Date.now()}.webm`, { type: blob.type });
+                            setAudioFile(file);
+                            if (recordedUrl) URL.revokeObjectURL(recordedUrl);
+                            setRecordedUrl(URL.createObjectURL(blob));
+                          };
+                          setMediaStream(stream);
+                          setMediaRecorder(rec);
+                          setRecordSeconds(0);
+                          setRecording(true);
+                          rec.start();
+                          // timer
+                          const startedAt = Date.now();
+                          const t = setInterval(() => {
+                            if (!rec.recording) { clearInterval(t); return; }
+                            setRecordSeconds(Math.floor((Date.now() - startedAt) / 1000));
+                          }, 1000);
+                        } else {
+                          // stop
+                          mediaRecorder?.stop();
+                          mediaStream?.getTracks().forEach((tr) => tr.stop());
+                          setRecording(false);
+                        }
+                      } catch (e) {
+                        toast({ title: 'Permita acesso ao microfone', variant: 'destructive' });
+                      }
+                    }}>{recording ? 'Parar gravação' : 'Gravar áudio'}</Button>
+                    {recording && (
+                      <span className="text-xs text-red-600">● Gravando {recordSeconds}s</span>
+                    )}
+                  </div>
+
+                  {recordedUrl && (
+                    <div className="space-y-2">
+                      <audio controls src={recordedUrl} className="w-full" />
+                      <div className="flex gap-2">
+                        <Button type="button" variant="secondary" onClick={() => {
+                          if (recordedUrl) URL.revokeObjectURL(recordedUrl);
+                          setRecordedUrl(null);
+                          setAudioFile(null);
+                        }}>Descartar</Button>
+                        <Button type="button" onClick={async () => {
+                          if (!audioFile) return;
+                          try {
+                            setTranscribing(true);
+                            // Send as base64 directly
+                            const toBase64 = (f: File) => new Promise<string>((resolve, reject) => {
+                              const reader = new FileReader();
+                              reader.onload = () => resolve(String(reader.result));
+                              reader.onerror = reject;
+                              reader.readAsDataURL(f);
+                            });
+                            const b64 = await toBase64(audioFile);
+                            const resp = await fetch('/api/transcribe-audio', {
+                              method: 'POST', headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ audioBase64: b64, mode: 'organize', language: 'pt' })
+                            });
+                            const json = await resp.json();
+                            if (!resp.ok) throw new Error(json?.error || 'Falha na transcrição');
+                            const merged = [description, json.text || json.summary || json.transcript].filter(Boolean).join('\n\n');
+                            setDescription(merged);
+                            toast({ title: 'Áudio organizado', description: 'Texto inserido na descrição' })
+                          } catch (e: any) {
+                            toast({ title: 'Falha ao transcrever', description: e?.message || 'Tente novamente', variant: 'destructive' })
+                          } finally {
+                            setTranscribing(false);
+                          }
+                        }}>{transcribing ? 'Transcrevendo...' : 'Transcrever e organizar'}</Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Transcrever arquivo de áudio anexado (sem gravação) */}
+                  <Button type="button" variant="outline" disabled={!audioFile || transcribing} onClick={async () => {
+                    if (!audioFile) return;
+                    try {
+                      setTranscribing(true);
+                      // Upload audio to evidence and then ask API to transcribe
+                      const path = `${user?.id}/${Date.now()}-audio-${audioFile.name}`;
+                      const { error: upErr } = await supabase.storage.from('evidence').upload(path, audioFile, { upsert: true, contentType: audioFile.type });
+                      if (upErr) throw upErr;
+                      const { data } = supabase.storage.from('evidence').getPublicUrl(path);
+                      const resp = await fetch('/api/transcribe-audio', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ fileUrl: data.publicUrl, mode: 'organize', language: 'pt' })
+                      });
+                      const json = await resp.json();
+                      if (!resp.ok) throw new Error(json?.error || 'Falha na transcrição');
+                      const merged = [description, json.text || json.summary || json.transcript].filter(Boolean).join('\n\n');
+                      setDescription(merged);
+                      toast({ title: 'Áudio organizado', description: 'Texto inserido na descrição' })
+                    } catch (e: any) {
+                      toast({ title: 'Falha ao transcrever', description: e?.message || 'Tente novamente', variant: 'destructive' })
+                    } finally {
+                      setTranscribing(false);
+                    }
+                  }}>{transcribing ? 'Transcrevendo...' : 'Transcrever e organizar'}</Button>
+                </div>
               </div>
 
-              {challenge.evidence_required && (
-                <div>
-                  <Label htmlFor="evidence">Evidências (URLs)</Label>
-                  <Input
-                    id="evidence"
-                    placeholder="https://exemplo.com/foto.jpg"
-                    onChange={(e) => {
-                      const urls = e.target.value.split(',').map(u => u.trim()).filter(u => u);
-                      setEvidenceUrls(urls);
-                    }}
-                    className="mt-2"
-                  />
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Separe múltiplas URLs com vírgula
-                  </p>
+              <div className="space-y-2">
+                <Label>Evidências (imagens — mínimo 1, máximo 5)</Label>
+                <Input type="file" accept="image/*" multiple onChange={(e) => {
+                  const files = Array.from(e.target.files || []).slice(0,5);
+                  setImageUploads(files);
+                }} />
+                <div className="text-xs text-muted-foreground">
+                  {imageUploads.length} selecionada(s). Limite 5.
                 </div>
-              )}
+                <Button type="button" variant="outline" onClick={async () => {
+                  if (!user) return;
+                  if (!imageUploads.length) {
+                    return toast({ title: 'Selecione ao menos 1 imagem', variant: 'destructive' })
+                  }
+                  try {
+                    const uploaded: string[] = [];
+                    for (const f of imageUploads.slice(0,5)) {
+                      const path = `${user.id}/${Date.now()}-${Math.random().toString(36).slice(2)}-${f.name}`;
+                      const { error: upErr } = await supabase.storage.from('evidence').upload(path, f, { upsert: true, contentType: f.type });
+                      if (upErr) throw upErr;
+                      const { data } = supabase.storage.from('evidence').getPublicUrl(path);
+                      uploaded.push(data.publicUrl);
+                    }
+                    setEvidenceUrls(uploaded);
+                    toast({ title: 'Imagens enviadas', description: `${uploaded.length} arquivo(s) enviado(s)` })
+                  } catch (e: any) {
+                    toast({ title: 'Falha no upload', description: e?.message || 'Tente novamente', variant: 'destructive' })
+                  }
+                }}>Enviar imagens</Button>
+              </div>
+
 
               <Button 
                 onClick={handleSubmit} 
-                disabled={submitting || description.length < 50}
+                disabled={submitting || description.length < 50 || (challenge.evidence_required && evidenceUrls.length < 1) || evidenceUrls.length > 5}
                 className="w-full"
               >
                 {submitting ? 'Submetendo...' : retryEventId ? 'Submeter Refação' : 'Submeter Ação'}
               </Button>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Ações de gerenciamento para QUIZ (apenas líderes com acesso ao Studio) */}
+        {challenge.type?.toLowerCase?.().includes('quiz') && user && studioAccess && isLeader && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Gerenciar Quiz</CardTitle>
+              <CardDescription>
+                Status atual: <strong>{(challenge.status || 'active').toUpperCase()}</strong>
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-wrap gap-2">
+              <Button type="button" variant="outline" onClick={async () => {
+                try {
+                  const { error } = await supabase.from('challenges').update({ status: 'active' }).eq('id', challenge.id);
+                  if (error) throw error;
+                  toast({ title: 'Quiz reaberto para coleta' });
+                  setChallenge({ ...challenge, status: 'active' });
+                } catch (e: any) {
+                  toast({ title: 'Falha ao reabrir', description: e?.message || 'Tente novamente', variant: 'destructive' })
+                }
+              }}>Reabrir Coleta</Button>
+
+              <Button type="button" variant="secondary" onClick={async () => {
+                try {
+                  const { error } = await supabase.from('challenges').update({ status: 'closed' }).eq('id', challenge.id);
+                  if (error) throw error;
+                  toast({ title: 'Coleta encerrada' });
+                  setChallenge({ ...challenge, status: 'closed' });
+                } catch (e: any) {
+                  toast({ title: 'Falha ao encerrar', description: e?.message || 'Tente novamente', variant: 'destructive' })
+                }
+              }}>Encerrar Coleta</Button>
+
+              <Button type="button" variant="destructive" onClick={async () => {
+                if (!confirm('Cancelar este quiz? Os usuários não poderão mais responder.')) return;
+                try {
+                  const { error } = await supabase.from('challenges').update({ status: 'canceled' }).eq('id', challenge.id);
+                  if (error) throw error;
+                  toast({ title: 'Quiz cancelado' });
+                  setChallenge({ ...challenge, status: 'canceled' });
+                } catch (e: any) {
+                  toast({ title: 'Falha ao cancelar', description: e?.message || 'Tente novamente', variant: 'destructive' })
+                }
+              }}>Cancelar Quiz</Button>
+
+              <Button type="button" variant="destructive" onClick={async () => {
+                if (!confirm('Excluir este quiz definitivamente? Esta ação não poderá ser desfeita.')) return;
+                try {
+                  const { error } = await supabase.from('challenges').delete().eq('id', challenge.id);
+                  if (error) throw error;
+                  toast({ title: 'Quiz excluído' });
+                  navigate('/studio');
+                } catch (e: any) {
+                  toast({ title: 'Falha ao excluir', description: e?.message || 'Tente novamente', variant: 'destructive' })
+                }
+              }}>Excluir Quiz</Button>
             </CardContent>
           </Card>
         )}

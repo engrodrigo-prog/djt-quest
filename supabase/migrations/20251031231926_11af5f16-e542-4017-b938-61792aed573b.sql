@@ -16,8 +16,20 @@ BEGIN
 END;
 $$;
 
--- Criar view materializada para performance de equipes em campanhas
-CREATE MATERIALIZED VIEW IF NOT EXISTS team_campaign_performance AS
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_matviews WHERE schemaname = 'public' AND matviewname = 'team_campaign_performance'
+  ) THEN
+    EXECUTE 'DROP MATERIALIZED VIEW public.team_campaign_performance';
+  ELSIF EXISTS (
+    SELECT 1 FROM pg_views WHERE schemaname = 'public' AND viewname = 'team_campaign_performance'
+  ) THEN
+    EXECUTE 'DROP VIEW public.team_campaign_performance';
+  END IF;
+END $$;
+
+CREATE MATERIALIZED VIEW team_campaign_performance AS
 SELECT 
   t.id as team_id,
   t.name as team_name,
@@ -50,7 +62,7 @@ BEGIN
 END;
 $$;
 
--- Criar view para desempenho de equipes em desafios
+DROP VIEW IF EXISTS team_challenge_performance;
 CREATE OR REPLACE VIEW team_challenge_performance AS
 SELECT 
   t.id as team_id,

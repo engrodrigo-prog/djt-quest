@@ -236,7 +236,7 @@ const Auth = () => {
       }}
     >
       <div className="absolute inset-0 bg-black/30" />
-      <Card className="w-full max-w-md bg-background backdrop-blur-sm shadow-2xl relative z-10">
+      <Card className="w-full max-w-md bg-background shadow-2xl relative z-10">
         <CardHeader>
           <CardTitle>DJT Quest - Login</CardTitle>
           <CardDescription>

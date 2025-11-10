@@ -29,7 +29,7 @@ const Home = () => {
 
   return (
     <div 
-      className={`min-h-screen flex flex-col items-center justify-end p-8 pb-16 relative overflow-hidden ${isTransitioning ? 'animate-page-fade-out' : ''}`}
+      className={`min-h-screen flex flex-col items-center justify-end p-8 pb-32 relative overflow-hidden ${isTransitioning ? 'animate-page-fade-out' : ''}`}
       style={{
         backgroundImage: `url(${djtCover})`,
         backgroundSize: 'cover',

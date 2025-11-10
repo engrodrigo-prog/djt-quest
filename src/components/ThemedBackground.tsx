@@ -1,5 +1,6 @@
 import { Shield } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import appBg from '@/assets/backgrounds/BG.png'
 
 type ThemeKey = 'conhecimento' | 'habilidades' | 'atitude' | 'seguranca'
 
@@ -10,24 +11,46 @@ const themeMap: Record<ThemeKey, { from: string; via?: string; to: string; ring:
   seguranca:    { from: 'from-amber-600/25',   via: 'via-yellow-500/20', to: 'to-stone-500/10', ring: 'ring-amber-400/30' },
 }
 
-export function ThemedBackground({ theme, className }: { theme: ThemeKey; className?: string }) {
+interface BGProps {
+  theme: ThemeKey
+  className?: string
+  fixed?: boolean
+  fit?: 'cover' | 'contain'
+  repeat?: 'no-repeat' | 'repeat' | 'repeat-y'
+}
+
+export function ThemedBackground({ theme, className, fixed = true, fit = 'cover', repeat = 'no-repeat' }: BGProps) {
   const t = themeMap[theme]
   return (
     <div
       aria-hidden
       className={cn(
-        'pointer-events-none absolute inset-0 overflow-hidden',
-        'bg-gradient-to-br animate-gradientShift',
-        t.from, t.via, t.to,
+        'pointer-events-none inset-0 overflow-hidden',
+        fixed ? 'fixed' : 'absolute',
         className,
       )}
+      style={{ zIndex: 0 }}
     >
+      {/* Background image */}
+      <div
+        className="absolute inset-0"
+        style={{ 
+          backgroundImage: `url(${appBg})`,
+          backgroundSize: fit,
+          backgroundPosition: 'center',
+          backgroundRepeat: repeat,
+        }}
+      />
+
+      {/* Gradient overlay for theme tint */}
+      <div className={cn('absolute inset-0 bg-gradient-to-br animate-gradientShift mix-blend-multiply', t.from, t.via, t.to)} />
+
       {/* Soft vignette */}
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(255,255,255,0.08),transparent_40%),radial-gradient(circle_at_80%_0%,rgba(255,255,255,0.06),transparent_35%),radial-gradient(circle_at_0%_80%,rgba(255,255,255,0.05),transparent_35%)]" />
 
       {/* Floating orbs */}
-      <div className={cn('absolute -top-10 -left-10 w-64 h-64 rounded-full blur-3xl opacity-25 animate-floatSlow', t.ring, 'ring-8')} />
-      <div className={cn('absolute bottom-[-3rem] right-[-2rem] w-72 h-72 rounded-full blur-3xl opacity-20 animate-floatSlow2', t.ring, 'ring-8')} />
+      <div className={cn('absolute -top-10 -left-10 w-64 h-64 rounded-full opacity-25 animate-floatSlow', t.ring, 'ring-8')} />
+      <div className={cn('absolute bottom-[-3rem] right-[-2rem] w-72 h-72 rounded-full opacity-20 animate-floatSlow2', t.ring, 'ring-8')} />
 
       {/* Guardian of Life motif: subtle shields grid */}
       <div className="absolute inset-0 opacity-10">
@@ -52,4 +75,3 @@ export function domainFromType(type?: string): ThemeKey {
   if (t.includes('safety') || t.includes('segur')) return 'seguranca'
   return 'habilidades'
 }
-

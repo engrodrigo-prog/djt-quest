@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Plus, Target as TargetIcon } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
@@ -19,6 +20,7 @@ import { QuizQuestionsList } from "./QuizQuestionsList";
 interface Campaign {
   id: string;
   title: string;
+  description?: string | null;
 }
 
 interface Division {
@@ -50,6 +52,10 @@ export const ChallengeForm = () => {
   const [submitting, setSubmitting] = useState(false);
   const [createdChallengeId, setCreatedChallengeId] = useState<string | null>(null);
   const [questionsKey, setQuestionsKey] = useState(0);
+  const [knownThemes, setKnownThemes] = useState<string[]>([]);
+  const [selectedCampaign, setSelectedCampaign] = useState<Campaign | null>(null);
+  const [campaignDialogOpen, setCampaignDialogOpen] = useState(false);
+  const [newCampaign, setNewCampaign] = useState({ title: '', description: '', start: '', end: '' });
 
   const {
     register,
@@ -65,6 +71,8 @@ export const ChallengeForm = () => {
       type: "quiz",
       require_two_leader_eval: false,
       evidence_required: false,
+      campaign_id: undefined as any,
+      theme: "",
     },
   });
 
@@ -76,18 +84,44 @@ export const ChallengeForm = () => {
     loadData();
   }, []);
 
+  // Prefill from Forum Insights draft (desafio)
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('studio_compendium_draft');
+      if (!raw) return;
+      const draft = JSON.parse(raw);
+      if (!draft || draft.kind !== 'desafio') return;
+      // Prefer CHAS: if 'A' then atitude; if 'H' then inspecao; default atitude
+      const typeFromChas = draft.chas === 'H' ? 'inspecao' : 'atitude';
+      setValue('type', typeFromChas as any, { shouldValidate: true });
+      if (draft.title) setValue('title', String(draft.title).replace(/^Desafio:\s*/i,'').trim());
+      if (draft.summary) setValue('description', String(draft.summary));
+      // Require campaign for non-quiz: user will choose; keep empty here
+      // Theme hint from title
+      if (draft.title) setValue('theme', String(draft.title).slice(0, 80));
+      // Suggested XP level: map priority 1..5 roughly to 10..50
+      const priority = Number(draft.priority || 3);
+      const xpMap: Record<number, number> = { 1: 10, 2: 20, 3: 30, 4: 40, 5: 50 };
+      setValue('xp_reward', xpMap[priority] || 30, { shouldValidate: true });
+      localStorage.removeItem('studio_compendium_draft');
+    } catch {}
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const loadData = async () => {
-    const [campaignsRes, divisionsRes, coordinationsRes, teamsRes] = await Promise.all([
-      supabase.from("campaigns").select("id, title").eq("is_active", true).order("title"),
+    const [campaignsRes, divisionsRes, coordinationsRes, teamsRes, themesRes] = await Promise.all([
+      supabase.from("campaigns").select("id, title, description").eq("is_active", true).order("title"),
       supabase.from("divisions").select("id, name").order("name"),
       supabase.from("coordinations").select("id, name, division_id").order("name"),
       supabase.from("teams").select("id, name, coordination_id").order("name"),
+      supabase.from("subject_suggestions").select("value").eq("kind", "theme").order("used_count", { ascending: false }).limit(20),
     ]);
 
     if (campaignsRes.data) setCampaigns(campaignsRes.data);
     if (divisionsRes.data) setDivisions(divisionsRes.data);
     if (coordinationsRes.data) setCoordinations(coordinationsRes.data);
     if (teamsRes.data) setTeams(teamsRes.data);
+    if (themesRes.data) setKnownThemes((themesRes.data as any[]).map((r: any) => r.value).filter(Boolean));
   };
 
   const onSubmit = async (data: ChallengeFormData) => {
@@ -222,13 +256,22 @@ export const ChallengeForm = () => {
           {/* Basic Info */}
           <div className="space-y-4">
             <div>
-              <Label htmlFor="campaign">Campanha (opcional)</Label>
-              <Select onValueChange={(val) => setValue("campaign_id", val === "none" ? null : val)}>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="campaign">Campanha{challengeType !== 'quiz' ? ' *' : ''}</Label>
+                <Button type="button" variant="outline" size="sm" onClick={() => setCampaignDialogOpen(true)}>Nova campanha</Button>
+              </div>
+              <Select onValueChange={(val) => {
+                const id = val === 'none' ? null : val;
+                setValue("campaign_id", id as any, { shouldValidate: true });
+                setSelectedCampaign(id ? (campaigns.find(c => c.id === id) || null) : null);
+              }}>
                 <SelectTrigger id="campaign">
                   <SelectValue placeholder="Selecione uma campanha" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="none">Nenhuma campanha</SelectItem>
+                  {challengeType === 'quiz' && (
+                    <SelectItem value="none">Nenhuma campanha</SelectItem>
+                  )}
                   {campaigns.map((campaign) => (
                     <SelectItem key={campaign.id} value={campaign.id}>
                       {campaign.title}
@@ -236,6 +279,14 @@ export const ChallengeForm = () => {
                   ))}
                 </SelectContent>
               </Select>
+              {errors.campaign_id && challengeType !== 'quiz' && (
+                <p className="text-sm text-destructive mt-1">{String(errors.campaign_id.message)}</p>
+              )}
+              {selectedCampaign?.description && (
+                <p className="text-xs text-muted-foreground mt-2">
+                  {selectedCampaign.description}
+                </p>
+              )}
             </div>
 
             <div>
@@ -260,6 +311,19 @@ export const ChallengeForm = () => {
               />
               {errors.description && (
                 <p className="text-sm text-destructive mt-1">{errors.description.message}</p>
+              )}
+            </div>
+
+            <div>
+              <Label htmlFor="theme">Tema *</Label>
+              <Input id="theme" list="themes-suggestions" placeholder="Ex.: Desligamento Zero" {...register("theme")} />
+              <datalist id="themes-suggestions">
+                {knownThemes.map((t) => (
+                  <option key={t} value={t} />
+                ))}
+              </datalist>
+              {errors.theme && (
+                <p className="text-sm text-destructive mt-1">{String(errors.theme.message)}</p>
               )}
             </div>
 
@@ -315,6 +379,61 @@ export const ChallengeForm = () => {
               )}
             </div>
           </div>
+
+          {/* Create Campaign Dialog */}
+          <Dialog open={campaignDialogOpen} onOpenChange={setCampaignDialogOpen}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Criar nova campanha</DialogTitle>
+                <DialogDescription>Defina título, datas e descrição</DialogDescription>
+              </DialogHeader>
+              <div className="space-y-3">
+                <div>
+                  <Label htmlFor="new-c-title">Título</Label>
+                  <Input id="new-c-title" value={newCampaign.title} onChange={(e) => setNewCampaign({ ...newCampaign, title: e.target.value })} />
+                </div>
+                <div>
+                  <Label htmlFor="new-c-start">Início</Label>
+                  <Input id="new-c-start" type="date" value={newCampaign.start} onChange={(e) => setNewCampaign({ ...newCampaign, start: e.target.value })} />
+                </div>
+                <div>
+                  <Label htmlFor="new-c-end">Término</Label>
+                  <Input id="new-c-end" type="date" value={newCampaign.end} onChange={(e) => setNewCampaign({ ...newCampaign, end: e.target.value })} />
+                </div>
+                <div>
+                  <Label htmlFor="new-c-desc">Descrição</Label>
+                  <Textarea id="new-c-desc" rows={3} value={newCampaign.description} onChange={(e) => setNewCampaign({ ...newCampaign, description: e.target.value })} />
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button type="button" variant="outline" onClick={() => setCampaignDialogOpen(false)}>Cancelar</Button>
+                  <Button type="button" onClick={async () => {
+                    try {
+                      if (!newCampaign.title.trim() || !newCampaign.start || !newCampaign.end) {
+                        return toast({ title: 'Preencha título e datas', variant: 'destructive' })
+                      }
+                      const { data, error } = await supabase.from('campaigns').insert([{ 
+                        title: newCampaign.title.trim(),
+                        description: newCampaign.description?.trim() || null,
+                        narrative_tag: null,
+                        start_date: new Date(newCampaign.start).toISOString(),
+                        end_date: new Date(newCampaign.end).toISOString(),
+                        is_active: true,
+                      }]).select('id,title,description').single()
+                      if (error) throw error
+                      setCampaigns([...campaigns, data as any])
+                      setValue('campaign_id', (data as any).id)
+                      setSelectedCampaign(data as any)
+                      setCampaignDialogOpen(false)
+                      setNewCampaign({ title: '', description: '', start: '', end: '' })
+                      toast({ title: 'Campanha criada' })
+                    } catch (e: any) {
+                      toast({ title: 'Erro ao criar campanha', description: e?.message || 'Tente novamente', variant: 'destructive' })
+                    }
+                  }}>Criar</Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
 
           {/* Requirements */}
           <div className="space-y-4 p-4 bg-secondary/10 rounded-lg">

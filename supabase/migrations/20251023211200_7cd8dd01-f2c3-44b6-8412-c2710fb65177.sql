@@ -22,7 +22,7 @@ DO $$ BEGIN
     ON storage.objects FOR INSERT
     WITH CHECK (
       bucket_id = 'avatars' AND 
-      auth.uid()::text = (storage.foldername(name))[1]
+      (select auth.uid())::text = (storage.foldername(name))[1]
     );
   END IF;
 END $$;
@@ -35,7 +35,7 @@ DO $$ BEGIN
     ON storage.objects FOR UPDATE
     USING (
       bucket_id = 'avatars' AND 
-      auth.uid()::text = (storage.foldername(name))[1]
+      (select auth.uid())::text = (storage.foldername(name))[1]
     );
   END IF;
 END $$;
@@ -48,7 +48,7 @@ DO $$ BEGIN
     ON storage.objects FOR DELETE
     USING (
       bucket_id = 'avatars' AND 
-      auth.uid()::text = (storage.foldername(name))[1]
+      (select auth.uid())::text = (storage.foldername(name))[1]
     );
   END IF;
 END $$;

@@ -90,14 +90,25 @@ Deno.serve(async (req) => {
       new_value: sanitizeChange(change.field_name, change.new_value),
     }));
 
-    const { data: currentProfile } = await supabaseClient
+    let { data: currentProfile } = await supabaseClient
       .from('profiles')
       .select('*')
       .eq('id', user.id)
       .single();
-
     if (!currentProfile) {
-      throw new Error('Perfil não encontrado');
+      // Attempt to create a minimal profile on-the-fly (service role only)
+      if (supabaseAdmin) {
+        await supabaseAdmin.from('profiles').insert({ id: user.id, email: user.email, name: user.user_metadata?.name || user.email }).onConflict('id').ignore();
+        const { data: created } = await supabaseClient
+          .from('profiles')
+          .select('*')
+          .eq('id', user.id)
+          .single();
+        currentProfile = created as any;
+      }
+      if (!currentProfile) {
+        throw new Error('Perfil não encontrado');
+      }
     }
 
     const { data: roleRows } = await supabaseClient

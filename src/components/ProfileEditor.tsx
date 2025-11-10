@@ -11,24 +11,18 @@ export function ProfileEditor() {
   const { profile, refreshUserSession } = useAuth();
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
-    name: profile?.name || "",
     email: (profile as any)?.email || "",
     telefone: (profile as any)?.telefone || "",
-    matricula: (profile as any)?.matricula || "",
     operational_base: (profile as any)?.operational_base || "",
     sigla_area: (profile as any)?.sigla_area || "",
-    date_of_birth: (profile as any)?.date_of_birth || "",
   });
 
   useEffect(() => {
     setFormData({
-      name: profile?.name || "",
       email: (profile as any)?.email || "",
       telefone: (profile as any)?.telefone || "",
-      matricula: (profile as any)?.matricula || "",
       operational_base: (profile as any)?.operational_base || "",
       sigla_area: (profile as any)?.sigla_area || "",
-      date_of_birth: (profile as any)?.date_of_birth || "",
     });
   }, [profile]);
 
@@ -50,11 +44,8 @@ export function ProfileEditor() {
       const trim = (value?: string | null) => (value ?? '').trim();
       const normalizedSigla = normalizeSigla(formData.sigla_area);
       const normalizedBase = trim(formData.operational_base);
-      const normalizedName = trim(formData.name);
       const normalizedEmail = trim(formData.email).toLowerCase();
       const normalizedPhone = trim(formData.telefone);
-      const normalizedMatricula = trim(formData.matricula).toUpperCase();
-      const normalizedDob = trim(formData.date_of_birth);
 
       const changes: { field_name: string; new_value: string }[] = [];
       const compare = (field: string, newValue: string) => {
@@ -64,15 +55,10 @@ export function ProfileEditor() {
         }
       };
 
-      compare('name', normalizedName);
       compare('email', normalizedEmail);
       compare('telefone', normalizedPhone);
-      compare('matricula', normalizedMatricula);
       compare('operational_base', normalizedBase);
       compare('sigla_area', normalizedSigla);
-      if (normalizedDob) {
-        compare('date_of_birth', normalizedDob);
-      }
 
       if (changes.length === 0) {
         toast.info('Nenhuma alteração detectada');
@@ -80,17 +66,29 @@ export function ProfileEditor() {
         return;
       }
 
-      const { error } = await supabase.functions.invoke('request-profile-change', {
+      const res = await supabase.functions.invoke('request-profile-change', {
         body: { changes },
       });
-
-      if (error) throw error;
+      if (res.error) {
+        try {
+          const txt = await res.response?.text();
+          throw new Error(txt || res.error.message);
+        } catch {
+          throw res.error;
+        }
+      }
 
       toast.success('Solicitação enviada! Seu líder aprovará a mudança.');
       await refreshUserSession();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error requesting profile change:', error);
-      toast.error('Erro ao enviar solicitação de alteração');
+      const detail =
+        error?.message ||
+        error?.error ||
+        error?.data?.error ||
+        error?.response?.data?.error ||
+        'Erro ao enviar solicitação de alteração';
+      toast.error(detail);
     } finally {
       setLoading(false);
     }
@@ -105,18 +103,38 @@ export function ProfileEditor() {
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="email">Email</Label>
-            <Input
-              id="email"
-              type="email"
-              value={formData.email}
-              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-              placeholder="seu.email@empresa.com"
-            />
+        <div className="space-y-6 pb-4 border-b border-dashed border-border mb-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-1">
+              <Label className="text-xs uppercase tracking-wider text-muted-foreground">Nome completo</Label>
+              <p className="text-base font-medium">
+                {profile?.name ?? "Nome pendente"}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Nome e matrícula vêm do cadastro inicial e são atualizados por líderes superiores.
+              </p>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs uppercase tracking-wider text-muted-foreground">Matrícula</Label>
+              <p className="text-base font-medium">
+                {(profile as any)?.matricula ?? "—"}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Essas informações não podem ser alteradas nesta tela.
+              </p>
+            </div>
           </div>
-
+          <div className="space-y-1">
+            <Label className="text-xs uppercase tracking-wider text-muted-foreground">Data de nascimento</Label>
+            <p className="text-base font-medium">
+              {(profile as any)?.date_of_birth ?? "—"}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              As datas são importadas do cadastro oficial, contacte seu líder caso precise mudar.
+            </p>
+          </div>
+        </div>
+        <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="telefone">Telefone</Label>
@@ -129,23 +147,15 @@ export function ProfileEditor() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="matricula">Matrícula</Label>
+              <Label htmlFor="email">Email</Label>
               <Input
-                id="matricula"
-                value={formData.matricula}
-                onChange={(e) => setFormData({ ...formData, matricula: e.target.value })}
-                placeholder="Seu ID interno"
+                id="email"
+                type="email"
+                value={formData.email}
+                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                placeholder="seu.email@empresa.com"
               />
             </div>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="name">Nome Completo</Label>
-            <Input
-              id="name"
-              value={formData.name}
-              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              placeholder="Digite seu nome"
-            />
           </div>
 
           <div className="space-y-2">
@@ -165,16 +175,6 @@ export function ProfileEditor() {
               value={formData.sigla_area}
               onChange={(e) => setFormData({ ...formData, sigla_area: e.target.value.toUpperCase() })}
               placeholder="Ex: DJTB-CUB"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="date_of_birth">Data de Nascimento</Label>
-            <Input
-              id="date_of_birth"
-              type="date"
-              value={formData.date_of_birth || ''}
-              onChange={(e) => setFormData({ ...formData, date_of_birth: e.target.value })}
             />
           </div>
 

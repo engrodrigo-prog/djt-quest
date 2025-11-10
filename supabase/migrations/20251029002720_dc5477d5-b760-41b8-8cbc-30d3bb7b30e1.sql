@@ -4,5 +4,5 @@ CREATE POLICY "Managers can create global team events"
   ON public.team_events FOR INSERT
   TO authenticated
   WITH CHECK (
-    has_role(auth.uid(), 'gerente_djt')
+    has_role((select auth.uid()), 'gerente_djt')
   );

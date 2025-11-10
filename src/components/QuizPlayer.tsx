@@ -50,6 +50,23 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
 
   const loadQuestions = useCallback(async () => {
     try {
+      // If attempt already submitted, don't show questions
+      const { data: session } = await supabase.auth.getSession();
+      const uid = session.session?.user?.id;
+      if (uid) {
+        const { data: attempt } = await supabase
+          .from('quiz_attempts')
+          .select('submitted_at')
+          .eq('user_id', uid)
+          .eq('challenge_id', challengeId)
+          .maybeSingle();
+        if (attempt?.submitted_at) {
+          setQuestions([]);
+          setLoading(false);
+          toast("Quiz já concluído. Consulte o histórico em Perfil.");
+          return;
+        }
+      }
       const { data, error } = await supabase
         .from("quiz_questions")
         .select("*")
@@ -127,7 +144,13 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
       }
     } catch (error) {
       console.error("Error submitting answer:", error);
-      toast.error("Erro ao enviar resposta");
+      const msg = (error as any)?.message || '';
+      if (typeof msg === 'string' && msg.toLowerCase().includes('tentativa já finalizada')) {
+        toast("Quiz já concluído. Consulte o histórico em Perfil.");
+        setAnswerResult({ isCorrect: true, xpEarned: 0, explanation: null as any, correctOptionId: null, isCompleted: true });
+      } else {
+        toast.error("Erro ao enviar resposta");
+      }
     } finally {
       setIsSubmitting(false);
     }

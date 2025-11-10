@@ -8,7 +8,7 @@ import { TeamPerformanceManager } from '@/components/TeamPerformanceManager';
 import { ChallengeForm } from '@/components/ChallengeForm';
 import { CampaignForm } from '@/components/CampaignForm';
 import Navigation from '@/components/Navigation';
-import { UserCreationForm } from '@/components/UserCreationForm';
+// 'Criar Usuário' será acessado dentro de Gerenciar Usuários
 import { ForumManagement } from '@/components/ForumManagement';
 import { TeamEventForm } from '@/components/TeamEventForm';
 import { SystemHealthCheck } from '@/components/SystemHealthCheck';
@@ -17,12 +17,13 @@ import { AdminBonusManager } from '@/components/AdminBonusManager';
 import { PendingRegistrationsManager } from '@/components/PendingRegistrationsManager';
 import { UserManagement } from '@/components/UserManagement';
 import EvaluationManagement from '@/components/EvaluationManagement';
-import { InitialUserImport } from '@/components/InitialUserImport';
 import { PendingApprovals } from '@/components/PendingApprovals';
 import { AvatarRegistrationTool } from '@/components/AvatarRegistrationTool';
 import { ThemedBackground } from '@/components/ThemedBackground';
 import { AiQuizGenerator } from '@/components/AiQuizGenerator';
 import { PasswordResetManager } from '@/components/PasswordResetManager';
+import { ContentHub } from '@/components/ContentHub';
+import { UserApprovalsHub } from '@/components/UserApprovalsHub';
 
 const Studio = () => {
   const { user, loading, isLeader, studioAccess, userRole } = useAuth();
@@ -55,25 +56,15 @@ const Studio = () => {
     );
   }
 
-  // Se nenhum módulo selecionado, mostra dashboard
-  if (!selectedModule) {
-    return (
-      <>
-        <StudioDashboard onSelectModule={setSelectedModule} userRole={userRole} />
-        <Navigation />
-      </>
-    );
-  }
-
-  // Renderiza módulo selecionado
+  // Renderiza conteúdo do Studio (dashboard inicial ou módulo selecionado)
   const renderModule = () => {
-    switch (selectedModule) {
+  switch (selectedModule) {
+      case 'content':
+        return <ContentHub onOpen={(id) => setSelectedModule(id)} />;
       case 'campaigns':
         return <CampaignForm />;
       case 'quiz':
         return <QuizCreationWizard />;
-      case 'ai-quiz':
-        return <AiQuizGenerator />;
       case 'challenges':
         return <ChallengeForm />;
       case 'performance':
@@ -84,14 +75,8 @@ const Studio = () => {
         return <UserManagement />;
       case 'evaluations':
         return <EvaluationManagement />;
-      case 'users':
-        return <UserCreationForm />;
-      case 'import-users':
-        return <InitialUserImport />;
-      case 'registrations':
-        return <PendingRegistrationsManager />;
-      case 'approvals':
-        return <PendingApprovals />;
+      case 'user-approvals':
+        return <UserApprovalsHub />;
       case 'password-resets':
         return <PasswordResetManager />;
       case 'avatar-tool':
@@ -108,25 +93,29 @@ const Studio = () => {
   };
 
   return (
-    <div className="relative min-h-screen bg-background pb-20 md:pb-8 overflow-hidden">
+    <div className="relative min-h-screen bg-transparent pb-40 md:pb-20 overflow-hidden">
       <ThemedBackground theme="seguranca" />
       <div className="container relative mx-auto p-4 md:p-8 max-w-7xl space-y-6">
-        {/* Botão Voltar */}
-        <div>
-          <Button
-            onClick={() => setSelectedModule(null)}
-            variant="ghost"
-            className="gap-2 hover:bg-muted"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Voltar ao Studio
-          </Button>
-        </div>
-
-        {/* Renderiza módulo selecionado com animação */}
-        <div className="animate-in fade-in duration-300">
-          {renderModule()}
-        </div>
+        {/* Se nenhum módulo for escolhido, mostra o dashboard. Caso contrário, mostra o módulo e um voltar. */}
+        {selectedModule ? (
+          <>
+            <div>
+              <Button
+                onClick={() => setSelectedModule(null)}
+                variant="ghost"
+                className="gap-2 hover:bg-muted"
+              >
+                <ArrowLeft className="h-4 w-4" />
+                Voltar ao Studio
+              </Button>
+            </div>
+            <div className="animate-in fade-in duration-300">
+              {renderModule()}
+            </div>
+          </>
+        ) : (
+          <StudioDashboard onSelectModule={setSelectedModule} userRole={userRole} />
+        )}
       </div>
 
       <Navigation />

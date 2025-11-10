@@ -9,7 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Plus } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { campaignSchema, type CampaignFormData } from "@/lib/validations/challenge";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 export const CampaignForm = () => {
   const { toast } = useToast();
@@ -19,6 +19,7 @@ export const CampaignForm = () => {
     register,
     handleSubmit,
     reset,
+    setValue,
     formState: { errors },
   } = useForm<CampaignFormData>({
     resolver: zodResolver(campaignSchema),
@@ -56,6 +57,23 @@ export const CampaignForm = () => {
       setSubmitting(false);
     }
   };
+
+  // Prefill from Forum Insights draft (campanha)
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('studio_compendium_draft');
+      if (!raw) return;
+      const draft = JSON.parse(raw);
+      if (!draft || draft.kind !== 'campanha') return;
+      const title = String(draft.title || '').replace(/^Campanha:\s*/i,'').trim();
+      const description = String(draft.summary || '');
+      // We cannot set form values directly without useForm setValue; filled by placeholders via direct DOM fallback
+      // Keep as hint: user will copy/adjust. For minimal warnings, just notify.
+      if (title) setValue('title', title);
+      if (description) setValue('description', description);
+      localStorage.removeItem('studio_compendium_draft');
+    } catch {}
+  }, []);
 
   return (
     <Card>

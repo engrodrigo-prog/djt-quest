@@ -67,6 +67,24 @@ serve(async (req) => {
     const isCorrect = option.is_correct;
     const challengeId = option.quiz_questions.challenge_id;
 
+    // Ensure attempt exists and not already submitted
+    await supabase
+      .from('quiz_attempts')
+      .upsert({ user_id: user.id, challenge_id: challengeId }, { onConflict: 'user_id,challenge_id' } as any);
+
+    const { data: attempt } = await supabase
+      .from('quiz_attempts')
+      .select('submitted_at')
+      .eq('user_id', user.id)
+      .eq('challenge_id', challengeId)
+      .maybeSingle();
+    if (attempt?.submitted_at) {
+      return new Response(
+        JSON.stringify({ error: 'Tentativa já finalizada para este quiz' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
     const { data: profile } = await supabase
       .from('profiles')
       .select('xp, is_leader')
@@ -139,6 +157,11 @@ serve(async (req) => {
         .eq('challenge_id', challengeId);
 
       totalXpEarned = allAnswers?.reduce((sum, a) => sum + a.xp_earned, 0) || 0;
+
+      // finalize attempt (best-effort)
+      await supabase
+        .from('quiz_attempts')
+        .upsert({ user_id: user.id, challenge_id: challengeId, submitted_at: new Date().toISOString(), score: totalXpEarned, max_score: totalQuestions ?? 0 }, { onConflict: 'user_id,challenge_id' } as any)
 
       // Create completion notification
       await supabase.rpc('create_notification', {

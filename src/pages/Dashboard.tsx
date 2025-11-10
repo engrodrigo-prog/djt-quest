@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -52,6 +52,8 @@ const Dashboard = () => {
   const [completedQuizIds, setCompletedQuizIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
 
+  const loadedForUserRef = useRef<string | null>(null);
+
   useEffect(() => {
     console.log('🏠 Dashboard: user changed', user?.id);
     
@@ -60,6 +62,13 @@ const Dashboard = () => {
         console.log('🏠 Dashboard: no user, skipping load');
         return;
       }
+
+      // Avoid double load in React StrictMode/dev
+      if (loadedForUserRef.current === user.id) {
+        console.log('🏠 Dashboard: already loaded for user, skipping');
+        return;
+      }
+      loadedForUserRef.current = user.id;
 
       console.log('🏠 Dashboard: starting data load');
       
@@ -275,10 +284,10 @@ const Dashboard = () => {
   }
 
   return (
-    <div className="relative min-h-screen bg-background pb-20 md:pb-8 overflow-hidden">
+    <div className="relative min-h-screen bg-background pb-40 md:pb-20 overflow-hidden">
       <ThemedBackground theme="habilidades" />
       {/* Header */}
-      <header className="border-b bg-card/50 backdrop-blur-sm sticky top-0 z-10">
+      <header className="sticky top-0 z-20 bg-[#0b2a34]/85 text-blue-50 border-b border-cyan-700/30">
         <div className="container mx-auto px-3 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-1.5">
@@ -286,12 +295,8 @@ const Dashboard = () => {
               <Zap className="h-6 w-6 text-secondary" />
             </div>
             <div>
-              <h1 className="text-xl font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
-                DJT Go
-              </h1>
-              <p className="text-8px] text-muted-foreground leading-none">
-                CPFL Piratininga e Santa Cruz Subtransmissão
-              </p>
+              <h1 className="text-xl font-bold text-blue-50">DJT Go</h1>
+              <p className="text-[10px] text-blue-100/80 leading-none">CPFL Piratininga e Santa Cruz Subtransmissão</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -354,19 +359,19 @@ const Dashboard = () => {
         {/* Active Campaigns */}
         <section>
           <div className="flex items-center gap-2 mb-3">
-            <Target className="h-5 w-5 text-primary" />
-            <h2 className="text-xl font-bold">Campanhas Ativas</h2>
+            <Target className="h-5 w-5 text-blue-300" />
+            <h2 className="text-xl font-bold text-blue-50">Campanhas Ativas</h2>
           </div>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {campaigns.map((campaign) => (
               <Card key={campaign.id} className="hover:shadow-lg transition-shadow">
                 <CardHeader className="pb-3">
-                  <Badge className="w-fit mb-2 text-[10px]">{campaign.narrative_tag}</Badge>
-                  <CardTitle className="text-base leading-tight">{campaign.title}</CardTitle>
-                  <CardDescription className="text-xs line-clamp-2">{campaign.description}</CardDescription>
+                  <Badge className="w-fit mb-2 text-[10px] bg-cyan-700/60 text-blue-50 border-cyan-500/50">{campaign.narrative_tag}</Badge>
+                  <CardTitle className="text-base leading-tight text-blue-50">{campaign.title}</CardTitle>
+                  <CardDescription className="text-xs line-clamp-2 text-blue-100/80">{campaign.description}</CardDescription>
                 </CardHeader>
                 <CardContent className="pt-0">
-                  <p className="text-[10px] text-muted-foreground mb-2">
+                  <p className="text-[10px] text-blue-200/80 mb-2">
                     {new Date(campaign.start_date).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })} -{" "}
                     {new Date(campaign.end_date).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })}
                   </p>
@@ -382,9 +387,9 @@ const Dashboard = () => {
         {/* Challenges with filters */}
         <section>
           <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
-            <div className="flex items-center gap-2">
-              <Zap className="h-5 w-5 text-secondary" />
-              <h2 className="text-xl font-bold">Desafios</h2>
+              <div className="flex items-center gap-2">
+              <Zap className="h-5 w-5 text-blue-300" />
+              <h2 className="text-xl font-bold text-blue-50">Desafios</h2>
             </div>
             <div className="flex items-center gap-2">
               <Button variant={challengeTab === 'vigentes' ? 'default' : 'outline'} size="sm" onClick={() => setChallengeTab('vigentes')} className="gap-2">

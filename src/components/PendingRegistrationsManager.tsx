@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { CheckCircle, XCircle, Clock, Mail, Phone, MapPin, Hash } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface PendingRegistration {
   id: string;
@@ -25,6 +26,7 @@ interface PendingRegistration {
 
 export function PendingRegistrationsManager() {
   const { toast } = useToast();
+  const { orgScope, userRole } = useAuth() as any;
   const [registrations, setRegistrations] = useState<PendingRegistration[]>([]);
   const [loading, setLoading] = useState(true);
   const [processingId, setProcessingId] = useState<string | null>(null);
@@ -59,14 +61,35 @@ export function PendingRegistrationsManager() {
     setProcessingId(registration.id);
 
     try {
-      const { data, error } = await supabase.functions.invoke("approve-registration", {
-        body: {
-          registrationId: registration.id,
-          notes: reviewNotes[registration.id] || "",
-        },
-      });
-
-      if (error) throw error;
+      // Prefer Vercel API route (robust upsert), fallback to Edge Function
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      try {
+        const resp = await fetch('/api/approve-registration', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({
+            registrationId: registration.id,
+            notes: reviewNotes[registration.id] || '',
+          }),
+        });
+        if (!resp.ok) {
+          const j = await resp.json().catch(() => ({}));
+          throw new Error(j?.error || 'Falha na aprovação');
+        }
+      } catch (apiErr) {
+        // Fallback to Edge Function if API route is unavailable
+        const { error } = await supabase.functions.invoke("approve-registration", {
+          body: {
+            registrationId: registration.id,
+            notes: reviewNotes[registration.id] || "",
+          },
+        });
+        if (error) throw error;
+      }
 
       toast({
         title: "Cadastro aprovado!",
@@ -128,7 +151,18 @@ export function PendingRegistrationsManager() {
     }
   };
 
-  const pendingRegistrations = registrations.filter((r) => r.status === "pending");
+  const inScope = (r: PendingRegistration) => {
+    const sigla = (r.sigla_area || '').toUpperCase();
+    const div = (orgScope?.divisionId || '').toUpperCase();
+    const coord = (orgScope?.coordId || '').toUpperCase();
+    const team = (orgScope?.teamId || '').toUpperCase();
+    if (userRole === 'admin' || userRole === 'gerente_djt') return true;
+    if (userRole === 'gerente_divisao_djtx') return !!div && sigla.startsWith(div);
+    if (userRole === 'coordenador_djtx') return (!!div && sigla.startsWith(div)) || (!!coord && sigla.startsWith(coord)) || (!!team && sigla === team);
+    return false;
+  };
+
+  const pendingRegistrations = registrations.filter((r) => r.status === "pending").filter(inScope);
   const processedRegistrations = registrations.filter((r) => r.status !== "pending");
 
   if (loading) {
