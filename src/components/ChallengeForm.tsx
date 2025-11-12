@@ -16,6 +16,7 @@ import { challengeSchema, type ChallengeFormData } from "@/lib/validations/chall
 import { Checkbox } from "@/components/ui/checkbox";
 import { QuizQuestionForm } from "./QuizQuestionForm";
 import { QuizQuestionsList } from "./QuizQuestionsList";
+import { AttachmentUploader } from "@/components/AttachmentUploader";
 
 interface Campaign {
   id: string;
@@ -56,6 +57,7 @@ export const ChallengeForm = () => {
   const [selectedCampaign, setSelectedCampaign] = useState<Campaign | null>(null);
   const [campaignDialogOpen, setCampaignDialogOpen] = useState(false);
   const [newCampaign, setNewCampaign] = useState({ title: '', description: '', start: '', end: '' });
+  const [coverUrl, setCoverUrl] = useState<string | null>(null);
 
   const {
     register,
@@ -137,11 +139,23 @@ export const ChallengeForm = () => {
         xp_reward: data.type === 'quiz' ? 0 : data.xp_reward, // XP will be sum of questions for quiz
       };
 
-      const { data: challenge, error } = await supabase
-        .from("challenges")
-        .insert([challengeData])
-        .select()
-        .single();
+      let challenge, error;
+      try {
+        const { data, error: err } = await supabase
+          .from("challenges")
+          .insert([{ ...(challengeData as any), cover_image_url: coverUrl || null }])
+          .select()
+          .single();
+        challenge = data; error = err;
+        if (error && /cover_image_url/.test(String(error.message))) throw error;
+      } catch (_) {
+        const { data, error: err } = await supabase
+          .from("challenges")
+          .insert([{ ...(challengeData as any) }])
+          .select()
+          .single();
+        challenge = data; error = err;
+      }
 
       if (error) throw error;
 
@@ -162,6 +176,7 @@ export const ChallengeForm = () => {
         setSelectedCoordinations([]);
         setSelectedTeams([]);
         setCreatedChallengeId(null);
+        setCoverUrl(null);
       }
     } catch (error: any) {
       console.error("Error creating challenge:", error);
@@ -255,6 +270,22 @@ export const ChallengeForm = () => {
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
           {/* Basic Info */}
           <div className="space-y-4">
+            <div>
+              <Label>Capa do Desafio (opcional)</Label>
+              <AttachmentUploader
+                onAttachmentsChange={(urls) => setCoverUrl(urls[0] || null)}
+                maxFiles={1}
+                acceptMimeTypes={[ 'image/jpeg','image/png','image/webp','image/gif' ]}
+                bucket="evidence"
+                pathPrefix="challenges"
+                capture="environment"
+              />
+              {coverUrl && (
+                <div className="mt-2">
+                  <img src={coverUrl} alt="Capa do desafio" className="h-28 w-full object-cover rounded-md" />
+                </div>
+              )}
+            </div>
             <div>
               <div className="flex items-center justify-between">
                 <Label htmlFor="campaign">Campanha{challengeType !== 'quiz' ? ' *' : ''}</Label>

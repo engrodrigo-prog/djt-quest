@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Plus } from "lucide-react";
+import { AttachmentUploader } from "@/components/AttachmentUploader";
 import { useToast } from "@/hooks/use-toast";
 import { campaignSchema, type CampaignFormData } from "@/lib/validations/challenge";
 import { useState, useEffect } from "react";
@@ -14,6 +15,7 @@ import { useState, useEffect } from "react";
 export const CampaignForm = () => {
   const { toast } = useToast();
   const [submitting, setSubmitting] = useState(false);
+  const [coverUrl, setCoverUrl] = useState<string | null>(null);
 
   const {
     register,
@@ -36,7 +38,8 @@ export const CampaignForm = () => {
         start_date: data.start_date,
         end_date: data.end_date,
         is_active: true,
-      });
+        cover_image_url: coverUrl || null,
+      } as any);
 
       if (error) throw error;
 
@@ -46,6 +49,7 @@ export const CampaignForm = () => {
       });
 
       reset();
+      setCoverUrl(null);
     } catch (error: any) {
       console.error("Error creating campaign:", error);
       toast({
@@ -85,6 +89,22 @@ export const CampaignForm = () => {
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+          <div>
+            <Label>Capa (opcional)</Label>
+            <AttachmentUploader 
+              onAttachmentsChange={(urls) => setCoverUrl(urls[0] || null)}
+              maxFiles={1}
+              acceptMimeTypes={[ 'image/jpeg','image/png','image/webp','image/gif' ]}
+              bucket="evidence"
+              pathPrefix="campaigns"
+              capture="environment"
+            />
+            {coverUrl && (
+              <div className="mt-2">
+                <img src={coverUrl} alt="Capa" className="h-28 w-full object-cover rounded-md" />
+              </div>
+            )}
+          </div>
           <div>
             <Label htmlFor="title">Título *</Label>
             <Input

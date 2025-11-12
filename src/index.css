@@ -123,7 +123,8 @@ All colors MUST be HSL.
   }
 
   /* Reserve space for the bottom navigation so it never covers content */
-  :root { --bottom-nav-height: 112px; }
+  /* Reduced to improve mobile ergonomics while keeping desktop balance */
+  :root { --bottom-nav-height: 96px; }
   #root {
     padding-bottom: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom, 0px));
   }

@@ -47,35 +47,36 @@ Responda apenas em JSON válido, sem comentários.`
       content: `Tema: ${topic}\nDificuldade: ${difficulty}\nRetorne no formato:\n{ "question": "...", "correct": {"text":"...","explanation":"..."}, "wrong": [{"text":"...","explanation":"..."},{"text":"...","explanation":"..."},{"text":"...","explanation":"..."}] }`,
     }
 
-    const resp = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [
-          { role: 'system', content: system },
-          user,
-        ],
-        temperature: 0.7,
-        max_tokens: 500,
-      }),
-    })
-
-    if (!resp.ok) {
-      const t = await resp.text()
-      return res.status(400).json({ error: `OpenAI error: ${t}` })
+    const models = Array.from(new Set([
+      process.env.OPENAI_MODEL_FAST,
+      process.env.OPENAI_MODEL_OVERRIDE,
+      'gpt-4.1-mini','gpt-4o-mini','gpt-4o','gpt-3.5-turbo'
+    ].filter(Boolean)))
+    let content = ''
+    let lastErr = ''
+    for (const model of models) {
+      const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${OPENAI_API_KEY}` },
+        body: JSON.stringify({
+          model,
+          messages: [ { role: 'system', content: system }, user ],
+          temperature: 0.7,
+          max_tokens: 500,
+        }),
+      })
+      if (!resp.ok) { lastErr = await resp.text().catch(()=>`HTTP ${resp.status}`); continue }
+      const data = await resp.json().catch(()=>null)
+      content = data?.choices?.[0]?.message?.content || ''
+      if (content) break
     }
-    const data = await resp.json()
-    const content = data?.choices?.[0]?.message?.content || ''
+    if (!content) return res.status(400).json({ error: `OpenAI error: ${lastErr || 'no output'}` })
     let json: any
     try {
       json = JSON.parse(content)
     } catch {
       // tentar extrair bloco JSON
-      const match = content.match(/\{[\s\S]*\}/)
+      const match = content?.match?.(/\{[\s\S]*\}/)
       if (match) json = JSON.parse(match[0])
     }
     if (!json || !json.question || !json.correct || !Array.isArray(json.wrong)) {

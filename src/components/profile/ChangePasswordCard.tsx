@@ -75,6 +75,7 @@ export function ChangePasswordCard({ compact = false }: ChangePasswordCardProps)
               value={form.password}
               onChange={(e) => setForm({ ...form, password: e.target.value })}
               placeholder="••••••"
+              autoComplete="new-password"
             />
           </div>
           <div className="space-y-2">
@@ -84,6 +85,7 @@ export function ChangePasswordCard({ compact = false }: ChangePasswordCardProps)
               value={form.confirm}
               onChange={(e) => setForm({ ...form, confirm: e.target.value })}
               placeholder="••••••"
+              autoComplete="new-password"
             />
           </div>
           <Button type="submit" className="w-full" disabled={loading}>

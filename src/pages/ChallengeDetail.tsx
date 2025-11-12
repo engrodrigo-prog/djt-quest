@@ -8,7 +8,8 @@ import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { ArrowLeft, Upload, Shield } from 'lucide-react';
+import { ArrowLeft, Upload, Shield, BarChart3 } from 'lucide-react';
+import { QuizAnalytics } from '@/components/QuizAnalytics';
 import { ThemedBackground, domainFromType } from '@/components/ThemedBackground';
 import { useToast } from '@/hooks/use-toast';
 import { QuizPlayer } from '@/components/QuizPlayer';
@@ -24,6 +25,7 @@ interface Challenge {
   campaign_id: string;
   evidence_required: boolean;
   status?: string;
+  cover_image_url?: string | null;
 }
 
 const ChallengeDetail = () => {
@@ -57,6 +59,7 @@ const ChallengeDetail = () => {
   const [participantSearch, setParticipantSearch] = useState('');
   const [selectedParticipants, setSelectedParticipants] = useState<Set<string>>(new Set());
   const [myTeamId, setMyTeamId] = useState<string | null>(null);
+  const [showAnalytics, setShowAnalytics] = useState(false);
 
   useEffect(() => {
     const loadChallenge = async () => {
@@ -74,7 +77,7 @@ const ChallengeDetail = () => {
         return;
       }
 
-      setChallenge(data);
+      setChallenge(data as any);
 
       // Load previous feedback if this is a retry
       if (retryEventId) {
@@ -339,6 +342,11 @@ const ChallengeDetail = () => {
             </div>
             <CardTitle className="text-2xl">{challenge.title}</CardTitle>
             <CardDescription>{challenge.description}</CardDescription>
+            {challenge.cover_image_url && (
+              <div className="mt-3">
+                <img src={challenge.cover_image_url} alt="Capa do desafio" className="w-full max-h-64 object-cover rounded-md border" />
+              </div>
+            )}
             {challenge.require_two_leader_eval && (
               <div className="flex items-center gap-2 text-sm text-muted-foreground mt-4 p-3 bg-muted rounded-lg">
                 <Shield className="h-4 w-4" />
@@ -587,7 +595,7 @@ const ChallengeDetail = () => {
 
               <div className="space-y-2">
                 <Label>Evidências (imagens — mínimo 1, máximo 5)</Label>
-                <Input type="file" accept="image/*" multiple onChange={(e) => {
+                <Input type="file" accept="image/*" multiple capture="environment" onChange={(e) => {
                   const files = Array.from(e.target.files || []).slice(0,5);
                   setImageUploads(files);
                 }} />
@@ -640,16 +648,21 @@ const ChallengeDetail = () => {
             <CardContent className="flex flex-wrap gap-2">
               <Button type="button" variant="outline" onClick={async () => {
                 try {
-                  // Prefer API route with service role for compatibility (RLS differences across envs)
-                  const { data: session } = await supabase.auth.getSession();
-                  const token = session.session?.access_token;
-                  const resp = await fetch('/api/challenges-update-status', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-                    body: JSON.stringify({ id: challenge.id, status: 'active' })
-                  });
-                  if (!resp.ok) {
-                    const j = await resp.json().catch(()=>({}));
-                    throw new Error(j?.error || 'Falha ao reabrir');
+                  // Try API route first, fallback to direct update
+                  try {
+                    const { data: session } = await supabase.auth.getSession();
+                    const token = session.session?.access_token;
+                    const resp = await fetch('/api/challenges-update-status', {
+                      method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+                      body: JSON.stringify({ id: challenge.id, status: 'active' })
+                    });
+                    if (!resp.ok) {
+                      const j = await resp.json().catch(()=>({}));
+                      throw new Error(j?.error || 'Falha ao reabrir');
+                    }
+                  } catch (e) {
+                    const { error } = await supabase.from('challenges').update({ status: 'active' }).eq('id', challenge.id);
+                    if (error) throw error;
                   }
                   toast({ title: 'Quiz reaberto para coleta' });
                   setChallenge({ ...challenge, status: 'active' });
@@ -660,15 +673,20 @@ const ChallengeDetail = () => {
 
               <Button type="button" variant="secondary" onClick={async () => {
                 try {
-                  const { data: session } = await supabase.auth.getSession();
-                  const token = session.session?.access_token;
-                  const resp = await fetch('/api/challenges-update-status', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-                    body: JSON.stringify({ id: challenge.id, status: 'closed' })
-                  });
-                  if (!resp.ok) {
-                    const j = await resp.json().catch(()=>({}));
-                    throw new Error(j?.error || 'Falha ao encerrar');
+                  try {
+                    const { data: session } = await supabase.auth.getSession();
+                    const token = session.session?.access_token;
+                    const resp = await fetch('/api/challenges-update-status', {
+                      method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+                      body: JSON.stringify({ id: challenge.id, status: 'closed' })
+                    });
+                    if (!resp.ok) {
+                      const j = await resp.json().catch(()=>({}));
+                      throw new Error(j?.error || 'Falha ao encerrar');
+                    }
+                  } catch (e) {
+                    const { error } = await supabase.from('challenges').update({ status: 'closed' }).eq('id', challenge.id);
+                    if (error) throw error;
                   }
                   toast({ title: 'Coleta encerrada' });
                   setChallenge({ ...challenge, status: 'closed' });
@@ -692,16 +710,35 @@ const ChallengeDetail = () => {
               <Button type="button" variant="destructive" onClick={async () => {
                 if (!confirm('Excluir este quiz definitivamente? Esta ação não poderá ser desfeita.')) return;
                 try {
-                  const { error } = await supabase.from('challenges').delete().eq('id', challenge.id);
-                  if (error) throw error;
+                  // Try service API first, fallback to direct delete
+                  try {
+                    const { data: session } = await supabase.auth.getSession();
+                    const token = session.session?.access_token;
+                    const resp = await fetch('/api/challenges-delete', {
+                      method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+                      body: JSON.stringify({ id: challenge.id })
+                    });
+                    const j = await resp.json().catch(()=>({}));
+                    if (!resp.ok) throw new Error(j?.error || 'Falha ao excluir');
+                  } catch (e) {
+                    const { error } = await supabase.from('challenges').delete().eq('id', challenge.id);
+                    if (error) throw error;
+                  }
                   toast({ title: 'Quiz excluído' });
                   navigate('/studio');
                 } catch (e: any) {
                   toast({ title: 'Falha ao excluir', description: e?.message || 'Tente novamente', variant: 'destructive' })
                 }
               }}>Excluir Quiz</Button>
+              <Button type="button" variant="outline" onClick={() => setShowAnalytics((v)=>!v)}>
+                <BarChart3 className="h-4 w-4 mr-2" /> Histórico
+              </Button>
             </CardContent>
           </Card>
+        )}
+
+        {showAnalytics && challenge.type?.toLowerCase?.() === 'quiz' && (
+          <QuizAnalytics challengeId={challenge.id} />
         )}
       </div>
     </div>

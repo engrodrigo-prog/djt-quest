@@ -2,9 +2,8 @@
   "version": 2,
   "rewrites": [
     {
-      "source": "/((?!api/|.*\\..*).*)",
+      "source": "/((?!api/|@vite/|@react-refresh|@id/|@fs/|.*\\..*).*)",
       "destination": "/"
     }
   ]
 }
-

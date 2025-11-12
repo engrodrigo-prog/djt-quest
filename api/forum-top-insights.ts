@@ -44,14 +44,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     let items: any[] = []
     if (OPENAI_API_KEY) {
       const system = 'Você é um consultor de aprendizado corporativo (pt-BR). Atribua prioridades e proponha ações (quiz/desafio/campanha/operacional) com escopo (equipes, líderes, toda organização, ou outras áreas) a partir dos tópicos do fórum.'
-      const prompt = {
-        model: 'gpt-4o-mini', temperature: 0.3, max_tokens: 1500,
+      const premium = process.env.OPENAI_MODEL_PREMIUM || process.env.OPENAI_MODEL_OVERRIDE || 'gpt-4o'
+      const base: any = {
+        model: premium, temperature: 0.3,
         messages: [
           { role: 'system', content: system },
           { role: 'user', content: `Considere estes tópicos com métricas:\n${JSON.stringify(top, null, 2)}\nRegras: priorize Segurança (S) quando aplicável; alinhe com CHAS (Conhecimento/Habilidade/Atitude/Segurança).\nRetorne JSON estrito: {"items":[{ "topic_id":"uuid","title":"...","priority":1-5,"chas":"C|H|A|S","specialties":[...],"summary":"...","proposed_actions":[{"type":"quiz|desafio|campanha|operacional","title":"...","description":"...","target":"equipes|lideres|organizacao|outras_areas"}],"justification":"..." } ×10]}` }
         ]
       }
-      const resp = await fetch('https://api.openai.com/v1/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${OPENAI_API_KEY}` }, body: JSON.stringify(prompt) })
+      if (/^gpt-5/i.test(String(premium))) base.max_completion_tokens = 1500; else base.max_tokens = 1500
+      const resp = await fetch('https://api.openai.com/v1/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${OPENAI_API_KEY}` }, body: JSON.stringify(base) })
       if (resp.ok) {
         const dj = await resp.json()
         const text = dj?.choices?.[0]?.message?.content || ''
@@ -87,4 +89,3 @@ function avg(arr: number[]) { if (!arr.length) return 0; return arr.reduce((a,b)
 function round(n: number) { return Math.round(n*100)/100 }
 
 export const config = { api: { bodyParser: false } }
-

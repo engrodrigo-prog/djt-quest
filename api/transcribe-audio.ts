@@ -1,6 +1,11 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY as string;
+const FAST_MODELS = Array.from(new Set([
+  process.env.OPENAI_MODEL_FAST,
+  process.env.OPENAI_MODEL_OVERRIDE,
+  'gpt-4.1-mini','gpt-4o-mini','gpt-4o','gpt-3.5-turbo'
+].filter(Boolean)));
 
 const ORGANIZER_SYSTEM = `Você é um organizador de transcrições. Receberá como ENTRADA um texto bruto gerado por reconhecimento de fala.
 Regras (STRICT):
@@ -80,40 +85,41 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     let textOut: string | null = null;
     let summaryOut: string | null = null;
     if (transcript && (wantedMode === 'organize' || wantedMode === 'summarize')) {
-      const payload = wantedMode === 'organize'
-        ? {
-            model: 'gpt-4o-mini',
-            temperature: 0,
-            messages: [
-              { role: 'system', content: ORGANIZER_SYSTEM },
-              { role: 'user', content: transcript },
-            ],
-          }
-        : {
-            model: 'gpt-4o-mini',
-            temperature: 0.2,
-            messages: [
-              { role: 'system', content: 'Você é um assistente que organiza feedbacks de avaliações de segurança do trabalho em bullets curtos, claros e objetivos.' },
-              { role: 'user', content: `Transcreva e organize em itens: ${transcript}` },
-            ],
-          };
-      try {
-        const comp = await fetch('https://api.openai.com/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${OPENAI_API_KEY}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(payload),
-        });
-        if (comp.ok) {
-          const cj = await comp.json();
+      const system = wantedMode === 'organize'
+        ? ORGANIZER_SYSTEM
+        : 'Você é um assistente que organiza feedbacks de avaliações de segurança do trabalho em bullets curtos, claros e objetivos.';
+      const userContent = wantedMode === 'organize'
+        ? transcript
+        : `Transcreva e organize em itens: ${transcript}`;
+
+      for (const model of FAST_MODELS) {
+        try {
+          const comp = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${OPENAI_API_KEY}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model,
+              temperature: wantedMode === 'organize' ? 0 : 0.2,
+              messages: [
+                { role: 'system', content: system },
+                { role: 'user', content: userContent },
+              ],
+            }),
+          });
+          if (!comp.ok) continue;
+          const cj = await comp.json().catch(() => null);
           const content = cj?.choices?.[0]?.message?.content || null;
-          if (wantedMode === 'organize') textOut = content;
-          else summaryOut = content;
+          if (content) {
+            if (wantedMode === 'organize') textOut = content;
+            else summaryOut = content;
+            break;
+          }
+        } catch {
+          continue;
         }
-      } catch {
-        // ignore post-processing error; return transcript
       }
     }
 

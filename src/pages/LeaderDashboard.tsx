@@ -581,7 +581,7 @@ export default function LeaderDashboard() {
                   <div 
                     key={forum.id} 
                     className="flex items-center justify-between p-3 border rounded-lg hover:bg-accent cursor-pointer transition-colors"
-                    onClick={() => navigate(`/forums/${forum.id}`)}
+                    onClick={() => navigate(`/forum/${forum.id}`)}
                   >
                     <div className="flex items-center gap-3">
                       <MessageSquare className="h-4 w-4 text-muted-foreground" />

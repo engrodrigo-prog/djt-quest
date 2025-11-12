@@ -22,6 +22,8 @@ interface QuizQuestionFormProps {
 export function QuizQuestionForm({ challengeId, onQuestionAdded }: QuizQuestionFormProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedDifficulty, setSelectedDifficulty] = useState<DifficultyLevel>("basico");
+  const MIN_WRONG_OPTIONS = 3;
+  const MAX_OPTIONS = 5;
 
   const {
     register,
@@ -37,7 +39,6 @@ export function QuizQuestionForm({ challengeId, onQuestionAdded }: QuizQuestionF
       difficulty_level: "basico",
       options: [
         { option_text: "", is_correct: true, explanation: "" },
-        { option_text: "", is_correct: false, explanation: "" },
       ],
     },
   });
@@ -49,11 +50,7 @@ export function QuizQuestionForm({ challengeId, onQuestionAdded }: QuizQuestionF
 
   const options = watch("options");
 
-  const createViaApi = async (payload: QuizQuestionFormData) => {
-    const { data: sessionData } = await supabase.auth.getSession();
-    const token = sessionData.session?.access_token;
-    if (!token) throw new Error('Não autenticado');
-
+  const createViaApi = async (payload: QuizQuestionFormData, token: string) => {
     const resp = await apiFetch('/api/studio-create-quiz-question', {
       method: 'POST',
       headers: {
@@ -78,12 +75,13 @@ export function QuizQuestionForm({ challengeId, onQuestionAdded }: QuizQuestionF
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('Não autenticado');
 
+    const diffMap: Record<string, string> = { basico: 'basica', intermediario: 'intermediaria', avancado: 'avancada', especialista: 'especialista' };
     const { data: question, error: questionError } = await supabase
       .from('quiz_questions')
       .insert({
         challenge_id: challengeId,
         question_text: payload.question_text,
-        difficulty_level: payload.difficulty_level,
+        difficulty_level: diffMap[String(payload.difficulty_level)] || 'basica',
         xp_value: difficultyLevels[payload.difficulty_level].xp,
         created_by: user.id,
       })
@@ -106,14 +104,77 @@ export function QuizQuestionForm({ challengeId, onQuestionAdded }: QuizQuestionF
     if (optionsError) throw optionsError;
   };
 
+  const ensureWrongOptions = async (payload: QuizQuestionFormData, token: string) => {
+    const sanitized = payload.options
+      .map((opt) => ({
+        ...opt,
+        option_text: opt.option_text.trim(),
+        explanation: opt.explanation?.trim() || "",
+      }))
+      .filter((opt) => opt.is_correct || opt.option_text.length > 0);
+
+    const correct = sanitized.find((opt) => opt.is_correct);
+    if (!correct || correct.option_text.length < 5) {
+      throw new Error("Preencha a alternativa correta (mínimo 5 caracteres).");
+    }
+
+    const wrongOptions = sanitized.filter((opt) => !opt.is_correct);
+    if (wrongOptions.length >= MIN_WRONG_OPTIONS) {
+      return { ...payload, options: sanitized.slice(0, MAX_OPTIONS) };
+    }
+
+    toast.info("Gerando alternativas erradas automaticamente...");
+    const resp = await apiFetch('/api/ai-generate-wrongs', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        question: payload.question_text,
+        correct: correct.option_text,
+        difficulty: payload.difficulty_level,
+        language: 'pt-BR',
+      }),
+    });
+    const json = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(json?.error || "Falha ao gerar alternativas erradas");
+
+    const aiCandidates = Array.isArray(json?.wrong) ? json.wrong : [];
+    for (const candidate of aiCandidates) {
+      if (wrongOptions.length >= MIN_WRONG_OPTIONS) break;
+      const text = String(candidate?.text || "").trim();
+      if (!text) continue;
+      if (text.toLowerCase() === correct.option_text.toLowerCase()) continue;
+      if (wrongOptions.some((opt) => opt.option_text.toLowerCase() === text.toLowerCase())) continue;
+      wrongOptions.push({
+        option_text: text,
+        explanation: String(candidate?.explanation || "").trim(),
+        is_correct: false,
+      });
+    }
+
+    if (wrongOptions.length < MIN_WRONG_OPTIONS) {
+      throw new Error("Não foi possível gerar alternativas erradas suficientes. Tente novamente adicionando ao menos uma manualmente.");
+    }
+
+    const finalOptions = [correct, ...wrongOptions].slice(0, MAX_OPTIONS);
+    return { ...payload, options: finalOptions };
+  };
+
   const onSubmit = async (data: QuizQuestionFormData) => {
     setIsSubmitting(true);
     try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) throw new Error('Não autenticado');
+
+      const payload = await ensureWrongOptions(data, token);
       try {
-        await createViaApi(data);
+        await createViaApi(payload, token);
       } catch (apiError) {
         console.warn('API quiz creation failed, falling back to direct insert:', apiError);
-        await createDirect(data);
+        await createDirect(payload);
       }
 
       toast.success('Pergunta criada com sucesso!');
@@ -122,7 +183,6 @@ export function QuizQuestionForm({ challengeId, onQuestionAdded }: QuizQuestionF
         difficulty_level: 'basico',
         options: [
           { option_text: '', is_correct: true, explanation: '' },
-          { option_text: '', is_correct: false, explanation: '' },
         ],
       });
       setSelectedDifficulty('basico');
@@ -193,7 +253,12 @@ export function QuizQuestionForm({ challengeId, onQuestionAdded }: QuizQuestionF
           {/* Options */}
           <div className="space-y-4">
             <div className="flex items-center justify-between">
-              <Label>Alternativas</Label>
+              <div>
+                <Label>Alternativas</Label>
+                <p className="text-xs text-muted-foreground">
+                  Você pode cadastrar apenas a correta; geramos as erradas automaticamente com IA.
+                </p>
+              </div>
               <Button
                 type="button"
                 variant="outline"
@@ -206,7 +271,7 @@ export function QuizQuestionForm({ challengeId, onQuestionAdded }: QuizQuestionF
               </Button>
             </div>
 
-            <RadioGroup value={options.findIndex((o) => o.is_correct).toString()}>
+            <RadioGroup value={Math.max(0, options.findIndex((o) => o.is_correct)).toString()}>
               {fields.map((field, index) => (
                 <Card key={field.id} className="p-4">
                   <div className="space-y-3">
@@ -231,7 +296,7 @@ export function QuizQuestionForm({ challengeId, onQuestionAdded }: QuizQuestionF
                           </p>
                         )}
                       </div>
-                      {fields.length > 2 && (
+                      {fields.length > 1 && (!options[index]?.is_correct || options.filter((o) => o.is_correct).length > 1) && (
                         <Button
                           type="button"
                           variant="ghost"

@@ -6,6 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Shield, Zap, Trophy, Target, LogOut, Star, Menu, Filter, History, CheckCircle, ListFilter } from "lucide-react";
+import { AIStatus } from "@/components/AIStatus";
 import { useNavigate } from "react-router-dom";
 import Navigation from "@/components/Navigation";
 import { ThemedBackground } from "@/components/ThemedBackground";
@@ -51,6 +52,7 @@ const Dashboard = () => {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [completedQuizIds, setCompletedQuizIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
+  const [openForums, setOpenForums] = useState<Array<{ id: string; title: string; description?: string | null; posts_count?: number | null; last_post_at?: string | null; created_at?: string | null; is_locked?: boolean | null }>>([]);
 
   const loadedForUserRef = useRef<string | null>(null);
 
@@ -80,7 +82,7 @@ const Dashboard = () => {
 
       try {
         // Parallelize all queries for faster loading
-        const [profileResult, campaignsResult, challengesResult, eventsResult, userAnswersResult] = await Promise.all([
+        const [profileResult, campaignsResult, challengesResult, eventsResult, userAnswersResult, forumsResult] = await Promise.all([
           supabase
             .from("profiles")
             .select("name, xp, tier, avatar_url, team_id")
@@ -109,6 +111,13 @@ const Dashboard = () => {
             .from('user_quiz_answers')
             .select('challenge_id')
             .eq('user_id', user.id)
+          ,
+          supabase
+            .from('forum_topics')
+            .select('id,title,description,posts_count,last_post_at,created_at,is_locked,is_active')
+            .eq('is_active', true)
+            .order('last_post_at', { ascending: false })
+            .limit(6)
         ]);
 
         if (profileResult.error) {
@@ -133,6 +142,10 @@ const Dashboard = () => {
 
         if (challengesResult.data) {
           setAllChallenges(challengesResult.data);
+        }
+
+        if (forumsResult?.data) {
+          setOpenForums(forumsResult.data as any);
         }
 
         if (eventsResult.error) {
@@ -268,12 +281,22 @@ const Dashboard = () => {
     return base.filter(c => typeFilters.has((c.type || '').toLowerCase()));
   }, [challengeTab, allChallenges, typeFilters, completedChallengeIds]);
 
-  const typeOptions = [
-    { key: 'campanha', label: 'Campanha' },
-    { key: 'quiz', label: 'Quiz' },
-    { key: 'forum', label: 'Fórum' },
-    { key: 'desafio', label: 'Desafio' }
-  ];
+  // Opções de filtro derivadas dos tipos presentes nos desafios (evita exibir tipos inexistentes)
+  const typeOptions = useMemo(() => {
+    const labelMap: Record<string, string> = {
+      quiz: 'Quiz',
+      forum: 'Fórum',
+      atitude: 'Atitude',
+      mentoria: 'Mentoria',
+      inspecao: 'Inspeção',
+    };
+    const present = new Set<string>();
+    (allChallenges || []).forEach((c) => {
+      const t = (c.type || '').toLowerCase();
+      if (labelMap[t]) present.add(t);
+    });
+    return Array.from(present).map((t) => ({ key: t, label: labelMap[t] }));
+  }, [allChallenges]);
 
   if (loading) {
     return (
@@ -288,8 +311,8 @@ const Dashboard = () => {
       <ThemedBackground theme="habilidades" />
       {/* Header */}
       <header className="sticky top-0 z-20 bg-[#0b2a34]/85 text-blue-50 border-b border-cyan-700/30">
-        <div className="container mx-auto px-3 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-2">
+        <div className="container mx-auto px-3 py-3 grid grid-cols-3 items-center">
+          <div className="flex items-center gap-2 justify-self-start">
             <div className="flex items-center gap-1.5">
               <Shield className="h-6 w-6 text-primary" />
               <Zap className="h-6 w-6 text-secondary" />
@@ -299,7 +322,10 @@ const Dashboard = () => {
               <p className="text-[10px] text-blue-100/80 leading-none">CPFL Piratininga e Santa Cruz Subtransmissão</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center justify-center">
+            <AIStatus />
+          </div>
+          <div className="flex items-center gap-2 justify-self-end">
             <div className="text-right hidden sm:block">
               <p className="font-semibold text-sm">{profile?.name}</p>
               {tierInfo && (
@@ -328,6 +354,33 @@ const Dashboard = () => {
       <main className="container relative mx-auto px-3 py-4 space-y-6">
         {/* Team Performance Card */}
         <TeamPerformanceCard />
+
+        {/* Open Forums */}
+        {openForums.length > 0 && (
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Target className="h-5 w-5 text-secondary" />
+                Fóruns Abertos
+              </CardTitle>
+              <CardDescription>Participe das discussões em andamento</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {openForums.slice(0,4).map((t) => (
+                <div key={t.id} className="flex items-center justify-between p-3 border rounded-lg hover:bg-accent/10 cursor-pointer" onClick={() => navigate(`/forum/${t.id}`)}>
+                  <div className="min-w-0">
+                    <p className="font-medium truncate">{t.title}</p>
+                    <p className="text-xs text-muted-foreground truncate">{t.description}</p>
+                  </div>
+                  <Badge variant="outline">{t.posts_count || 0} posts</Badge>
+                </div>
+              ))}
+              <div className="pt-2 flex justify-end">
+                <Button variant="ghost" size="sm" onClick={() => navigate('/forums')}>Ver todos</Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* XP Card */}
         <Card className="bg-gradient-to-r from-primary/10 to-secondary/10">
@@ -392,10 +445,10 @@ const Dashboard = () => {
               <h2 className="text-xl font-bold text-blue-50">Desafios</h2>
             </div>
             <div className="flex items-center gap-2">
-              <Button variant={challengeTab === 'vigentes' ? 'default' : 'outline'} size="sm" onClick={() => setChallengeTab('vigentes')} className="gap-2">
+              <Button variant={challengeTab === 'vigentes' ? 'secondary' : 'outline'} size="sm" onClick={() => setChallengeTab('vigentes')} className="gap-2">
                 <ListFilter className="h-4 w-4" /> Vigentes
               </Button>
-              <Button variant={challengeTab === 'historico' ? 'default' : 'outline'} size="sm" onClick={() => setChallengeTab('historico')} className="gap-2">
+              <Button variant={challengeTab === 'historico' ? 'secondary' : 'outline'} size="sm" onClick={() => setChallengeTab('historico')} className="gap-2">
                 <History className="h-4 w-4" /> Histórico
               </Button>
             </div>
@@ -403,7 +456,7 @@ const Dashboard = () => {
 
           <div className="flex items-center gap-2 mb-4 flex-wrap">
             {typeOptions.map(opt => (
-              <Button key={opt.key} size="sm" variant={typeFilters.has(opt.key) ? 'default' : 'outline'} onClick={() => toggleType(opt.key)}>
+              <Button key={opt.key} size="sm" variant={typeFilters.has(opt.key) ? 'secondary' : 'outline'} onClick={() => toggleType(opt.key)}>
                 {opt.label}
               </Button>
             ))}

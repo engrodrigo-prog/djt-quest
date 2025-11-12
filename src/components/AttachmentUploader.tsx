@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -21,6 +21,14 @@ interface AttachmentUploaderProps {
   onAttachmentsChange: (urls: string[]) => void;
   maxFiles?: number;
   maxSizeMB?: number;
+  /** Optional list of MIME types to accept; defaults to internal ALLOWED_TYPES */
+  acceptMimeTypes?: string[];
+  /** Storage bucket to upload to. Defaults to 'forum-attachments' */
+  bucket?: string;
+  /** Optional path prefix inside the bucket (e.g., 'campaigns', 'challenges') */
+  pathPrefix?: string;
+  /** Hint to open camera on mobile: 'environment' (back), 'user' (front) or true */
+  capture?: boolean | 'environment' | 'user';
 }
 
 const ALLOWED_TYPES = {
@@ -42,20 +50,26 @@ const ALLOWED_TYPES = {
 export const AttachmentUploader = ({ 
   onAttachmentsChange,
   maxFiles = 10,
-  maxSizeMB = 50
+  maxSizeMB = 50,
+  acceptMimeTypes,
+  bucket = 'forum-attachments',
+  pathPrefix = '',
+  capture,
 }: AttachmentUploaderProps) => {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [isDragging, setIsDragging] = useState(false);
+  const allowedMimeSet = new Set<string>(acceptMimeTypes && acceptMimeTypes.length > 0 ? acceptMimeTypes : Object.keys(ALLOWED_TYPES));
+  const inputId = useMemo(() => `file-upload-${Math.random().toString(36).slice(2)}`, []);
 
   const validateFile = useCallback((file: File): string | null => {
-    if (!Object.keys(ALLOWED_TYPES).includes(file.type)) {
+    if (!allowedMimeSet.has(file.type)) {
       return `Tipo de arquivo não permitido: ${file.type}`;
     }
     if (file.size > maxSizeMB * 1024 * 1024) {
       return `Arquivo muito grande: ${(file.size / 1024 / 1024).toFixed(1)}MB (máx: ${maxSizeMB}MB)`;
     }
     return null;
-  }, [maxSizeMB]);
+  }, [maxSizeMB, allowedMimeSet]);
 
   const createPreview = async (file: File): Promise<string | undefined> => {
     if (!file.type.startsWith('image/')) return undefined;
@@ -78,10 +92,11 @@ export const AttachmentUploader = ({
       throw new Error('Usuário não autenticado');
     }
 
-    const filePath = `${userData.user.id}/${fileName}`;
+    const prefix = pathPrefix ? `${pathPrefix.replace(/\/+$/,'')}/` : '';
+    const filePath = `${prefix}${userData.user.id}/${fileName}`;
 
     const { error: uploadError } = await supabase.storage
-      .from('forum-attachments')
+      .from(bucket)
       .upload(filePath, file, {
         cacheControl: '3600',
         upsert: false
@@ -90,7 +105,7 @@ export const AttachmentUploader = ({
     if (uploadError) throw uploadError;
 
     const { data: { publicUrl } } = supabase.storage
-      .from('forum-attachments')
+      .from(bucket)
       .getPublicUrl(filePath);
 
     return { publicUrl, filePath };
@@ -210,18 +225,19 @@ export const AttachmentUploader = ({
         <input
           type="file"
           multiple
-          accept={Object.keys(ALLOWED_TYPES).join(',')}
+          accept={(acceptMimeTypes && acceptMimeTypes.length ? acceptMimeTypes : Object.keys(ALLOWED_TYPES)).join(',')}
           onChange={(e) => handleFiles(e.target.files)}
           disabled={attachments.length >= maxFiles}
           className="hidden"
-          id="file-upload"
+          id={inputId}
+          {...(capture ? { capture: typeof capture === 'boolean' ? undefined : capture } : {})}
         />
         <Button
           type="button"
           variant="outline"
           size="sm"
           disabled={attachments.length >= maxFiles}
-          onClick={() => document.getElementById('file-upload')?.click()}
+          onClick={() => document.getElementById(inputId)?.click()}
         >
           Selecionar Arquivos
         </Button>

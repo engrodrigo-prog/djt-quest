@@ -148,50 +148,96 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const timestamp = Date.now();
     const hash = Math.random().toString(36).slice(2, 8);
     const basePath = `${targetUserId}/${timestamp}-${hash}`;
-    const outFilename = `${basePath}.png`;
-    const thumbFilename = `${basePath}-thumb.png`;
 
     const { bytes: initialBytes, mime } = parseDataUrl(imageBase64);
+    const baseMime = mime || 'image/png';
+    const originalFilename = `${basePath}-original.png`;
+    const originalThumbFilename = `${basePath}-original-thumb.png`;
+
+    // Upload original photo
+    const { error: originalUpload } = await supabaseAdmin.storage
+      .from('avatars')
+      .upload(originalFilename, initialBytes, { contentType: baseMime, upsert: true });
+    if (originalUpload) return res.status(400).json({ error: originalUpload.message });
+
+    const { error: originalThumbUpload } = await supabaseAdmin.storage
+      .from('avatars')
+      .upload(originalThumbFilename, initialBytes, { contentType: baseMime, upsert: true });
+    if (originalThumbUpload) return res.status(400).json({ error: originalThumbUpload.message });
+
+    const { data: originalUrlData } = supabaseAdmin.storage.from('avatars').getPublicUrl(originalFilename);
+    const { data: originalThumbData } = supabaseAdmin.storage.from('avatars').getPublicUrl(originalThumbFilename);
+
     let finalBytes = initialBytes;
-    let finalMime = mime || 'image/png';
+    let finalMime = baseMime;
     if (useAiStyle && !alreadyStylized) {
       try {
-        const [one] = await stylizeWithOpenAI(finalBytes, style, 1, mime);
+        const [one] = await stylizeWithOpenAI(finalBytes, style, 1, baseMime);
         if (one) finalBytes = one;
         finalMime = 'image/png';
       } catch (e) {
-        // keep original
+        // keep original if AI fails
       }
     }
 
-    // Upload to storage
-    const { error: up1 } = await supabaseAdmin.storage
+    const stylizedFilename = `${basePath}-stylized.png`;
+    const stylizedThumbFilename = `${basePath}-stylized-thumb.png`;
+
+    // Upload stylized avatar
+    const { error: avatarUpload } = await supabaseAdmin.storage
       .from('avatars')
-      .upload(outFilename, finalBytes, { contentType: finalMime, upsert: true });
-    if (up1) return res.status(400).json({ error: up1.message });
+      .upload(stylizedFilename, finalBytes, { contentType: finalMime, upsert: true });
+    if (avatarUpload) return res.status(400).json({ error: avatarUpload.message });
 
-    const { error: up2 } = await supabaseAdmin.storage
+    const { error: avatarThumbUpload } = await supabaseAdmin.storage
       .from('avatars')
-      .upload(thumbFilename, finalBytes, { contentType: finalMime, upsert: true });
-    if (up2) return res.status(400).json({ error: up2.message });
+      .upload(stylizedThumbFilename, finalBytes, { contentType: finalMime, upsert: true });
+    if (avatarThumbUpload) return res.status(400).json({ error: avatarThumbUpload.message });
 
-    const { data: urlData } = supabaseAdmin.storage.from('avatars').getPublicUrl(outFilename);
-    const { data: thumbData } = supabaseAdmin.storage.from('avatars').getPublicUrl(thumbFilename);
+    const { data: avatarUrlData } = supabaseAdmin.storage.from('avatars').getPublicUrl(stylizedFilename);
+    const { data: avatarThumbData } = supabaseAdmin.storage.from('avatars').getPublicUrl(stylizedThumbFilename);
 
-    const avatarUrl = urlData.publicUrl;
-    const thumbnailUrl = thumbData.publicUrl;
+    const avatarUrl = avatarUrlData.publicUrl;
+    const thumbnailUrl = avatarThumbData.publicUrl;
+    const originalUrl = originalUrlData.publicUrl;
+    const originalThumbnailUrl = originalThumbData.publicUrl;
+
+    const avatarMeta = {
+      uploaded_at: new Date().toISOString(),
+      provider: useAiStyle ? 'openai' : 'manual',
+      variants: {
+        original: {
+          filename: originalFilename,
+          url: originalUrl,
+          thumbnail_url: originalThumbnailUrl,
+        },
+        stylized: {
+          filename: stylizedFilename,
+          url: avatarUrl,
+          thumbnail_url: thumbnailUrl,
+          style,
+        },
+      },
+    };
 
     const { error: upd } = await supabaseAdmin
       .from('profiles')
       .update({
         avatar_url: avatarUrl,
         avatar_thumbnail_url: thumbnailUrl,
-        avatar_meta: { uploaded_at: new Date().toISOString(), filename: outFilename, provider: 'openai' },
+        avatar_meta: avatarMeta,
       })
       .eq('id', targetUserId);
     if (upd) return res.status(400).json({ error: upd.message });
 
-    return res.status(200).json({ success: true, avatarUrl, thumbnailUrl });
+    return res.status(200).json({
+      success: true,
+      avatarUrl,
+      thumbnailUrl,
+      originalUrl,
+      originalThumbnailUrl,
+      meta: avatarMeta,
+    });
   } catch (err: any) {
     return res.status(500).json({ error: err?.message || 'Unknown error' });
   }

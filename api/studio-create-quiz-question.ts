@@ -29,7 +29,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const hasCorrect = options.some((o: any) => o.is_correct === true);
     if (!hasCorrect) return res.status(400).json({ error: 'Uma alternativa correta é obrigatória' });
 
-    const xpMap: Record<string, number> = { basico: 5, intermediario: 10, avancado: 20, especialista: 40 };
+    const xpMap: Record<string, number> = { basico: 10, intermediario: 20, avancado: 30, especialista: 50 };
+    const diffMap: Record<string, string> = { basico: 'basica', intermediario: 'intermediaria', avancado: 'avancada', especialista: 'especialista' };
     const xp = xpMap[difficulty_level as keyof typeof xpMap];
     if (!xp) return res.status(400).json({ error: 'Dificuldade inválida' });
 
@@ -38,7 +39,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .insert({
         challenge_id: challengeId,
         question_text,
-        difficulty_level,
+        difficulty_level: diffMap[String(difficulty_level)] || 'basica',
         xp_value: xp,
         created_by: userRes.user.id,
       })

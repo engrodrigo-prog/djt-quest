@@ -39,7 +39,7 @@ interface DivisionRanking {
   teamCount: number;
 }
 
-export function Rankings() {
+function Rankings() {
   const { orgScope } = useAuth();
   const [individualRankings, setIndividualRankings] = useState<IndividualRanking[]>([]);
   const [myTeamRankings, setMyTeamRankings] = useState<IndividualRanking[]>([]);
@@ -540,7 +540,7 @@ export function Rankings() {
                   <div className="space-y-6">
                     {divisionRankings.map((ranking) => (
                       <div
-                        key={ranking.divisionId}
+                        key={`${ranking.divisionId || 'global'}-${ranking.order}`}
                         className="flex items-center gap-4 p-4 rounded-lg border bg-transparent hover:bg-white/5 transition-colors"
                       >
                         <div className="flex-1">

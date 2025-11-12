@@ -65,35 +65,35 @@ Contexto adicional: ${context || 'n/a'}
 
 Gere 4 alternativas erradas verossímeis e explique por que estão incorretas.`
 
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        temperature: 0.6,
-        max_tokens: 600,
-        messages: [
-          { role: 'system', content: system },
-          { role: 'user', content: userPrompt },
-        ],
-      }),
-    })
-
-    if (!response.ok) {
-      const body = await response.text()
-      return res.status(400).json({ error: `OpenAI error: ${body}` })
+    const models = Array.from(new Set([
+      process.env.OPENAI_MODEL_FAST,
+      process.env.OPENAI_MODEL_OVERRIDE,
+      'gpt-4.1-mini','gpt-4o-mini','gpt-4o','gpt-3.5-turbo'
+    ].filter(Boolean)))
+    let content = ''
+    let lastErr = ''
+    for (const model of models) {
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${OPENAI_API_KEY}` },
+        body: JSON.stringify({
+          model,
+          temperature: 0.6,
+          max_tokens: 600,
+          messages: [ { role: 'system', content: system }, { role: 'user', content: userPrompt } ],
+        }),
+      })
+      if (!response.ok) { lastErr = await response.text().catch(()=>`HTTP ${response.status}`); continue }
+      const data = await response.json().catch(()=>null)
+      content = data?.choices?.[0]?.message?.content || ''
+      if (content) break
     }
-
-    const data = await response.json()
-    const content = data?.choices?.[0]?.message?.content || ''
+    if (!content) return res.status(400).json({ error: `OpenAI error: ${lastErr || 'no output'}` })
     let parsed: any
     try {
       parsed = JSON.parse(content)
     } catch {
-      const match = content.match(/\{[\s\S]*\}/)
+      const match = content?.match?.(/\{[\s\S]*\}/)
       if (match) parsed = JSON.parse(match[0])
     }
 

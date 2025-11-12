@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { ThemedBackground } from '@/components/ThemedBackground';
 import { User, Trophy, Star, Target, CheckCircle, Clock, GraduationCap, Filter } from 'lucide-react';
+import { AIStatus } from '@/components/AIStatus';
 import { AvatarDisplay } from '@/components/AvatarDisplay';
 import { ActionReviewCard } from '@/components/profile/ActionReviewCard';
 import { RetryModal } from '@/components/profile/RetryModal';
@@ -28,6 +29,22 @@ import { ForumMentions } from '@/components/profile/ForumMentions';
 import { fetchTeamNames } from '@/lib/teamLookup';
 import { apiFetch } from '@/lib/api';
 
+type AvatarVariant = {
+  url?: string | null;
+  thumbnail_url?: string | null;
+  filename?: string | null;
+  style?: string | null;
+};
+
+interface AvatarMeta {
+  provider?: string;
+  uploaded_at?: string;
+  variants?: {
+    original?: AvatarVariant | null;
+    stylized?: AvatarVariant | null;
+  };
+}
+
 interface UserProfile {
   name: string;
   email: string;
@@ -36,6 +53,7 @@ interface UserProfile {
   demotion_cooldown_until: string | null;
   team: { name: string } | null;
   avatar_url: string | null;
+  avatar_meta: AvatarMeta | null;
 }
 
 interface UserEvent {
@@ -82,10 +100,7 @@ function ProfileContent() {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [searchParams, setSearchParams] = useSearchParams();
   const [avatarDialogOpen, setAvatarDialogOpen] = useState(searchParams.get('avatar') === 'open');
-  const [avatarOptions, setAvatarOptions] = useState<string[]>([]);
-  const [selectedAvatarOption, setSelectedAvatarOption] = useState<string | null>(null);
-  const [avatarSourceImage, setAvatarSourceImage] = useState<string | null>(null);
-  const [avatarGenerating, setAvatarGenerating] = useState(false);
+  const [avatarViewMode, setAvatarViewMode] = useState<'stylized' | 'original'>('stylized');
 
   // Abrir/fechar modal conforme query param (?avatar=open)
   useEffect(() => {
@@ -102,7 +117,7 @@ function ProfileContent() {
       // Load profile
       const { data: profileData, error: profileError } = await supabase
         .from('profiles')
-        .select('name, email, xp, tier, avatar_url, date_of_birth, team_id')
+        .select('name, email, xp, tier, avatar_url, avatar_meta, date_of_birth, team_id')
         .eq('id', user.id)
         .maybeSingle();
 
@@ -130,6 +145,7 @@ function ProfileContent() {
           demotion_cooldown_until: authProfile.demotion_cooldown_until ?? null,
           team: authProfile.team ? { name: authProfile.team.name } : null,
           avatar_url: authProfile.avatar_url ?? null,
+          avatar_meta: (authProfile as any)?.avatar_meta ?? null,
         } as any);
       }
 
@@ -194,6 +210,15 @@ function ProfileContent() {
     loadProfile();
   }, [loadProfile]);
 
+  useEffect(() => {
+    if (!profile) return;
+    const hasStylized = Boolean(profile.avatar_url || profile.avatar_meta?.variants?.stylized?.url);
+    const hasOriginal = Boolean(profile.avatar_meta?.variants?.original?.url);
+    if (!hasStylized && hasOriginal) {
+      setAvatarViewMode('original');
+    }
+  }, [profile]);
+
   const handleRetryClick = (eventId: string, challengeTitle: string) => {
     const event = events.find(e => e.id === eventId);
     if (!event) return;
@@ -249,58 +274,16 @@ function ProfileContent() {
     }
   };
 
-  const generateAvatarOptions = async (imageBase64: string) => {
-    if (!imageBase64) return;
-    setAvatarGenerating(true);
-    try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData.session?.access_token;
-      const resp = await apiFetch('/api/process-avatar', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({
-          mode: 'preview',
-          imageBase64,
-          useAiStyle: true,
-          style: 'game-hero',
-          variationCount: 3,
-        }),
-      });
-      const data = await resp.json();
-      if (!resp.ok) throw new Error(data?.error || 'Falha na IA');
-      if (data?.previews?.length) {
-        setAvatarOptions(data.previews as string[]);
-        setSelectedAvatarOption(data.previews[0]);
-      } else {
-        toast({ title: 'Não foi possível gerar opções com IA', variant: 'destructive' });
-      }
-    } catch (err) {
-      console.error('Erro ao gerar opções de avatar:', err);
-      toast({ title: 'Erro ao gerar opções com IA', description: 'Verifique sua conexão ou tente novamente.', variant: 'destructive' });
-    } finally {
-      setAvatarGenerating(false);
-    }
-  };
-
   const resetAvatarFlow = () => {
-    setAvatarOptions([]);
-    setSelectedAvatarOption(null);
-    setAvatarSourceImage(null);
-    setAvatarGenerating(false);
     setAvatarSaving(false);
   };
 
   const handleAvatarCaptured = async (imageBase64: string) => {
-    // Salva diretamente a foto enviada, sem IA/previews
-    setSelectedAvatarOption(imageBase64);
+    // Envia a foto original para gerar automaticamente o avatar estilizado
     await finalizeAvatar(imageBase64);
   };
 
-  const finalizeAvatar = async (overrideBase64?: string) => {
-    const base64ToUse = overrideBase64 || selectedAvatarOption;
+  const finalizeAvatar = async (base64ToUse?: string) => {
     if (!user || avatarSaving || !base64ToUse) {
       toast({ title: 'Selecione um avatar para continuar', variant: 'destructive' });
       return;
@@ -319,8 +302,9 @@ function ProfileContent() {
         body: JSON.stringify({
           userId: user.id,
           imageBase64: base64ToUse,
-          useAiStyle: false,
-          alreadyStylized: true,
+          useAiStyle: true,
+          alreadyStylized: false,
+          style: 'game-hero',
           mode: 'final',
         }),
       });
@@ -329,7 +313,10 @@ function ProfileContent() {
 
       await refreshUserSession();
       if (data?.avatarUrl) {
-        setProfile((prev) => (prev ? { ...prev, avatar_url: data.avatarUrl } : prev));
+        setProfile((prev) => (
+          prev ? { ...prev, avatar_url: data.avatarUrl, avatar_meta: data?.meta ?? prev.avatar_meta } : prev
+        ));
+        setAvatarViewMode('stylized');
       }
 
       toast({ title: 'Avatar atualizado com sucesso!' });
@@ -371,6 +358,14 @@ function ProfileContent() {
       </div>
     );
   }
+
+  const avatarMeta = profile.avatar_meta || null;
+  const originalAvatarUrl = avatarMeta?.variants?.original?.url || null;
+  const stylizedAvatarUrl = profile.avatar_url || avatarMeta?.variants?.stylized?.url || null;
+  const activeAvatarUrl =
+    avatarViewMode === 'original'
+      ? originalAvatarUrl || stylizedAvatarUrl
+      : stylizedAvatarUrl || originalAvatarUrl;
 
   const tierInfo = getTierInfo(profile.tier);
   const nextLevel = getNextTierLevel(profile.tier, profile.xp);
@@ -440,14 +435,34 @@ function ProfileContent() {
         {/* Profile Header */}
         <Card className="bg-gradient-to-r from-primary/10 to-secondary/10">
           <CardHeader>
-            <div className="flex items-start justify-between">
+            <div className="grid grid-cols-3 items-start">
               <div className="flex items-center gap-4">
                 <div className="flex flex-col items-center md:items-start gap-3">
                   <AvatarDisplay 
-                    avatarUrl={profile.avatar_url}
+                    avatarUrl={activeAvatarUrl}
                     name={profile.name}
                     size="xl"
                   />
+                  {originalAvatarUrl && (
+                    <div className="flex gap-2">
+                      <Button
+                        size="xs"
+                        variant={avatarViewMode === 'original' ? 'game' : 'outline'}
+                        onClick={() => setAvatarViewMode('original')}
+                      >
+                        Foto
+                      </Button>
+                      {stylizedAvatarUrl && (
+                        <Button
+                          size="xs"
+                          variant={avatarViewMode === 'stylized' ? 'game' : 'outline'}
+                          onClick={() => setAvatarViewMode('stylized')}
+                        >
+                          Avatar
+                        </Button>
+                      )}
+                    </div>
+                  )}
                   <Button
                     variant="gameGhost"
                     size="sm"
@@ -465,6 +480,7 @@ function ProfileContent() {
                   )}
                 </div>
               </div>
+              <div className="flex items-center justify-center"><AIStatus /></div>
               <div className="text-right space-y-2">
                 <div className="flex items-center gap-2 justify-end mb-1">
                   <Star className="h-5 w-5 text-accent" />
@@ -508,16 +524,45 @@ function ProfileContent() {
               </div>
             </CardContent>
           </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="text-center">
+              <Trophy className="h-8 w-8 text-primary mx-auto mb-2" />
+              <p className="text-2xl font-bold">{badges.length}</p>
+              <p className="text-xs text-muted-foreground">Badges Conquistados</p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+        {(originalAvatarUrl || stylizedAvatarUrl) && (
           <Card>
-            <CardContent className="pt-6">
-              <div className="text-center">
-                <Trophy className="h-8 w-8 text-primary mx-auto mb-2" />
-                <p className="text-2xl font-bold">{badges.length}</p>
-                <p className="text-xs text-muted-foreground">Badges Conquistados</p>
+            <CardHeader>
+              <CardTitle>Identidade visual</CardTitle>
+              <CardDescription>Veja sua foto de referência e o avatar gamificado.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {originalAvatarUrl && (
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium">Foto original</p>
+                    <div className="aspect-square rounded-xl overflow-hidden border">
+                      <img src={originalAvatarUrl} alt="Foto original" className="w-full h-full object-cover" />
+                    </div>
+                  </div>
+                )}
+                {stylizedAvatarUrl && (
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium">Avatar IA</p>
+                    <div className="aspect-square rounded-xl overflow-hidden border">
+                      <img src={stylizedAvatarUrl} alt="Avatar gerado por IA" className="w-full h-full object-cover" />
+                    </div>
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>
-        </div>
+        )}
 
         {/* Tabs */}
       <Tabs defaultValue="learning" className="w-full">
@@ -696,73 +741,18 @@ function ProfileContent() {
             Capture ou envie uma foto e confirme para atualizar seu avatar. Você poderá trocá-la quando quiser.
           </DialogDescription>
         </DialogHeader>
-        {avatarOptions.length === 0 ? (
-          <>
-            <AvatarCapture
-              onCapture={handleAvatarCaptured}
-              onSkip={() => {
-                if (!avatarSaving) {
-                  setAvatarDialogOpen(false);
-                  resetAvatarFlow();
-                }
-              }}
-            />
-            {avatarGenerating && (
-              <p className="text-sm text-muted-foreground text-center mt-2">
-                Processando imagem...
-              </p>
-            )}
-          </>
-        ) : (
-          <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              Escolha o melhor enquadramento e confirme para usar como seu avatar.
-            </p>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              {avatarOptions.map((option, index) => {
-                const isSelected = selectedAvatarOption === option;
-                return (
-                  <button
-                    key={option + index}
-                    type="button"
-                    onClick={() => setSelectedAvatarOption(option)}
-                    className={`relative rounded-lg overflow-hidden border-2 ${
-                      isSelected ? 'border-primary ring-2 ring-primary/50' : 'border-border'
-                    }`}
-                  >
-                    <img src={option} alt={`Opção IA ${index + 1}`} className="w-full h-40 object-cover" />
-                    {isSelected && (
-                      <div className="absolute inset-0 flex items-center justify-center bg-black/30 text-white font-semibold">
-                        Selecionado
-                      </div>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-            <div className="flex flex-col sm:flex-row gap-3">
-              <Button
-                type="button"
-                variant="gameGhost"
-                onClick={() => {
-                  resetAvatarFlow();
-                }}
-                disabled={avatarGenerating}
-              >
-                Capturar outra foto
-              </Button>
-              <Button
-                type="button"
-                onClick={() => finalizeAvatar()}
-                variant="game"
-                disabled={!selectedAvatarOption || avatarSaving}
-                className="flex-1"
-              >
-                {avatarSaving ? 'Salvando...' : 'Usar este Avatar'}
-              </Button>
-            </div>
-          </div>
-        )}
+        <AvatarCapture
+          onCapture={handleAvatarCaptured}
+          onSkip={() => {
+            if (!avatarSaving) {
+              setAvatarDialogOpen(false);
+              resetAvatarFlow();
+            }
+          }}
+        />
+        <p className="text-sm text-muted-foreground mt-4">
+          Após enviar, guardamos a foto original e criamos automaticamente um avatar estilizado para você.
+        </p>
       </DialogContent>
     </Dialog>
 

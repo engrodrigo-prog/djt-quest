@@ -20,15 +20,31 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const system = 'Classifique posts de fórum (pt-BR): retorne JSON { helpfulness:0..1, clarity:0..1, novelty:0..1, toxicity:0..1, chas:"C|H|A|S", tags:[..], flags:[..] }.'
     const user = `POST:\n${post.content_md}`
-    const resp = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${OPENAI_API_KEY}` },
-      body: JSON.stringify({ model: 'gpt-4o-mini', temperature: 0, max_tokens: 300, messages: [{ role:'system', content: system }, { role:'user', content: user }] })
-    })
-    if (!resp.ok) { const t = await resp.text(); return res.status(400).json({ error: `OpenAI error: ${t}` }) }
-    const data = await resp.json()
-    const content = data?.choices?.[0]?.message?.content || ''
+    // Always try premium models for curation
+    const premium = process.env.OPENAI_MODEL_PREMIUM || process.env.OPENAI_MODEL_OVERRIDE || 'gpt-4o'
+    const models = Array.from(new Set([
+      premium,
+      // fallbacks (premium family only)
+      'gpt-4.1', 'gpt-4o'
+    ].filter(Boolean)))
+    let content = ''
+    let lastErr = ''
+    for (const model of models) {
+      const body: any = { model, temperature: 0, messages: [{ role:'system', content: system }, { role:'user', content: user }] }
+      // gpt-5 family uses max_completion_tokens
+      if (/^gpt-5/i.test(model)) body.max_completion_tokens = 300; else body.max_tokens = 300
+      const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${OPENAI_API_KEY}` },
+        body: JSON.stringify(body)
+      })
+      if (!resp.ok) { lastErr = await resp.text().catch(()=>`HTTP ${resp.status}`); continue }
+      const data = await resp.json().catch(()=>null)
+      content = data?.choices?.[0]?.message?.content || ''
+      if (content) break
+    }
+    if (!content) return res.status(400).json({ error: `OpenAI error: ${lastErr || 'no output'}` })
     let json: any
-    try { json = JSON.parse(content) } catch { const m = content.match(/\{[\s\S]*\}/); if (m) json = JSON.parse(m[0]) }
+    try { json = JSON.parse(content) } catch { const m = content?.match?.(/\{[\s\S]*\}/); if (m) json = JSON.parse(m[0]) }
     if (!json) return res.status(400).json({ error: 'Bad AI format', raw: content })
 
     await admin.from('forum_posts').update({ ai_assessment: json, tags: json.tags || null }).eq('id', post_id)
@@ -39,4 +55,3 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 }
 
 export const config = { api: { bodyParser: true } }
-

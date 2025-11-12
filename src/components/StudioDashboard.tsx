@@ -168,15 +168,6 @@ export const StudioDashboard = ({ onSelectModule, userRole }: StudioDashboardPro
       badge: badges.evaluations,
     },
     {
-      id: 'forums',
-      title: 'Fóruns',
-      description: 'Gerenciar categorias e moderação',
-      icon: MessageSquare,
-      gradientFrom: 'from-muted-foreground',
-      gradientTo: 'to-djt-blue-medium',
-      badge: badges.forumMentions,
-    },
-    {
       id: 'system',
       title: 'Sistema',
       description: 'Diagnóstico e status do sistema',

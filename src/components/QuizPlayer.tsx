@@ -96,7 +96,12 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
         .eq("question_id", questionId);
 
       if (error) throw error;
-      setOptions(data || []);
+      const shuffled =
+        (data || [])
+          .map((opt) => ({ sort: Math.random(), value: opt }))
+          .sort((a, b) => a.sort - b.sort)
+          .map(({ value }) => value);
+      setOptions(shuffled);
       setSelectedOption("");
       setAnswerResult(null);
     } catch (error) {

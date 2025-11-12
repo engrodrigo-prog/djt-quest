@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Activity, CheckCircle2, XCircle, AlertCircle, Settings, Sparkles } from 'lucide-react';
+import { Activity, CheckCircle2, XCircle, AlertCircle, Settings, Sparkles, Bot, Timer } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 
@@ -19,6 +19,8 @@ interface HealthCheckResult {
 export const SystemHealthCheck = () => {
   const [health, setHealth] = useState<HealthCheckResult[] | null>(null);
   const [checking, setChecking] = useState(false);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiStatus, setAiStatus] = useState<{ ok: boolean; model?: string; latency_ms?: number; error?: string; stage?: string } | null>(null);
   const [seedingTest, setSeedingTest] = useState(false);
   const [seedingProd, setSeedingProd] = useState(false);
   const [forumBonusEnabled, setForumBonusEnabled] = useState<boolean>(true);
@@ -71,6 +73,23 @@ export const SystemHealthCheck = () => {
       setHealth([]);
     } finally {
       setChecking(false);
+    }
+  };
+
+  const checkAI = async () => {
+    try {
+      setAiLoading(true);
+      const base = (import.meta as any).env?.VITE_API_BASE_URL?.replace(/\/$/, '') || '';
+      const url = base ? `${base}/api/ai-health` : '/api/ai-health';
+      const resp = await fetch(url);
+      let json: any = {};
+      try { json = await resp.json(); } catch { json = { ok: false, error: 'Resposta inválida' }; }
+      if (resp.ok) setAiStatus(json);
+      else setAiStatus({ ok: false, ...(json || {}), stage: json?.stage || `http-${resp.status}` });
+    } catch (e: any) {
+      setAiStatus({ ok: false, stage: 'network', error: e?.message || 'network error' });
+    } finally {
+      setAiLoading(false);
     }
   };
 
@@ -266,6 +285,45 @@ export const SystemHealthCheck = () => {
           </div>
         </CardContent>
       )}
+      </Card>
+
+      {/* AI Health */}
+      <Card className="border-cyan-800/30 bg-white/5">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Bot className="h-5 w-5" />
+                Status da IA (OpenAI)
+              </CardTitle>
+              <CardDescription>Ping simples ao endpoint /api/ai-health</CardDescription>
+            </div>
+            <Button onClick={checkAI} variant="outline" size="sm" disabled={aiLoading}>
+              {aiLoading ? 'Testando...' : 'Testar IA'}
+            </Button>
+          </div>
+        </CardHeader>
+        {aiStatus && (
+          <CardContent>
+            <div className="flex items-center gap-3">
+              <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium border ${aiStatus.ok ? 'text-green-500 border-green-700/40 bg-green-900/20' : 'text-red-500 border-red-700/40 bg-red-900/20'}`}>
+                <Bot className="h-3.5 w-3.5" />
+                {aiStatus.ok ? 'AI ON' : 'AI OFF'}
+              </span>
+              {typeof aiStatus.latency_ms === 'number' && (
+                <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                  <Timer className="h-3.5 w-3.5" /> {aiStatus.latency_ms} ms
+                </span>
+              )}
+              {aiStatus.model && (
+                <Badge variant="outline">{aiStatus.model}</Badge>
+              )}
+            </div>
+            {!aiStatus.ok && (
+              <p className="text-xs text-muted-foreground mt-2">{[aiStatus.stage, aiStatus.error].filter(Boolean).join(' • ')}</p>
+            )}
+          </CardContent>
+        )}
       </Card>
 
       {/* Fórum: bônus mensal de engajamento */}
