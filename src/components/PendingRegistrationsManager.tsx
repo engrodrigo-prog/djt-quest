@@ -65,7 +65,7 @@ export function PendingRegistrationsManager() {
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData.session?.access_token;
       try {
-        const resp = await fetch('/api/approve-registration', {
+        const resp = await fetch('/api/admin?handler=approve-registration', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

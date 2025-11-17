@@ -27,7 +27,7 @@ export default function ForumInsights() {
   useEffect(() => {
     ;(async () => {
       try {
-        const resp = await fetch('/api/forum-top-insights')
+        const resp = await fetch('/api/forum?handler=top-insights')
         const j = await resp.json()
         if (!resp.ok) throw new Error(j?.error || 'Falha ao carregar insights')
         setItems(j.items || [])
@@ -104,4 +104,3 @@ export default function ForumInsights() {
     </div>
   )
 }
-

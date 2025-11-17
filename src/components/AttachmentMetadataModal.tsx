@@ -7,7 +7,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Calendar, Camera, Image, MapPin, Clock, FileText } from "lucide-react";
+import { Calendar, Camera, Image, MapPin, Clock, FileText, Download, ExternalLink } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
@@ -52,6 +52,11 @@ export const AttachmentMetadataModal = ({
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
+  const hasGps = Boolean(metadata?.gps_latitude && metadata?.gps_longitude);
+  const osmEmbed = hasGps
+    ? `https://www.openstreetmap.org/export/embed.html?bbox=${metadata!.gps_longitude - 0.01}%2C${metadata!.gps_latitude - 0.01}%2C${metadata!.gps_longitude + 0.01}%2C${metadata!.gps_latitude + 0.01}&layer=mapnik&marker=${metadata!.gps_latitude}%2C${metadata!.gps_longitude}`
+    : null;
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl">
@@ -60,6 +65,23 @@ export const AttachmentMetadataModal = ({
         </DialogHeader>
 
         <div className="space-y-4">
+          <div className="flex items-center gap-2">
+            <a
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-sm px-2 py-1 rounded-md border hover:bg-muted"
+            >
+              <ExternalLink className="w-4 h-4" /> Abrir imagem
+            </a>
+            <a
+              href={url}
+              download
+              className="inline-flex items-center gap-1 text-sm px-2 py-1 rounded-md border hover:bg-muted"
+            >
+              <Download className="w-4 h-4" /> Baixar
+            </a>
+          </div>
           {isLoading ? (
             <div className="space-y-3">
               <Skeleton className="h-4 w-full" />
@@ -129,22 +151,44 @@ export const AttachmentMetadataModal = ({
                   )}
 
                   {(metadata.gps_latitude && metadata.gps_longitude) && (
-                    <div className="flex items-start gap-2">
-                      <MapPin className="w-5 h-5 text-muted-foreground mt-0.5" />
-                      <div>
-                        <p className="text-sm font-medium">Localização GPS</p>
-                        <p className="text-sm text-muted-foreground">
-                          {metadata.gps_latitude.toFixed(6)}, {metadata.gps_longitude.toFixed(6)}
-                        </p>
-                        <a
-                          href={`https://www.google.com/maps?q=${metadata.gps_latitude},${metadata.gps_longitude}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-sm text-primary hover:underline"
-                        >
-                          Ver no Google Maps →
-                        </a>
+                    <div className="space-y-2">
+                      <div className="flex items-start gap-2">
+                        <MapPin className="w-5 h-5 text-muted-foreground mt-0.5" />
+                        <div>
+                          <p className="text-sm font-medium">Localização GPS</p>
+                          <p className="text-sm text-muted-foreground">
+                            {metadata.gps_latitude.toFixed(6)}, {metadata.gps_longitude.toFixed(6)}
+                          </p>
+                          <div className="flex items-center gap-3 text-sm">
+                            <a
+                              href={`https://www.google.com/maps?q=${metadata.gps_latitude},${metadata.gps_longitude}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-primary hover:underline"
+                            >
+                              Google Maps →
+                            </a>
+                            <a
+                              href={osmEmbed ? osmEmbed.replace('export/embed.html?', '') && `https://www.openstreetmap.org/?mlat=${metadata.gps_latitude}&mlon=${metadata.gps_longitude}#map=15/${metadata.gps_latitude}/${metadata.gps_longitude}` : '#'}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-primary hover:underline"
+                            >
+                              OSM →
+                            </a>
+                          </div>
+                        </div>
                       </div>
+                      {osmEmbed && (
+                        <div className="rounded-lg overflow-hidden border">
+                          <iframe
+                            title="Mapa OSM"
+                            src={osmEmbed}
+                            className="w-full h-56"
+                            loading="lazy"
+                          />
+                        </div>
+                      )}
                     </div>
                   )}
 

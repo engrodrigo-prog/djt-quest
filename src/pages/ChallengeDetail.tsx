@@ -471,6 +471,40 @@ const ChallengeDetail = () => {
                   rows={6}
                   className="mt-2"
                 />
+                <div className="flex items-center justify-between mt-1">
+                  <p className="text-xs text-muted-foreground">
+                    Você pode digitar ou falar. Use a varinha para corrigir ortografia e pontuação.
+                  </p>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className="h-7 w-7"
+                    onClick={async () => {
+                      const text = description.trim();
+                      if (text.length < 3) return;
+                      try {
+                        const resp = await fetch('/api/ai?handler=cleanup-text', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ title: 'Descrição da ação', description: text, language: 'pt-BR' }),
+                        });
+                        const json = await resp.json().catch(() => ({}));
+                        if (!resp.ok || !json?.cleaned?.description) throw new Error(json?.error || 'Falha na revisão automática');
+                        setDescription(String(json.cleaned.description || text));
+                        toast({ title: 'Texto revisado', description: 'Ortografia e pontuação ajustadas.' });
+                      } catch (e: any) {
+                        toast({ title: 'Não foi possível revisar agora', description: e?.message || 'Tente novamente mais tarde.', variant: 'destructive' });
+                      }
+                    }}
+                    title="Revisar ortografia e pontuação (sem mudar conteúdo)"
+                  >
+                    {/* use same Wand icon from lucide-react already in other files */}
+                    <svg className="h-4 w-4" viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M5 20 19 6l-1.5-1.5L3.5 18.5 5 20zm11-14 1-4 1 4 4 1-4 1-1 4-1-4-4-1 4-1zM3 9l.5-2L6 6.5 4.5 8 4 10 3 9z" />
+                    </svg>
+                  </Button>
+                </div>
                 <p className="text-xs text-muted-foreground mt-1">
                   {description.length}/50 caracteres mínimos
                 </p>
@@ -545,7 +579,7 @@ const ChallengeDetail = () => {
                               reader.readAsDataURL(f);
                             });
                             const b64 = await toBase64(audioFile);
-                            const resp = await fetch('/api/transcribe-audio', {
+                            const resp = await fetch('/api/ai?handler=transcribe-audio', {
                               method: 'POST', headers: { 'Content-Type': 'application/json' },
                               body: JSON.stringify({ audioBase64: b64, mode: 'organize', language: 'pt' })
                             });
@@ -574,7 +608,7 @@ const ChallengeDetail = () => {
                       const { error: upErr } = await supabase.storage.from('evidence').upload(path, audioFile, { upsert: true, contentType: audioFile.type });
                       if (upErr) throw upErr;
                       const { data } = supabase.storage.from('evidence').getPublicUrl(path);
-                      const resp = await fetch('/api/transcribe-audio', {
+                      const resp = await fetch('/api/ai?handler=transcribe-audio', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ fileUrl: data.publicUrl, mode: 'organize', language: 'pt' })
@@ -652,7 +686,7 @@ const ChallengeDetail = () => {
                   try {
                     const { data: session } = await supabase.auth.getSession();
                     const token = session.session?.access_token;
-                    const resp = await fetch('/api/challenges-update-status', {
+                    const resp = await fetch('/api/admin?handler=challenges-update-status', {
                       method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
                       body: JSON.stringify({ id: challenge.id, status: 'active' })
                     });
@@ -676,7 +710,7 @@ const ChallengeDetail = () => {
                   try {
                     const { data: session } = await supabase.auth.getSession();
                     const token = session.session?.access_token;
-                    const resp = await fetch('/api/challenges-update-status', {
+                    const resp = await fetch('/api/admin?handler=challenges-update-status', {
                       method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
                       body: JSON.stringify({ id: challenge.id, status: 'closed' })
                     });
@@ -714,7 +748,7 @@ const ChallengeDetail = () => {
                   try {
                     const { data: session } = await supabase.auth.getSession();
                     const token = session.session?.access_token;
-                    const resp = await fetch('/api/challenges-delete', {
+                    const resp = await fetch('/api/admin?handler=challenges-delete', {
                       method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
                       body: JSON.stringify({ id: challenge.id })
                     });

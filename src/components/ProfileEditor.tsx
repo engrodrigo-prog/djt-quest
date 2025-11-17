@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
+import { getOperationalBaseOptions } from "@/lib/operationalBase";
 
 export function ProfileEditor() {
   const { profile, refreshUserSession } = useAuth();
@@ -160,12 +161,32 @@ export function ProfileEditor() {
 
           <div className="space-y-2">
             <Label htmlFor="operational_base">Base Operacional</Label>
-            <Input
-              id="operational_base"
-              value={formData.operational_base}
-              onChange={(e) => setFormData({ ...formData, operational_base: e.target.value })}
-              placeholder="Ex: Votorantim, DJT"
-            />
+            {(() => {
+              const options = getOperationalBaseOptions(formData.sigla_area);
+              if (options.length === 0) {
+                return (
+                  <Input
+                    id="operational_base"
+                    value={formData.operational_base}
+                    onChange={(e) => setFormData({ ...formData, operational_base: e.target.value })}
+                    placeholder="Ex: Cubatão, Santos, Votorantim..."
+                  />
+                );
+              }
+              return (
+                <select
+                  id="operational_base"
+                  className="border rounded-md h-9 px-2 bg-background"
+                  value={formData.operational_base}
+                  onChange={(e) => setFormData({ ...formData, operational_base: e.target.value })}
+                >
+                  <option value="">Selecione</option>
+                  {options.map((b) => (
+                    <option key={b} value={b}>{b}</option>
+                  ))}
+                </select>
+              );
+            })()}
           </div>
 
           <div className="space-y-2">

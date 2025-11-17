@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Slider } from '@/components/ui/slider';
 import { Badge } from '@/components/ui/badge';
-import { Shield, Clock, CheckCircle, AlertCircle } from 'lucide-react';
+import { Shield, Clock, CheckCircle, AlertCircle, Wand2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import Navigation from '@/components/Navigation';
 
@@ -301,7 +301,43 @@ const Evaluations = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <Label>Feedback Positivo (mínimo 140 caracteres)</Label>
+                  <div className="flex items-center justify-between">
+                    <Label>Feedback Positivo (mínimo 140 caracteres)</Label>
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      className="h-7 w-7"
+                      onClick={async () => {
+                        const text = feedbackPositivo.trim();
+                        if (text.length < 3) {
+                          toast({
+                            title: 'Nada para revisar',
+                            description: 'Digite o feedback positivo antes de pedir correção.',
+                          });
+                          return;
+                        }
+                        try {
+                          const resp = await fetch('/api/ai?handler=cleanup-text', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ title: 'Feedback positivo', description: text, language: 'pt-BR' }),
+                          });
+                          const j = await resp.json().catch(() => ({}));
+                          if (!resp.ok || !j?.cleaned?.description) {
+                            throw new Error(j?.error || 'Falha na revisão automática');
+                          }
+                          setFeedbackPositivo(String(j.cleaned.description || text));
+                          toast({ title: 'Feedback positivo revisado', description: 'Ortografia e pontuação ajustadas.' });
+                        } catch (e: any) {
+                          toast({ title: 'Não foi possível revisar agora', description: e?.message || 'Tente novamente mais tarde.', variant: 'destructive' });
+                        }
+                      }}
+                      title="Revisar ortografia e pontuação (sem mudar conteúdo)"
+                    >
+                      <Wand2 className="h-4 w-4" />
+                    </Button>
+                  </div>
                   <Textarea
                     placeholder="Descreva os pontos fortes desta ação..."
                     value={feedbackPositivo}
@@ -321,7 +357,43 @@ const Evaluations = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <Label>Feedback Construtivo (mínimo 140 caracteres)</Label>
+                  <div className="flex items-center justify-between">
+                    <Label>Feedback Construtivo (mínimo 140 caracteres)</Label>
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      className="h-7 w-7"
+                      onClick={async () => {
+                        const text = feedbackConstrutivo.trim();
+                        if (text.length < 3) {
+                          toast({
+                            title: 'Nada para revisar',
+                            description: 'Digite o feedback construtivo antes de pedir correção.',
+                          });
+                          return;
+                        }
+                        try {
+                          const resp = await fetch('/api/ai?handler=cleanup-text', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ title: 'Feedback construtivo', description: text, language: 'pt-BR' }),
+                          });
+                          const j = await resp.json().catch(() => ({}));
+                          if (!resp.ok || !j?.cleaned?.description) {
+                            throw new Error(j?.error || 'Falha na revisão automática');
+                          }
+                          setFeedbackConstrutivo(String(j.cleaned.description || text));
+                          toast({ title: 'Feedback construtivo revisado', description: 'Ortografia e pontuação ajustadas.' });
+                        } catch (e: any) {
+                          toast({ title: 'Não foi possível revisar agora', description: e?.message || 'Tente novamente mais tarde.', variant: 'destructive' });
+                        }
+                      }}
+                      title="Revisar ortografia e pontuação (sem mudar conteúdo)"
+                    >
+                      <Wand2 className="h-4 w-4" />
+                    </Button>
+                  </div>
                   <Textarea
                     placeholder="Descreva oportunidades de melhoria..."
                     value={feedbackConstrutivo}

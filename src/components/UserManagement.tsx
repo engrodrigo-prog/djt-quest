@@ -147,7 +147,7 @@ export const UserManagement = () => {
 
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData.session?.access_token;
-      const resp = await apiFetch('/api/studio-update-user', {
+      const resp = await apiFetch('/api/admin?handler=studio-update-user', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -171,7 +171,6 @@ export const UserManagement = () => {
   const handleSiglaChange = (value: string) => {
     const formatted = value.toUpperCase();
     updateForm('sigla_area', formatted);
-    updateForm('operational_base', formatted);
   };
 
   const filterUsers = useCallback(() => {
@@ -507,8 +506,8 @@ export const UserManagement = () => {
             </div>
             <div className="grid gap-1">
               <Label>Equipe / Sigla</Label>
-              <Input value={form.sigla_area} onChange={(e) => handleSiglaChange(e.target.value)} placeholder="Ex: DJTB" />
-              <p className="text-xs text-muted-foreground">A base operacional é derivada automaticamente desta sigla.</p>
+              <Input value={form.sigla_area} onChange={(e) => handleSiglaChange(e.target.value)} placeholder="Ex: DJTB-CUB" />
+              <p className="text-xs text-muted-foreground">A base operacional pode ser ajustada depois via pedido de alteração de perfil.</p>
             </div>
             <div className="grid grid-cols-2 gap-3 items-center">
               <div className="flex items-center justify-between border rounded-md p-2">

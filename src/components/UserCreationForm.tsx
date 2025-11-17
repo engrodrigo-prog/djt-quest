@@ -121,6 +121,7 @@ export const UserCreationForm = () => {
 
           <div className="space-y-2">
             <Label htmlFor="password">Senha Temporária *</Label>
+            <input type="text" name="username" autoComplete="username" hidden readOnly />
             <Input
               id="password"
               type="password"
@@ -129,6 +130,7 @@ export const UserCreationForm = () => {
               value={formData.password}
               onChange={(e) => setFormData({ ...formData, password: e.target.value })}
               placeholder="Mínimo 6 caracteres"
+              autoComplete="new-password"
             />
           </div>
 

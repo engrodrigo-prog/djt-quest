@@ -74,6 +74,13 @@ export function QuizQuestionsList({ challengeId, onUpdate }: QuizQuestionsListPr
 
   const totalXP = questions.reduce((sum, q) => sum + q.xp_value, 0);
 
+  const dbToUi: Record<string, DifficultyLevel> = {
+    basica: 'basico',
+    intermediaria: 'intermediario',
+    avancada: 'avancado',
+    especialista: 'especialista',
+  } as const;
+
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
@@ -90,7 +97,7 @@ export function QuizQuestionsList({ challengeId, onUpdate }: QuizQuestionsListPr
                 <div className="flex items-center gap-2 mb-1">
                   <span className="font-semibold text-sm">#{index + 1}</span>
                   <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">
-                    {difficultyLevels[question.difficulty_level].label} - {question.xp_value} XP
+                    {difficultyLevels[dbToUi[question.difficulty_level] || 'basico'].label} - {question.xp_value} XP
                   </span>
                 </div>
                 <p className="text-sm">{question.question_text}</p>

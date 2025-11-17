@@ -151,7 +151,7 @@ export const AvatarCapture = ({ onCapture, onSkip }: AvatarCaptureProps) => {
             <AlertDialogDescription asChild>
               <div className="space-y-3">
                 <p>
-                  Sua foto será usada apenas para fins de personalização no DJT Go,
+                  Sua foto será usada apenas para fins de personalização no DJT - Quest,
                   facilitando sua identificação na plataforma.
                 </p>
                 <p className="text-sm font-semibold">

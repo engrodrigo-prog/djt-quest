@@ -27,6 +27,7 @@ export const SystemHealthCheck = () => {
   const [forumBonusMaxPct, setForumBonusMaxPct] = useState<number>(0.20);
   const [savingBonus, setSavingBonus] = useState(false);
   const [applyingBonus, setApplyingBonus] = useState(false);
+  const [forumBonusPreview, setForumBonusPreview] = useState<any[] | null>(null);
 
   const checkSystem = async () => {
     setChecking(true);
@@ -80,7 +81,7 @@ export const SystemHealthCheck = () => {
     try {
       setAiLoading(true);
       const base = (import.meta as any).env?.VITE_API_BASE_URL?.replace(/\/$/, '') || '';
-      const url = base ? `${base}/api/ai-health` : '/api/ai-health';
+      const url = base ? `${base}/api/ai?handler=health` : '/api/ai?handler=health';
       const resp = await fetch(url);
       let json: any = {};
       try { json = await resp.json(); } catch { json = { ok: false, error: 'Resposta inválida' }; }
@@ -122,13 +123,58 @@ export const SystemHealthCheck = () => {
   };
 
   const applyMonthlyBonus = async () => {
-    if (!confirm('Aplicar bônus de engajamento do fórum neste mês?')) return;
     setApplyingBonus(true);
     try {
       const { data: session } = await supabase.auth.getSession();
       const token = session.session?.access_token;
-      const resp = await fetch('/api/forum-apply-monthly-bonus', {
-        method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }
+      if (!token) throw new Error('Não autenticado');
+
+      const base = (import.meta as any).env?.VITE_API_BASE_URL?.replace(/\/$/, '') || '';
+      const urlBase = base ? `${base}/api/forum?handler=apply-monthly-bonus` : '/api/forum?handler=apply-monthly-bonus';
+
+      // Prévia do top 10 (GET)
+      const previewResp = await fetch(urlBase, {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const previewJson: any = await previewResp.json().catch(() => ({}));
+      if (!previewResp.ok) throw new Error(previewJson?.error || 'Falha ao carregar prévia do bônus');
+
+      const awards: any[] = Array.isArray(previewJson.awards) ? previewJson.awards : [];
+      if (!awards.length) {
+        toast.info('Nenhum colaborador elegível para bônus de fórum neste mês.');
+        setForumBonusPreview(null);
+        return;
+      }
+
+      awards.sort((a, b) => (b.bonus_xp || 0) - (a.bonus_xp || 0));
+      setForumBonusPreview(awards);
+
+      const lines = awards.slice(0, 10).map((a, idx) => {
+        const nome = a.profile_name || 'Colaborador';
+        const sigla = a.profile_team || 'DJT';
+        const baseXp = a.base_xp || 0;
+        const bonusXp = a.bonus_xp || 0;
+        const pct = Math.round((a.bonus_pct || 0) * 100);
+        return `${idx + 1}. ${nome} (${sigla}) • base ${baseXp} XP • bônus +${bonusXp} XP (${pct}%)`;
+      });
+
+      const msg = `Top 10 engajamento do fórum (${previewJson.month || 'mês atual'}):\n\n${lines.join(
+        '\n'
+      )}\n\nAplicar esse bônus sobre o XP mensal desses colaboradores agora?`;
+
+      if (!confirm(msg)) {
+        return;
+      }
+
+      // Aplicar bônus (POST)
+      const resp = await fetch(urlBase, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({}),
       });
       const j = await resp.json();
       if (!resp.ok) throw new Error(j?.error || 'Falha ao aplicar bônus');
@@ -296,7 +342,7 @@ export const SystemHealthCheck = () => {
                 <Bot className="h-5 w-5" />
                 Status da IA (OpenAI)
               </CardTitle>
-              <CardDescription>Ping simples ao endpoint /api/ai-health</CardDescription>
+              <CardDescription>Ping simples ao endpoint /api/ai?handler=health</CardDescription>
             </div>
             <Button onClick={checkAI} variant="outline" size="sm" disabled={aiLoading}>
               {aiLoading ? 'Testando...' : 'Testar IA'}
@@ -365,8 +411,22 @@ export const SystemHealthCheck = () => {
               {applyingBonus ? 'Aplicando...' : 'Aplicar bônus deste mês'}
             </Button>
           </div>
-          <div className="text-xs text-muted-foreground">
-            Regras: top 10 recebem de 5% a {Math.round(forumBonusMaxPct*100)}% sobre XP mensal (quizzes + ações). Proporcional ao engajamento.
+          <div className="text-xs text-muted-foreground space-y-1">
+            <div>
+              Regras: top 10 recebem de 5% a {Math.round(forumBonusMaxPct*100)}% sobre XP mensal (quizzes + ações). Proporcional ao engajamento.
+            </div>
+            {forumBonusPreview && forumBonusPreview.length > 0 && (
+              <div className="mt-1 border-t border-border/40 pt-2 space-y-1">
+                <div className="font-semibold text-[11px]">Prévia do Top 10 deste mês:</div>
+                <ul className="text-[11px] text-muted-foreground space-y-0.5 max-h-32 overflow-auto">
+                  {forumBonusPreview.slice(0, 10).map((a, idx) => (
+                    <li key={a.user_id || idx}>
+                      {idx + 1}. {a.profile_name || 'Colaborador'} ({a.profile_team || 'DJT'}) — base {a.base_xp || 0} XP, bônus +{a.bonus_xp || 0} XP
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>

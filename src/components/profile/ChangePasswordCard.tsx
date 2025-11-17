@@ -70,6 +70,7 @@ export function ChangePasswordCard({ compact = false }: ChangePasswordCardProps)
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
             <Label>Nova senha</Label>
+            <input type="text" name="username" autoComplete="username" hidden readOnly />
             <Input
               type="password"
               value={form.password}

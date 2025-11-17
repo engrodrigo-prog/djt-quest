@@ -6,11 +6,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Plus } from "lucide-react";
+import { Plus, Wand2 } from "lucide-react";
 import { AttachmentUploader } from "@/components/AttachmentUploader";
 import { useToast } from "@/hooks/use-toast";
 import { campaignSchema, type CampaignFormData } from "@/lib/validations/challenge";
 import { useState, useEffect } from "react";
+import { VoiceRecorderButton } from "@/components/VoiceRecorderButton";
 
 export const CampaignForm = () => {
   const { toast } = useToast();
@@ -79,6 +80,26 @@ export const CampaignForm = () => {
     } catch {}
   }, []);
 
+  const handleCleanupDescription = async () => {
+    try {
+      const desc = (document.getElementById("description") as HTMLTextAreaElement | null)?.value || "";
+      if (!desc.trim()) return;
+      const resp = await fetch("/api/ai?handler=cleanup-text", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "", description: desc, language: "pt-BR" }),
+      });
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok || !json?.cleaned?.description) {
+        throw new Error(json?.error || "Falha na revisão automática");
+      }
+      setValue("description", json.cleaned.description, { shouldValidate: true });
+      toast({ title: "Descrição revisada", description: "Ortografia e pontuação ajustadas." });
+    } catch (e: any) {
+      toast({ title: "Erro ao revisar descrição", description: e?.message || "Tente novamente", variant: "destructive" });
+    }
+  };
+
   return (
     <Card>
       <CardHeader>
@@ -117,8 +138,29 @@ export const CampaignForm = () => {
             )}
           </div>
 
-          <div>
-            <Label htmlFor="description">Descrição</Label>
+          <div className="space-y-1">
+            <div className="flex items-center justify-between">
+              <Label htmlFor="description">Descrição</Label>
+              <div className="flex items-center gap-2">
+                <VoiceRecorderButton
+                  onText={(text) => {
+                    const current = (document.getElementById("description") as HTMLTextAreaElement | null)?.value || "";
+                    const combined = [current, text].filter(Boolean).join("\n\n");
+                    setValue("description", combined, { shouldValidate: true });
+                  }}
+                />
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="h-7 w-7"
+                  onClick={handleCleanupDescription}
+                  title="Revisar ortografia e pontuação (sem mudar conteúdo)"
+                >
+                  <Wand2 className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
             <Textarea
               id="description"
               {...register("description")}

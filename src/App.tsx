@@ -23,6 +23,8 @@ const ForumTopic = lazy(() => import("./pages/ForumTopic"));
 const ForumInsights = lazy(() => import("./pages/ForumInsights"));
 const UserSetup = lazy(() => import("./pages/UserSetup"));
 const LeaderDashboard = lazy(() => import("./pages/LeaderDashboard"));
+const SEPBook = lazy(() => import("./pages/SEPBook"));
+const CampaignDetail = lazy(() => import("./pages/CampaignDetail"));
 
 const queryClient = new QueryClient();
 const LEADER_ALLOWED_ROLES = ['coordenador_djtx', 'gerente_divisao_djtx', 'gerente_djt', 'admin'];
@@ -73,6 +75,11 @@ const App = () => (
                 <ChallengeDetail />
               </ProtectedRoute>
             } />
+            <Route path="/campaign/:campaignId" element={
+              <ProtectedRoute>
+                <CampaignDetail />
+              </ProtectedRoute>
+            } />
             <Route path="/evaluations" element={
               <ProtectedRoute requireLeader allowedRoles={LEADER_ALLOWED_ROLES}>
                 <Evaluations />
@@ -106,6 +113,11 @@ const App = () => (
             <Route path="/forums/insights" element={
               <ProtectedRoute>
                 <ForumInsights />
+              </ProtectedRoute>
+            } />
+            <Route path="/sepbook" element={
+              <ProtectedRoute>
+                <SEPBook />
               </ProtectedRoute>
             } />
             <Route path="/forum/:topicId" element={

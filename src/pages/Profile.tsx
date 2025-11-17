@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -9,7 +9,6 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { ThemedBackground } from '@/components/ThemedBackground';
 import { User, Trophy, Star, Target, CheckCircle, Clock, GraduationCap, Filter } from 'lucide-react';
-import { AIStatus } from '@/components/AIStatus';
 import { AvatarDisplay } from '@/components/AvatarDisplay';
 import { ActionReviewCard } from '@/components/profile/ActionReviewCard';
 import { RetryModal } from '@/components/profile/RetryModal';
@@ -18,7 +17,7 @@ import { LeaderTeamDashboard } from '@/components/LeaderTeamDashboard';
 import { useToast } from '@/hooks/use-toast';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { getTierInfo, getNextTierLevel } from '@/lib/constants/tiers';
+import { getTierInfo, getNextTierLevel, TIER_CONFIG } from '@/lib/constants/tiers';
 import { AvatarCapture } from '@/components/AvatarCapture';
 import { ProfileEditor } from '@/components/ProfileEditor';
 import { ProfileChangeHistory } from '@/components/profile/ProfileChangeHistory';
@@ -28,6 +27,7 @@ import Navigation from '@/components/Navigation';
 import { ForumMentions } from '@/components/profile/ForumMentions';
 import { fetchTeamNames } from '@/lib/teamLookup';
 import { apiFetch } from '@/lib/api';
+import { Skeleton } from '@/components/ui/skeleton';
 
 type AvatarVariant = {
   url?: string | null;
@@ -53,6 +53,7 @@ interface UserProfile {
   demotion_cooldown_until: string | null;
   team: { name: string } | null;
   avatar_url: string | null;
+  avatar_thumbnail_url?: string | null;
   avatar_meta: AvatarMeta | null;
 }
 
@@ -88,7 +89,7 @@ interface UserBadge {
 }
 
 function ProfileContent() {
-  const { user, refreshUserSession, profile: authProfile } = useAuth();
+  const { user, refreshUserSession, profile: authProfile, isLeader } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -100,13 +101,51 @@ function ProfileContent() {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [searchParams, setSearchParams] = useSearchParams();
   const [avatarDialogOpen, setAvatarDialogOpen] = useState(searchParams.get('avatar') === 'open');
-  const [avatarViewMode, setAvatarViewMode] = useState<'stylized' | 'original'>('stylized');
 
   // Abrir/fechar modal conforme query param (?avatar=open)
   useEffect(() => {
     setAvatarDialogOpen(searchParams.get('avatar') === 'open');
   }, [searchParams]);
   const [avatarSaving, setAvatarSaving] = useState(false);
+  const [xpDialogOpen, setXpDialogOpen] = useState(false);
+
+  const tierOffsets = useMemo(() => {
+    let acc = 0;
+    const map = new Map<string, number>();
+    TIER_CONFIG.tiers.forEach((tier) => {
+      map.set(tier.slug, acc);
+      // Soma até o maior xpMax finito; se não houver, usa o maior xpMin como fallback
+      const finiteMax = tier.levels.reduce((max, lvl) => {
+        return Number.isFinite(lvl.xpMax) ? Math.max(max, lvl.xpMax as number) : max;
+      }, 0);
+      const fallbackMax = tier.levels.reduce((max, lvl) => Math.max(max, lvl.xpMin), 0);
+      const spanBase = finiteMax > 0 ? finiteMax + 1 : fallbackMax;
+      acc += spanBase;
+    });
+    return map;
+  }, []);
+
+  const xpByCategory = useMemo(() => {
+    const buckets: Record<string, number> = {};
+    events.forEach((e) => {
+      const points = Number(e.points_calculated || 0);
+      if (!points || isNaN(points)) return;
+      const type = (e.challenge?.type || '').toLowerCase();
+      let key = 'outros';
+      if (type.includes('forum')) key = 'fórum';
+      else if (type.includes('quiz')) key = 'quiz';
+      else if (type.includes('desafio') || type.includes('challenge')) key = 'desafio';
+      else if (type.includes('campanha') || type.includes('campaign')) key = 'campanha';
+      else if (type.includes('sepbook')) key = 'sepbook';
+      buckets[key] = (buckets[key] || 0) + points;
+    });
+    const entries = Object.entries(buckets)
+      .sort((a, b) => b[1] - a[1])
+      .map(([label, value]) => ({ label, value }));
+    const total = entries.reduce((acc, cur) => acc + cur.value, 0);
+    const max = entries.reduce((acc, cur) => Math.max(acc, cur.value), 0) || 1;
+    return { entries, total, max };
+  }, [events]);
 
   // Loader we can reuse (initial + manual retry)
   const loadProfile = useCallback(async () => {
@@ -117,7 +156,7 @@ function ProfileContent() {
       // Load profile
       const { data: profileData, error: profileError } = await supabase
         .from('profiles')
-        .select('name, email, xp, tier, avatar_url, avatar_meta, date_of_birth, team_id')
+        .select('name, email, xp, tier, avatar_url, avatar_thumbnail_url, avatar_meta, date_of_birth, team_id')
         .eq('id', user.id)
         .maybeSingle();
 
@@ -145,6 +184,7 @@ function ProfileContent() {
           demotion_cooldown_until: authProfile.demotion_cooldown_until ?? null,
           team: authProfile.team ? { name: authProfile.team.name } : null,
           avatar_url: authProfile.avatar_url ?? null,
+          avatar_thumbnail_url: (authProfile as any)?.avatar_thumbnail_url ?? null,
           avatar_meta: (authProfile as any)?.avatar_meta ?? null,
         } as any);
       }
@@ -210,14 +250,7 @@ function ProfileContent() {
     loadProfile();
   }, [loadProfile]);
 
-  useEffect(() => {
-    if (!profile) return;
-    const hasStylized = Boolean(profile.avatar_url || profile.avatar_meta?.variants?.stylized?.url);
-    const hasOriginal = Boolean(profile.avatar_meta?.variants?.original?.url);
-    if (!hasStylized && hasOriginal) {
-      setAvatarViewMode('original');
-    }
-  }, [profile]);
+  // Removed avatar view mode logic (AI removed)
 
   const handleRetryClick = (eventId: string, challengeTitle: string) => {
     const event = events.find(e => e.id === eventId);
@@ -283,6 +316,8 @@ function ProfileContent() {
     await finalizeAvatar(imageBase64);
   };
 
+  // Removed recreate avatar (AI)
+
   const finalizeAvatar = async (base64ToUse?: string) => {
     if (!user || avatarSaving || !base64ToUse) {
       toast({ title: 'Selecione um avatar para continuar', variant: 'destructive' });
@@ -293,7 +328,7 @@ function ProfileContent() {
       setAvatarSaving(true);
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData.session?.access_token;
-      const resp = await apiFetch('/api/process-avatar', {
+      const resp = await apiFetch('/api/admin?handler=upload-avatar', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -302,10 +337,6 @@ function ProfileContent() {
         body: JSON.stringify({
           userId: user.id,
           imageBase64: base64ToUse,
-          useAiStyle: true,
-          alreadyStylized: false,
-          style: 'game-hero',
-          mode: 'final',
         }),
       });
       const data = await resp.json();
@@ -314,12 +345,15 @@ function ProfileContent() {
       await refreshUserSession();
       if (data?.avatarUrl) {
         setProfile((prev) => (
-          prev ? { ...prev, avatar_url: data.avatarUrl, avatar_meta: data?.meta ?? prev.avatar_meta } : prev
+          prev ? { 
+            ...prev, 
+            avatar_url: data?.avatarUrl ?? prev.avatar_url, 
+            avatar_thumbnail_url: data?.avatarUrl ?? prev.avatar_thumbnail_url,
+            avatar_meta: null 
+          } : prev
         ));
-        setAvatarViewMode('stylized');
       }
-
-      toast({ title: 'Avatar atualizado com sucesso!' });
+      toast({ title: 'Foto atualizada com sucesso!' });
       setAvatarDialogOpen(false);
       resetAvatarFlow();
     } catch (error) {
@@ -359,13 +393,7 @@ function ProfileContent() {
     );
   }
 
-  const avatarMeta = profile.avatar_meta || null;
-  const originalAvatarUrl = avatarMeta?.variants?.original?.url || null;
-  const stylizedAvatarUrl = profile.avatar_url || avatarMeta?.variants?.stylized?.url || null;
-  const activeAvatarUrl =
-    avatarViewMode === 'original'
-      ? originalAvatarUrl || stylizedAvatarUrl
-      : stylizedAvatarUrl || originalAvatarUrl;
+  const activeAvatarUrl = profile.avatar_url || profile.avatar_thumbnail_url || undefined;
 
   const tierInfo = getTierInfo(profile.tier);
   const nextLevel = getNextTierLevel(profile.tier, profile.xp);
@@ -428,6 +456,39 @@ function ProfileContent() {
     e.status !== 'retry_in_progress'
   );
 
+  if (loading || !profile) {
+    return (
+      <div className="relative min-h-screen bg-background p-4 pb-40 overflow-hidden">
+        <ThemedBackground theme="atitude" />
+        <div className="container relative max-w-4xl mx-auto py-8 space-y-4">
+          <Card className="bg-gradient-to-r from-primary/10 to-secondary/10">
+            <CardHeader>
+              <div className="space-y-3">
+                <Skeleton className="h-4 w-32" />
+                <Skeleton className="h-6 w-64" />
+                <Skeleton className="h-3 w-full" />
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              <Skeleton className="h-3 w-full" />
+              <Skeleton className="h-3 w-1/2" />
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <Skeleton className="h-4 w-48" />
+            </CardHeader>
+            <CardContent className="space-y-2">
+              <Skeleton className="h-3 w-full" />
+              <Skeleton className="h-3 w-5/6" />
+              <Skeleton className="h-3 w-2/3" />
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="relative min-h-screen bg-background p-4 pb-40 overflow-hidden">
       <ThemedBackground theme="atitude" />
@@ -435,52 +496,31 @@ function ProfileContent() {
         {/* Profile Header */}
         <Card className="bg-gradient-to-r from-primary/10 to-secondary/10">
           <CardHeader>
-            <div className="grid grid-cols-3 items-start">
-              <div className="flex items-center gap-4">
-                <div className="flex flex-col items-center md:items-start gap-3">
-                  <AvatarDisplay 
-                    avatarUrl={activeAvatarUrl}
-                    name={profile.name}
-                    size="xl"
-                  />
-                  {originalAvatarUrl && (
-                    <div className="flex gap-2">
-                      <Button
-                        size="xs"
-                        variant={avatarViewMode === 'original' ? 'game' : 'outline'}
-                        onClick={() => setAvatarViewMode('original')}
-                      >
-                        Foto
-                      </Button>
-                      {stylizedAvatarUrl && (
-                        <Button
-                          size="xs"
-                          variant={avatarViewMode === 'stylized' ? 'game' : 'outline'}
-                          onClick={() => setAvatarViewMode('stylized')}
-                        >
-                          Avatar
-                        </Button>
-                      )}
-                    </div>
-                  )}
-                  <Button
-                    variant="gameGhost"
-                    size="sm"
-                    onClick={() => setAvatarDialogOpen(true)}
-                    disabled={avatarSaving}
-                  >
-                    Atualizar foto
-                  </Button>
-                </div>
-                <div>
-                  <CardTitle className="text-2xl">{profile.name}</CardTitle>
-                  <CardDescription className="text-base">{profile.email}</CardDescription>
-                  {profile.team && (
-                    <Badge variant="outline" className="mt-2">{profile.team.name}</Badge>
-                  )}
-                </div>
+        <div className="grid grid-cols-3 items-start">
+          <div className="flex flex-col gap-3 col-span-3">
+            <div className="flex items-center gap-4">
+              <div className="flex flex-col items-center md:items-start gap-3">
+                <AvatarDisplay 
+                  avatarUrl={activeAvatarUrl}
+                  name={profile.name}
+                  size="xl"
+                />
+                <Button
+                  variant="gameGhost"
+                  size="sm"
+                  onClick={() => setAvatarDialogOpen(true)}
+                  disabled={avatarSaving}
+                >
+                  Atualizar foto
+                </Button>
               </div>
-              <div className="flex items-center justify-center"><AIStatus /></div>
+              <div className="flex-1">
+                <CardTitle className="text-2xl">{profile.name}</CardTitle>
+                <CardDescription className="text-base">{profile.email}</CardDescription>
+                {profile.team && (
+                  <Badge variant="outline" className="mt-2">{profile.team.name}</Badge>
+                )}
+              </div>
               <div className="text-right space-y-2">
                 <div className="flex items-center gap-2 justify-end mb-1">
                   <Star className="h-5 w-5 text-accent" />
@@ -492,18 +532,45 @@ function ProfileContent() {
                 </div>
               </div>
             </div>
-          </CardHeader>
-          <CardContent>
             <div className="space-y-2">
               <div className="flex items-center justify-between text-sm">
                 <span>Progresso para {nextLevel?.name || 'Nível Máximo'}</span>
                 {nextLevel && <span className="font-semibold">{nextLevel.xpNeeded} XP restantes</span>}
               </div>
-              <Progress value={xpProgress} className="h-3" />
+              <button
+                type="button"
+                onClick={() => setXpDialogOpen(true)}
+                className="w-full text-left space-y-1 group"
+              >
+                <div className="relative h-4 w-full overflow-hidden rounded-full bg-green-800/50 border border-green-700/60">
+                  <div
+                    className="absolute inset-y-0 left-0 bg-blue-500/35"
+                    style={{ width: '100%' }}
+                  />
+                  <div
+                    className="absolute inset-y-0 left-0 bg-gradient-to-r from-yellow-300 via-orange-400 to-red-500 animate-pulse"
+                    style={{ width: `${Math.min(100, Math.max(0, xpProgress))}%` }}
+                  />
+                </div>
+                <div className="flex justify-between text-[11px] text-muted-foreground">
+                  <span>Barra única: verde (base), azul (potencial), amarelo→vermelho (atingido)</span>
+                  {nextLevel && <span>Próximo: {nextLevel.name}</span>}
+                </div>
+              </button>
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setXpDialogOpen(true)}
+                  className="text-[11px] text-muted-foreground underline underline-offset-2"
+                >
+                  Ver mapa de níveis e ganhos de XP
+                </button>
+              </div>
             </div>
-          </CardContent>
-        </Card>
-
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
         {/* Stats */}
         <div className="grid grid-cols-3 gap-4">
           <Card>
@@ -524,48 +591,21 @@ function ProfileContent() {
               </div>
             </CardContent>
           </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="text-center">
-              <Trophy className="h-8 w-8 text-primary mx-auto mb-2" />
-              <p className="text-2xl font-bold">{badges.length}</p>
-              <p className="text-xs text-muted-foreground">Badges Conquistados</p>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-        {(originalAvatarUrl || stylizedAvatarUrl) && (
           <Card>
-            <CardHeader>
-              <CardTitle>Identidade visual</CardTitle>
-              <CardDescription>Veja sua foto de referência e o avatar gamificado.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {originalAvatarUrl && (
-                  <div className="space-y-2">
-                    <p className="text-sm font-medium">Foto original</p>
-                    <div className="aspect-square rounded-xl overflow-hidden border">
-                      <img src={originalAvatarUrl} alt="Foto original" className="w-full h-full object-cover" />
-                    </div>
-                  </div>
-                )}
-                {stylizedAvatarUrl && (
-                  <div className="space-y-2">
-                    <p className="text-sm font-medium">Avatar IA</p>
-                    <div className="aspect-square rounded-xl overflow-hidden border">
-                      <img src={stylizedAvatarUrl} alt="Avatar gerado por IA" className="w-full h-full object-cover" />
-                    </div>
-                  </div>
-                )}
+            <CardContent className="pt-6">
+              <div className="text-center">
+                <Trophy className="h-8 w-8 text-primary mx-auto mb-2" />
+                <p className="text-2xl font-bold">{badges.length}</p>
+                <p className="text-xs text-muted-foreground">Badges Conquistados</p>
               </div>
             </CardContent>
           </Card>
-        )}
+        </div>
+
+        {/* Removed AI avatar comparison section */}
 
         {/* Tabs */}
-      <Tabs defaultValue="learning" className="w-full">
+        <Tabs defaultValue="learning" className="w-full">
           <TabsList className="grid w-full max-w-2xl grid-cols-3">
             <TabsTrigger value="learning">
               <GraduationCap className="h-4 w-4 mr-2" />
@@ -709,6 +749,9 @@ function ProfileContent() {
           </TabsContent>
         </Tabs>
 
+      </CardContent>
+    </Card>
+
         <div className="grid gap-6 lg:grid-cols-2">
           <ProfileEditor />
           <ChangePasswordCard />
@@ -719,6 +762,74 @@ function ProfileContent() {
       </div>
 
       <Navigation />
+    <Dialog open={xpDialogOpen} onOpenChange={setXpDialogOpen}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Mapa de Níveis e Trilhas</DialogTitle>
+          <DialogDescription>
+            Veja onde você está hoje e quais são os próximos degraus nas trilhas Executor, Formador e Guardião.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 max-h-[70vh] overflow-auto pr-1">
+          {xpByCategory.entries.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-sm font-semibold">De onde veio seu XP</p>
+              <div className="space-y-2">
+                {xpByCategory.entries.map((e) => {
+                  const pct = Math.max(4, Math.round((e.value / xpByCategory.max) * 100));
+                  return (
+                    <div key={e.label}>
+                      <div className="flex items-center justify-between text-xs mb-1">
+                        <span className="font-medium">{e.label}</span>
+                        <span className="text-muted-foreground">{e.value} XP</span>
+                      </div>
+                      <div className="h-2.5 rounded-full bg-muted overflow-hidden">
+                        <div
+                          className="h-full bg-gradient-to-r from-primary to-secondary"
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          {TIER_CONFIG.tiers.map((tier) => {
+            const offset = tierOffsets.get(tier.slug) || 0;
+            return (
+              <div key={tier.slug} className="space-y-2">
+                <p className="text-sm font-semibold">
+                  {tier.displayName} ({tier.prefix})
+                </p>
+                <div className="space-y-1">
+                  {tier.levels.map((lvl) => {
+                    const isCurrent = lvl.code === profile.tier;
+                    const dispMin = lvl.xpMin + offset;
+                    const dispMax = Number.isFinite(lvl.xpMax) ? (lvl.xpMax as number) + offset : null;
+                    return (
+                      <div
+                        key={lvl.code}
+                        className={`flex items-center justify-between rounded-md border px-2 py-1 text-xs ${
+                          isCurrent ? 'bg-primary/10 border-primary/60' : 'bg-muted/40'
+                        }`}
+                      >
+                        <span className="font-medium">
+                          {lvl.code} — {lvl.name}
+                        </span>
+                        <span className="text-[11px] text-muted-foreground">
+                          {dispMax !== null ? `${dispMin}–${dispMax} XP` : `${dispMin}+ XP`}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </DialogContent>
+    </Dialog>
     <Dialog
       open={avatarDialogOpen}
       onOpenChange={(open) => {
@@ -750,9 +861,7 @@ function ProfileContent() {
             }
           }}
         />
-        <p className="text-sm text-muted-foreground mt-4">
-          Após enviar, guardamos a foto original e criamos automaticamente um avatar estilizado para você.
-        </p>
+        <p className="text-sm text-muted-foreground mt-4">A foto será salva no seu perfil.</p>
       </DialogContent>
     </Dialog>
 

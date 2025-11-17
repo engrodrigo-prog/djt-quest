@@ -1,26 +1,22 @@
 import { 
   Target, 
-  HelpCircle, 
-  Zap, 
   TrendingUp, 
   Award, 
-  UserPlus, 
-  MessageSquare, 
   ActivitySquare,
   Crown,
   ChevronRight,
   Users,
   ClipboardCheck,
-  Camera,
-  Key
+  Key,
+  AlertCircle,
 } from "lucide-react";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { UserManagement } from "./UserManagement";
-import EvaluationManagement from "./EvaluationManagement";
 import { useEffect, useState } from "react";
 import { apiFetch, apiBaseUrl } from "@/lib/api";
 import { supabase } from "@/integrations/supabase/client";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { gameTips } from "@/content/game-tips";
 
 interface StudioModule {
   id: string;
@@ -40,6 +36,8 @@ interface StudioDashboardProps {
 
 export const StudioDashboard = ({ onSelectModule, userRole }: StudioDashboardProps) => {
   const [badges, setBadges] = useState<{ approvals: number; passwordResets: number; evaluations: number; forumMentions: number; registrations: number }>({ approvals: 0, passwordResets: 0, evaluations: 0, forumMentions: 0, registrations: 0 });
+  const [infoOpen, setInfoOpen] = useState(false);
+  const [infoId, setInfoId] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -49,7 +47,7 @@ export const StudioDashboard = ({ onSelectModule, userRole }: StudioDashboardPro
       try {
         const canUseApi = !import.meta.env.DEV || (!!apiBaseUrl && apiBaseUrl.length > 0);
         if (canUseApi) {
-          const resp = await apiFetch('/api/studio-pending-counts');
+          const resp = await apiFetch('/api/admin?handler=studio-pending-counts');
           const json = await resp.json();
           if (!resp.ok) throw new Error('api_failed');
           if (active) setBadges({
@@ -101,7 +99,7 @@ export const StudioDashboard = ({ onSelectModule, userRole }: StudioDashboardPro
   const modules: StudioModule[] = [
     {
       id: 'content',
-      title: 'Campanhas • Desafios • Quizzes',
+      title: 'Campanhas • Quizzes • Fóruns',
       description: 'Gerenciar conteúdos de engajamento',
       icon: Target,
       gradientFrom: 'from-djt-blue-medium',
@@ -131,15 +129,6 @@ export const StudioDashboard = ({ onSelectModule, userRole }: StudioDashboardPro
       gradientFrom: 'from-djt-yellow',
       gradientTo: 'to-accent',
     },
-    {
-      id: 'avatar-tool',
-      title: 'Fotos & Avatares',
-      description: 'Capturar fotos oficiais do perfil',
-      icon: Camera,
-      gradientFrom: 'from-pink-500',
-      gradientTo: 'to-rose-500',
-    },
-    
     {
       id: 'user-approvals',
       title: 'Cadastros & Aprovações',
@@ -207,6 +196,7 @@ export const StudioDashboard = ({ onSelectModule, userRole }: StudioDashboardPro
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {visibleModules.map((module) => {
             const Icon = module.icon;
+            const tipKey = `studio-${module.id}` as keyof typeof gameTips;
             return (
               <Card
                 key={`module-${module.id}`}
@@ -227,7 +217,21 @@ export const StudioDashboard = ({ onSelectModule, userRole }: StudioDashboardPro
 
                 {/* Conteúdo */}
                 <CardHeader className="pb-4 pt-0">
-                  <CardTitle className="text-lg mb-1 text-blue-50">{module.title}</CardTitle>
+                  <div className="flex items-start justify-between gap-2">
+                    <CardTitle className="text-lg mb-1 text-blue-50">{module.title}</CardTitle>
+                    <button
+                      type="button"
+                      aria-label={`Entenda ${module.title}`}
+                      className="mt-0.5 inline-flex items-center justify-center rounded-full border border-cyan-500/60 bg-black/40 p-1 text-cyan-200 hover:bg-cyan-500/20 hover:text-white"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setInfoId(tipKey);
+                        setInfoOpen(true);
+                      }}
+                    >
+                      <AlertCircle className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
                   <CardDescription className="text-xs text-blue-100/80">
                     {module.description}
                   </CardDescription>
@@ -242,6 +246,28 @@ export const StudioDashboard = ({ onSelectModule, userRole }: StudioDashboardPro
           })}
         </div>
       </div>
+      <Dialog
+        open={infoOpen}
+        onOpenChange={(open) => {
+          setInfoOpen(open);
+          if (!open) setInfoId(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>
+              {infoId && gameTips[infoId]?.title
+                ? gameTips[infoId].title
+                : 'Sobre esta ferramenta'}
+            </DialogTitle>
+            <DialogDescription className="whitespace-pre-line text-sm">
+              {infoId && gameTips[infoId]?.body
+                ? gameTips[infoId].body
+                : 'Atualize o arquivo src/content/game-tips.ts para descrever esta ferramenta, incluindo regras de XP e exemplos de uso.'}
+            </DialogDescription>
+          </DialogHeader>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

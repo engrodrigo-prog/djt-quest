@@ -50,14 +50,14 @@ Deno.serve(async (req) => {
       throw new Error('Insufficient permissions');
     }
 
-    const { emailsToKeep, emailsToDelete, deleteAll } = await req.json() as CleanupRequest;
+    const { emailsToKeep = [], emailsToDelete = [], deleteAll } = await req.json() as CleanupRequest;
 
     console.log('=== CLEANUP STARTED ===');
     console.log('Emails to keep:', emailsToKeep.length);
 
     // Normalizar
-    const normalizedKeep = (emailsToKeep || []).map(e => e.trim().toLowerCase());
-    const normalizedDelete = (emailsToDelete || []).map(e => e.trim().toLowerCase());
+    const normalizedKeep = emailsToKeep.map(e => e.trim().toLowerCase());
+    const normalizedDelete = emailsToDelete.map(e => e.trim().toLowerCase());
 
     const results = {
       kept: [] as string[],

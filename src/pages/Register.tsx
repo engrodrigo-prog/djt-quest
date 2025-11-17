@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { z } from "zod";
+import { getOperationalBaseOptions } from "@/lib/operationalBase";
 
 const registerSchema = z.object({
   name: z.string()
@@ -195,29 +196,49 @@ export default function Register() {
 
             <div className="space-y-2">
               <Label htmlFor="operational_base">Base Operacional (Equipe) *</Label>
-              <Select
-                onValueChange={(val) => {
-                  handleChange('operational_base', val);
-                  // por padrão, manter sigla igual à base escolhida
-                  handleChange('sigla_area', val.toUpperCase());
-                }}
-                value={formData.operational_base}
-              >
-                <SelectTrigger id="operational_base">
-                  <SelectValue placeholder="Selecione sua base/equipe" />
-                </SelectTrigger>
-                <SelectContent>
-                  {teams.map((t) => (
-                    <SelectItem key={t.id} value={t.id}>{t.name || t.id}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {(() => {
+                const options = getOperationalBaseOptions(formData.sigla_area);
+                if (options.length === 0) {
+                  return (
+                    <Input
+                      id="operational_base"
+                      placeholder="Ex.: Cubatão, Santos, Votorantim..."
+                      value={formData.operational_base}
+                      onChange={(e) => handleChange("operational_base", e.target.value)}
+                    />
+                  );
+                }
+                return (
+                  <Select
+                    onValueChange={(val) => handleChange("operational_base", val)}
+                    value={formData.operational_base}
+                  >
+                    <SelectTrigger id="operational_base">
+                      <SelectValue placeholder="Selecione sua base operacional" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {options.map((b) => (
+                        <SelectItem key={b} value={b}>{b}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                );
+              })()}
+              <p className="text-xs text-muted-foreground">
+                Sua base deve respeitar a lista de cidades associadas à equipe. Líderes revisarão e aprovarão esse vínculo.
+              </p>
             </div>
 
             <div className="space-y-2">
               <Label htmlFor="sigla_area">Equipe/Sigla *</Label>
               <Select
-                onValueChange={(val) => handleChange('sigla_area', val.toUpperCase())}
+                onValueChange={(val) => {
+                  handleChange('sigla_area', val.toUpperCase());
+                  const baseOptions = getOperationalBaseOptions(val);
+                  if (baseOptions.length && !baseOptions.includes(formData.operational_base)) {
+                    handleChange('operational_base', baseOptions[0]);
+                  }
+                }}
                 value={formData.sigla_area}
               >
                 <SelectTrigger id="sigla_area">

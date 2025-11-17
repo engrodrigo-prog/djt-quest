@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '@/integrations/supabase/client'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { useNavigate } from 'react-router-dom'
 
 interface MentionRow {
   id: string
@@ -18,6 +19,7 @@ interface MentionRow {
 export function ForumMentions() {
   const [rows, setRows] = useState<MentionRow[]>([])
   const [loading, setLoading] = useState(true)
+  const navigate = useNavigate()
 
   useEffect(() => {
     let mounted = true
@@ -60,7 +62,7 @@ export function ForumMentions() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Mencões no Fórum</CardTitle>
+        <CardTitle>Menções no Fórum</CardTitle>
         <CardDescription>Últimas interações onde você foi mencionado</CardDescription>
       </CardHeader>
       <CardContent>
@@ -73,13 +75,25 @@ export function ForumMentions() {
             {rows.map((m) => {
               const title = m.post?.topic?.title || `Tópico ${m.post?.topic_id || ''}`
               return (
-                <div key={m.id} className="flex items-center justify-between p-3 border rounded-lg">
+                <button
+                  key={m.id}
+                  type="button"
+                  className="w-full flex items-center justify-between p-3 border rounded-lg hover:bg-accent/10 text-left"
+                  onClick={() => {
+                    const topicId = (m.post as any)?.topic_id
+                    if (topicId) {
+                      navigate(`/forum/${topicId}`)
+                      // Considerar a menção como reconhecida ao navegar para o tópico
+                      window.dispatchEvent(new CustomEvent('forum-mentions-seen'))
+                    }
+                  }}
+                >
                   <div className="truncate pr-2">
                     <p className="text-sm font-medium truncate">{title}</p>
                     <p className="text-xs text-muted-foreground">{new Date(m.created_at).toLocaleString()}</p>
                   </div>
                   <Badge variant={m.is_read ? 'outline' : 'default'}>{m.is_read ? 'Lido' : 'Novo'}</Badge>
-                </div>
+                </button>
               )
             })}
           </div>

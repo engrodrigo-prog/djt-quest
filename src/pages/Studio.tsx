@@ -18,12 +18,13 @@ import { PendingRegistrationsManager } from '@/components/PendingRegistrationsMa
 import { UserManagement } from '@/components/UserManagement';
 import EvaluationManagement from '@/components/EvaluationManagement';
 import { PendingApprovals } from '@/components/PendingApprovals';
-import { AvatarRegistrationTool } from '@/components/AvatarRegistrationTool';
 import { ThemedBackground } from '@/components/ThemedBackground';
 import { AiQuizGenerator } from '@/components/AiQuizGenerator';
 import { PasswordResetManager } from '@/components/PasswordResetManager';
 import { ContentHub } from '@/components/ContentHub';
 import { UserApprovalsHub } from '@/components/UserApprovalsHub';
+import { CampaignManagement } from '@/components/CampaignManagement';
+import { ChallengeManagement } from '@/components/ChallengeManagement';
 
 const Studio = () => {
   const { user, loading, isLeader, studioAccess, userRole } = useAuth();
@@ -63,10 +64,16 @@ const Studio = () => {
         return <ContentHub onOpen={(id) => setSelectedModule(id)} />;
       case 'campaigns':
         return <CampaignForm />;
+      case 'campaigns-manage':
+        return <CampaignManagement />;
       case 'quiz':
         return <QuizCreationWizard />;
+      case 'quiz-manage':
+        return <ChallengeManagement onlyQuizzes />;
       case 'challenges':
         return <ChallengeForm />;
+      case 'challenges-manage':
+        return <ChallengeManagement />;
       case 'performance':
         return <TeamPerformanceManager />;
       case 'team-bonus':
@@ -79,9 +86,9 @@ const Studio = () => {
         return <UserApprovalsHub />;
       case 'password-resets':
         return <PasswordResetManager />;
-      case 'avatar-tool':
-        return <AvatarRegistrationTool />;
       case 'forums':
+        return <ForumManagement />;
+      case 'forums-manage':
         return <ForumManagement />;
       case 'system':
         return <SystemHealthCheck />;

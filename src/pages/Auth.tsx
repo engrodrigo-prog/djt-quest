@@ -9,7 +9,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { Check, ChevronsUpDown } from "lucide-react";
+import { Check, ChevronsUpDown, Wand2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
@@ -24,7 +24,7 @@ interface UserOption {
 }
 
 const LAST_USER_KEY = 'djt_last_user_id';
-const MATRICULA_LOOKUP_MIN_LENGTH = 4;
+const MATRICULA_LOOKUP_MIN_LENGTH = 6;
 
 const normalizeMatricula = (value?: string | null) =>
   (value ?? '').replace(/\D/g, '');
@@ -34,7 +34,7 @@ const Auth = () => {
   const [selectedUserName, setSelectedUserName] = useState("");
   const [query, setQuery] = useState("");
   const [users, setUsers] = useState<UserOption[]>([]);
-  const [password, setPassword] = useState("123456");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
   const [forgotOpen, setForgotOpen] = useState(false);
@@ -47,6 +47,12 @@ const Auth = () => {
   const navigate = useNavigate();
 
   const normalizedQuery = query.trim().toLowerCase();
+  const digitsQuery = normalizeMatricula(query);
+  const nameTokens = normalizedQuery.split(/\s+/).filter(Boolean);
+  const isMatriculaMode = !!digitsQuery && /^[0-9]+$/.test(digitsQuery);
+  const allowSuggestions =
+    (isMatriculaMode && digitsQuery.length >= MATRICULA_LOOKUP_MIN_LENGTH) ||
+    (!isMatriculaMode && nameTokens.length >= 2 && nameTokens[1].length >= 1);
 
   const matchesSearch = (u: UserOption, needle: string) => {
     if (!needle) return true;
@@ -61,7 +67,9 @@ const Auth = () => {
     );
   };
 
-  const filteredUsers = users.filter(u => matchesSearch(u, normalizedQuery));
+  const filteredUsers = allowSuggestions
+    ? users.filter(u => matchesSearch(u, normalizedQuery))
+    : [];
 
   const attemptLogin = useCallback(async (user: UserOption) => {
     setLoading(true);
@@ -97,7 +105,7 @@ const Auth = () => {
     }
   }, [navigate, password, refreshUserSession, signIn]);
 
-  const selectUser = useCallback((user: UserOption, autoAttempt = false) => {
+  const selectUser = useCallback((user: UserOption) => {
     setSelectedUserId(user.id);
     setSelectedUserName(user.name);
     setQuery(user.matricula ?? user.name);
@@ -105,26 +113,23 @@ const Auth = () => {
     requestAnimationFrame(() => {
       passwordRef.current?.focus();
     });
-    if (autoAttempt && password && !loading) {
-      attemptLogin(user);
-    }
-  }, [attemptLogin, loading, password]);
+  }, []);
 
   const handleQueryChange = (value: string) => {
     setQuery(value);
     setOpen(true);
+
+    // Sempre que o usuário começar a digitar de novo, limpe seleção e senha
+    if (!value) {
+      setSelectedUserId("");
+      setSelectedUserName("");
+      setPassword("");
+    }
+
     const digitsOnly = normalizeMatricula(value);
-    if (digitsOnly.length >= 3) {
-      const localMatch = users.find(
-        (u) => normalizeMatricula(u.matricula) === digitsOnly,
-      );
-      if (localMatch) {
-        selectUser(localMatch, true);
-        return;
-      }
-      if (digitsOnly.length >= MATRICULA_LOOKUP_MIN_LENGTH) {
-        fetchUserByMatriculaDigits(digitsOnly);
-      }
+    // Só dispara lookup remoto após 6 dígitos da matrícula
+    if (digitsOnly.length >= MATRICULA_LOOKUP_MIN_LENGTH) {
+      fetchUserByMatriculaDigits(digitsOnly);
     }
   };
 
@@ -146,7 +151,7 @@ const Auth = () => {
         if (prev.some((u) => u.id === option.id)) return prev;
         return [option, ...prev];
       });
-      selectUser(option, true);
+        selectUser(option);
     } catch (error) {
       console.error('Lookup error:', error);
     } finally {
@@ -191,7 +196,7 @@ const Auth = () => {
     }
     setResetLoading(true);
     try {
-      const response = await apiFetch('/api/request-password-reset', {
+      const response = await apiFetch('/api/admin?handler=request-password-reset', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ identifier: resetIdentifier, reason: resetReason }),
@@ -262,21 +267,39 @@ const Auth = () => {
                         } else if (e.key === 'Enter') {
                           e.preventDefault();
                           const q = query.trim().toLowerCase();
+                          const digitsOnly = normalizeMatricula(query);
+                          const words = q.split(/\s+/).filter(Boolean);
                           let exactMatch = users.find((u) =>
                             (u.matricula ?? '').trim().toLowerCase() === q ||
                             (u.name ?? '').trim().toLowerCase() === q
                           );
                           
-                          // Se não achou, tenta uma busca rápida no servidor
-                          if (!exactMatch && q.length >= 3) {
-                            const { data: remote } = await supabase
-                              .from('profiles')
-                              .select('id, name, email, matricula')
-                              .or(`matricula.ilike.%${q}%,name.ilike.%${q}%`)
-                              .limit(5);
-                            if (remote && remote.length > 0) {
-                              setUsers(remote);
-                              exactMatch = remote.find((u) => (u.matricula ?? '').trim().toLowerCase() === q);
+                          // Se não achou local, aplica regra de busca:
+                          // - Matrícula: só depois de 6 dígitos
+                          // - Nome: depois de digitar ao menos 2 palavras (nome + primeira letra do segundo nome)
+                          if (!exactMatch) {
+                            if (digitsOnly && digitsOnly.length >= MATRICULA_LOOKUP_MIN_LENGTH) {
+                              const { data: remote } = await supabase
+                                .from('profiles')
+                                .select('id, name, email, matricula')
+                                .or(`matricula.eq.${digitsOnly},matricula.ilike.%${digitsOnly}%`)
+                                .limit(5);
+                              if (remote && remote.length > 0) {
+                                setUsers(remote);
+                                exactMatch = remote.find((u) => normalizeMatricula(u.matricula) === digitsOnly) || remote[0];
+                              }
+                            } else if (words.length >= 2 && words[1].length >= 1) {
+                              const { data: remote } = await supabase
+                                .from('profiles')
+                                .select('id, name, email, matricula')
+                                .or(`name.ilike.%${q}%,email.ilike.%${q}%`)
+                                .limit(5);
+                              if (remote && remote.length > 0) {
+                                setUsers(remote);
+                                exactMatch = remote[0];
+                              }
+                            } else {
+                              toast.error('Digite ao menos 6 dígitos da matrícula ou o nome e a primeira letra do segundo nome para buscar.');
                             }
                           }
 
@@ -341,6 +364,7 @@ const Auth = () => {
             
             <div className="space-y-2">
               <Label htmlFor="password">Senha</Label>
+              <input type="text" name="username" autoComplete="username" hidden readOnly />
               <Input
                 id="password"
                 type="password"
@@ -349,6 +373,7 @@ const Auth = () => {
                 required
                 placeholder="Digite sua senha"
                 autoFocus={!!selectedUserName}
+                autoComplete={selectedUserId ? "current-password" : "off"}
                 ref={passwordRef}
               />
               <p className="text-xs text-muted-foreground">
@@ -406,7 +431,37 @@ const Auth = () => {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="reset-reason">Motivo (opcional)</Label>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="reset-reason">Motivo (opcional)</Label>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="h-7 w-7"
+                  onClick={async () => {
+                    const text = resetReason.trim();
+                    if (!text) return;
+                    try {
+                      const resp = await apiFetch("/api/ai?handler=cleanup-text", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ title: "Motivo do reset de senha", description: text, language: "pt-BR" }),
+                      });
+                      const json = await resp.json().catch(() => ({}));
+                      if (!resp.ok || !json?.cleaned?.description) {
+                        throw new Error(json?.error || "Falha na revisão automática");
+                      }
+                      setResetReason(String(json.cleaned.description || text));
+                      toast.success("Motivo revisado (ortografia e pontuação).");
+                    } catch (e: any) {
+                      toast.error(e?.message || "Não foi possível revisar agora.");
+                    }
+                  }}
+                  title="Revisar ortografia e pontuação (sem mudar conteúdo)"
+                >
+                  <Wand2 className="h-4 w-4" />
+                </Button>
+              </div>
               <Textarea
                 id="reset-reason"
                 placeholder="Descreva o motivo do reset"

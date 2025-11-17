@@ -29,6 +29,10 @@ interface AttachmentUploaderProps {
   pathPrefix?: string;
   /** Hint to open camera on mobile: 'environment' (back), 'user' (front) or true */
   capture?: boolean | 'environment' | 'user';
+  /** Opcional: limitar duração de vídeos (em segundos) */
+  maxVideoSeconds?: number;
+  /** Callback opcional: avisa se há uploads em andamento */
+  onUploadingChange?: (uploading: boolean) => void;
 }
 
 const ALLOWED_TYPES = {
@@ -55,6 +59,8 @@ export const AttachmentUploader = ({
   bucket = 'forum-attachments',
   pathPrefix = '',
   capture,
+  maxVideoSeconds,
+  onUploadingChange,
 }: AttachmentUploaderProps) => {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [isDragging, setIsDragging] = useState(false);
@@ -71,9 +77,41 @@ export const AttachmentUploader = ({
     return null;
   }, [maxSizeMB, allowedMimeSet]);
 
+  const ensureVideoDurationOk = useCallback(async (file: File): Promise<string | null> => {
+    if (!maxVideoSeconds || !file.type.startsWith('video/')) return null;
+    if (typeof document === 'undefined') return null;
+    return await new Promise((resolve) => {
+      try {
+        const url = URL.createObjectURL(file);
+        const video = document.createElement('video');
+        video.preload = 'metadata';
+        video.onloadedmetadata = () => {
+          try {
+            const dur = video.duration || 0;
+            URL.revokeObjectURL(url);
+            if (dur && dur > maxVideoSeconds + 0.5) {
+              resolve(`Vídeo muito longo: ${Math.round(dur)}s (máx: ${maxVideoSeconds}s).`);
+            } else {
+              resolve(null);
+            }
+          } catch {
+            resolve(null);
+          }
+        };
+        video.onerror = () => {
+          URL.revokeObjectURL(url);
+          resolve('Não foi possível ler a duração do vídeo.');
+        };
+        video.src = url;
+      } catch {
+        resolve(null);
+      }
+    });
+  }, [maxVideoSeconds]);
+
   const createPreview = async (file: File): Promise<string | undefined> => {
     if (!file.type.startsWith('image/')) return undefined;
-    
+
     return new Promise((resolve) => {
       const reader = new FileReader();
       reader.onloadend = () => resolve(reader.result as string);
@@ -82,8 +120,68 @@ export const AttachmentUploader = ({
     });
   };
 
+  const maybeDownscaleImage = async (file: File): Promise<File> => {
+    if (typeof document === 'undefined') return file;
+    if (!file.type.startsWith('image/')) return file;
+
+    const MAX_DIMENSION = 1080;
+
+    return await new Promise((resolve) => {
+      try {
+        const img = new Image();
+        img.onload = () => {
+          try {
+            let { width, height } = img;
+            if (width <= MAX_DIMENSION && height <= MAX_DIMENSION) {
+              resolve(file);
+              return;
+            }
+            const scale = Math.min(MAX_DIMENSION / width, MAX_DIMENSION / height);
+            width = Math.round(width * scale);
+            height = Math.round(height * scale);
+
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) {
+              resolve(file);
+              return;
+            }
+            ctx.drawImage(img, 0, 0, width, height);
+            canvas.toBlob(
+              (blob) => {
+                if (!blob) {
+                  resolve(file);
+                  return;
+                }
+                const ext = file.name.split('.').pop() || 'jpg';
+                const safeExt = ext.toLowerCase().match(/^(jpe?g|png|webp)$/) ? ext.toLowerCase() : 'jpg';
+                const newFile = new File([blob], `${file.name.replace(/\.[^.]+$/, '')}-1080p.${safeExt}`, {
+                  type: blob.type || file.type,
+                });
+                resolve(newFile);
+              },
+              'image/jpeg',
+              0.8
+            );
+          } catch {
+            resolve(file);
+          }
+        };
+        img.onerror = () => resolve(file);
+        const url = URL.createObjectURL(file);
+        img.src = url;
+      } catch {
+        resolve(file);
+      }
+    });
+  };
+
   const uploadFile = async (attachment: Attachment) => {
-    const { file } = attachment;
+    let { file } = attachment;
+    // compress/reescalar imagens antes de subir
+    file = await maybeDownscaleImage(file);
     const fileExt = file.name.split('.').pop();
     const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
     
@@ -124,6 +222,11 @@ export const AttachmentUploader = ({
     const newAttachments: Attachment[] = [];
 
     for (const file of fileArray) {
+      const durError = await ensureVideoDurationOk(file);
+      if (durError) {
+        toast.error(durError);
+        continue;
+      }
       const error = validateFile(file);
       if (error) {
         toast.error(error);
@@ -178,6 +281,16 @@ export const AttachmentUploader = ({
     onAttachmentsChange(uploadedUrls);
   }, [attachments, onAttachmentsChange]);
 
+  // Avisar se há uploads em andamento (para bloquear publicação, por exemplo)
+  useEffect(() => {
+    if (!attachments || attachments.length === 0) {
+      onUploadingChange?.(false);
+      return;
+    }
+    const anyUploading = attachments.some(a => a.uploading && !a.uploaded);
+    onUploadingChange?.(anyUploading);
+  }, [attachments, onUploadingChange]);
+
   const removeAttachment = (id: string) => {
     setAttachments(prev => prev.filter(a => a.id !== id));
   };
@@ -220,7 +333,7 @@ export const AttachmentUploader = ({
           Arraste arquivos ou clique para selecionar
         </p>
         <p className="text-xs text-muted-foreground mb-4">
-          Imagens, áudio, vídeo ou PDF • Máx {maxSizeMB}MB • Até {maxFiles} arquivos
+          Imagens, áudio, vídeo ou PDF • Máx {maxSizeMB}MB • Até {maxFiles} arquivos{maxVideoSeconds ? ` • Vídeos até ${maxVideoSeconds}s` : ''}
         </p>
         <input
           type="file"

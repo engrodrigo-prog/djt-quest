@@ -128,6 +128,7 @@ export function CompleteProfile({ profile }: CompleteProfileProps) {
                       (não use 123456)
                     </span>
                   </Label>
+                  <input type="text" name="username" autoComplete="username" hidden readOnly />
                   <Input
                     id="newPassword"
                     type="password"
@@ -146,6 +147,7 @@ export function CompleteProfile({ profile }: CompleteProfileProps) {
                     required
                     minLength={6}
                     placeholder="Mínimo 6 caracteres (não use 123456)"
+                    autoComplete="new-password"
                   />
                 </div>
 
@@ -158,6 +160,7 @@ export function CompleteProfile({ profile }: CompleteProfileProps) {
                     onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
                     required
                     placeholder="Digite a senha novamente"
+                    autoComplete="new-password"
                   />
                 </div>
               </>

@@ -85,7 +85,7 @@ export function QuizCreationWizard() {
         })
         .select()
         .single();
-      if (err1 && String(err1.message || '').includes("'chas_dimension'")) {
+      if (err1) {
         // Fallback: remote DB missing new columns; reinsert without them
         const { data: ch2, error: err2 } = await supabase
           .from('challenges')

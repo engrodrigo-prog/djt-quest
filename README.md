@@ -81,7 +81,6 @@ Key pieces:
 - SQL schema/migrations: `supabase/migrations/`
 - Public storage bucket for avatars created by migration (id: `avatars`)
 - Edge functions used by the app:
-  - `process-avatar`: salva avatar no Storage e atualiza `profiles`
   - `studio-import-initial-users`: importa/atualiza usuários e papéis
   - `studio-cleanup-users`: remove usuários de teste/indesejados
   - `studio-update-user`: atualiza campos e função/role

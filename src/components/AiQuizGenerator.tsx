@@ -50,7 +50,7 @@ export const AiQuizGenerator = () => {
     try {
       const { data: session } = await supabase.auth.getSession()
       const token = session.session?.access_token
-      const resp = await apiFetch('/api/ai-quiz-draft', {
+      const resp = await apiFetch('/api/ai?handler=quiz-draft', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -86,7 +86,7 @@ export const AiQuizGenerator = () => {
       setLoading(true)
       const { data: session } = await supabase.auth.getSession()
       const token = session.session?.access_token
-      const resp = await apiFetch('/api/ai-generate-wrongs', {
+      const resp = await apiFetch('/api/ai?handler=generate-wrongs', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -145,7 +145,7 @@ export const AiQuizGenerator = () => {
         ]
       }
 
-      const resp = await apiFetch('/api/studio-create-quiz-question', {
+      const resp = await apiFetch('/api/admin?handler=studio-create-quiz-question', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

@@ -64,6 +64,8 @@ export default function LeaderDashboard() {
   const [teamStats, setTeamStats] = useState<TeamStats | null>(null);
   const [campaigns, setCampaigns] = useState<CampaignPerformance[]>([]);
   const [challenges, setChallenges] = useState<ChallengePerformance[]>([]);
+  // Desafios agora são tratados via campanhas/fóruns; aba de desafios fica oculta na UI.
+  const showChallengesTab = false;
   const [forums, setForums] = useState<ForumTopic[]>([]);
   const [topMembers, setTopMembers] = useState<TeamMember[]>([]);
   const [userProfile, setUserProfile] = useState<{ name: string; avatar_url: string | null; team: { name: string } | null; tier: string } | null>(null);
@@ -332,7 +334,7 @@ export default function LeaderDashboard() {
               <Zap className="h-6 w-6 text-blue-200" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-blue-50">DJT Go</h1>
+              <h1 className="text-xl font-bold text-blue-50">DJT - Quest</h1>
               <p className="text-[10px] text-blue-100/80 leading-none">CPFL Piratininga e Santa Cruz Subtransmissão</p>
             </div>
           </div>
@@ -469,7 +471,7 @@ export default function LeaderDashboard() {
       <Tabs defaultValue="campaigns" className="space-y-4">
         <TabsList>
           <TabsTrigger value="campaigns">Campanhas</TabsTrigger>
-          <TabsTrigger value="challenges">Desafios</TabsTrigger>
+          {showChallengesTab && <TabsTrigger value="challenges">Desafios</TabsTrigger>}
           <TabsTrigger value="forums">Fóruns</TabsTrigger>
           <TabsTrigger value="team">Top 5 da Equipe</TabsTrigger>
         </TabsList>
@@ -515,53 +517,55 @@ export default function LeaderDashboard() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="challenges" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Desafios Vigentes</CardTitle>
-              <CardDescription>
-                Performance da equipe nos desafios ativos
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {challenges.length === 0 ? (
-                <p className="text-muted-foreground text-center py-8">
-                  Nenhum desafio ativo no momento
-                </p>
-              ) : (
-                challenges.map((challenge) => (
-                  <div key={challenge.challenge_id} className="space-y-2 p-4 border rounded-lg">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h3 className="font-semibold">{challenge.challenge_title}</h3>
-                        <p className="text-sm text-muted-foreground capitalize">
-                          {challenge.challenge_type}
-                        </p>
+        {showChallengesTab && (
+          <TabsContent value="challenges" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>Desafios Vigentes</CardTitle>
+                <CardDescription>
+                  Performance da equipe nos desafios ativos
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {challenges.length === 0 ? (
+                  <p className="text-muted-foreground text-center py-8">
+                    Nenhum desafio ativo no momento
+                  </p>
+                ) : (
+                  challenges.map((challenge) => (
+                    <div key={challenge.challenge_id} className="space-y-2 p-4 border rounded-lg">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h3 className="font-semibold">{challenge.challenge_title}</h3>
+                          <p className="text-sm text-muted-foreground capitalize">
+                            {challenge.challenge_type}
+                          </p>
+                        </div>
+                        <div className="flex gap-2">
+                          <Badge variant="outline">
+                            {challenge.adhesion_percentage?.toFixed(0) || 0}% adesão
+                          </Badge>
+                        </div>
                       </div>
-                      <div className="flex gap-2">
-                        <Badge variant="outline">
-                          {challenge.adhesion_percentage?.toFixed(0) || 0}% adesão
-                        </Badge>
+                      <div className="space-y-2">
+                        <div className="flex justify-between text-sm">
+                          <span>Participantes: {challenge.participants_count}</span>
+                          <span>Concluíram: {challenge.completion_percentage?.toFixed(0) || 0}%</span>
+                        </div>
+                        <Progress value={challenge.adhesion_percentage || 0} />
+                        {challenge.avg_xp_earned > 0 && (
+                          <p className="text-sm text-muted-foreground">
+                            XP médio conquistado: {Math.floor(challenge.avg_xp_earned)}
+                          </p>
+                        )}
                       </div>
                     </div>
-                    <div className="space-y-2">
-                      <div className="flex justify-between text-sm">
-                        <span>Participantes: {challenge.participants_count}</span>
-                        <span>Concluíram: {challenge.completion_percentage?.toFixed(0) || 0}%</span>
-                      </div>
-                      <Progress value={challenge.adhesion_percentage || 0} />
-                      {challenge.avg_xp_earned > 0 && (
-                        <p className="text-sm text-muted-foreground">
-                          XP médio conquistado: {Math.floor(challenge.avg_xp_earned)}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                ))
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
+                  ))
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
 
         <TabsContent value="forums" className="space-y-4">
           <Card>

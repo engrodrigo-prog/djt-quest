@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '@/integrations/supabase/client'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -12,24 +12,35 @@ import { useAuth } from '@/contexts/AuthContext'
 import { HelpInfo } from '@/components/HelpInfo'
 import { AttachmentUploader } from '@/components/AttachmentUploader'
 import { AttachmentMetadataModal } from '@/components/AttachmentMetadataModal'
+import { Dialog, DialogContent } from '@/components/ui/dialog'
+import Navigation from '@/components/Navigation'
+import { Wand2 } from 'lucide-react'
 
 interface Topic { id: string; title: string; description: string | null; status: string; chas_dimension: 'C'|'H'|'A'|'S'; quiz_specialties: string[] | null; tags: string[] | null }
 interface Post { id: string; user_id: string; content_md: string; payload: any; created_at: string; ai_assessment: any }
 
 export default function ForumTopic() {
   const { topicId: id } = useParams()
+  const navigate = useNavigate()
   const { toast } = useToast()
-  const { isLeader, studioAccess, user } = useAuth()
+  const { isLeader, studioAccess, user, userRole } = useAuth() as any
   const [topic, setTopic] = useState<Topic | null>(null)
   const [posts, setPosts] = useState<Post[]>([])
   const [content, setContent] = useState('')
   const [audioFile, setAudioFile] = useState<File | null>(null)
   const [transcribing, setTranscribing] = useState(false)
+  const [cleaning, setCleaning] = useState(false)
   const [imageUrls, setImageUrls] = useState<string[]>([])
   const [metaUrl, setMetaUrl] = useState<string | null>(null)
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
   const [editing, setEditing] = useState(false)
   const [editTitle, setEditTitle] = useState('')
   const [editDesc, setEditDesc] = useState('')
+  const [editingPostId, setEditingPostId] = useState<string | null>(null)
+  const [editingPostText, setEditingPostText] = useState<string>('')
+  const [mentionQuery, setMentionQuery] = useState<string>('')
+  const [mentionSuggestions, setMentionSuggestions] = useState<any[]>([])
+  const [cleaningPostId, setCleaningPostId] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     if (!id) return
@@ -43,13 +54,36 @@ export default function ForumTopic() {
 
   useEffect(() => { load() }, [load])
 
+  useEffect(() => {
+    let cancelled = false
+    const t = setTimeout(async () => {
+      const q = mentionQuery.trim()
+      if (!q || q.length < 1) {
+        if (!cancelled) setMentionSuggestions([])
+        return
+      }
+      try {
+        const resp = await fetch(`/api/sepbook-mention-suggest?q=${encodeURIComponent(q)}`)
+        const json = await resp.json()
+        if (!resp.ok) throw new Error(json?.error || 'Falha ao sugerir menções')
+        if (!cancelled) setMentionSuggestions(json.items || [])
+      } catch {
+        if (!cancelled) setMentionSuggestions([])
+      }
+    }, 250)
+    return () => {
+      cancelled = true
+      clearTimeout(t)
+    }
+  }, [mentionQuery])
+
   const handleTranscribe = async () => {
     if (!audioFile) return
     try {
       setTranscribing(true)
       const toBase64 = (f: File) => new Promise<string>((resolve, reject) => { const r = new FileReader(); r.onload = () => resolve(String(r.result)); r.onerror = reject; r.readAsDataURL(f) })
       const b64 = await toBase64(audioFile)
-      const resp = await fetch('/api/transcribe-audio', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ audioBase64: b64, mode:'organize', language:'pt' }) })
+      const resp = await fetch('/api/ai?handler=transcribe-audio', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ audioBase64: b64, mode:'organize', language:'pt' }) })
       const j = await resp.json(); if (!resp.ok) throw new Error(j?.error || 'Falha na transcrição')
       setContent(prev => [prev, j.text || j.transcript].filter(Boolean).join('\n\n'))
       toast({ title: 'Áudio organizado e inserido no post' })
@@ -58,19 +92,76 @@ export default function ForumTopic() {
     } finally { setTranscribing(false) }
   }
 
+  const handleCleanupContent = async () => {
+    const text = (content || '').trim()
+    if (text.length < 3) {
+      toast({ title: 'Nada para revisar', description: 'Digite o texto antes de pedir correção.', variant: 'default' })
+      return
+    }
+    try {
+      setCleaning(true)
+      const resp = await fetch('/api/ai?handler=cleanup-text', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: topic?.title || '', description: text, language: 'pt-BR' })
+      })
+      const j = await resp.json().catch(() => ({}))
+      if (!resp.ok || !j?.cleaned?.description) {
+        throw new Error(j?.error || 'Falha na revisão automática')
+      }
+      setContent(String(j.cleaned.description || text))
+      toast({ title: 'Texto revisado', description: 'Ortografia e pontuação ajustadas, conteúdo preservado.' })
+    } catch (e: any) {
+      toast({ title: 'Não foi possível revisar agora', description: e?.message || 'Tente novamente mais tarde.', variant: 'destructive' })
+    } finally {
+      setCleaning(false)
+    }
+  }
+
+  const handleContentChange = (value: string) => {
+    setContent(value)
+    // Detecta a última menção digitada em qualquer parte do texto (mín. 2 chars)
+    const matches = Array.from(value.matchAll(/@([A-Za-z0-9_.-]{2,30})/g))
+    if (matches.length > 0) {
+      const last = matches[matches.length - 1]
+      setMentionQuery(last[1] || '')
+    } else {
+      setMentionQuery('')
+    }
+  }
+
   const handlePost = async () => {
     if (!id) return
-    const text = (content || '').trim()
+    let text = (content || '').trim()
     if (text.length < 10) {
       toast({ title: 'Conteúdo muito curto', description: 'Escreva ao menos 10 caracteres', variant: 'destructive' })
       return
     }
+    // Sugestão de hashtags via IA antes de enviar (confirmando com usuário)
+    try {
+      const resp = await fetch('/api/ai?handler=suggest-hashtags', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text })
+      })
+      const json = await resp.json().catch(() => ({}))
+      if (resp.ok && Array.isArray(json.hashtags) && json.hashtags.length > 0) {
+        const proposal = json.hashtags.filter((h: string) => !text.includes(h))
+        if (proposal.length > 0) {
+          const msg = `Sugerimos adicionar estas hashtags:\n${proposal.join(' ')}\n\nAdicionar antes de enviar?`
+          if (confirm(msg)) {
+            text = `${text}\n${proposal.join(' ')}`
+            setContent(text)
+          }
+        }
+      }
+    } catch {}
     try {
       const { data: session } = await supabase.auth.getSession()
       const token = session.session?.access_token
       // Try API route first (service role handles mentions/tagging uniformly)
       try {
-        const resp = await fetch('/api/forum-post', {
+        const resp = await fetch('/api/forum?handler=post', {
           method:'POST', headers: { 'Content-Type':'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
           body: JSON.stringify({ topic_id: id, content_md: text, payload: { images: imageUrls }, attachment_urls: imageUrls })
         })
@@ -78,7 +169,7 @@ export default function ForumTopic() {
         if (!resp.ok) throw new Error(j?.error || 'Falha ao publicar')
         setContent('')
         load()
-        try { await fetch('/api/forum-ai-assess-post', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ post_id: (j as any)?.post?.id }) }) } catch {}
+        try { await fetch('/api/forum?handler=assess-post', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ post_id: (j as any)?.post?.id }) }) } catch {}
         return
       } catch (apiErr:any) {
         // Fallback: direct insert via Supabase client (requires forum_posts to exist and RLS enabled)
@@ -119,7 +210,7 @@ export default function ForumTopic() {
     if (!confirm('Fechar este tema e gerar compêndio?')) return
     try {
       const { data: session } = await supabase.auth.getSession(); const token = session.session?.access_token
-      const resp = await fetch('/api/forum-close-topic', { method:'POST', headers:{ 'Content-Type':'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify({ topic_id: id }) })
+      const resp = await fetch('/api/forum?handler=close-topic', { method:'POST', headers:{ 'Content-Type':'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify({ topic_id: id }) })
       const j = await resp.json(); if (!resp.ok) throw new Error(j?.error || 'Falha ao fechar')
       toast({ title: 'Tema fechado', description: 'Compêndio gerado.' })
       load()
@@ -129,16 +220,105 @@ export default function ForumTopic() {
   }
 
   const isLeaderMod = Boolean(isLeader && studioAccess)
+  const canDeleteTopic = typeof userRole === 'string' && (userRole.includes('admin') || userRole.includes('gerente_djt') || userRole.includes('gerente_divisao_djtx'))
+  const permissionLabel = canDeleteTopic
+    ? 'Permissão: Admin — editar, limpar e excluir tópico'
+    : isLeaderMod
+      ? 'Permissão: Moderador — editar e limpar tópico'
+      : 'Permissão: Colaborador — leitura e comentários'
 
   const handleDeletePost = async (postId: string) => {
     if (!confirm('Excluir este post definitivamente?')) return
     try {
       const { data: session } = await supabase.auth.getSession(); const token = session.session?.access_token
-      const resp = await fetch('/api/forum-moderate', { method:'POST', headers:{ 'Content-Type':'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify({ action: 'delete_post', post_id: postId }) })
+      const resp = await fetch('/api/forum?handler=moderate', { method:'POST', headers:{ 'Content-Type':'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify({ action: 'delete_post', post_id: postId }) })
       const j = await resp.json(); if (!resp.ok) throw new Error(j?.error || 'Falha ao excluir')
       load()
     } catch (e:any) {
       toast({ title: 'Erro ao excluir post', description: e?.message || 'Tente novamente', variant: 'destructive' })
+    }
+  }
+
+  const startEditPost = (post: Post) => {
+    setEditingPostId(post.id)
+    setEditingPostText(post.content_md || '')
+  }
+
+  const cancelEditPost = () => {
+    setEditingPostId(null)
+    setEditingPostText('')
+  }
+
+  const handleSavePostEdit = async (post: Post) => {
+    let text = (editingPostText || '').trim()
+    if (text.length < 10) {
+      toast({ title: 'Conteúdo muito curto', description: 'Escreva ao menos 10 caracteres', variant: 'destructive' })
+      return
+    }
+    try {
+      const resp = await fetch('/api/ai?handler=suggest-hashtags', {
+        method:'POST',
+        headers:{ 'Content-Type':'application/json' },
+        body: JSON.stringify({ text })
+      })
+      const json = await resp.json().catch(()=>({}))
+      if (resp.ok && Array.isArray(json.hashtags) && json.hashtags.length > 0) {
+        const proposal = json.hashtags.filter((h: string) => !text.includes(h))
+        if (proposal.length > 0) {
+          const add = confirm(`Sugerir # para este post editado?\n${proposal.join(' ')}\n\nAdicionar?`)
+          if (add) {
+            text = `${text}\n${proposal.join(' ')}`
+            setEditingPostText(text)
+          }
+        }
+      }
+    } catch {}
+    try {
+      const { data: session } = await supabase.auth.getSession(); const token = session.session?.access_token
+      if (!token) throw new Error('Não autenticado')
+      const resp = await fetch('/api/forum?handler=moderate', {
+        method:'POST',
+        headers:{ 'Content-Type':'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action:'update_post', post_id: post.id, content_md: text })
+      })
+      const j = await resp.json().catch(()=>({}))
+      if (!resp.ok) throw new Error(j?.error || 'Falha ao salvar edição')
+      cancelEditPost()
+      load()
+      toast({ title: 'Post atualizado' })
+    } catch (e:any) {
+      toast({ title: 'Erro ao salvar edição', description: e?.message || 'Tente novamente', variant: 'destructive' })
+    }
+  }
+
+  const handleCleanExistingPost = async (post: Post) => {
+    setCleaningPostId(post.id)
+    try {
+      const resp = await fetch('/api/ai?handler=cleanup-text', {
+        method:'POST',
+        headers:{ 'Content-Type':'application/json' },
+        body: JSON.stringify({ title: topic?.title || '', description: post.content_md, language: 'pt-BR' })
+      })
+      const j = await resp.json().catch(()=>({}))
+      const cleaned = j?.cleaned?.description
+      if (!resp.ok || !cleaned) throw new Error(j?.error || 'Falha na revisão automática')
+
+      const { data: session } = await supabase.auth.getSession(); const token = session.session?.access_token
+      if (!token) throw new Error('Não autenticado')
+      const save = await fetch('/api/forum?handler=moderate', {
+        method:'POST',
+        headers:{ 'Content-Type':'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action:'update_post', post_id: post.id, content_md: cleaned })
+      })
+      const j2 = await save.json().catch(()=>({}))
+      if (!save.ok) throw new Error(j2?.error || 'Erro ao salvar revisão')
+
+      setPosts(prev => prev.map(p => p.id === post.id ? { ...p, content_md: cleaned } : p))
+      toast({ title: 'Texto revisado', description: 'Ortografia e pontuação ajustadas (sem mudar conteúdo).' })
+    } catch (e:any) {
+      toast({ title: 'Erro ao revisar', description: e?.message || 'Tente novamente', variant: 'destructive' })
+    } finally {
+      setCleaningPostId(null)
     }
   }
 
@@ -147,7 +327,7 @@ export default function ForumTopic() {
     if (!confirm('Excluir este tópico e todos os posts?')) return
     try {
       const { data: session } = await supabase.auth.getSession(); const token = session.session?.access_token
-      const resp = await fetch('/api/forum-moderate', { method:'POST', headers:{ 'Content-Type':'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify({ action: 'delete_topic', topic_id: id }) })
+      const resp = await fetch('/api/forum?handler=moderate', { method:'POST', headers:{ 'Content-Type':'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify({ action: 'delete_topic', topic_id: id }) })
       const j = await resp.json(); if (!resp.ok) throw new Error(j?.error || 'Falha ao excluir')
       toast({ title: 'Tópico excluído' })
       window.history.back()
@@ -161,7 +341,7 @@ export default function ForumTopic() {
     if (!confirm('Remover todos os posts deste tópico?')) return
     try {
       const { data: session } = await supabase.auth.getSession(); const token = session.session?.access_token
-      const resp = await fetch('/api/forum-moderate', { method:'POST', headers:{ 'Content-Type':'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify({ action: 'clear_topic', topic_id: id }) })
+      const resp = await fetch('/api/forum?handler=moderate', { method:'POST', headers:{ 'Content-Type':'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify({ action: 'clear_topic', topic_id: id }) })
       const j = await resp.json(); if (!resp.ok) throw new Error(j?.error || 'Falha ao limpar')
       toast({ title: 'Tópico limpo' })
       load()
@@ -174,7 +354,7 @@ export default function ForumTopic() {
     if (!id) return
     try {
       const { data: session } = await supabase.auth.getSession(); const token = session.session?.access_token
-      const resp = await fetch('/api/forum-moderate', { method:'POST', headers:{ 'Content-Type':'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify({ action: 'update_topic', topic_id: id, update: { title: editTitle, description: editDesc } }) })
+      const resp = await fetch('/api/forum?handler=moderate', { method:'POST', headers:{ 'Content-Type':'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify({ action: 'update_topic', topic_id: id, update: { title: editTitle, description: editDesc } }) })
       const j = await resp.json(); if (!resp.ok) throw new Error(j?.error || 'Falha ao atualizar')
       setEditing(false)
       load()
@@ -192,26 +372,77 @@ export default function ForumTopic() {
       <div className="container relative mx-auto p-4 md:p-6 max-w-5xl space-y-4">
         <Card>
           <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
+            <div className="flex items-start justify-between gap-3">
+              <div className="space-y-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => navigate('/forums')}
+                  className="-ml-2 text-xs text-muted-foreground hover:text-foreground"
+                >
+                  ← Voltar aos fóruns
+                </Button>
                 {editing ? (
-                  <div className="space-y-2">
-                    <Input value={editTitle} onChange={(e)=>setEditTitle(e.target.value)} />
-                    <Textarea rows={2} value={editDesc} onChange={(e)=>setEditDesc(e.target.value)} />
-                    <div className="flex gap-2">
+                  <div className="space-y-3 rounded-2xl border border-white/10 bg-black/35 p-3 shadow-sm">
+                    <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                      <span>Revise título e descrição com IA (somente ortografia e pontuação, sem mudar o conteúdo).</span>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-7 w-7"
+                        onClick={async () => {
+                          const textTitle = editTitle.trim()
+                          const textDesc = editDesc.trim()
+                          if (!textTitle && !textDesc) return
+                          try {
+                            const resp = await fetch('/api/ai?handler=cleanup-text', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ title: textTitle, description: textDesc, language: 'pt-BR' })
+                            })
+                            const j = await resp.json().catch(() => ({}))
+                            if (!resp.ok || !j?.cleaned) throw new Error(j?.error || 'Falha na revisão')
+                            if (typeof j.cleaned.title === 'string' && j.cleaned.title.trim()) {
+                              setEditTitle(j.cleaned.title)
+                            }
+                            if (typeof j.cleaned.description === 'string' && j.cleaned.description.trim()) {
+                              setEditDesc(j.cleaned.description)
+                            }
+                          } catch (e:any) {
+                            toast({ title: 'Erro na revisão automática', description: e?.message || 'Tente novamente', variant: 'destructive' })
+                          }
+                        }}
+                        title="Revisar ortografia e pontuação do tópico"
+                      >
+                        <Wand2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                    <Input
+                      value={editTitle}
+                      onChange={(e)=>setEditTitle(e.target.value)}
+                      className="bg-black/60 border-white/20"
+                    />
+                    <Textarea
+                      rows={3}
+                      value={editDesc}
+                      onChange={(e)=>setEditDesc(e.target.value)}
+                      className="bg-black/60 border-white/20"
+                    />
+                    <div className="flex gap-2 justify-end">
                       <Button size="sm" onClick={handleUpdateTopic}>Salvar</Button>
                       <Button size="sm" variant="outline" onClick={()=>{ setEditing(false); }}>Cancelar</Button>
                     </div>
                   </div>
                 ) : (
                   <>
-                    <CardTitle>{topic.title}</CardTitle>
-                    <CardDescription>{topic.description}</CardDescription>
+                    <CardTitle className="text-2xl font-bold break-words">{topic.title}</CardTitle>
+                    <CardDescription className="whitespace-pre-line">{topic.description}</CardDescription>
                   </>
                 )}
               </div>
               <div className="flex gap-2 items-center">
                 <Badge variant={topic.status === 'closed' ? 'secondary' : 'default'}>{topic.status}</Badge>
+                <span className="text-[11px] text-muted-foreground">{permissionLabel}</span>
                 {isLeaderMod && topic.status !== 'closed' && (
                   <Button size="sm" onClick={handleClose}>Fechar & Curar</Button>
                 )}
@@ -221,7 +452,9 @@ export default function ForumTopic() {
                 {isLeaderMod && (
                   <>
                     <Button size="sm" variant="outline" onClick={handleClearTopic}>Limpar</Button>
-                    <Button size="sm" variant="destructive" onClick={handleDeleteTopic}>Excluir</Button>
+                    {canDeleteTopic && (
+                      <Button size="sm" variant="destructive" onClick={handleDeleteTopic}>Excluir</Button>
+                    )}
                   </>
                 )}
               </div>
@@ -236,24 +469,111 @@ export default function ForumTopic() {
         <div className="space-y-3">
           {posts.map((p) => (
             <Card key={p.id}>
-              <CardContent className="p-4">
-                <div className="text-sm whitespace-pre-wrap">{p.content_md}</div>
-                {/* Render image attachments if present */}
-                {((p as any)?.payload?.images?.length || (p as any)?.attachment_urls?.length) && (
-                  <div className="mt-3 grid grid-cols-3 gap-2">
-                    {(((p as any)?.payload?.images || (p as any)?.attachment_urls) as string[]).map((url, idx) => (
-                      <img key={idx} src={url} alt="anexo" className="w-full h-24 object-cover rounded cursor-pointer hover:opacity-90" onClick={()=>setMetaUrl(url)} />
-                    ))}
+              <CardContent className="p-4 space-y-2">
+                {editingPostId === p.id ? (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-xs text-muted-foreground">
+                      <span>Use a varinha para ajustar ortografia e pontuação deste relato.</span>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-7 w-7"
+                        onClick={async () => {
+                          const source = (editingPostText || '').trim()
+                          if (source.length < 3) return
+                          try {
+                            const resp = await fetch('/api/ai?handler=cleanup-text', {
+                              method:'POST',
+                              headers:{ 'Content-Type':'application/json' },
+                              body: JSON.stringify({ title: topic?.title || '', description: source, language:'pt-BR' })
+                            })
+                            const j = await resp.json().catch(()=>({}))
+                            const cleaned = j?.cleaned?.description
+                            if (!resp.ok || !cleaned) throw new Error(j?.error || 'Falha na revisão automática')
+                            setEditingPostText(String(cleaned))
+                          } catch (e:any) {
+                            toast({ title:'Erro na revisão', description: e?.message || 'Tente novamente', variant:'destructive' })
+                          }
+                        }}
+                      >
+                        <Wand2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                    <Textarea
+                      rows={3}
+                      value={editingPostText}
+                      onChange={(e)=>setEditingPostText(e.target.value)}
+                    />
+                    <div className="flex justify-end gap-2">
+                      <Button size="sm" variant="outline" onClick={cancelEditPost}>Cancelar</Button>
+                      <Button size="sm" onClick={()=>handleSavePostEdit(p)}>Salvar</Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-start justify-between gap-2">
+          <div className="text-sm whitespace-pre-wrap flex-1">{p.content_md}</div>
+                    <div className="flex flex-col gap-1 items-end">
+                      {(isLeaderMod || p.user_id === user?.id) && (
+                        <>
+                          <Button size="xs" variant="outline" onClick={()=>startEditPost(p)}>Editar</Button>
+                          <Button size="xs" variant="destructive" onClick={()=>handleDeletePost(p.id)}>Excluir</Button>
+                        </>
+                      )}
+                      {isLeaderMod && (
+                        <Button
+                          size="xs"
+                          variant="ghost"
+                          onClick={() => handleCleanExistingPost(p)}
+                          disabled={cleaningPostId === p.id}
+                        >
+                          <Wand2 className="h-4 w-4 mr-1" />
+                          Revisar IA
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 )}
+                {/* Render image attachments if present */}
+                    {((p as any)?.payload?.images?.length || (p as any)?.attachment_urls?.length) && (
+                      <div className="mt-3 grid grid-cols-3 gap-3">
+                        {(((p as any)?.payload?.images || (p as any)?.attachment_urls) as string[]).map((url, idx) => (
+                          <div key={idx} className="space-y-2">
+                            <img
+                              src={url}
+                              alt="anexo"
+                              className="w-full h-28 object-cover rounded cursor-pointer hover:opacity-90"
+                              onClick={()=>setLightboxUrl(url)}
+                            />
+                            <div className="flex gap-2 text-[11px] text-muted-foreground">
+                              <button
+                                type="button"
+                                className="px-2 py-1 rounded-lg border border-white/10 hover:bg-white/5"
+                                onClick={()=>setLightboxUrl(url)}
+                              >
+                                Ver
+                              </button>
+                              <button
+                                type="button"
+                                className="px-2 py-1 rounded-lg border border-white/10 hover:bg-white/5"
+                                onClick={()=>window.open(url, '_blank')}
+                              >
+                                Baixar
+                              </button>
+                              <button
+                                type="button"
+                                className="px-2 py-1 rounded-lg border border-white/10 hover:bg-white/5"
+                                onClick={()=>setMetaUrl(url)}
+                              >
+                                Metadados
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                 {p.ai_assessment && (
                   <div className="mt-2 text-xs text-muted-foreground">
                     Qualidade: {(p.ai_assessment.helpfulness ?? 0).toFixed(2)} / {(p.ai_assessment.clarity ?? 0).toFixed(2)} / {(p.ai_assessment.novelty ?? 0).toFixed(2)}
-                  </div>
-                )}
-                {isLeaderMod && (
-                  <div className="mt-2 flex justify-end">
-                    <Button size="sm" variant="destructive" onClick={()=>handleDeletePost(p.id)}>Excluir Post</Button>
                   </div>
                 )}
               </CardContent>
@@ -265,13 +585,64 @@ export default function ForumTopic() {
           <Card>
             <CardHeader>
               <CardTitle>Nova contribuição</CardTitle>
-              <CardDescription>Use @mencoes e #hashtags; anexar áudio e organizar com IA acelera registro.</CardDescription>
+              <CardDescription>Traga seu relato completo: marque colegas com @, assuntos com # e suba evidências para deixar o aprendizado vivo.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              <Textarea rows={4} value={content} onChange={(e)=>setContent(e.target.value)} placeholder="Escreva sua contribuição..." />
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-muted-foreground">Descreva o contexto com suas palavras. Use a varinha para ajustar ortografia e pontuação.</p>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="h-7 w-7"
+                  onClick={handleCleanupContent}
+                  disabled={cleaning}
+                  title="Revisar ortografia e pontuação (sem mudar conteúdo)"
+                >
+                  <Wand2 className="h-4 w-4" />
+                </Button>
+              </div>
+              <Textarea rows={4} value={content} onChange={(e)=>handleContentChange(e.target.value)} placeholder="Contexto, ação e resultado em poucas linhas..." />
+              {mentionSuggestions.length > 0 && mentionQuery.trim().length >= 1 && (
+                <div className="flex flex-wrap gap-1 text-[11px] text-muted-foreground">
+                  {mentionSuggestions.map((s, idx) => (
+                    <button
+                      key={`${s.kind}-${s.handle}-${idx}`}
+                      type="button"
+                      onClick={() => {
+                        setContent(prev => {
+                          const re = /@([A-Za-z0-9_.-]{1,30})/g
+                          const all = Array.from(prev.matchAll(re))
+                          if (!all.length) {
+                            return [prev.trim(), `@${s.handle}`].filter(Boolean).join(' ')
+                          }
+                          const last = all[all.length - 1]
+                          const start = last.index ?? 0
+                          const before = prev.slice(0, start)
+                          const after = prev.slice(start + last[0].length)
+                          return `${before}@${s.handle}${after}`
+                        })
+                        setMentionQuery('')
+                        setMentionSuggestions([])
+                      }}
+                      className="px-2 py-0.5 rounded-full border border-muted-foreground/40 bg-background/60 hover:bg-muted"
+                    >
+                      <span className="font-semibold">
+                        {s.label || s.handle}
+                      </span>
+                      {s.kind === 'user' && (
+                        <span className="ml-1 opacity-70">@{s.handle}</span>
+                      )}
+                      {s.kind === 'team' && (
+                        <span className="ml-1 opacity-70">(equipe @{s.handle})</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div className="space-y-2">
-                  <p className="text-sm text-muted-foreground">Anexar fotos (opcional)</p>
+                  <p className="text-sm text-muted-foreground">Evidências visuais (opcional)</p>
                   <AttachmentUploader onAttachmentsChange={setImageUrls} maxFiles={6} maxSizeMB={20} acceptMimeTypes={[ 'image/jpeg','image/png','image/webp','image/gif' ]} capture="environment" />
                   {imageUrls.length > 0 && (
                     <div className="flex flex-wrap gap-2 pt-1">
@@ -282,7 +653,7 @@ export default function ForumTopic() {
                   )}
                 </div>
                 <div className="space-y-2">
-                  <p className="text-sm text-muted-foreground">Anexar áudio (opcional)</p>
+                  <p className="text-sm text-muted-foreground">Áudio para organizar com IA (opcional)</p>
                   <div className="flex items-center gap-3">
                     <Input type="file" accept="audio/*" onChange={(e)=>setAudioFile(e.target.files?.[0] || null)} />
                     <Button variant="outline" disabled={!audioFile || transcribing} onClick={handleTranscribe}>{transcribing ? 'Transcrevendo...' : 'Organizar áudio'}</Button>
@@ -296,10 +667,18 @@ export default function ForumTopic() {
           </Card>
         )}
 
-        {metaUrl && (
-          <AttachmentMetadataModal url={metaUrl} open={!!metaUrl} onOpenChange={(o)=>!o && setMetaUrl(null)} />
-        )}
-      </div>
-    </div>
+                  {metaUrl && (
+                    <AttachmentMetadataModal url={metaUrl} open={!!metaUrl} onOpenChange={(o)=>!o && setMetaUrl(null)} />
+                  )}
+                  <Dialog open={!!lightboxUrl} onOpenChange={(o)=>{ if(!o) setLightboxUrl(null) }}>
+                    <DialogContent className="max-w-3xl p-0 bg-black">
+                      {lightboxUrl && (
+                        <img src={lightboxUrl} alt="anexo" className="w-full h-full object-contain" />
+                      )}
+                    </DialogContent>
+                  </Dialog>
+              </div>
+              <Navigation />
+            </div>
   )
 }

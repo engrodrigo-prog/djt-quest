@@ -21,7 +21,7 @@ export function AIStatus({ className }: { className?: string }) {
       const ctl = new AbortController();
       const t = setTimeout(() => ctl.abort(), 6000);
       const base = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
-      const endpoint = base ? `${base}/api/ai-health` : '/api/ai-health';
+      const endpoint = base ? `${base}/api/ai?handler=health` : '/api/ai?handler=health';
       const resp = await fetch(endpoint, { method: 'GET', signal: ctl.signal });
       clearTimeout(t);
       let json: any = {};

@@ -1,0 +1,132 @@
+// @ts-nocheck
+import type { VercelRequest, VercelResponse } from '@vercel/node'
+import { createClient } from '@supabase/supabase-js'
+
+const SUPABASE_URL = process.env.SUPABASE_URL as string
+const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY) as string
+
+function extractMentionsAndTags(md: string) {
+  const mentions = Array.from(
+    md.matchAll(/@([A-Za-z0-9_.-]+@[A-Za-z0-9_.-]+|[A-Za-z0-9_.-]+)/g)
+  ).map(m => m[1])
+  const hashtags = Array.from(md.matchAll(/#([A-Za-z0-9_.-]+)/g)).map(m => m[1].toLowerCase())
+  return { mentions, hashtags }
+}
+
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  if (req.method === 'OPTIONS') return res.status(204).send('')
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
+  try {
+    if (!SUPABASE_URL || !SERVICE_KEY) return res.status(500).json({ error: 'Missing Supabase config' })
+    const admin = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { autoRefreshToken: false, persistSession: false } })
+    const authHeader = req.headers['authorization'] as string | undefined
+    if (!authHeader?.startsWith('Bearer ')) return res.status(401).json({ error: 'Unauthorized' })
+    const token = authHeader.slice(7)
+    const { data: userData } = await admin.auth.getUser(token)
+    const uid = userData?.user?.id
+    if (!uid) return res.status(401).json({ error: 'Unauthorized' })
+
+    const { topic_id, content_md, payload = {}, parent_post_id = null, attachment_urls = [] } = req.body || {}
+    if (!topic_id || typeof content_md !== 'string' || content_md.trim().length < 1) return res.status(400).json({ error: 'Invalid payload' })
+
+    const { mentions, hashtags } = extractMentionsAndTags(content_md)
+
+    // Insert supporting both legacy (author_id, content) and new (user_id, content_md) schemas
+    const insertPayload: any = {
+      topic_id,
+      user_id: uid,
+      author_id: uid, // legacy column
+      content_md: content_md.trim(),
+      content: content_md.trim(), // legacy column with CHECK(LENGTH(content) >= 10)
+      payload: { ...(payload || {}), images: Array.isArray(attachment_urls) ? attachment_urls : [] },
+      parent_post_id,
+      tags: hashtags,
+    };
+
+    // Try insert including legacy attachment_urls column; if it fails due to column missing, retry without it
+    let post, error;
+    try {
+      const { data, error: err } = await admin
+        .from('forum_posts')
+        .insert({ ...insertPayload, attachment_urls: Array.isArray(attachment_urls) ? attachment_urls : null })
+        .select()
+        .single();
+      post = data; error = err;
+      if (error && /column .*attachment_urls.* does not exist/i.test(error.message)) throw error;
+    } catch (_) {
+      const { data, error: err } = await admin
+        .from('forum_posts')
+        .insert(insertPayload)
+        .select()
+        .single();
+      post = data; error = err;
+    }
+    if (error) return res.status(400).json({ error: error.message })
+
+    // Register mentions best-effort
+    if (mentions.length) {
+      try {
+        const { data: users } = await admin.from('profiles').select('id, email, name')
+          .in('email', mentions)
+        const ids = (users || []).map((u: any) => u.id)
+        if (ids.length) {
+          const rows = ids.map((id: string) => ({ mentioned_user_id: id, post_id: post.id, topic_id }))
+          await admin.from('forum_mentions').insert(rows as any)
+        }
+      } catch {}
+    }
+
+    // Attachment metadata best-effort
+    if (Array.isArray(attachment_urls) && attachment_urls.length) {
+      for (const url of attachment_urls) {
+        try {
+          const path = (url.split('/forum-attachments/')[1] || '').trim();
+          if (!path) continue;
+          const folder = path.split('/')[0];
+          const filename = path.split('/').pop() || 'unknown';
+          const ext = filename.split('.').pop()?.toLowerCase() || '';
+          let fileType = 'document';
+          let mimeType = 'application/octet-stream';
+          if (['jpg','jpeg','png','gif','webp'].includes(ext)) { fileType = 'image'; mimeType = `image/${ext === 'jpg' ? 'jpeg' : ext}`; }
+          else if (['mp3','wav','ogg','webm','m4a'].includes(ext)) { fileType = 'audio'; mimeType = `audio/${ext}`; }
+          else if (['mp4','webm','mov'].includes(ext)) { fileType = 'video'; mimeType = ext === 'mov' ? 'video/quicktime' : `video/${ext}`; }
+          else if (ext === 'pdf') { mimeType = 'application/pdf'; }
+
+          // Try to fetch file info to capture size
+          let fileSize = 0;
+          try {
+            const listFolder = folder;
+            const searchName = filename;
+            const { data: files } = await (admin as any).storage.from('forum-attachments').list(listFolder, { search: searchName });
+            const found = (files || []).find((f: any) => f.name === filename);
+            fileSize = found?.metadata?.size || found?.size || 0;
+          } catch {}
+
+          try {
+            await admin.from('forum_attachment_metadata').insert({
+              post_id: post.id,
+              storage_path: path,
+              file_type: fileType,
+              mime_type: mimeType,
+              file_size: fileSize,
+              original_filename: filename,
+            } as any);
+          } catch {}
+
+          // Attempt to invoke image metadata extraction function in background
+          if (fileType === 'image') {
+            try {
+              await (admin as any).functions.invoke('extract-image-metadata', { body: { storage_path: path, post_id: post.id } });
+            } catch {}
+          }
+        } catch {}
+      }
+    }
+
+    return res.status(200).json({ success: true, post })
+  } catch (e: any) {
+    return res.status(500).json({ error: e?.message || 'Unknown error' })
+  }
+}
+
+export const config = { api: { bodyParser: true } }

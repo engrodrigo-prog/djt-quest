@@ -1,0 +1,61 @@
+// @ts-nocheck
+import type { VercelRequest, VercelResponse } from '@vercel/node';
+
+import approveRegistration from '../server/api-handlers/approve-registration.js';
+import requestPasswordReset from '../server/api-handlers/request-password-reset.js';
+import reviewPasswordReset from '../server/api-handlers/review-password-reset.js';
+import challengesDelete from '../server/api-handlers/challenges-delete.js';
+import challengesUpdateStatus from '../server/api-handlers/challenges-update-status.js';
+import studioCreateQuizQuestion from '../server/api-handlers/studio-create-quiz-question.js';
+import studioPendingCounts from '../server/api-handlers/studio-pending-counts.js';
+import studioUpdateUser from '../server/api-handlers/studio-update-user.js';
+import uploadAvatar from '../server/api-handlers/upload-avatar.js';
+import adminUpdateProfile from '../server/api-handlers/admin-update-profile.js';
+import adminFixChallengeTargets from '../server/api-handlers/admin-fix-challenge-targets.js';
+import leadershipChallenges from '../server/api-handlers/leadership-challenges.js';
+
+type Handler = (req: VercelRequest, res: VercelResponse) => any | Promise<any>;
+
+const handlers: Record<string, Handler> = {
+  'approve-registration': approveRegistration,
+  'request-password-reset': requestPasswordReset,
+  'review-password-reset': reviewPasswordReset,
+  'challenges-delete': challengesDelete,
+  'challenges-update-status': challengesUpdateStatus,
+  'studio-create-quiz-question': studioCreateQuizQuestion,
+  'studio-pending-counts': studioPendingCounts,
+  'studio-update-user': studioUpdateUser,
+  'upload-avatar': uploadAvatar,
+  'admin-update-profile': adminUpdateProfile,
+  'admin-fix-challenge-targets': adminFixChallengeTargets,
+  'leadership-challenges': leadershipChallenges,
+};
+
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  if (req.method === 'OPTIONS') return res.status(204).send('');
+
+  const key =
+    (typeof req.query.handler === 'string'
+      ? req.query.handler
+      : Array.isArray(req.query.handler)
+      ? req.query.handler[0]
+      : undefined) ||
+    (req.body && typeof req.body.handler === 'string' ? req.body.handler : undefined);
+
+  if (!key) {
+    return res.status(400).json({ error: 'handler query param required' });
+  }
+
+  const fn = handlers[key];
+  if (!fn) {
+    return res.status(400).json({ error: `Unknown admin handler: ${key}` });
+  }
+
+  try {
+    return await fn(req, res);
+  } catch (e: any) {
+    return res.status(500).json({ error: e?.message || 'Unknown error in /api/admin' });
+  }
+}
+
+export const config = { api: { bodyParser: true } };

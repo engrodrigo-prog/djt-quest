@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Plus, Trash2, Save } from "lucide-react";
+import { Plus, Trash2, Save, Wand2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { quizQuestionSchema, difficultyLevels, type QuizQuestionFormData, type DifficultyLevel } from "@/lib/validations/quiz";
 import { apiFetch } from "@/lib/api";
+import { VoiceRecorderButton } from "@/components/VoiceRecorderButton";
 
 interface QuizQuestionFormProps {
   challengeId: string;
@@ -51,7 +52,7 @@ export function QuizQuestionForm({ challengeId, onQuestionAdded }: QuizQuestionF
   const options = watch("options");
 
   const createViaApi = async (payload: QuizQuestionFormData, token: string) => {
-    const resp = await apiFetch('/api/studio-create-quiz-question', {
+    const resp = await apiFetch('/api/admin?handler=studio-create-quiz-question', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -119,12 +120,13 @@ export function QuizQuestionForm({ challengeId, onQuestionAdded }: QuizQuestionF
     }
 
     const wrongOptions = sanitized.filter((opt) => !opt.is_correct);
-    if (wrongOptions.length >= MIN_WRONG_OPTIONS) {
+    const missing = Math.max(0, 4 - wrongOptions.length); // queremos 4 erradas, total 5
+    if (missing <= 0) {
       return { ...payload, options: sanitized.slice(0, MAX_OPTIONS) };
     }
 
-    toast.info("Gerando alternativas erradas automaticamente...");
-    const resp = await apiFetch('/api/ai-generate-wrongs', {
+    toast.info(`Gerando ${missing} alternativas erradas...`);
+    const resp = await apiFetch('/api/ai?handler=generate-wrongs', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -135,6 +137,7 @@ export function QuizQuestionForm({ challengeId, onQuestionAdded }: QuizQuestionF
         correct: correct.option_text,
         difficulty: payload.difficulty_level,
         language: 'pt-BR',
+        count: missing,
       }),
     });
     const json = await resp.json().catch(() => ({}));
@@ -142,7 +145,7 @@ export function QuizQuestionForm({ challengeId, onQuestionAdded }: QuizQuestionF
 
     const aiCandidates = Array.isArray(json?.wrong) ? json.wrong : [];
     for (const candidate of aiCandidates) {
-      if (wrongOptions.length >= MIN_WRONG_OPTIONS) break;
+      if (wrongOptions.length >= 4) break;
       const text = String(candidate?.text || "").trim();
       if (!text) continue;
       if (text.toLowerCase() === correct.option_text.toLowerCase()) continue;
@@ -154,12 +157,70 @@ export function QuizQuestionForm({ challengeId, onQuestionAdded }: QuizQuestionF
       });
     }
 
-    if (wrongOptions.length < MIN_WRONG_OPTIONS) {
-      throw new Error("Não foi possível gerar alternativas erradas suficientes. Tente novamente adicionando ao menos uma manualmente.");
+    if (wrongOptions.length < 4) {
+      throw new Error("Não foi possível gerar alternativas erradas suficientes. Adicione mais algumas manualmente e tente novamente.");
     }
 
     const finalOptions = [correct, ...wrongOptions].slice(0, MAX_OPTIONS);
     return { ...payload, options: finalOptions };
+  };
+
+  // Geração sob demanda (botão) para completar até 5 alternativas
+  const handleGenerateWrongsClick = async () => {
+    try {
+      const current = watch();
+      const correct = current.options.find((o) => o.is_correct);
+      if (!current.question_text || !correct) {
+        toast.error('Preencha a pergunta e marque a alternativa correta antes.');
+        return;
+      }
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) throw new Error('Não autenticado');
+
+      const sanitized = current.options
+        .map((opt) => ({ ...opt, option_text: opt.option_text.trim(), explanation: opt.explanation?.trim() || '' }))
+        .filter((opt) => opt.is_correct || opt.option_text.length > 0);
+      const wrong = sanitized.filter((o) => !o.is_correct);
+      const missing = Math.max(0, 4 - wrong.length);
+      if (missing <= 0) {
+        toast.info('Você já tem 4 alternativas erradas.');
+        return;
+      }
+
+      toast.info(`Gerando ${missing} alternativas erradas...`);
+      const resp = await apiFetch('/api/ai?handler=generate-wrongs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          question: current.question_text,
+          correct: correct.option_text,
+          difficulty: current.difficulty_level,
+          language: 'pt-BR',
+          count: missing,
+        }),
+      });
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(json?.error || 'Falha ao gerar alternativas erradas');
+      const aiCandidates = Array.isArray(json?.wrong) ? json.wrong : [];
+      for (const candidate of aiCandidates) {
+        if (wrong.length >= 4 || fields.length >= MAX_OPTIONS) break;
+        const txt = String(candidate?.text || '').trim();
+        if (!txt) continue;
+        if (txt.toLowerCase() === correct.option_text.toLowerCase()) continue;
+        if (wrong.some((o) => o.option_text.toLowerCase() === txt.toLowerCase())) continue;
+        append({ option_text: txt, is_correct: false, explanation: String(candidate?.explanation || '') });
+        wrong.push({ option_text: txt, is_correct: false, explanation: String(candidate?.explanation || '') } as any);
+      }
+      if (wrong.length < 4) {
+        toast.warning('Geradas menos alternativas do que o necessário. Complete manualmente.');
+      } else {
+        toast.success('Alternativas geradas!');
+      }
+    } catch (e) {
+      console.error(e);
+      toast.error((e as any)?.message || 'Falha ao gerar alternativas');
+    }
   };
 
   const onSubmit = async (data: QuizQuestionFormData) => {
@@ -203,6 +264,29 @@ export function QuizQuestionForm({ challengeId, onQuestionAdded }: QuizQuestionF
     reset({ ...watch(), options: newOptions });
   };
 
+  const handleCleanupQuestion = async () => {
+    const current = watch("question_text");
+    if (!current || current.trim().length < 3) {
+      toast.info("Digite a pergunta antes de revisar.");
+      return;
+    }
+    try {
+      const resp = await apiFetch("/api/ai?handler=cleanup-text", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "", description: current, language: "pt-BR" }),
+      });
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok || !json?.cleaned?.description) {
+        throw new Error(json?.error || "Falha na revisão automática");
+      }
+      reset({ ...watch(), question_text: json.cleaned.description });
+      toast.success("Pergunta revisada (ortografia e pontuação).");
+    } catch (e: any) {
+      toast.error(e?.message || "Não foi possível revisar a pergunta agora.");
+    }
+  };
+
   return (
     <Card>
       <CardHeader>
@@ -238,7 +322,28 @@ export function QuizQuestionForm({ challengeId, onQuestionAdded }: QuizQuestionF
 
           {/* Question Text */}
           <div className="space-y-2">
-            <Label htmlFor="question_text">Pergunta</Label>
+            <div className="flex items-center justify-between gap-2">
+              <Label htmlFor="question_text">Pergunta</Label>
+              <div className="flex items-center gap-2">
+                <VoiceRecorderButton
+                  size="sm"
+                  onText={(text) => {
+                    const current = watch();
+                    reset({ ...current, question_text: [current.question_text, text].filter(Boolean).join("\n\n") });
+                  }}
+                />
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="h-7 w-7"
+                  onClick={handleCleanupQuestion}
+                  title="Revisar ortografia e pontuação (sem mudar conteúdo)"
+                >
+                  <Wand2 className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
             <Textarea
               id="question_text"
               {...register("question_text")}
@@ -253,10 +358,18 @@ export function QuizQuestionForm({ challengeId, onQuestionAdded }: QuizQuestionF
           {/* Options */}
           <div className="space-y-4">
             <div className="flex items-center justify-between">
+              <div className="text-sm text-muted-foreground">
+                Combo completo: 1 correta com explicação + 4 alternativas incorretas para desafiar o jogador.
+              </div>
+              <Button type="button" size="sm" variant="outline" onClick={handleGenerateWrongsClick}>
+                Gerar alternativas para revisar
+              </Button>
+            </div>
+            <div className="flex items-center justify-between">
               <div>
                 <Label>Alternativas</Label>
                 <p className="text-xs text-muted-foreground">
-                  Você pode cadastrar apenas a correta; geramos as erradas automaticamente com IA.
+                  Cadastre a correta com uma explicação clara. Se o jogador errar, mostramos esse texto como feedback imediato.
                 </p>
               </div>
               <Button

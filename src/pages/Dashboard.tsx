@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { Shield, Zap, Trophy, Target, LogOut, Star, Menu, Filter, History, CheckCircle, ListFilter } from "lucide-react";
+import { Shield, Zap, Trophy, Target, LogOut, Star, Menu, Filter, History, CheckCircle, ListFilter, Trash2 } from "lucide-react";
 import { AIStatus } from "@/components/AIStatus";
 import { useNavigate } from "react-router-dom";
 import Navigation from "@/components/Navigation";
@@ -31,28 +31,23 @@ interface Challenge {
   type: string;
   xp_reward: number;
   require_two_leader_eval: boolean;
-}
-
-interface Profile {
-  name: string;
-  xp: number;
-  tier: string;
-  avatar_url: string | null;
-  team: { name: string } | null;
+   campaign_id?: string | null;
 }
 
 const Dashboard = () => {
-  const { user, signOut, isLeader } = useAuth();
+  const { user, signOut, isLeader, userRole, profile: authProfile } = useAuth() as any;
   const navigate = useNavigate();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [allChallenges, setAllChallenges] = useState<Challenge[]>([]);
   const [userEvents, setUserEvents] = useState<Array<{ id: string; challenge_id: string; status: string; created_at: string }>>([]);
   const [challengeTab, setChallengeTab] = useState<'vigentes' | 'historico'>('vigentes');
   const [typeFilters, setTypeFilters] = useState<Set<string>>(new Set());
-  const [profile, setProfile] = useState<Profile | null>(null);
+  const [profile, setProfile] = useState<{ name: string; xp: number; tier: string; avatar_url: string | null; team: { name: string } | null } | null>(null);
   const [completedQuizIds, setCompletedQuizIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [openForums, setOpenForums] = useState<Array<{ id: string; title: string; description?: string | null; posts_count?: number | null; last_post_at?: string | null; created_at?: string | null; is_locked?: boolean | null }>>([]);
+  // Desafios passam a ser conduzidos via campanhas e fóruns; seção dedicada de desafios fica oculta.
+  const showChallengesSection = false;
 
   const loadedForUserRef = useRef<string | null>(null);
 
@@ -134,6 +129,14 @@ const Dashboard = () => {
             ...profileResult.data,
             team: teamName ? { name: teamName } : null,
           } as any);
+        } else if (authProfile) {
+          setProfile({
+            name: authProfile.name,
+            xp: authProfile.xp ?? 0,
+            tier: authProfile.tier ?? 'novato',
+            avatar_url: authProfile.avatar_url ?? null,
+            team: authProfile.team ? { name: authProfile.team.name } : null,
+          });
         }
 
         if (campaignsResult.data) {
@@ -268,18 +271,41 @@ const Dashboard = () => {
   }, [completedNonQuizIds, completedQuizIds]);
 
   const filteredChallenges = useMemo(() => {
+    const now = new Date();
+
+    const isVigente = (ch: Challenge): boolean => {
+      if (!ch.campaign_id) return true;
+      const camp = campaigns.find((c) => c.id === ch.campaign_id);
+      if (!camp || !camp.end_date) return true;
+      try {
+        const end = new Date(camp.end_date);
+        // Considera vigente até o fim do dia de término
+        end.setHours(23, 59, 59, 999);
+        return end >= now;
+      } catch {
+        return true;
+      }
+    };
+
     let base: Challenge[] = [];
     if (challengeTab === 'vigentes') {
-      // Mostrar apenas desafios que ainda não foram concluídos
-      base = allChallenges.filter((ch) => !completedChallengeIds.has(ch.id));
+      // Mostrar apenas desafios ainda não concluídos e dentro da janela de campanha (quando houver)
+      base = allChallenges.filter((ch) => !completedChallengeIds.has(ch.id) && isVigente(ch));
     } else {
-      // Histórico: apenas concluídos
+      // Histórico: desafios concluídos OU cuja campanha já terminou
       const seen = new Set<string>();
-      base = allChallenges.filter((c) => completedChallengeIds.has(c.id) && (!seen.has(c.id) && seen.add(c.id)));
+      base = allChallenges.filter((c) => {
+        const expired = !isVigente(c);
+        const completed = completedChallengeIds.has(c.id);
+        if (!(expired || completed)) return false;
+        if (seen.has(c.id)) return false;
+        seen.add(c.id);
+        return true;
+      });
     }
     if (typeFilters.size === 0) return base;
-    return base.filter(c => typeFilters.has((c.type || '').toLowerCase()));
-  }, [challengeTab, allChallenges, typeFilters, completedChallengeIds]);
+    return base.filter((c) => typeFilters.has((c.type || '').toLowerCase()));
+  }, [challengeTab, allChallenges, typeFilters, completedChallengeIds, campaigns]);
 
   // Opções de filtro derivadas dos tipos presentes nos desafios (evita exibir tipos inexistentes)
   const typeOptions = useMemo(() => {
@@ -297,6 +323,65 @@ const Dashboard = () => {
     });
     return Array.from(present).map((t) => ({ key: t, label: labelMap[t] }));
   }, [allChallenges]);
+
+  const isTopLeader = authProfile?.matricula === '601555';
+  const canDeleteContent = Boolean(isLeader || (userRole && (userRole.includes('gerente') || userRole.includes('coordenador'))));
+
+  const handleDeleteChallenge = async (challenge: Challenge) => {
+    if (!user) return;
+    const baseMsg = `Esta ação vai excluir permanentemente o desafio/quiz "${challenge.title}" e remover TODO o XP acumulado por quaisquer usuários ligado a ele.`;
+    const approvalMsg = isTopLeader
+      ? `${baseMsg}\n\nVocê é o líder máximo, esta exclusão será aplicada imediatamente. Confirmar?`
+      : `${baseMsg}\n\nO pedido será registrado para ciência do seu líder imediato. Confirmar exclusão agora?`;
+    if (!window.confirm(approvalMsg)) return;
+    try {
+      const { data: session } = await supabase.auth.getSession();
+      const token = session.session?.access_token;
+      const resp = await fetch('/api/admin?handler=challenges-delete', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ id: challenge.id }),
+      });
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(json?.error || 'Falha ao excluir desafio');
+      setAllChallenges(prev => prev.filter(c => c.id !== challenge.id));
+      alert('Desafio/quiz excluído e XP associado revertido para os usuários impactados.');
+    } catch (e: any) {
+      console.error('Erro ao excluir desafio:', e);
+      alert(String(e?.message || 'Erro ao excluir desafio'));
+    }
+  };
+
+  const handleDeleteForumFromDashboard = async (topicId: string, title: string) => {
+    const baseMsg = `Esta ação vai excluir permanentemente o fórum "${title}". Respostas marcadas como solução terão o XP bônus revertido.`;
+    const approvalMsg = isTopLeader
+      ? `${baseMsg}\n\nVocê é o líder máximo, esta exclusão será aplicada imediatamente. Confirmar?`
+      : `${baseMsg}\n\nO pedido será registrado para ciência do seu líder imediato. Confirmar exclusão agora?`;
+    if (!window.confirm(approvalMsg)) return;
+    try {
+      const { data: session } = await supabase.auth.getSession();
+      const token = session.session?.access_token;
+      if (!token) throw new Error('Não autenticado');
+      const resp = await fetch('/api/forum?handler=moderate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ action: 'delete_topic', topic_id: topicId }),
+      });
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(json?.error || 'Falha ao excluir fórum');
+      setOpenForums(prev => prev.filter(t => t.id !== topicId));
+      alert('Fórum excluído; XP de soluções foi revertido quando aplicável.');
+    } catch (e: any) {
+      console.error('Erro ao excluir fórum:', e);
+      alert(String(e?.message || 'Erro ao excluir fórum'));
+    }
+  };
 
   if (loading) {
     return (
@@ -318,7 +403,7 @@ const Dashboard = () => {
               <Zap className="h-6 w-6 text-secondary" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-blue-50">DJT Go</h1>
+              <h1 className="text-xl font-bold text-blue-50">DJT - Quest</h1>
               <p className="text-[10px] text-blue-100/80 leading-none">CPFL Piratininga e Santa Cruz Subtransmissão</p>
             </div>
           </div>
@@ -352,6 +437,52 @@ const Dashboard = () => {
       </header>
 
       <main className="container relative mx-auto px-3 py-4 space-y-6">
+        {/* Barra de progressão sempre no topo */}
+        <Card className="bg-gradient-to-r from-primary/10 to-secondary/10">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <Trophy className="h-5 w-5 text-accent" />
+              Sua Progressão
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {tierInfo && profile && (
+              <>
+                <div className="flex items-center justify-between text-xs sm:text-sm">
+                  <span>{tierInfo.name}</span>
+                  <span className="font-semibold">{profile.xp} XP</span>
+                  {nextLevel && (
+                    <span className="text-muted-foreground">
+                      Faltam {Math.max(0, nextLevel.xpNeeded)} XP para {nextLevel.name}
+                    </span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => navigate('/profile')}
+                  className="w-full text-left space-y-1 group"
+                  aria-label="Ver todos os níveis e pontos"
+                >
+                  <div className="relative h-4 w-full overflow-hidden rounded-full bg-green-800/50 border border-green-700/60">
+                    <div
+                      className="absolute inset-y-0 left-0 bg-blue-500/35"
+                      style={{ width: '100%' }}
+                    />
+                    <div
+                      className="absolute inset-y-0 left-0 bg-gradient-to-r from-yellow-300 via-orange-400 to-red-500 animate-pulse"
+                      style={{ width: `${Math.min(100, Math.max(0, xpProgress))}%` }}
+                    />
+                  </div>
+                  <div className="flex justify-between text-[11px] text-muted-foreground">
+                    <span>Barra única: verde (base), azul (potencial), amarelo→vermelho (atingido)</span>
+                    {nextLevel && <span>Próximo: {nextLevel.name}</span>}
+                  </div>
+                </button>
+              </>
+            )}
+          </CardContent>
+        </Card>
+
         {/* Team Performance Card */}
         <TeamPerformanceCard />
 
@@ -367,12 +498,31 @@ const Dashboard = () => {
             </CardHeader>
             <CardContent className="space-y-2">
               {openForums.slice(0,4).map((t) => (
-                <div key={t.id} className="flex items-center justify-between p-3 border rounded-lg hover:bg-accent/10 cursor-pointer" onClick={() => navigate(`/forum/${t.id}`)}>
-                  <div className="min-w-0">
+                <div
+                  key={t.id}
+                  className="flex items-center justify-between p-3 border rounded-lg hover:bg-accent/10 cursor-pointer gap-3"
+                  onClick={() => navigate(`/forum/${t.id}`)}
+                >
+                  <div className="min-w-0 flex-1">
                     <p className="font-medium truncate">{t.title}</p>
                     <p className="text-xs text-muted-foreground truncate">{t.description}</p>
                   </div>
-                  <Badge variant="outline">{t.posts_count || 0} posts</Badge>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline">{t.posts_count || 0} posts</Badge>
+                    {canDeleteContent && (
+                      <button
+                        type="button"
+                        className="p-1 rounded-full hover:bg-destructive/10 text-destructive"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteForumFromDashboard(t.id, t.title);
+                        }}
+                        aria-label="Excluir fórum e reverter XP relacionado"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    )}
+                  </div>
                 </div>
               ))}
               <div className="pt-2 flex justify-end">
@@ -381,33 +531,6 @@ const Dashboard = () => {
             </CardContent>
           </Card>
         )}
-
-        {/* XP Card */}
-        <Card className="bg-gradient-to-r from-primary/10 to-secondary/10">
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-lg">
-              <Trophy className="h-5 w-5 text-accent" />
-              Sua Progressão
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {tierInfo && (
-              <>
-                <div className="flex items-center justify-between text-xs sm:text-sm">
-                  <span>{tierInfo.name}</span>
-                  <span className="font-semibold">{profile?.xp} XP</span>
-                  {nextLevel && <span className="text-muted-foreground">{nextLevel.name}</span>}
-                </div>
-                <Progress value={xpProgress} className="h-2.5" />
-                {nextLevel && (
-                  <p className="text-xs text-muted-foreground">
-                    Faltam {nextLevel.xpNeeded} XP para o próximo nível
-                  </p>
-                )}
-              </>
-            )}
-          </CardContent>
-        </Card>
 
         {/* Active Campaigns */}
         <section>
@@ -428,8 +551,12 @@ const Dashboard = () => {
                     {new Date(campaign.start_date).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })} -{" "}
                     {new Date(campaign.end_date).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })}
                   </p>
-                  <Button className="w-full h-9 text-sm" variant="default" disabled>
-                    Campanha Ativa
+                  <Button
+                    className="w-full h-9 text-sm"
+                    variant="default"
+                    onClick={() => navigate(`/campaign/${campaign.id}`)}
+                  >
+                    Ver detalhes & engajar
                   </Button>
                 </CardContent>
               </Card>
@@ -437,7 +564,8 @@ const Dashboard = () => {
           </div>
         </section>
 
-        {/* Challenges with filters */}
+        {/* Challenges with filters (desativados da home; desafios agora via campanhas/fóruns) */}
+        {showChallengesSection && (
         <section>
           <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
               <div className="flex items-center gap-2">
@@ -466,14 +594,26 @@ const Dashboard = () => {
             {filteredChallenges.map((challenge) => (
               <Card key={challenge.id} className="hover:shadow-lg transition-shadow">
                 <CardHeader className="pb-3">
-                  <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center justify-between mb-2 gap-2">
                     <div className="flex items-center gap-2">
                       <Badge variant="outline" className="text-[10px]">
                         {challenge.type}
                       </Badge>
                       <Badge className="text-[10px]" variant="secondary">{typeDomain(challenge.type)}</Badge>
                     </div>
-                    <span className="text-xs font-semibold text-accent">+{challenge.xp_reward} XP</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-semibold text-accent">+{challenge.xp_reward} XP</span>
+                      {canDeleteContent && (
+                        <button
+                          type="button"
+                          className="p-1 rounded-full hover:bg-destructive/10 text-destructive"
+                          onClick={() => handleDeleteChallenge(challenge)}
+                          aria-label="Excluir desafio/quiz e reverter XP"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      )}
+                    </div>
                   </div>
                   <CardTitle className="text-base leading-tight">{challenge.title}</CardTitle>
                   <CardDescription className="text-xs line-clamp-2">{challenge.description}</CardDescription>
@@ -502,6 +642,7 @@ const Dashboard = () => {
             ))}
           </div>
         </section>
+        )}
       </main>
 
       <Navigation />

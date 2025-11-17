@@ -8,6 +8,7 @@ import iconForum from '@/assets/backgrounds/Forum.png';
 import iconStudio from '@/assets/backgrounds/studio.png';
 import iconProfile from '@/assets/backgrounds/perfil.png';
 import iconLogout from '@/assets/backgrounds/SAIR.png';
+import iconSEPBook from '@/assets/backgrounds/SEPbook.png';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useAuth } from '@/contexts/AuthContext';
@@ -26,14 +27,16 @@ const Navigation = () => {
   const [studioBadge, setStudioBadge] = useState(0);
   const [evalBadge, setEvalBadge] = useState(0);
   const [forumBadge, setForumBadge] = useState(0);
+  const [sepbookNew, setSepbookNew] = useState(0);
+  const [sepbookMentions, setSepbookMentions] = useState(0);
   const barRef = useRef<HTMLDivElement | null>(null);
   const [itemSize, setItemSize] = useState<number>(60);
 
   // Calculate dynamic item size so all buttons fit without gaps/scroll on current viewport
   const visibleCount = useMemo(() => {
-    // Always: Home, Forums, Profile, Rankings, Logout
+    // Home, Forums, SEPBook, Profile, Rankings, Logout
     // Optional: Evaluations (leader), Studio (studioAccess)
-    let count = 5;
+    let count = 6;
     if (isLeader) count += 1;
     if (studioAccess) count += 1;
     return count;
@@ -68,17 +71,39 @@ const Navigation = () => {
 
     const fetchCounts = async () => {
       try {
-        if (!studioAccess) { setStudioBadge(0); setEvalBadge(0); setForumBadge(0); return; }
         const canUseApi = !import.meta.env.DEV || (!!apiBaseUrl && apiBaseUrl.length > 0);
         if (canUseApi) {
-          const resp = await apiFetch('/api/studio-pending-counts');
+          const resp = await apiFetch('/api/admin?handler=studio-pending-counts');
           const json = await resp.json();
           if (!resp.ok) throw new Error('api_failed');
           if (!active) return;
-          // Studio: aprovações + resets + cadastros pendentes
-          setStudioBadge((json.approvals || 0) + (json.passwordResets || 0) + (json.registrations || 0));
-          setEvalBadge((json.evaluations || 0) + (json.leadershipAssignments || 0));
-          setForumBadge(json.forumMentions || 0);
+          const approvals = json.approvals || 0;
+          const passwordResets = json.passwordResets || 0;
+          const registrations = json.registrations || 0;
+          const evaluations = json.evaluations || 0;
+          const leadershipAssignments = json.leadershipAssignments || 0;
+          const forumMentions = json.forumMentions || 0;
+
+          // Studio/Evaluations: apenas se usuário tiver acesso relevante
+          setStudioBadge(studioAccess ? (approvals + passwordResets + registrations) : 0);
+          setEvalBadge(isLeader ? (evaluations + leadershipAssignments) : 0);
+          // Fórum: sempre mostrar menções pendentes
+          setForumBadge(forumMentions);
+
+          // SEPBook summary
+          try {
+            const resp2 = await apiFetch('/api/sepbook-summary');
+            const json2 = await resp2.json();
+            if (resp2.ok && active) {
+              setSepbookNew(json2.new_posts || 0);
+              setSepbookMentions(json2.mentions || 0);
+            }
+          } catch {
+            if (active) {
+              setSepbookNew(0);
+              setSepbookMentions(0);
+            }
+          }
           return;
         }
         // Fallthrough to fallback
@@ -103,9 +128,11 @@ const Navigation = () => {
           const evaluations = (ev as any)?.count || 0;
           const leadershipAssignments = (la as any)?.count || 0;
           const forumMentions = (fm as any)?.count || 0;
-          setStudioBadge(approvals + passwordResets + registrations);
-          setEvalBadge(evaluations + leadershipAssignments);
+          setStudioBadge(studioAccess ? (approvals + passwordResets + registrations) : 0);
+          setEvalBadge(isLeader ? (evaluations + leadershipAssignments) : 0);
           setForumBadge(forumMentions);
+          setSepbookNew(0);
+          setSepbookMentions(0);
         } catch {}
       }
     };
@@ -129,25 +156,39 @@ const Navigation = () => {
       window.removeEventListener('focus', onFocus);
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, [studioAccess]);
+  }, [studioAccess, isLeader]);
+
+  // Ouvir eventos globais de leitura de menções para limpar badges imediatamente
+  useEffect(() => {
+    const onForumSeen = () => setForumBadge(0);
+    const onSepbookSeen = () => { setSepbookNew(0); setSepbookMentions(0); };
+    window.addEventListener('forum-mentions-seen', onForumSeen as any);
+    window.addEventListener('sepbook-summary-updated', onSepbookSeen as any);
+    return () => {
+      window.removeEventListener('forum-mentions-seen', onForumSeen as any);
+      window.removeEventListener('sepbook-summary-updated', onSepbookSeen as any);
+    };
+  }, []);
 
   const isActive = (path: string) => location.pathname === path;
 
   return (
     <nav
-      className="fixed bottom-0 left-0 right-0 z-30 min-h-[96px] bg-transparent"
+      className="fixed bottom-0 left-0 right-0 z-30 min-h-[96px] bg-transparent overflow-visible"
       style={{ paddingBottom: 'max(env(safe-area-inset-bottom), 8px)' }}
     >
       {/* Decorative background for the bottom bar (BG Menu.png), does not block clicks */}
-      <div aria-hidden className="pointer-events-none absolute inset-0 -z-10 opacity-80">
+      <div aria-hidden className="pointer-events-none absolute inset-0 -z-10">
         <div className="absolute inset-0" style={{
           backgroundImage: `url(${bgMenu})`,
           backgroundSize: 'cover',
           backgroundPosition: 'center',
-          backgroundRepeat: 'no-repeat'
+          backgroundRepeat: 'no-repeat',
+          filter: 'brightness(0.85) saturate(1.1)'
         }} />
+        <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/35 to-transparent" />
       </div>
-      <div ref={barRef} className="relative mx-auto max-w-[1200px] px-2 md:px-4 flex items-center justify-center gap-0 py-0 overflow-x-hidden overflow-y-visible min-h-[96px]">
+      <div ref={barRef} className="relative mx-auto max-w-[1200px] px-2 md:px-4 flex items-center justify-center gap-0 py-0 overflow-visible min-h-[96px]">
         <div className="nav-rail relative flex items-center justify-center gap-0 bg-white/5 border border-cyan-800/40 rounded-2xl p-1 shadow-lg backdrop-blur-md">
         <Button
           variant={isActive('/dashboard') ? 'default' : 'ghost'}
@@ -156,8 +197,10 @@ const Navigation = () => {
           className="flex-col h-auto py-1 snap-center rounded-none first:rounded-l-xl last:rounded-r-xl hover:bg-white/5"
           aria-label="Início"
         >
-          <span style={{ width: itemSize, height: itemSize }} className={`relative inline-flex items-center justify-center ${isActive('/dashboard') ? 'ring-2 ring-cyan-300/50 shadow-[0_0_10px_rgba(0,255,255,0.08)] scale-105 rounded-xl' : 'ring-0 rounded-xl'} transition-transform duration-150 hover:scale-105 active:scale-110`}>
-            <img src={iconHome} alt="Início" className="max-h-full max-w-full object-contain"/>
+          <span style={{ width: itemSize, height: itemSize }} className={`relative inline-flex items-center justify-center rounded-2xl border border-white/10 shadow-[0_8px_20px_rgba(0,0,0,0.45)] bg-white/5 backdrop-blur-sm ${isActive('/dashboard') ? 'ring-2 ring-cyan-300/60 shadow-[0_0_18px_rgba(0,255,255,0.25)] scale-105' : 'ring-0'} transition-transform duration-150 hover:scale-105 active:scale-110`}>
+            <span className="absolute inset-[3px] rounded-2xl overflow-hidden">
+              <img src={iconHome} alt="Início" className="w-full h-full object-cover" />
+            </span>
           </span>
         </Button>
         
@@ -168,14 +211,44 @@ const Navigation = () => {
           className="flex-col h-auto py-1 relative snap-center rounded-none first:rounded-l-xl last:rounded-r-xl hover:bg-white/5"
           aria-label="Fóruns"
         >
-          <span style={{ width: itemSize, height: itemSize }} className={`relative inline-flex items-center justify-center ${location.pathname.startsWith('/forum') ? 'ring-2 ring-cyan-300/50 shadow-[0_0_10px_rgba(0,255,255,0.08)] scale-105 rounded-xl' : 'ring-0 rounded-xl'} transition-transform duration-150 hover:scale-105 active:scale-110`}>
-            <img src={iconForum} alt="Fóruns" className="max-h-full max-w-full object-contain" />
+          <span style={{ width: itemSize, height: itemSize }} className={`relative inline-flex items-center justify-center rounded-2xl border border-white/10 shadow-[0_8px_20px_rgba(0,0,0,0.45)] bg-white/5 backdrop-blur-sm ${location.pathname.startsWith('/forum') ? 'ring-2 ring-cyan-300/60 shadow-[0_0_18px_rgba(0,255,255,0.25)] scale-105' : 'ring-0'} transition-transform duration-150 hover:scale-105 active:scale-110`}>
+            <span className="absolute inset-[3px] rounded-2xl overflow-hidden">
+              <img src={iconForum} alt="Fóruns" className="w-full h-full object-cover" />
+            </span>
             <span
               className={`absolute -top-1 -right-1 text-white text-[10px] leading-none rounded-full px-1.5 py-0.5 ${forumBadge >= 1 ? 'bg-red-600' : 'bg-green-600'}`}
+              style={{ zIndex: 5 }}
             >
               {forumBadge > 99 ? '99+' : forumBadge}
             </span>
           </span>
+        </Button>
+
+        <Button
+          variant={location.pathname.startsWith('/sepbook') ? 'default' : 'ghost'}
+          size="sm"
+          onClick={() => navigate('/sepbook')}
+          className="flex-col h-auto py-1 relative snap-center rounded-none first:rounded-l-xl last:rounded-r-xl hover:bg-white/5"
+          aria-label="SEPBook"
+        >
+          <span style={{ width: itemSize, height: itemSize }} className={`relative inline-flex items-center justify-center rounded-2xl border border-white/10 shadow-[0_8px_20px_rgba(0,0,0,0.45)] bg-white/5 backdrop-blur-sm ${location.pathname.startsWith('/sepbook') ? 'ring-2 ring-cyan-300/60 shadow-[0_0_18px_rgba(0,255,255,0.25)] scale-105' : 'ring-0'} transition-transform duration-150 hover:scale-105 active:scale-110`}>
+            <span className="absolute inset-[3px] rounded-2xl overflow-hidden">
+              <img src={iconSEPBook} alt="SEPBook" className="w-full h-full object-cover" />
+            </span>
+            {sepbookNew > 0 && (
+              <span
+                className="absolute -top-1 -right-1 text-white text-[10px] leading-none rounded-full px-1.5 py-0.5 bg-emerald-600"
+                style={{ zIndex: 5 }}
+              >
+                {sepbookNew > 99 ? '99+' : sepbookNew}
+              </span>
+            )}
+          </span>
+          {sepbookMentions > 0 && (
+            <span className="mt-0.5 text-[10px] text-emerald-300 font-semibold">
+              {sepbookMentions}@
+            </span>
+          )}
         </Button>
         
         {isLeader && (
@@ -186,15 +259,18 @@ const Navigation = () => {
             className="flex-col h-auto py-1 relative snap-center rounded-none first:rounded-l-xl last:rounded-r-xl hover:bg-white/5"
             aria-label="Avaliar"
           >
-            <span style={{ width: itemSize, height: itemSize }} className={`relative inline-flex items-center justify-center ${isActive('/evaluations') ? 'ring-2 ring-cyan-300/50 shadow-[0_0_10px_rgba(0,255,255,0.08)] scale-105 rounded-xl' : 'ring-0 rounded-xl'} transition-transform duration-150 hover:scale-105 active:scale-110`}>
-              <img src={iconAvaliar} alt="Avaliar" className="max-h-full max-w-full object-contain" />
-              <span
-                className={`absolute -top-1 -right-1 text-white text-[10px] leading-none rounded-full px-1.5 py-0.5 ${evalBadge >= 1 ? 'bg-red-600' : 'bg-green-600'}`}
-              >
-                {evalBadge > 99 ? '99+' : evalBadge}
+            <span style={{ width: itemSize, height: itemSize }} className={`relative inline-flex items-center justify-center rounded-2xl border border-white/10 shadow-[0_8px_20px_rgba(0,0,0,0.45)] bg-white/5 backdrop-blur-sm ${isActive('/evaluations') ? 'ring-2 ring-cyan-300/60 shadow-[0_0_18px_rgba(0,255,255,0.25)] scale-105' : 'ring-0'} transition-transform duration-150 hover:scale-105 active:scale-110`}>
+              <span className="absolute inset-[3px] rounded-2xl overflow-hidden">
+                <img src={iconAvaliar} alt="Avaliar" className="w-full h-full object-cover" />
               </span>
+            <span
+              className={`absolute -top-1 -right-1 text-white text-[10px] leading-none rounded-full px-1.5 py-0.5 ${evalBadge >= 1 ? 'bg-red-600' : 'bg-green-600'}`}
+              style={{ zIndex: 5 }}
+            >
+              {evalBadge > 99 ? '99+' : evalBadge}
             </span>
-          </Button>
+          </span>
+        </Button>
         )}
         
         {studioAccess && (
@@ -209,9 +285,11 @@ const Navigation = () => {
                   aria-label="Studio"
                 >
                   <div className="relative flex items-center justify-center">
-                  <span style={{ width: itemSize, height: itemSize }} className={`relative inline-flex items-center justify-center ${isActive('/studio') ? 'ring-2 ring-cyan-300/50 shadow-[0_0_10px_rgba(0,255,255,0.08)] scale-105 rounded-xl' : 'ring-0 rounded-xl'} transition-transform duration-150 hover:scale-105 active:scale-110`}>
-                    <img src={iconStudio} alt="Studio" className="max-h-full max-w-full object-contain" />
-                    <span className={`absolute -top-1 -right-1 text-white text-[10px] leading-none rounded-full px-1.5 py-0.5 ${studioBadge >= 1 ? 'bg-red-600' : 'bg-green-600'}`}>
+                  <span style={{ width: itemSize, height: itemSize }} className={`relative inline-flex items-center justify-center rounded-2xl border border-white/10 shadow-[0_8px_20px_rgba(0,0,0,0.45)] bg-white/5 backdrop-blur-sm ${isActive('/studio') ? 'ring-2 ring-cyan-300/60 shadow-[0_0_18px_rgba(0,255,255,0.25)] scale-105' : 'ring-0'} transition-transform duration-150 hover:scale-105 active:scale-110`}>
+                    <span className="absolute inset-[3px] rounded-2xl overflow-hidden">
+                      <img src={iconStudio} alt="Studio" className="w-full h-full object-cover" />
+                    </span>
+                    <span className={`absolute -top-1 -right-1 text-white text-[10px] leading-none rounded-full px-1.5 py-0.5 ${studioBadge >= 1 ? 'bg-red-600' : 'bg-green-600'}`} style={{ zIndex: 5 }}>
                       {studioBadge > 99 ? '99+' : studioBadge}
                     </span>
                   </span>
@@ -232,8 +310,10 @@ const Navigation = () => {
           className="flex-col h-auto py-1 snap-center rounded-none first:rounded-l-xl last:rounded-r-xl hover:bg-white/5"
           aria-label="Perfil"
         >
-          <span style={{ width: itemSize, height: itemSize }} className={`inline-flex items-center justify-center ${isActive('/profile') ? 'ring-2 ring-cyan-300/50 shadow-[0_0_10px_rgba(0,255,255,0.08)] scale-105 rounded-xl' : 'ring-0 rounded-xl'} transition-transform duration-150 hover:scale-105 active:scale-110`}>
-            <img src={iconProfile} alt="Perfil" className="max-h-full max-w-full object-contain" />
+          <span style={{ width: itemSize, height: itemSize }} className={`inline-flex items-center justify-center rounded-2xl border border-white/10 shadow-[0_8px_20px_rgba(0,0,0,0.45)] bg-white/5 backdrop-blur-sm ${isActive('/profile') ? 'ring-2 ring-cyan-300/60 shadow-[0_0_18px_rgba(0,255,255,0.25)] scale-105' : 'ring-0'} transition-transform duration-150 hover:scale-105 active:scale-110`}>
+            <span className="absolute inset-[3px] rounded-2xl overflow-hidden">
+              <img src={iconProfile} alt="Perfil" className="w-full h-full object-cover" />
+            </span>
           </span>
         </Button>
 
@@ -244,8 +324,10 @@ const Navigation = () => {
           className="flex-col h-auto py-1 snap-center rounded-none first:rounded-l-xl last:rounded-r-xl hover:bg-white/5"
           aria-label="Rankings"
         >
-          <span style={{ width: itemSize, height: itemSize }} className={`relative inline-flex items-center justify-center ${isActive('/rankings') ? 'ring-2 ring-cyan-300/50 shadow-[0_0_10px_rgba(0,255,255,0.08)] scale-105 rounded-xl' : 'ring-0 rounded-xl'} transition-transform duration-150 hover:scale-105 active:scale-110`}>
-            <img src={iconRanking} alt="Rankings" className="max-h-full max-w-full object-contain" />
+          <span style={{ width: itemSize, height: itemSize }} className={`relative inline-flex items-center justify-center rounded-2xl border border-white/10 shadow-[0_8px_20px_rgba(0,0,0,0.45)] bg-white/5 backdrop-blur-sm ${isActive('/rankings') ? 'ring-2 ring-cyan-300/60 shadow-[0_0_18px_rgba(0,255,255,0.25)] scale-105' : 'ring-0'} transition-transform duration-150 hover:scale-105 active:scale-110`}>
+            <span className="absolute inset-[3px] rounded-2xl overflow-hidden">
+              <img src={iconRanking} alt="Rankings" className="w-full h-full object-cover" />
+            </span>
           </span>
         </Button>
 
@@ -264,8 +346,10 @@ const Navigation = () => {
           className="flex-col h-auto py-1 snap-center rounded-none first:rounded-l-xl last:rounded-r-xl hover:bg-white/5"
           aria-label="Sair"
         >
-          <span style={{ width: itemSize, height: itemSize }} className="inline-flex items-center justify-center rounded-xl ring-0 transition-transform duration-150 hover:scale-105 active:scale-110">
-            <img src={iconLogout} alt="Sair" className="max-h-full max-w-full object-contain" />
+          <span style={{ width: itemSize, height: itemSize }} className="inline-flex items-center justify-center rounded-2xl border border-white/10 shadow-[0_8px_20px_rgba(0,0,0,0.45)] bg-white/5 backdrop-blur-sm transition-transform duration-150 hover:scale-105 active:scale-110">
+            <span className="absolute inset-[3px] rounded-2xl overflow-hidden">
+              <img src={iconLogout} alt="Sair" className="w-full h-full object-cover" />
+            </span>
           </span>
         </Button>
         </div>

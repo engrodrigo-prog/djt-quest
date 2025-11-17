@@ -79,7 +79,7 @@ export function PasswordResetManager() {
       const token = session.session?.access_token;
       if (!token) throw new Error('Sessão expirada');
 
-      const response = await apiFetch('/api/review-password-reset', {
+      const response = await apiFetch('/api/admin?handler=review-password-reset', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
