@@ -3,6 +3,7 @@ import { Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { difficultyLevels, type DifficultyLevel } from "@/lib/validations/quiz";
@@ -81,13 +82,23 @@ export function QuizQuestionsList({ challengeId, onUpdate }: QuizQuestionsListPr
     especialista: 'especialista',
   } as const;
 
+  const milhaoTarget = 10;
+  const milhaoProgress = Math.min(100, Math.round((questions.length / milhaoTarget) * 100));
+
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h3 className="font-semibold text-sm">Perguntas ({questions.length})</h3>
         <Badge variant="default" className="text-sm">
           Total: {totalXP} XP
         </Badge>
+      </div>
+      <div className="space-y-1">
+        <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+          <span>Progresso para Quiz do Milzão (10 perguntas)</span>
+          <span>{milhaoProgress}%</span>
+        </div>
+        <Progress value={milhaoProgress} className="h-2" />
       </div>
       {questions.map((question, index) => (
         <Card key={question.id}>

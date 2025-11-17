@@ -5,11 +5,83 @@ import { createClient } from "@supabase/supabase-js";
 const SUPABASE_URL = process.env.SUPABASE_URL as string;
 const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY) as string;
 
-function extractMentions(md: string): string[] {
+export function extractSepbookMentions(md: string): string[] {
   // Regra: captura @email ou @identificador simples (equipes, siglas, etc.)
   return Array.from(md.matchAll(/@([A-Za-z0-9_.-]+@[A-Za-z0-9_.-]+|[A-Za-z0-9_.-]+)/g)).map(
     (m) => m[1]
   );
+}
+
+export async function recomputeSepbookMentionsForPost(postId: string) {
+  if (!SUPABASE_URL || !SERVICE_KEY) return;
+  const admin = createClient(SUPABASE_URL, SERVICE_KEY, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+  const id = String(postId || "").trim();
+  if (!id) return;
+
+  // Carregar post e comentários associados para considerar menções no contexto inteiro
+  const [{ data: postRow }, { data: comments }] = await Promise.all([
+    admin.from("sepbook_posts").select("id, content_md").eq("id", id).maybeSingle(),
+    admin.from("sepbook_comments").select("content_md").eq("post_id", id),
+  ]);
+
+  const pieces: string[] = [];
+  if (postRow?.content_md) pieces.push(String(postRow.content_md));
+  (comments || []).forEach((c: any) => {
+    if (c.content_md) pieces.push(String(c.content_md));
+  });
+
+  const fullText = pieces.join("\n\n").trim();
+  if (!fullText) {
+    await admin.from("sepbook_mentions").delete().eq("post_id", id);
+    return;
+  }
+
+  const mentions = extractSepbookMentions(fullText);
+  if (!mentions.length) {
+    await admin.from("sepbook_mentions").delete().eq("post_id", id);
+    return;
+  }
+
+  const emailMentions = Array.from(new Set(mentions.filter((m) => m.includes("@"))));
+  const teamMentions = Array.from(new Set(mentions.filter((m) => !m.includes("@"))));
+
+  let ids: string[] = [];
+
+  if (emailMentions.length) {
+    const { data: usersByEmail } = await admin
+      .from("profiles")
+      .select("id, email")
+      .in("email", emailMentions);
+    ids.push(...((usersByEmail || []).map((u: any) => u.id)));
+  }
+
+  for (const code of teamMentions) {
+    const upper = code.toUpperCase();
+    let query = admin.from("profiles").select("id, sigla_area");
+
+    if (upper === "DJT" || upper === "DJTB" || upper === "DJTV") {
+      query = query.ilike("sigla_area", `${upper}-%`);
+    } else {
+      query = query.eq("sigla_area", upper);
+    }
+
+    const { data: teamProfiles } = await query;
+    ids.push(...((teamProfiles || []).map((u: any) => u.id)));
+  }
+
+  ids = Array.from(new Set(ids));
+
+  await admin.from("sepbook_mentions").delete().eq("post_id", id);
+  if (ids.length) {
+    const rows = ids.map((uid: string) => ({
+      post_id: id,
+      mentioned_user_id: uid,
+      is_read: false,
+    }));
+    await admin.from("sepbook_mentions").insert(rows as any);
+  }
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -27,7 +99,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const text = String(content_md || "").trim();
     if (!postId || !text) return res.status(400).json({ error: "post_id e content_md obrigatórios" });
 
-    const mentions = extractMentions(text);
+    const mentions = extractSepbookMentions(text);
     if (!mentions.length) {
       await admin.from("sepbook_mentions").delete().eq("post_id", postId);
       return res.status(200).json({ success: true, mentions: [] });

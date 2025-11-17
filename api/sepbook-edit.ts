@@ -1,6 +1,7 @@
 // @ts-nocheck
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { createClient } from "@supabase/supabase-js";
+import { recomputeSepbookMentionsForPost } from "./sepbook-mentions";
 
 const SUPABASE_URL = process.env.SUPABASE_URL as string;
 const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY) as string;
@@ -62,11 +63,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .single();
     if (error) return res.status(400).json({ error: error.message });
 
-    // Recalcular mentions
+    // Recalcular menções (post + comentários)
     try {
-      await admin.functions.invoke("sepbook-mentions", {
-        body: { post_id: postId, content_md: text },
-      } as any);
+      await recomputeSepbookMentionsForPost(postId);
     } catch {}
 
     return res.status(200).json({ success: true, post: data });

@@ -326,6 +326,7 @@ const Dashboard = () => {
 
   const isTopLeader = authProfile?.matricula === '601555';
   const canDeleteContent = Boolean(isLeader || (userRole && (userRole.includes('gerente') || userRole.includes('coordenador'))));
+  const forumPotentialXp = useMemo(() => openForums.length * 500, [openForums]);
 
   const handleDeleteChallenge = async (challenge: Challenge) => {
     if (!user) return;
@@ -478,6 +479,11 @@ const Dashboard = () => {
                     {nextLevel && <span>Próximo: {nextLevel.name}</span>}
                   </div>
                 </button>
+                {forumPotentialXp > 0 && (
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    Você tem {openForums.length} fórum(s) aberto(s) — cada um pode render até <strong>500 XP</strong> (5 interações fortes x 100 XP). Participe para aproximar-se do próximo nível.
+                  </p>
+                )}
               </>
             )}
           </CardContent>

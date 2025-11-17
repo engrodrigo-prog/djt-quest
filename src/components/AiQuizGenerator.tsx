@@ -6,16 +6,19 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
+import { Progress } from '@/components/ui/progress'
 import { toast } from 'sonner'
 import { apiFetch } from '@/lib/api'
 
 interface Challenge { id: string; title: string; type: string }
 const WRONG_COUNT = 4;
 const MIN_LENGTH = 5;
+const MILHAO_TOTAL = 10;
 
 export const AiQuizGenerator = () => {
   const [topic, setTopic] = useState('')
   const [difficulty, setDifficulty] = useState<'basico'|'intermediario'|'avancado'|'especialista'>('basico')
+  const [mode, setMode] = useState<'especial' | 'milzao'>('especial')
   const [specialties, setSpecialties] = useState<string[]>([])
   const [context, setContext] = useState<string>('')
   const [challenges, setChallenges] = useState<Challenge[]>([])
@@ -29,6 +32,9 @@ export const AiQuizGenerator = () => {
   const [wrongs, setWrongs] = useState<Array<{ text: string; explanation: string }>>(
     Array.from({ length: WRONG_COUNT }, () => ({ text: '', explanation: '' }))
   )
+  const [fullQuiz, setFullQuiz] = useState<any | null>(null)
+  const [manualSlots, setManualSlots] = useState<Record<number, boolean>>({})
+  const [slotIndex, setSlotIndex] = useState<number>(1)
 
   useEffect(() => {
     (async () => {
@@ -77,6 +83,49 @@ export const AiQuizGenerator = () => {
     }
   }
 
+  const generateFullQuiz = async () => {
+    if (!topic.trim()) {
+      toast('Informe um tema para gerar o quiz completo.')
+      return
+    }
+    setLoading(true)
+    try {
+      const { data: session } = await supabase.auth.getSession()
+      const token = session.session?.access_token
+      const resp = await apiFetch('/api/ai?handler=quiz-milhao', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ topic, mode, language: 'pt-BR' }),
+      })
+      const json = await resp.json()
+      if (!resp.ok) throw new Error(json?.error || 'Falha ao gerar quiz completo')
+      if (!json?.quiz || !Array.isArray(json.quiz.questoes)) {
+        throw new Error('Resposta da IA em formato inesperado.')
+      }
+      const incoming = json.quiz.questoes || []
+      const merged = Array.from({ length: MILHAO_TOTAL }, (_, idx) => {
+        const manual = fullQuiz?.questoes?.[idx]
+        if (manual && manualSlots[idx + 1]) {
+          return manual
+        }
+        return incoming[idx] || manual || null
+      }).filter(Boolean)
+
+      setFullQuiz({
+        ...json.quiz,
+        questoes: merged,
+      })
+      toast('Quiz completo (10 perguntas) gerado! Perguntas manuais foram mantidas e as demais preenchidas pela IA.')
+    } catch (e: any) {
+      toast(`Erro ao gerar quiz completo: ${e?.message || e}`)
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const generateWrongsOnly = async () => {
     if (question.trim().length < MIN_LENGTH || correctText.trim().length < MIN_LENGTH) {
       toast('Preencha a pergunta e a resposta correta antes de gerar alternativas erradas.')
@@ -108,6 +157,40 @@ export const AiQuizGenerator = () => {
       setLoading(false)
     }
   }
+
+  const saveCurrentToSlot = () => {
+    if (!question.trim() || !correctText.trim()) {
+      toast('Preencha a pergunta e a alternativa correta antes de enviar para um slot.')
+      return
+    }
+    const idx = Math.min(MILHAO_TOTAL, Math.max(1, slotIndex)) - 1
+    const base = fullQuiz || { quiz_id: 'local-milhao', tipo: mode, criador: '', questoes: [] }
+    const questoes = Array.from({ length: MILHAO_TOTAL }, (_, i) => base.questoes?.[i] || null)
+    const alternativas: Record<string, string> = {}
+    alternativas['A'] = correctText.trim()
+    wrongs.forEach((w, i) => {
+      const key = String.fromCharCode(66 + i)
+      alternativas[key] = w.text.trim()
+    })
+    questoes[idx] = {
+      id: idx + 1,
+      nivel: idx + 1,
+      enunciado: question.trim(),
+      alternativas,
+      correta: 'A',
+      xp_base: base.questoes?.[idx]?.xp_base || undefined,
+    }
+    setFullQuiz({ ...base, questoes })
+    setManualSlots((prev) => ({ ...prev, [idx + 1]: true }))
+    toast(`Pergunta enviada para a posição ${idx + 1} do Quiz do Milzão.`)
+  }
+
+  const milhaoFilledCount = mode === 'milzao' && fullQuiz?.questoes
+    ? fullQuiz.questoes.filter((q: any) => q && q.enunciado && String(q.enunciado).trim().length > 0).length
+    : 0
+  const milhaoProgress = mode === 'milzao'
+    ? Math.min(100, Math.round((milhaoFilledCount / MILHAO_TOTAL) * 100))
+    : 0
 
   const validateFields = () => {
     if (question.trim().length < MIN_LENGTH) {
@@ -171,28 +254,52 @@ export const AiQuizGenerator = () => {
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle>Gerar Pergunta de Quiz (IA)</CardTitle>
+          <CardTitle>Quiz Especial • Milzão (IA)</CardTitle>
           <CardDescription>
-            Informe um tema. A IA gera pergunta, alternativa correta e três alternativas erradas com explicações.
+            Informe um tema técnico. A IA pode gerar uma pergunta individual ou um quiz completo com 10 perguntas para compor seu Quiz Especial ou Quiz do Milzão.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <CardContent className="space-y-4">
+          {mode === 'milzao' && (
+            <div className="space-y-2 mb-2">
+              <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                <span>Progresso do Quiz do Milzão (10 perguntas)</span>
+                <span>{milhaoProgress}%</span>
+              </div>
+              <Progress value={milhaoProgress} className="h-2" />
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
             <div className="space-y-2 md:col-span-2">
               <Label>Tema</Label>
               <Input value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="Ex.: NR10, subtransmissão, segurança, etc." />
             </div>
+            {mode !== 'milzao' && (
+              <div className="space-y-2">
+                <Label>Dificuldade</Label>
+                <Select value={difficulty} onValueChange={(v) => setDifficulty(v as any)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="basico">Básico</SelectItem>
+                    <SelectItem value="intermediario">Intermediário</SelectItem>
+                    <SelectItem value="avancado">Avançado</SelectItem>
+                    <SelectItem value="especialista">Especialista</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <div className="space-y-2">
-              <Label>Dificuldade</Label>
-              <Select value={difficulty} onValueChange={(v) => setDifficulty(v as any)}>
+              <Label>Modo do quiz</Label>
+              <Select value={mode} onValueChange={(v) => setMode(v as 'especial' | 'milzao')}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Selecione" />
+                  <SelectValue placeholder="Escolha o modo" />
                 </SelectTrigger>
                 <SelectContent>
-              <SelectItem value="basico">Básico</SelectItem>
-              <SelectItem value="intermediario">Intermediário</SelectItem>
-              <SelectItem value="avancado">Avançado</SelectItem>
-              <SelectItem value="especialista">Especialista</SelectItem>
+                  <SelectItem value="especial">Quiz Especial (XP progressivo)</SelectItem>
+                  <SelectItem value="milzao">Show do Milzão (10 níveis)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -221,6 +328,9 @@ export const AiQuizGenerator = () => {
             </Button>
             <Button variant="outline" onClick={generateWrongsOnly} disabled={loading}>
               {loading ? 'Gerando opções...' : 'Gerar alternativas erradas'}
+            </Button>
+            <Button variant="outline" onClick={generateFullQuiz} disabled={loading}>
+              {loading ? 'Gerando quiz...' : 'Gerar quiz completo (10 perguntas)'}
             </Button>
           </div>
 
@@ -268,6 +378,126 @@ export const AiQuizGenerator = () => {
               </Button>
             </div>
           </div>
+
+          {mode === 'milzao' && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 border-t pt-4 mt-4">
+              <div className="space-y-2 md:col-span-1">
+                <Label>Posição no Quiz do Milzão (1 a 10)</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={MILHAO_TOTAL}
+                  value={slotIndex}
+                  onChange={(e) => setSlotIndex(Number(e.target.value) || 1)}
+                />
+                <Button type="button" variant="outline" className="w-full mt-2" onClick={saveCurrentToSlot}>
+                  Usar pergunta atual na posição {Math.min(MILHAO_TOTAL, Math.max(1, slotIndex))}
+                </Button>
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  Crie uma ou mais perguntas manualmente e envie para posições específicas. Depois, use &quot;Gerar quiz completo&quot; para preencher as demais com IA.
+                </p>
+              </div>
+              <div className="md:col-span-2">
+                {fullQuiz && Array.isArray(fullQuiz.questoes) && (
+                  <div className="space-y-3">
+                    <div>
+                      <Label>Preview do quiz completo ({fullQuiz.tipo === 'milzao' ? 'Show do Milzão' : 'Especial'})</Label>
+                      <p className="text-xs text-muted-foreground">
+                        Revise as 10 perguntas geradas. As posições marcadas manualmente são preservadas.
+                      </p>
+                    </div>
+                    <div className="max-h-[380px] overflow-y-auto space-y-2 pr-1">
+                      {Array.from({ length: MILHAO_TOTAL }, (_, idx) => {
+                        const q = fullQuiz.questoes?.[idx]
+                        if (!q) {
+                          return (
+                            <div
+                              key={idx}
+                              className="rounded-md border border-dashed border-border/60 bg-muted/20 p-3 text-xs text-muted-foreground"
+                            >
+                              Slot {idx + 1}: vazio (será preenchido pela IA ao gerar o quiz completo).
+                            </div>
+                          )
+                        }
+                        return (
+                          <div
+                            key={idx}
+                            className="rounded-md border border-border/60 bg-muted/30 p-3 space-y-1"
+                          >
+                            <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                              <span>
+                                Q{idx + 1} • Nível {q.nivel ?? idx + 1} • {q.xp_base ?? ''} XP
+                              </span>
+                              {manualSlots[idx + 1] && (
+                                <span className="px-2 py-0.5 rounded-full bg-primary/10 text-primary">
+                                  Manual
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-sm font-medium">
+                              {q.enunciado}
+                            </p>
+                            <ul className="mt-1 text-xs text-muted-foreground space-y-0.5">
+                              {['A','B','C','D'].map((key) => {
+                                const text = q.alternativas?.[key] || ''
+                                if (!text) return null
+                                const mark = q.correta === key ? '✔︎' : '•'
+                                return (
+                                  <li key={key}>
+                                    {mark} {key}) {text}
+                                  </li>
+                                )
+                              })}
+                            </ul>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {mode !== 'milzao' && fullQuiz && Array.isArray(fullQuiz.questoes) && (
+            <div className="space-y-3 border-t pt-4 mt-4">
+              <div>
+                <Label>Preview do quiz completo ({fullQuiz.tipo === 'milzao' ? 'Show do Milzão' : 'Especial'})</Label>
+                <p className="text-xs text-muted-foreground">
+                  Revise as 10 perguntas geradas. Use-as como base para criar ou ajustar perguntas no seu desafio.
+                </p>
+              </div>
+              <div className="max-h-[380px] overflow-y-auto space-y-2 pr-1">
+                {fullQuiz.questoes.map((q: any, idx: number) => (
+                  <div
+                    key={q.id ?? idx}
+                    className="rounded-md border border-border/60 bg-muted/30 p-3 space-y-1"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs font-semibold text-muted-foreground">
+                        Q{idx + 1} • Nível {q.nivel ?? idx + 1} • {q.xp_base ?? ''} XP
+                      </p>
+                    </div>
+                    <p className="text-sm font-medium">
+                      {q.enunciado}
+                    </p>
+                    <ul className="mt-1 text-xs text-muted-foreground space-y-0.5">
+                      {['A','B','C','D'].map((key) => {
+                        const text = q.alternativas?.[key] || ''
+                        if (!text) return null
+                        const mark = q.correta === key ? '✔︎' : '•'
+                        return (
+                          <li key={key}>
+                            {mark} {key}) {text}
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

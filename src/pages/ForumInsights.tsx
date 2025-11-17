@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import { ThemedBackground } from '@/components/ThemedBackground'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -25,9 +26,15 @@ export default function ForumInsights() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    const loc = useLocation()
+    const search = new URLSearchParams(loc.search)
+    const topicId = search.get('topic_id') || ''
     ;(async () => {
       try {
-        const resp = await fetch('/api/forum?handler=top-insights')
+        const url = topicId
+          ? `/api/forum?handler=top-insights&topic_id=${encodeURIComponent(topicId)}`
+          : '/api/forum?handler=top-insights'
+        const resp = await fetch(url)
         const j = await resp.json()
         if (!resp.ok) throw new Error(j?.error || 'Falha ao carregar insights')
         setItems(j.items || [])
@@ -53,7 +60,9 @@ export default function ForumInsights() {
       <div className="container relative mx-auto p-4 md:p-6 max-w-5xl space-y-4">
         <div>
           <h1 className="text-3xl font-bold">Top Temas & Ações (Fórum)</h1>
-          <p className="text-muted-foreground">Curadoria por IA dos 10 temas mais relevantes com propostas de ações alinhadas ao CHAS.</p>
+          <p className="text-muted-foreground">
+            Curadoria por IA dos temas e ações mais relevantes, aplicando a lógica 80/20 (20% dos assuntos com 80% do impacto).
+          </p>
         </div>
         {loading ? (
           <Card><CardContent className="p-6">Carregando...</CardContent></Card>

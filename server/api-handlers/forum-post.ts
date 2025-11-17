@@ -26,7 +26,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const uid = userData?.user?.id
     if (!uid) return res.status(401).json({ error: 'Unauthorized' })
 
-    const { topic_id, content_md, payload = {}, parent_post_id = null, attachment_urls = [] } = req.body || {}
+    const {
+      topic_id,
+      content_md,
+      payload = {},
+      parent_post_id = null,
+      reply_to_user_id = null,
+      attachment_urls = [],
+    } = req.body || {}
     if (!topic_id || typeof content_md !== 'string' || content_md.trim().length < 1) return res.status(400).json({ error: 'Invalid payload' })
 
     const { mentions, hashtags } = extractMentionsAndTags(content_md)
@@ -40,6 +47,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       content: content_md.trim(), // legacy column with CHECK(LENGTH(content) >= 10)
       payload: { ...(payload || {}), images: Array.isArray(attachment_urls) ? attachment_urls : [] },
       parent_post_id,
+      reply_to_user_id,
       tags: hashtags,
     };
 
@@ -62,6 +70,36 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       post = data; error = err;
     }
     if (error) return res.status(400).json({ error: error.message })
+
+    // Regras de XP por participação no fórum:
+    // • Cada interação "contundente" (>= 50 caracteres) rende 100 XP.
+    // • Limite de 5 interações por tópico por colaborador (máximo 500 XP por fórum).
+    try {
+      const trimmed = String(content_md || '').trim()
+      if (trimmed.length >= 50) {
+        // Contar quantos posts contundentes o usuário já tem neste tópico
+        const { data: strongPosts, error: countErr } = await admin
+          .from('forum_posts')
+          .select('id, content_md')
+          .eq('topic_id', topic_id)
+          .eq('user_id', uid)
+
+        if (!countErr && Array.isArray(strongPosts)) {
+          const qualifying = strongPosts.filter((p: any) => String(p.content_md || '').trim().length >= 50)
+          const count = qualifying.length
+          if (count <= 5) {
+            // Esta interação ainda está dentro do limite de 5 por tópico → +100 XP
+            try {
+              await admin.rpc('increment_user_xp', { _user_id: uid, _xp_to_add: 100 })
+            } catch (xpErr) {
+              console.error('Erro ao aplicar XP por participação em fórum:', xpErr)
+            }
+          }
+        }
+      }
+    } catch (xpWrapErr) {
+      console.error('Erro ao processar XP de fórum:', xpWrapErr)
+    }
 
     // Register mentions best-effort
     if (mentions.length) {

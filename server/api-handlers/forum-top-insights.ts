@@ -13,6 +13,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!SUPABASE_URL || !SERVICE_KEY) return res.status(500).json({ error: 'Missing Supabase config' })
     const admin = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { autoRefreshToken: false, persistSession: false } })
 
+    const topicId = String(req.query.topic_id || '').trim()
     const range = String(req.query.range || 'quarter')
     const now = new Date()
     let start: Date
@@ -30,6 +31,91 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
     const startIso = start.toISOString()
 
+    // Caso específico: insights para um único fórum (topic_id)
+    if (topicId) {
+      const [{ data: topic, error: topicErr }, { data: posts, error: postsErr }] = await Promise.all([
+        admin.from('forum_topics').select('id,title,description,chas_dimension,quiz_specialties,tags').eq('id', topicId).maybeSingle(),
+        admin.from('forum_posts').select('id,content_md,ai_assessment,created_at').eq('topic_id', topicId).order('created_at', { ascending: true }),
+      ])
+      if (topicErr) return res.status(400).json({ error: topicErr.message })
+      if (!topic) return res.status(404).json({ error: 'Tópico não encontrado' })
+      if (postsErr) return res.status(400).json({ error: postsErr.message })
+
+      const allTexts = (posts || []).map((p: any) => ({
+        id: p.id,
+        created_at: p.created_at,
+        content: p.content_md,
+        ai_assessment: p.ai_assessment || null,
+      }))
+
+      let items: any[] = []
+      if (OPENAI_API_KEY && allTexts.length) {
+        const system = 'Você é um consultor técnico da DJT (CPFL) que organiza debates de fórum profissional. Use linguagem técnica, neutra e objetiva (pt-BR).'
+        const premium = process.env.OPENAI_MODEL_PREMIUM || process.env.OPENAI_MODEL_OVERRIDE || 'gpt-4o'
+        const body: any = {
+          model: premium,
+          temperature: 0.4,
+          messages: [
+            { role: 'system', content: system },
+            {
+              role: 'user',
+              content: `Tema do fórum: ${topic.title}\nDescrição: ${topic.description || ''}\nCHAS: ${topic.chas_dimension || 'C'}\nEspecialidades: ${(topic.quiz_specialties || []).join(', ')}\nTags: ${(topic.tags || []).join(', ')}\n\nPosts (em ordem cronológica):\n${JSON.stringify(allTexts, null, 2)}\n\nObjetivo:\n- Aplicar a lógica 80/20: identificar os ~20% de ideias/assuntos que geram ~80% do impacto.\n- Destacar no MÁXIMO 5 destaques (temas) para este fórum específico.\n- Para o conjunto do fórum, sugerir no MÁXIMO 5 ações concretas (operacionais, de aprendizado ou de alinhamento).\n\nRetorne JSON estrito no formato:\n{\n  \"items\": [\n    {\n      \"topic_id\": \"${topic.id}\",\n      \"title\": \"título curto do destaque\",\n      \"priority\": 1-5,\n      \"chas\": \"C|H|A|S\",\n      \"specialties\": [\"seguranca\"|\"protecao_automacao\"|\"telecom\"|\"equipamentos_manobras\"|\"instrumentacao\"|\"gerais\"],\n      \"summary\": \"resumo em 2-3 frases do que foi discutido nesse destaque\",\n      \"proposed_actions\": [\n        {\n          \"type\": \"quiz\"|\"desafio\"|\"campanha\"|\"operacional\",\n          \"title\": \"nome da ação\",\n          \"description\": \"descrição objetiva da ação\",\n          \"target\": \"equipes\"|\"lideres\"|\"organizacao\"|\"outras_areas\"\n        }\n      ],\n      \"justification\": \"porque este destaque está entre os 20% de maior impacto\"\n    }\n  ]\n}\n\nRegras adicionais:\n- Máximo de 5 itens em \"items\".\n- No conjunto, máximo de 5 ações realmente distintas (evite repetições triviais).\n- Não cite dados sensíveis ou nomes completos de pessoas.\n`,
+            },
+          ],
+        }
+        if (/^gpt-5/i.test(String(premium))) body.max_completion_tokens = 1800
+        else body.max_tokens = 1800
+
+        const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${OPENAI_API_KEY}` },
+          body: JSON.stringify(body),
+        })
+        if (resp.ok) {
+          const dj = await resp.json()
+          const text = dj?.choices?.[0]?.message?.content || ''
+          try {
+            const parsed = JSON.parse(text)
+            if (Array.isArray(parsed?.items)) items = parsed.items.slice(0, 5)
+          } catch {
+            const m = text.match(/\{[\s\S]*\}/)
+            if (m) {
+              try {
+                const parsed = JSON.parse(m[0])
+                if (Array.isArray(parsed?.items)) items = parsed.items.slice(0, 5)
+              } catch {}
+            }
+          }
+        }
+      }
+
+      if (!items.length) {
+        // Fallback: um único destaque genérico baseado no tema
+        items = [
+          {
+            topic_id: topic.id,
+            title: topic.title,
+            priority: 3,
+            chas: topic.chas_dimension || 'C',
+            specialties: topic.quiz_specialties || [],
+            summary: 'Destaque principal deste fórum com base no volume de mensagens e na relevância para a operação.',
+            proposed_actions: [
+              {
+                type: 'quiz',
+                title: `Quiz sobre ${topic.title}`,
+                description: 'Avaliar o nível de conhecimento dos times sobre o tema discutido.',
+                target: 'equipes',
+              },
+            ],
+            justification: 'Fallback quando a IA não está disponível: uso de regra simples de priorização.',
+          },
+        ]
+      }
+
+      return res.status(200).json({ success: true, items })
+    }
+
+    // Caso global (sem topic_id): consolidar últimos tópicos pelo período selecionado
     const [{ data: topics }, { data: posts }, { data: reacts }] = await Promise.all([
       admin.from('forum_topics').select('id,title,description,chas_dimension,quiz_specialties,tags,created_at').gte('created_at', startIso),
       admin.from('forum_posts').select('id,topic_id,ai_assessment,created_at').gte('created_at', startIso),

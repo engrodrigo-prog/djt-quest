@@ -41,53 +41,60 @@ export const StudioDashboard = ({ onSelectModule, userRole }: StudioDashboardPro
 
   useEffect(() => {
     let active = true;
-    let timer: any;
 
     const fetchCounts = async () => {
       try {
-        const canUseApi = !import.meta.env.DEV || (!!apiBaseUrl && apiBaseUrl.length > 0);
-        if (canUseApi) {
-          const resp = await apiFetch('/api/admin?handler=studio-pending-counts');
-          const json = await resp.json();
-          if (!resp.ok) throw new Error('api_failed');
-          if (active) setBadges({
-            approvals: json.approvals || 0,
-            passwordResets: json.passwordResets || 0,
-            evaluations: json.evaluations || 0,
-            forumMentions: json.forumMentions || 0,
-            registrations: json.registrations || 0,
-          });
+        const { data: userData } = await supabase.auth.getUser();
+        const uid = userData.user?.id;
+        if (!uid || !active) {
+          if (active) {
+            setBadges({
+              approvals: 0,
+              passwordResets: 0,
+              evaluations: 0,
+              forumMentions: 0,
+              registrations: 0,
+            });
+          }
           return;
         }
-        throw new Error('skip_api_in_dev');
-      } catch {
-        // Fallback via Supabase client
-        try {
-          const { data: userData } = await supabase.auth.getUser();
-          const uid = userData.user?.id;
-          const q = (tbl: string, filter: (rq: any) => any) => filter(supabase.from(tbl)).select('id', { count: 'exact', head: true });
-          const [ap, pr, rg, ev, la, fm] = await Promise.all([
-            q('profile_change_requests', (rq) => rq.eq('status','pending')),
-            q('password_reset_requests', (rq) => rq.eq('status','pending')),
-            q('pending_registrations', (rq) => rq.eq('status','pending')),
-            uid ? q('evaluation_queue', (rq) => rq.eq('assigned_to', uid).is('completed_at', null)) : Promise.resolve({ count: 0 }),
-            uid ? q('leadership_challenge_assignments', (rq) => rq.eq('user_id', uid).eq('status','assigned')) : Promise.resolve({ count: 0 }),
-            uid ? q('forum_mentions', (rq) => rq.eq('mentioned_user_id', uid).eq('is_read', false)) : Promise.resolve({ count: 0 }),
-          ] as any);
-          const next = {
+
+        const q = (tbl: string, filter: (rq: any) => any) =>
+          filter(supabase.from(tbl)).select('id', { count: 'exact', head: true });
+
+        const [ap, pr, rg, ev, la, fm] = await Promise.all([
+          q('profile_change_requests', (rq) => rq.eq('status', 'pending')),
+          q('password_reset_requests', (rq) => rq.eq('status', 'pending')),
+          q('pending_registrations', (rq) => rq.eq('status', 'pending')),
+          q('evaluation_queue', (rq) => rq.eq('assigned_to', uid).is('completed_at', null)),
+          q('leadership_challenge_assignments', (rq) => rq.eq('user_id', uid).eq('status', 'assigned')),
+          q('forum_mentions', (rq) => rq.eq('mentioned_user_id', uid).eq('is_read', false)),
+        ] as any);
+
+        if (active) {
+          setBadges({
             approvals: ap?.count || 0,
             passwordResets: pr?.count || 0,
             registrations: rg?.count || 0,
             evaluations: (ev as any)?.count || 0,
             forumMentions: (fm as any)?.count || 0,
-          } as any;
-          if (active) setBadges(next);
-        } catch {}
+          });
+        }
+      } catch {
+        if (active) {
+          setBadges({
+            approvals: 0,
+            passwordResets: 0,
+            evaluations: 0,
+            forumMentions: 0,
+            registrations: 0,
+          });
+        }
       }
     };
 
     fetchCounts();
-    timer = setInterval(fetchCounts, 30000);
+    const timer = setInterval(fetchCounts, 30000);
     const onFocus = () => fetchCounts();
     const onVisibility = () => { if (document.visibilityState === 'visible') fetchCounts(); };
     window.addEventListener('focus', onFocus);

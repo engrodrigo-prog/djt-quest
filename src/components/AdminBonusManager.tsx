@@ -10,6 +10,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import { Crown, Gift, AlertTriangle, Building2, ChevronRight } from 'lucide-react';
+import { apiFetch } from '@/lib/api';
 
 interface Team {
   id: string;
@@ -27,6 +28,12 @@ interface Team {
   };
 }
 
+interface CoordinationRow {
+  id: string;
+  name: string;
+  position: string;
+}
+
 export function AdminBonusManager() {
   const { user, orgScope, userRole } = useAuth();
   const { toast } = useToast();
@@ -36,6 +43,18 @@ export function AdminBonusManager() {
   const [eventType, setEventType] = useState<'reconhecimento' | 'ponto_atencao'>('reconhecimento');
   const [points, setPoints] = useState('');
   const [reason, setReason] = useState('');
+
+  const [coords, setCoords] = useState<CoordinationRow[]>([]);
+  const [rankingYear, setRankingYear] = useState<string>(() => {
+    const d = new Date();
+    return String(d.getFullYear());
+  });
+  const [rankingMonth, setRankingMonth] = useState<string>(() => {
+    const d = new Date();
+    const prev = new Date(d.getFullYear(), d.getMonth() - 1, 1);
+    return String(prev.getMonth() + 1).padStart(2, '0');
+  });
+  const [savingRanking, setSavingRanking] = useState(false);
 
   const loadTeams = useCallback(async () => {
     if (!user || !orgScope) return;
@@ -77,6 +96,102 @@ export function AdminBonusManager() {
   useEffect(() => {
     loadTeams();
   }, [loadTeams]);
+
+  useEffect(() => {
+    const loadCoordinations = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('coordinations')
+          .select('id, name')
+          .order('id');
+        if (error) {
+          console.warn('Erro ao carregar coordenações para ranking:', error.message);
+          return;
+        }
+        setCoords((data || []).map((c: any) => ({
+          id: c.id,
+          name: c.name,
+          position: '',
+        })));
+      } catch (e) {
+        console.warn('Erro inesperado ao carregar coordenações:', e);
+      }
+    };
+    loadCoordinations();
+  }, []);
+
+  const handleApplyRankingBonus = async () => {
+    if (!user) {
+      toast({
+        title: 'Erro',
+        description: 'Usuário não autenticado',
+        variant: 'destructive',
+      });
+      return;
+    }
+    const yearNum = Number(rankingYear);
+    const monthNum = Number(rankingMonth);
+    if (!Number.isInteger(yearNum) || yearNum < 2000 || yearNum > 2100) {
+      toast({
+        title: 'Ano inválido',
+        description: 'Informe um ano entre 2000 e 2100.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    if (!Number.isInteger(monthNum) || monthNum < 1 || monthNum > 12) {
+      toast({
+        title: 'Mês inválido',
+        description: 'Informe um mês de 1 a 12.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const payloadCoords = coords
+      .filter((c) => c.position && Number(c.position) >= 1 && Number(c.position) <= 6)
+      .map((c) => ({
+        sigla: c.id,
+        posicao: Number(c.position),
+      }));
+
+    if (payloadCoords.length === 0) {
+      toast({
+        title: 'Nada para aplicar',
+        description: 'Defina pelo menos uma coordenação com posição de 1 a 6.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setSavingRanking(true);
+    try {
+      const resp = await apiFetch('/api/admin?handler=coord-ranking-bonus', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ano: yearNum,
+          mes: monthNum,
+          coordenacoes: payloadCoords,
+        }),
+      });
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(json?.error || 'Falha ao aplicar bonificação de ranking');
+      toast({
+        title: 'Ranking aplicado',
+        description: `Bonificação registrada para ${payloadCoords.length} coordenação(ões) em ${monthNum}/${yearNum}.`,
+      });
+    } catch (e: any) {
+      console.error('Erro ao aplicar ranking das coordenações:', e);
+      toast({
+        title: 'Erro',
+        description: e?.message || 'Erro ao aplicar bonificação de ranking',
+        variant: 'destructive',
+      });
+    } finally {
+      setSavingRanking(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -150,37 +265,150 @@ export function AdminBonusManager() {
   };
 
   return (
-    <Card className="border-amber-500/20 bg-amber-500/5">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Crown className="h-5 w-5 text-amber-500" />
-          Bonificação {userRole === 'gerente_djt' ? 'Global' : 'de Equipes'}
-        </CardTitle>
-        <CardDescription>
-          {userRole === 'gerente_djt' 
-            ? 'Como Gerente DJT, você pode bonificar qualquer equipe da organização'
-            : userRole === 'gerente_divisao_djtx'
-            ? 'Como Gerente de Divisão, você pode bonificar equipes da sua divisão'
-            : 'Como Coordenador, você pode bonificar equipes da sua coordenação'
-          }
-        </CardDescription>
-        {orgScope && userRole !== 'gerente_djt' && (
-          <div className="flex items-center gap-1 text-sm text-muted-foreground mt-2 pt-2 border-t">
-            <Building2 className="h-3 w-3" />
-            <span className="text-xs">DJT</span>
-            <ChevronRight className="h-3 w-3" />
-            <span className="text-xs">{orgScope.divisionName || 'Divisão'}</span>
-            {userRole === 'coordenador_djtx' && (
-              <>
-                <ChevronRight className="h-3 w-3" />
-                <span className="text-xs font-semibold">{orgScope.coordName || 'Coordenação'}</span>
-              </>
-            )}
-          </div>
-        )}
-      </CardHeader>
-      <CardContent>
-        <form onSubmit={handleSubmit} className="space-y-6">
+    <div className="space-y-6">
+      {userRole === 'gerente_djt' && (
+        <Card className="border-blue-500/30 bg-blue-500/5">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Crown className="h-5 w-5 text-blue-400" />
+              Ranking Mensal das Coordenações
+            </CardTitle>
+            <CardDescription className="text-xs">
+              Defina a posição (1º a 6º) de cada coordenação no mês de referência. O sistema aplica automaticamente a bonificação:
+              1º→500 XP, 2º→400 XP, 3º→300 XP, 4º→200 XP, 5º→100 XP, 6º→0 XP para todos os membros da coordenação.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex flex-col md:flex-row gap-3">
+              <div className="flex-1">
+                <Label htmlFor="ranking-year">Ano de referência</Label>
+                <Input
+                  id="ranking-year"
+                  type="number"
+                  value={rankingYear}
+                  onChange={(e) => setRankingYear(e.target.value)}
+                  min={2000}
+                  max={2100}
+                />
+              </div>
+              <div className="flex-1">
+                <Label htmlFor="ranking-month">Mês de referência</Label>
+                <Select value={rankingMonth} onValueChange={setRankingMonth}>
+                  <SelectTrigger id="ranking-month">
+                    <SelectValue placeholder="Mês" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {[
+                      ['01', 'Jan'],
+                      ['02', 'Fev'],
+                      ['03', 'Mar'],
+                      ['04', 'Abr'],
+                      ['05', 'Mai'],
+                      ['06', 'Jun'],
+                      ['07', 'Jul'],
+                      ['08', 'Ago'],
+                      ['09', 'Set'],
+                      ['10', 'Out'],
+                      ['11', 'Nov'],
+                      ['12', 'Dez'],
+                    ].map(([val, label]) => (
+                      <SelectItem key={val} value={val}>
+                        {val} — {label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Posição de cada coordenação (1 a 6)</Label>
+              <div className="space-y-2">
+                {coords.map((c) => (
+                  <div
+                    key={c.id}
+                    className="flex items-center justify-between gap-3 rounded-md border border-border/60 px-3 py-2 bg-background/60"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold truncate">{c.id}</p>
+                      <p className="text-xs text-muted-foreground truncate">{c.name}</p>
+                    </div>
+                    <div className="w-28">
+                      <Select
+                        value={c.position}
+                        onValueChange={(val) =>
+                          setCoords((prev) =>
+                            prev.map((row) =>
+                              row.id === c.id ? { ...row, position: val } : row,
+                            ),
+                          )
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Posição" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {[1, 2, 3, 4, 5, 6].map((p) => (
+                            <SelectItem key={p} value={String(p)}>
+                              {p}º lugar
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                ))}
+                {coords.length === 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    Nenhuma coordenação encontrada. Verifique a estrutura organizacional em Supabase.
+                  </p>
+                )}
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                Dica: este ranking deve refletir o mês anterior, mas você pode ajustar ano e mês de referência conforme necessário.
+              </p>
+            </div>
+            <Button
+              type="button"
+              className="w-full"
+              disabled={savingRanking || coords.length === 0}
+              onClick={handleApplyRankingBonus}
+            >
+              {savingRanking ? 'Aplicando ranking...' : 'Aplicar Ranking das Coordenações'}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      <Card className="border-amber-500/20 bg-amber-500/5">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Crown className="h-5 w-5 text-amber-500" />
+            Bonificação {userRole === 'gerente_djt' ? 'Global' : 'de Equipes'}
+          </CardTitle>
+          <CardDescription>
+            {userRole === 'gerente_djt'
+              ? 'Como Gerente DJT, você pode bonificar qualquer equipe da organização'
+              : userRole === 'gerente_divisao_djtx'
+              ? 'Como Gerente de Divisão, você pode bonificar equipes da sua divisão'
+              : 'Como Coordenador, você pode bonificar equipes da sua coordenação'}
+          </CardDescription>
+          {orgScope && userRole !== 'gerente_djt' && (
+            <div className="flex items-center gap-1 text-sm text-muted-foreground mt-2 pt-2 border-t">
+              <Building2 className="h-3 w-3" />
+              <span className="text-xs">DJT</span>
+              <ChevronRight className="h-3 w-3" />
+              <span className="text-xs">{orgScope.divisionName || 'Divisão'}</span>
+              {userRole === 'coordenador_djtx' && (
+                <>
+                  <ChevronRight className="h-3 w-3" />
+                  <span className="text-xs font-semibold">{orgScope.coordName || 'Coordenação'}</span>
+                </>
+              )}
+            </div>
+          )}
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleSubmit} className="space-y-6">
           <div className="space-y-2">
             <Label htmlFor="team">Selecionar Equipe</Label>
             <Select value={selectedTeam} onValueChange={setSelectedTeam}>
@@ -272,5 +500,6 @@ export function AdminBonusManager() {
         </form>
       </CardContent>
     </Card>
+    </div>
   );
 }

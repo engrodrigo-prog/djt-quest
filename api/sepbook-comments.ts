@@ -1,6 +1,7 @@
 // @ts-nocheck
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { createClient } from "@supabase/supabase-js";
+import { recomputeSepbookMentionsForPost } from "./sepbook-mentions";
 
 const SUPABASE_URL = process.env.SUPABASE_URL as string;
 const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY) as string;
@@ -99,7 +100,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         } catch {}
       }
 
-      // XP extra para comentários mais ricos: >30 chars, com # e @
+      // XP extra para comentários mais ricos: >30 chars, com # e @ (limitado a 100 XP/mês no SEPBook)
       try {
         const normalized = text || "";
         if (
@@ -107,8 +108,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           normalized.includes("#") &&
           /@[A-Za-z0-9_.-]+/.test(normalized)
         ) {
-          await admin.rpc("increment_profile_xp", { p_user_id: uid, p_amount: 1 });
+          await admin.rpc("increment_sepbook_profile_xp", { p_user_id: uid, p_amount: 1 });
         }
+      } catch {}
+
+      // Recalcular menções para o post considerando este novo comentário
+      try {
+        await recomputeSepbookMentionsForPost(postId);
       } catch {}
 
       return res.status(200).json({

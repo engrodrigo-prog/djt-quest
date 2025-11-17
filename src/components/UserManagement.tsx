@@ -205,10 +205,11 @@ export const UserManagement = () => {
     if (selectedIds.size === 0) return;
     const selected = users.filter(u => selectedIds.has(u.id));
     const emailsToDelete = selected.map(u => u.email).filter(Boolean) as string[];
+    const idsToDelete = selected.map(u => u.id);
     if (!confirm(`Deletar permanentemente ${emailsToDelete.length} usuário(s)?`)) return;
     try {
       const { data, error } = await supabase.functions.invoke('studio-cleanup-users', {
-        body: { emailsToDelete }
+        body: { emailsToDelete, idsToDelete }
       });
       if (error) throw error;
       setSelectedIds(new Set());
@@ -231,12 +232,14 @@ export const UserManagement = () => {
     try {
       setCleanupLoading(true);
 
-      // Manter usuários reais - deletar apenas os de teste
-      const realUsers = users.filter(u => !testUsers.find(tu => tu.id === u.id));
-      const emailsToKeep = realUsers.map(u => u.email).filter(Boolean) as string[];
+      // Deletar explicitamente apenas os usuários de teste detectados
+      const emailsToDelete = testUsers
+        .map(u => u.email)
+        .filter(Boolean) as string[];
+      const idsToDelete = testUsers.map(u => u.id);
 
       const { data, error } = await supabase.functions.invoke('studio-cleanup-users', {
-        body: { emailsToKeep }
+        body: { emailsToDelete, idsToDelete }
       });
 
       if (error) throw error;
@@ -265,7 +268,7 @@ export const UserManagement = () => {
     try {
       // Usar função de limpeza (com Service Role no backend)
       const { data, error } = await supabase.functions.invoke('studio-cleanup-users', {
-        body: { emailsToDelete: [userEmail] }
+        body: { emailsToDelete: [userEmail], idsToDelete: [userId] }
       });
       if (error) throw error;
 
@@ -392,9 +395,15 @@ export const UserManagement = () => {
       </Card>
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent
+          className="sm:max-w-lg"
+          aria-describedby="create-user-description"
+        >
           <DialogHeader>
             <DialogTitle>Novo Usuário</DialogTitle>
+            <p id="create-user-description" className="sr-only">
+              Crie um novo usuário definindo equipe, acesso ao Studio e papel.
+            </p>
           </DialogHeader>
           <UserCreationForm />
         </DialogContent>
@@ -487,9 +496,15 @@ export const UserManagement = () => {
 
       {/* Editor Dialog */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent
+          className="sm:max-w-lg"
+          aria-describedby="edit-user-description"
+        >
           <DialogHeader>
             <DialogTitle>Editar Usuário</DialogTitle>
+            <p id="edit-user-description" className="sr-only">
+              Edite os dados do usuário selecionado e salve as alterações.
+            </p>
           </DialogHeader>
           <div className="grid grid-cols-1 gap-3">
             <div className="grid gap-1">
@@ -555,20 +570,24 @@ export const UserManagement = () => {
               <AlertTriangle className="h-5 w-5 text-orange-600" />
               Confirmar Limpeza de Usuários de Teste
             </AlertDialogTitle>
-            <AlertDialogDescription className="space-y-3">
-              <p>Esta ação irá <strong>deletar permanentemente</strong> {testUsers.length} usuário(s) de teste:</p>
-              <div className="bg-muted p-3 rounded-lg max-h-48 overflow-y-auto">
-                <ul className="text-sm space-y-1">
-                  {testUsers.map(u => (
-                    <li key={u.id} className="text-destructive">• {u.email} ({u.name})</li>
-                  ))}
-                </ul>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <p>
+                  Esta ação irá <strong>deletar permanentemente</strong> {testUsers.length} usuário(s) de teste:
+                </p>
+                <div className="bg-muted p-3 rounded-lg max-h-48 overflow-y-auto">
+                  <ul className="text-sm space-y-1">
+                    {testUsers.map(u => (
+                      <li key={u.id} className="text-destructive">• {u.email} ({u.name})</li>
+                    ))}
+                  </ul>
+                </div>
+                <p className="text-green-600 flex items-center gap-2">
+                  <CheckCircle className="h-4 w-4" />
+                  {stats.realUsers} usuários reais serão mantidos
+                </p>
+                <p className="font-semibold text-foreground">Esta ação não pode ser desfeita!</p>
               </div>
-              <p className="text-green-600 flex items-center gap-2">
-                <CheckCircle className="h-4 w-4" />
-                {stats.realUsers} usuários reais serão mantidos
-              </p>
-              <p className="font-semibold text-foreground">Esta ação não pode ser desfeita!</p>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

@@ -169,15 +169,15 @@ export function QuizCreationWizard() {
               <Label>XP por Quiz (seleção rápida)</Label>
               <Select onValueChange={(v:any)=> setValue('xp_reward', Number(v), { shouldValidate: true, shouldDirty: true })}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Selecione 5 / 10 / 20 / 40" />
+                  <SelectValue placeholder="Selecione 5 / 10 / 20 / 50" />
                 </SelectTrigger>
                 <SelectContent>
-                  {[5,10,20,40].map(x => (<SelectItem key={x} value={String(x)}>{x} XP</SelectItem>))}
+                  {[5,10,20,50].map(x => (<SelectItem key={x} value={String(x)}>{x} XP</SelectItem>))}
                 </SelectContent>
               </Select>
               <Input id="xp_reward" type="number" {...register('xp_reward')} placeholder="5" className="sr-only" />
               {errors.xp_reward && (<p className="text-sm text-destructive">{errors.xp_reward.message}</p>)}
-              <p className="text-xs text-muted-foreground">XP por questão é definido pelo nível (5/10/20/40). Este valor resume o total do quiz ou bônus.</p>
+              <p className="text-xs text-muted-foreground">XP por questão é definido pelo nível (5/10/20/50). Este valor resume o total do quiz ou bônus.</p>
             </div>
 
             <div className="space-y-2">

@@ -42,7 +42,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (!post_id) return res.status(400).json({ error: 'post_id required' })
       const { data: post, error: postErr } = await admin
         .from('forum_posts')
-        .select('id, user_id')
+        .select('id, user_id, is_solution')
         .eq('id', post_id)
         .maybeSingle()
       if (postErr) return res.status(400).json({ error: postErr.message })
@@ -50,6 +50,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (!canEdit && post.user_id !== uid) {
         return res.status(403).json({ error: 'Sem permissão para excluir este post' })
       }
+
+      // Se este post era a solução oficial, reverter o XP bônus (+20 XP)
+      if (post.is_solution) {
+        const targetUserId = post.user_id
+        if (targetUserId) {
+          try {
+            await admin.rpc('increment_user_xp', { _user_id: targetUserId, _xp_to_add: -20 })
+          } catch {
+            try {
+              const { data: prof } = await admin.from('profiles').select('xp').eq('id', targetUserId).maybeSingle()
+              const cur = Number(prof?.xp || 0)
+              const next = Math.max(0, cur - 20)
+              await admin.from('profiles').update({ xp: next }).eq('id', targetUserId)
+            } catch {}
+          }
+        }
+      }
+
       const { error } = await admin.from('forum_posts').delete().eq('id', post_id)
       if (error) return res.status(400).json({ error: error.message })
       return res.status(200).json({ success: true })
@@ -93,6 +111,33 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (action === 'clear_topic') {
       if (!canEdit) return res.status(403).json({ error: 'Sem permissão para limpar tópicos' })
       if (!topic_id) return res.status(400).json({ error: 'topic_id required' })
+
+      // Antes de limpar, reverter XP de respostas marcadas como solução neste tópico
+      try {
+        const { data: solutionPosts } = await admin
+          .from('forum_posts')
+          .select('user_id, is_solution')
+          .eq('topic_id', topic_id)
+          .eq('is_solution', true)
+
+        for (const row of (solutionPosts || [])) {
+          const uidSolution = (row as any)?.user_id
+          if (!uidSolution) continue
+          try {
+            await admin.rpc('increment_user_xp', { _user_id: uidSolution, _xp_to_add: -20 })
+          } catch {
+            try {
+              const { data: prof } = await admin.from('profiles').select('xp').eq('id', uidSolution).maybeSingle()
+              const cur = Number(prof?.xp || 0)
+              const next = Math.max(0, cur - 20)
+              await admin.from('profiles').update({ xp: next }).eq('id', uidSolution)
+            } catch {}
+          }
+        }
+      } catch {
+        // se falhar, ainda assim seguimos com a limpeza dos posts
+      }
+
       const { error } = await admin.from('forum_posts').delete().eq('topic_id', topic_id)
       if (error) return res.status(400).json({ error: error.message })
       return res.status(200).json({ success: true })

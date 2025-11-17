@@ -8,6 +8,7 @@ import aiGenerateWrongs from '../server/api-handlers/ai-generate-wrongs.js';
 import transcribeAudio from '../server/api-handlers/transcribe-audio.js';
 import forumCleanupText from '../server/api-handlers/forum-cleanup-text.js';
 import suggestHashtags from '../server/api-handlers/ai-suggest-hashtags.js';
+import aiQuizMilhao from '../server/api-handlers/ai-quiz-milhao.js';
 
 type Handler = (req: VercelRequest, res: VercelResponse) => any | Promise<any>;
 
@@ -17,6 +18,7 @@ const handlers: Record<string, Handler> = {
   // Quiz helpers
   'quiz-draft': aiQuizDraft,
   'generate-wrongs': aiGenerateWrongs,
+  'quiz-milhao': aiQuizMilhao,
   // Audio -> texto
   'transcribe-audio': transcribeAudio,
   // Texto: limpeza ortográfica/pontuação (usado em fórum, quizzes, etc.)

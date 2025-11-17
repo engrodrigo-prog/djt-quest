@@ -19,7 +19,6 @@ import { UserManagement } from '@/components/UserManagement';
 import EvaluationManagement from '@/components/EvaluationManagement';
 import { PendingApprovals } from '@/components/PendingApprovals';
 import { ThemedBackground } from '@/components/ThemedBackground';
-import { AiQuizGenerator } from '@/components/AiQuizGenerator';
 import { PasswordResetManager } from '@/components/PasswordResetManager';
 import { ContentHub } from '@/components/ContentHub';
 import { UserApprovalsHub } from '@/components/UserApprovalsHub';

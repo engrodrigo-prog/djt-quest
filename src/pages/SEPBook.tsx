@@ -9,7 +9,7 @@ import { AttachmentViewer } from "@/components/AttachmentViewer";
 import { ThemedBackground } from "@/components/ThemedBackground";
 import Navigation from "@/components/Navigation";
 import { useToast } from "@/hooks/use-toast";
-import { MessageSquare, Heart, Trash2, MapPin, Wand2, Send, Flame, Plus, Hash } from "lucide-react";
+import { MessageSquare, Heart, Trash2, MapPin, Wand2, Send, Flame, Plus, Hash, Pencil } from "lucide-react";
 import { VoiceRecorderButton } from "@/components/VoiceRecorderButton";
 
 interface SepPost {
@@ -335,11 +335,17 @@ export default function SEPBook() {
 
   const handleContentChange = (value: string) => {
     setContent(value);
-    // Detecta a última menção digitada em qualquer parte do texto (mín. 2 chars)
+    // Detecta a última menção digitada e só mostra sugestões se o cursor estiver logo após ela
     const matches = Array.from(value.matchAll(/@([A-Za-z0-9_.-]{2,30})/g));
     if (matches.length > 0) {
       const last = matches[matches.length - 1];
-      setMentionQuery(last[1] || "");
+      const endIndex = (last.index ?? 0) + last[0].length;
+      if (endIndex === value.length) {
+        setMentionQuery(last[1] || "");
+      } else {
+        // Já veio espaço/pontuação depois da menção: não sugerir mais
+        setMentionQuery("");
+      }
     } else {
       setMentionQuery("");
     }
@@ -949,7 +955,7 @@ export default function SEPBook() {
                       onClick={() => startEdit(p)}
                       title="Editar publicação"
                     >
-                      <Wand2 className="h-4 w-4" />
+                      <Pencil className="h-4 w-4" />
                     </Button>
                   )}
                   {(user?.id === p.user_id || isLeader || profile?.tier === "master") && (

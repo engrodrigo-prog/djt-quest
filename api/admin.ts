@@ -13,6 +13,7 @@ import uploadAvatar from '../server/api-handlers/upload-avatar.js';
 import adminUpdateProfile from '../server/api-handlers/admin-update-profile.js';
 import adminFixChallengeTargets from '../server/api-handlers/admin-fix-challenge-targets.js';
 import leadershipChallenges from '../server/api-handlers/leadership-challenges.js';
+import coordRankingBonus from '../server/api-handlers/coord-ranking-bonus.js';
 
 type Handler = (req: VercelRequest, res: VercelResponse) => any | Promise<any>;
 
@@ -29,6 +30,7 @@ const handlers: Record<string, Handler> = {
   'admin-update-profile': adminUpdateProfile,
   'admin-fix-challenge-targets': adminFixChallengeTargets,
   'leadership-challenges': leadershipChallenges,
+  'coord-ranking-bonus': coordRankingBonus,
 };
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {

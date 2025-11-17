@@ -108,6 +108,37 @@ function ProfileContent() {
   }, [searchParams]);
   const [avatarSaving, setAvatarSaving] = useState(false);
   const [xpDialogOpen, setXpDialogOpen] = useState(false);
+  const [coordBonus, setCoordBonus] = useState<{
+    coordId: string | null;
+    coordName: string | null;
+    latest: { year: number; month: number; xp: number; position: number } | null;
+    graph: { points: Array<{ label: string; xp: number; position: number }> };
+  } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadBonus = async () => {
+      try {
+        const resp = await apiFetch('/api/coord-ranking');
+        const json = await resp.json();
+        if (!resp.ok) throw new Error(json?.error || 'Falha ao carregar bonificação de coordenação');
+        if (!cancelled) {
+          setCoordBonus({
+            coordId: json.coordId || null,
+            coordName: json.coordName || null,
+            latest: json.latest || null,
+            graph: json.graph || { points: [] },
+          });
+        }
+      } catch {
+        if (!cancelled) setCoordBonus(null);
+      }
+    };
+    loadBonus();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const tierOffsets = useMemo(() => {
     let acc = 0;
@@ -758,6 +789,52 @@ function ProfileContent() {
           <ProfileChangeHistory />
           <QuizHistory />
           <ForumMentions />
+          {coordBonus && coordBonus.coordId && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Target className="h-4 w-4 text-primary" />
+                  Bonificação da Coordenação
+                </CardTitle>
+                <CardDescription className="text-xs">
+                  XP mensal baseado na posição da coordenação no ranking geral.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {coordBonus.latest ? (
+                  <>
+                    <p className="text-sm">
+                      Coordenação: <span className="font-semibold">{coordBonus.coordName}</span>
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Último mês registrado ({coordBonus.latest.month}/{coordBonus.latest.year}): posição{' '}
+                      <span className="font-semibold">#{coordBonus.latest.position}</span> —{' '}
+                      <span className="font-semibold">{coordBonus.latest.xp} XP</span> de bônus.
+                    </p>
+                    {coordBonus.graph.points.length > 0 && (
+                      <div className="mt-2 space-y-1">
+                        <p className="text-xs font-semibold">Histórico recente</p>
+                        <div className="space-y-1">
+                          {coordBonus.graph.points.map((p) => (
+                            <div key={p.label} className="flex items-center justify-between text-[11px]">
+                              <span className="text-muted-foreground">{p.label}</span>
+                              <span className="font-mono">
+                                {p.xp} XP · #{p.position}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Ainda não há registros de bonificação de coordenação para seu perfil.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          )}
         </div>
       </div>
 

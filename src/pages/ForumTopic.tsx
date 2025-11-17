@@ -17,7 +17,20 @@ import Navigation from '@/components/Navigation'
 import { Wand2 } from 'lucide-react'
 
 interface Topic { id: string; title: string; description: string | null; status: string; chas_dimension: 'C'|'H'|'A'|'S'; quiz_specialties: string[] | null; tags: string[] | null }
-interface Post { id: string; user_id: string; content_md: string; payload: any; created_at: string; ai_assessment: any }
+interface Post {
+  id: string;
+  user_id: string;
+  content_md: string;
+  payload: any;
+  created_at: string;
+  ai_assessment: any;
+  parent_post_id?: string | null;
+  reply_to_user_id?: string | null;
+  author?: {
+    name: string | null;
+    sigla_area: string | null;
+  } | null;
+}
 
 export default function ForumTopic() {
   const { topicId: id } = useParams()
@@ -41,12 +54,18 @@ export default function ForumTopic() {
   const [mentionQuery, setMentionQuery] = useState<string>('')
   const [mentionSuggestions, setMentionSuggestions] = useState<any[]>([])
   const [cleaningPostId, setCleaningPostId] = useState<string | null>(null)
+  const [replyToPostId, setReplyToPostId] = useState<string | null>(null)
+  const [replyToExcerpt, setReplyToExcerpt] = useState<string>('')
 
   const load = useCallback(async () => {
     if (!id) return
     const [{ data: t }, { data: p }] = await Promise.all([
       supabase.from('forum_topics').select('*').eq('id', id).maybeSingle(),
-      supabase.from('forum_posts').select('*').eq('topic_id', id).order('created_at', { ascending: true })
+      supabase
+        .from('forum_posts')
+        .select('id,user_id,content_md,payload,created_at,ai_assessment,parent_post_id,reply_to_user_id,author:profiles!forum_posts_author_id_fkey(name,sigla_area)')
+        .eq('topic_id', id)
+        .order('created_at', { ascending: true }),
     ])
     setTopic(t as any)
     setPosts((p || []) as any)
@@ -120,11 +139,16 @@ export default function ForumTopic() {
 
   const handleContentChange = (value: string) => {
     setContent(value)
-    // Detecta a última menção digitada em qualquer parte do texto (mín. 2 chars)
+    // Detecta a última menção digitada e só sugere se o cursor estiver logo depois dela
     const matches = Array.from(value.matchAll(/@([A-Za-z0-9_.-]{2,30})/g))
     if (matches.length > 0) {
       const last = matches[matches.length - 1]
-      setMentionQuery(last[1] || '')
+      const endIndex = (last.index ?? 0) + last[0].length
+      if (endIndex === value.length) {
+        setMentionQuery(last[1] || '')
+      } else {
+        setMentionQuery('')
+      }
     } else {
       setMentionQuery('')
     }
@@ -159,15 +183,25 @@ export default function ForumTopic() {
     try {
       const { data: session } = await supabase.auth.getSession()
       const token = session.session?.access_token
+      const parent = replyToPostId ? posts.find(p => p.id === replyToPostId) : undefined
       // Try API route first (service role handles mentions/tagging uniformly)
       try {
         const resp = await fetch('/api/forum?handler=post', {
           method:'POST', headers: { 'Content-Type':'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-          body: JSON.stringify({ topic_id: id, content_md: text, payload: { images: imageUrls }, attachment_urls: imageUrls })
+          body: JSON.stringify({
+            topic_id: id,
+            content_md: text,
+            payload: { images: imageUrls },
+            attachment_urls: imageUrls,
+            parent_post_id: replyToPostId || null,
+            ...(parent?.user_id ? { reply_to_user_id: parent.user_id } : {}),
+          })
         })
         const j = await resp.json().catch(()=>({}))
         if (!resp.ok) throw new Error(j?.error || 'Falha ao publicar')
         setContent('')
+        setReplyToPostId(null)
+        setReplyToExcerpt('')
         load()
         try { await fetch('/api/forum?handler=assess-post', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ post_id: (j as any)?.post?.id }) }) } catch {}
         return
@@ -186,10 +220,14 @@ export default function ForumTopic() {
               author_id: uid, // legacy column
               content_md: text,
               content: text, // legacy CHECK enforces length
-              payload: { images: imageUrls }
+              payload: { images: imageUrls },
+              parent_post_id: replyToPostId || null,
+              ...(parent?.user_id ? { reply_to_user_id: parent.user_id } : {}),
             })
           if (insErr) throw new Error(insErr.message)
           setContent('')
+          setReplyToPostId(null)
+          setReplyToExcerpt('')
           load()
         } catch (fallbackErr:any) {
           const msg = String(fallbackErr?.message || apiErr?.message || 'Falha ao publicar')
@@ -443,6 +481,14 @@ export default function ForumTopic() {
               <div className="flex gap-2 items-center">
                 <Badge variant={topic.status === 'closed' ? 'secondary' : 'default'}>{topic.status}</Badge>
                 <span className="text-[11px] text-muted-foreground">{permissionLabel}</span>
+                <Button
+                  size="xs"
+                  variant="outline"
+                  onClick={() => navigate(`/forums/insights?topic_id=${encodeURIComponent(id || '')}`)}
+                  disabled={!id}
+                >
+                  Top Temas & Ações deste Fórum
+                </Button>
                 {isLeaderMod && topic.status !== 'closed' && (
                   <Button size="sm" onClick={handleClose}>Fechar & Curar</Button>
                 )}
@@ -467,7 +513,18 @@ export default function ForumTopic() {
         </Card>
 
         <div className="space-y-3">
-          {posts.map((p) => (
+          {posts
+            .filter((p) => !p.parent_post_id)
+            .map((p) => {
+              const replies = posts.filter((r) => r.parent_post_id === p.id)
+              const authorLabel = (() => {
+                const sigla = p.author?.sigla_area || ''
+                const name = p.author?.name || ''
+                if (sigla && name) return `[${sigla}] ${name}`
+                if (sigla) return `[${sigla}]`
+                return name || 'Colaborador'
+              })()
+              return (
             <Card key={p.id}>
               <CardContent className="p-4 space-y-2">
                 {editingPostId === p.id ? (
@@ -511,8 +568,23 @@ export default function ForumTopic() {
                   </div>
                 ) : (
                   <div className="flex items-start justify-between gap-2">
-          <div className="text-sm whitespace-pre-wrap flex-1">{p.content_md}</div>
+                    <div className="flex-1 space-y-1">
+                      <p className="text-[11px] font-semibold text-primary">
+                        {authorLabel}
+                      </p>
+                      <div className="text-sm whitespace-pre-wrap">{p.content_md}</div>
+                    </div>
                     <div className="flex flex-col gap-1 items-end">
+                      <Button
+                        size="xs"
+                        variant="ghost"
+                        onClick={() => {
+                          setReplyToPostId(p.id)
+                          setReplyToExcerpt(p.content_md.slice(0, 140))
+                        }}
+                      >
+                        ↳ Responder
+                      </Button>
                       {(isLeaderMod || p.user_id === user?.id) && (
                         <>
                           <Button size="xs" variant="outline" onClick={()=>startEditPost(p)}>Editar</Button>
@@ -576,9 +648,52 @@ export default function ForumTopic() {
                     Qualidade: {(p.ai_assessment.helpfulness ?? 0).toFixed(2)} / {(p.ai_assessment.clarity ?? 0).toFixed(2)} / {(p.ai_assessment.novelty ?? 0).toFixed(2)}
                   </div>
                 )}
+                {replies.length > 0 && (
+                  <div className="mt-3 space-y-2 border-l border-border/40 pl-3">
+                    {replies.map((r) => {
+                      const rAuthorLabel = (() => {
+                        const sigla = r.author?.sigla_area || ''
+                        const name = r.author?.name || ''
+                        if (sigla && name) return `[${sigla}] ${name}`
+                        if (sigla) return `[${sigla}]`
+                        return name || 'Colaborador'
+                      })()
+                      return (
+                      <div key={r.id} className="flex items-start justify-between gap-2 text-sm text-muted-foreground">
+                        <div className="whitespace-pre-wrap flex-1 space-y-1">
+                          <p className="text-[11px] font-semibold text-muted-foreground flex items-center gap-1">
+                            <span className="text-xs">↳ resposta</span>
+                            <span>{rAuthorLabel}</span>
+                          </p>
+                          <div>{r.content_md}</div>
+                        </div>
+                        <div className="flex flex-col gap-1 items-end">
+                          <Button
+                            size="xs"
+                            variant="ghost"
+                            onClick={() => {
+                              setReplyToPostId(r.id)
+                              setReplyToExcerpt(r.content_md.slice(0, 140))
+                            }}
+                          >
+                            ↳ Responder
+                          </Button>
+                          {(isLeaderMod || r.user_id === user?.id) && (
+                            <>
+                              <Button size="xs" variant="outline" onClick={()=>startEditPost(r)}>Editar</Button>
+                              <Button size="xs" variant="destructive" onClick={()=>handleDeletePost(r.id)}>Excluir</Button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                      );
+                    })}
+                  </div>
+                )}
               </CardContent>
             </Card>
-          ))}
+              )
+            })}
         </div>
 
         {topic.status !== 'closed' && (
@@ -589,7 +704,32 @@ export default function ForumTopic() {
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="flex items-center justify-between">
-                <p className="text-xs text-muted-foreground">Descreva o contexto com suas palavras. Use a varinha para ajustar ortografia e pontuação.</p>
+                <div className="flex flex-col gap-1">
+                  <p className="text-xs text-muted-foreground">
+                    {replyToPostId
+                      ? 'Respondendo a um comentário deste fórum. Sua resposta ficará encadeada logo abaixo do comentário original.'
+                      : 'Descreva o contexto com suas palavras. Use a varinha para ajustar ortografia e pontuação.'}
+                  </p>
+                  {replyToPostId && (
+                    <div className="text-[11px] text-muted-foreground border border-dashed border-border/60 rounded px-2 py-1 flex items-start justify-between gap-2">
+                      <span className="truncate">
+                        <span className="font-semibold mr-1">Comentário alvo:</span>
+                        {replyToExcerpt || '...'}
+                      </span>
+                      <Button
+                        type="button"
+                        size="xs"
+                        variant="ghost"
+                        onClick={() => {
+                          setReplyToPostId(null)
+                          setReplyToExcerpt('')
+                        }}
+                      >
+                        Cancelar resposta
+                      </Button>
+                    </div>
+                  )}
+                </div>
                 <Button
                   type="button"
                   size="icon"
