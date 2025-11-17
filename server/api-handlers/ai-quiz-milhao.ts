@@ -81,12 +81,14 @@ Retorne APENAS JSON válido, no formato:
 
 Observações:
 - Preencha "xp_base" com a tabela: [100,150,200,250,300,400,550,700,850,1000] de P1 a P10.
-- Campo "tipo": use "milzao" quando o objetivo for Show do Milzão, ou "especial" como padrão.
+- Campo "tipo": use "milhao" quando o objetivo for Show do Milhão, ou "especial" como padrão.
+- Traga temas atuais do setor elétrico brasileiro (2024), normas e discussões recentes de transmissão/distribuição, e conexão com iniciativas da CPFL (modernização de rede, automação, OSM, segurança operacional).
+- Não repita perguntas genéricas; use linguagem técnica clara.
 - NÃO inclua comentários fora do JSON.`;
 
     const userMessage = {
       role: 'user',
-      content: `Tema principal do quiz: ${topic}\nModo solicitado: ${mode}\nGere o objeto JSON seguindo exatamente o formato especificado.`,
+      content: `Tema principal do quiz: ${topic}\nModo solicitado: ${mode}\nGere o objeto JSON seguindo exatamente o formato especificado. Dê atenção a atualidades (2024) do setor elétrico e à realidade CPFL (subtransmissão, automação, segurança, procedimentos COS/COI, PRODIST, MTS, cultura de segurança).`,
     };
 
     const models = Array.from(
@@ -147,7 +149,7 @@ Observações:
 
     // Normalização mínima: garantir campos obrigatórios e tipo
     const xpTable = [100, 150, 200, 250, 300, 400, 550, 700, 850, 1000];
-    json.tipo = mode === 'milzao' ? 'milzao' : 'especial';
+    json.tipo = mode === 'milzao' ? 'milhao' : 'especial';
     json.criador = callerEmail || json.criador || 'líder';
     json.quiz_id = json.quiz_id || 'milzao-' + callerId;
     json.questoes = json.questoes.map((q: any, idx: number) => ({
@@ -166,4 +168,3 @@ Observações:
 }
 
 export const config = { api: { bodyParser: true } };
-

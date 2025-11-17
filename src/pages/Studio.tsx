@@ -13,6 +13,7 @@ import { ForumManagement } from '@/components/ForumManagement';
 import { TeamEventForm } from '@/components/TeamEventForm';
 import { SystemHealthCheck } from '@/components/SystemHealthCheck';
 import { QuizCreationWizard } from '@/components/QuizCreationWizard';
+import { AiQuizGenerator } from '@/components/AiQuizGenerator';
 import { AdminBonusManager } from '@/components/AdminBonusManager';
 import { PendingRegistrationsManager } from '@/components/PendingRegistrationsManager';
 import { UserManagement } from '@/components/UserManagement';
@@ -75,6 +76,8 @@ const Studio = () => {
         return <ChallengeManagement />;
       case 'performance':
         return <TeamPerformanceManager />;
+      case 'ai-quiz':
+        return <AiQuizGenerator />;
       case 'team-bonus':
         return <TeamEventForm />;
       case 'user-management':

@@ -410,8 +410,8 @@ export default function ForumTopic() {
       <div className="container relative mx-auto p-4 md:p-6 max-w-5xl space-y-4">
         <Card>
           <CardHeader>
-            <div className="flex items-start justify-between gap-3">
-              <div className="space-y-2">
+            <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
+              <div className="space-y-2 md:max-w-xl">
                 <Button
                   variant="ghost"
                   size="sm"
@@ -478,31 +478,67 @@ export default function ForumTopic() {
                   </>
                 )}
               </div>
-              <div className="flex gap-2 items-center">
-                <Badge variant={topic.status === 'closed' ? 'secondary' : 'default'}>{topic.status}</Badge>
-                <span className="text-[11px] text-muted-foreground">{permissionLabel}</span>
-                <Button
-                  size="xs"
-                  variant="outline"
-                  onClick={() => navigate(`/forums/insights?topic_id=${encodeURIComponent(id || '')}`)}
-                  disabled={!id}
-                >
-                  Top Temas & Ações deste Fórum
-                </Button>
-                {isLeaderMod && topic.status !== 'closed' && (
-                  <Button size="sm" onClick={handleClose}>Fechar & Curar</Button>
-                )}
-                {isLeaderMod && !editing && (
-                  <Button size="sm" variant="outline" onClick={()=>{ setEditing(true); setEditTitle(topic.title); setEditDesc(topic.description || ''); }}>Editar</Button>
-                )}
-                {isLeaderMod && (
-                  <>
-                    <Button size="sm" variant="outline" onClick={handleClearTopic}>Limpar</Button>
-                    {canDeleteTopic && (
-                      <Button size="sm" variant="destructive" onClick={handleDeleteTopic}>Excluir</Button>
-                    )}
-                  </>
-                )}
+              <div className="flex flex-col items-end gap-2 w-full md:w-auto">
+                <div className="flex flex-wrap items-center justify-end gap-2 text-[11px]">
+                  <Badge variant={topic.status === 'closed' ? 'secondary' : 'default'}>
+                    {topic.status}
+                  </Badge>
+                  <span className="text-muted-foreground text-right max-w-xs">
+                    {permissionLabel}
+                  </span>
+                </div>
+                <div className="flex flex-wrap justify-end gap-2">
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    onClick={() => navigate(`/forums/insights?topic_id=${encodeURIComponent(id || '')}`)}
+                    disabled={!id}
+                    className="text-[11px]"
+                  >
+                    Top Temas & Ações
+                  </Button>
+                  {isLeaderMod && topic.status !== 'closed' && (
+                    <Button size="xs" onClick={handleClose} className="text-[11px]">
+                      Fechar & Curar
+                    </Button>
+                  )}
+                  {isLeaderMod && !editing && (
+                    <Button
+                      size="xs"
+                      variant="outline"
+                      onClick={() => {
+                        setEditing(true)
+                        setEditTitle(topic.title)
+                        setEditDesc(topic.description || '')
+                      }}
+                      className="text-[11px]"
+                    >
+                      Editar
+                    </Button>
+                  )}
+                  {isLeaderMod && (
+                    <>
+                      <Button
+                        size="xs"
+                        variant="outline"
+                        onClick={handleClearTopic}
+                        className="text-[11px]"
+                      >
+                        Limpar
+                      </Button>
+                      {canDeleteTopic && (
+                        <Button
+                          size="xs"
+                          variant="destructive"
+                          onClick={handleDeleteTopic}
+                          className="text-[11px]"
+                        >
+                          Excluir
+                        </Button>
+                      )}
+                    </>
+                  )}
+                </div>
               </div>
             </div>
             <div className="flex flex-wrap gap-2 mt-2">

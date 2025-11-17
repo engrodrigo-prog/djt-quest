@@ -36,6 +36,9 @@ Deno.serve(async (req) => {
     if (!request_id || !action || !['approved', 'rejected'].includes(action)) {
       throw new Error('Invalid request_id or action');
     }
+    if (!request?.field_name) {
+      throw new Error('Invalid request');
+    }
 
     // Verificar se usuário é líder
     const { data: roles } = await supabaseClient
@@ -85,7 +88,7 @@ Deno.serve(async (req) => {
     }
 
     // Atualizar status da solicitação
-    const { error: updateRequestError } = await supabaseClient
+    const { error: updateRequestError } = await supabaseAdmin
       .from('profile_change_requests')
       .update({
         status: action,
@@ -139,7 +142,7 @@ Deno.serve(async (req) => {
         }
       }
 
-      const { error: updateProfileError } = await supabaseClient
+      const { error: updateProfileError } = await supabaseAdmin
         .from('profiles')
         .update(updates)
         .eq('id', request.user_id);

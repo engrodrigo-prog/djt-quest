@@ -112,7 +112,7 @@ export const AiQuizGenerator = ({ defaultChallengeId }: { defaultChallengeId?: s
       }
       const incoming = json.quiz.questoes || []
       const merged = Array.from({ length: MILHAO_TOTAL }, (_, idx) => {
-        const manual = fullQuiz?.questoes?.[idx]
+      const manual = fullQuiz?.questoes?.[idx]
         if (manual && manualSlots[idx + 1]) {
           return manual
         }
@@ -187,7 +187,7 @@ export const AiQuizGenerator = ({ defaultChallengeId }: { defaultChallengeId?: s
     }
     setFullQuiz({ ...base, questoes })
     setManualSlots((prev) => ({ ...prev, [idx + 1]: true }))
-    toast(`Pergunta enviada para a posição ${idx + 1} do Quiz do Milzão.`)
+    toast(`Pergunta enviada para a posição ${idx + 1} do Quiz do Milhão.`)
   }
 
   const milhaoFilledCount = mode === 'milzao' && fullQuiz?.questoes
@@ -259,16 +259,16 @@ export const AiQuizGenerator = ({ defaultChallengeId }: { defaultChallengeId?: s
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle>Quiz Especial • Milzão (IA)</CardTitle>
+          <CardTitle>Quiz Especial • Milhão (IA)</CardTitle>
           <CardDescription>
-            Informe um tema técnico. A IA pode gerar uma pergunta individual ou um quiz completo com 10 perguntas para compor seu Quiz Especial ou Quiz do Milzão.
+            Informe um tema técnico. A IA pode gerar uma pergunta individual ou um quiz completo com 10 perguntas para compor seu Quiz Especial ou Quiz do Milhão.
           </CardDescription>
         </CardHeader>
           <CardContent className="space-y-4">
           {mode === 'milzao' && (
             <div className="space-y-2 mb-2">
               <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-                <span>Progresso do Quiz do Milzão (10 perguntas)</span>
+                <span>Progresso do Quiz do Milhão (10 perguntas)</span>
                 <span>{milhaoProgress}%</span>
               </div>
               <Progress value={milhaoProgress} className="h-2" />
@@ -304,7 +304,7 @@ export const AiQuizGenerator = ({ defaultChallengeId }: { defaultChallengeId?: s
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="especial">Quiz Especial (XP progressivo)</SelectItem>
-                  <SelectItem value="milzao">Show do Milzão (10 níveis)</SelectItem>
+                  <SelectItem value="milzao">Quiz do Milhão (10 níveis)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -387,7 +387,7 @@ export const AiQuizGenerator = ({ defaultChallengeId }: { defaultChallengeId?: s
           {mode === 'milzao' && (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3 border-t pt-4 mt-4">
               <div className="space-y-2 md:col-span-1">
-                <Label>Posição no Quiz do Milzão (1 a 10)</Label>
+              <Label>Posição no Quiz do Milhão (1 a 10)</Label>
                 <Input
                   type="number"
                   min={1}
@@ -406,7 +406,7 @@ export const AiQuizGenerator = ({ defaultChallengeId }: { defaultChallengeId?: s
                 {fullQuiz && Array.isArray(fullQuiz.questoes) && (
                   <div className="space-y-3">
                     <div>
-                      <Label>Preview do quiz completo ({fullQuiz.tipo === 'milzao' ? 'Show do Milzão' : 'Especial'})</Label>
+                      <Label>Preview do quiz completo ({fullQuiz.tipo === 'milhao' ? 'Quiz do Milhão' : 'Especial'})</Label>
                       <p className="text-xs text-muted-foreground">
                         Revise as 10 perguntas geradas. As posições marcadas manualmente são preservadas.
                       </p>
@@ -467,7 +467,7 @@ export const AiQuizGenerator = ({ defaultChallengeId }: { defaultChallengeId?: s
           {mode !== 'milzao' && fullQuiz && Array.isArray(fullQuiz.questoes) && (
             <div className="space-y-3 border-t pt-4 mt-4">
               <div>
-                <Label>Preview do quiz completo ({fullQuiz.tipo === 'milzao' ? 'Show do Milzão' : 'Especial'})</Label>
+                <Label>Preview do quiz completo ({fullQuiz.tipo === 'milhao' ? 'Quiz do Milhão' : 'Especial'})</Label>
                 <p className="text-xs text-muted-foreground">
                   Revise as 10 perguntas geradas. Use-as como base para criar ou ajustar perguntas no seu desafio.
                 </p>
@@ -498,6 +498,28 @@ export const AiQuizGenerator = ({ defaultChallengeId }: { defaultChallengeId?: s
                         )
                       })}
                     </ul>
+                    <div className="pt-2 flex justify-end">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="xs"
+                        className="text-[11px]"
+                        onClick={() => {
+                          const alts = q.alternativas || {}
+                          const keys = ['A','B','C','D']
+                          const correctKey = q.correta || 'A'
+                          setQuestion(q.enunciado || '')
+                          setCorrectText(alts[correctKey] || '')
+                          const wrongList = keys.filter(k => k !== correctKey).map(k => ({
+                            text: alts[k] || '',
+                            explanation: '',
+                          }))
+                          setWrongs(Array.from({ length: WRONG_COUNT }, (_, i) => wrongList[i] || { text: '', explanation: '' }))
+                        }}
+                      >
+                        Carregar no editor
+                      </Button>
+                    </div>
                   </div>
                 ))}
               </div>

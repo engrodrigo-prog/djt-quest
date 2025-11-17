@@ -129,6 +129,14 @@ export const StudioDashboard = ({ onSelectModule, userRole }: StudioDashboardPro
       gradientTo: 'to-djt-blue-medium',
     },
     {
+      id: 'ai-quiz',
+      title: 'Quiz do Milhão (IA)',
+      description: 'Criar quiz especial 10 níveis com IA',
+      icon: Crown,
+      gradientFrom: 'from-purple-600',
+      gradientTo: 'to-indigo-700',
+    },
+    {
       id: 'team-bonus',
       title: 'Bonificação',
       description: 'Reconhecimentos e pontos de atenção',

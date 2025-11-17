@@ -95,7 +95,7 @@ export function QuizQuestionsList({ challengeId, onUpdate }: QuizQuestionsListPr
       </div>
       <div className="space-y-1">
         <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-          <span>Progresso para Quiz do Milzão (10 perguntas)</span>
+          <span>Progresso para Quiz do Milhão (10 perguntas)</span>
           <span>{milhaoProgress}%</span>
         </div>
         <Progress value={milhaoProgress} className="h-2" />

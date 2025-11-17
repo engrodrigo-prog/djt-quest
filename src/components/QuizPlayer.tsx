@@ -41,15 +41,28 @@ interface AnswerResult {
 export function QuizPlayer({ challengeId }: QuizPlayerProps) {
   const navigate = useNavigate();
   const [questions, setQuestions] = useState<Question[]>([]);
+  const [challengeTitle, setChallengeTitle] = useState<string>('');
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [options, setOptions] = useState<Option[]>([]);
   const [selectedOption, setSelectedOption] = useState<string>("");
   const [answerResult, setAnswerResult] = useState<AnswerResult | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [buriniHelp, setBuriniHelp] = useState<{ analysis: string; hint?: string; weak_options?: any[] } | null>(null);
+  const [buriniUsed, setBuriniUsed] = useState(false);
+  const [helpUsedThisQuestion, setHelpUsedThisQuestion] = useState(false);
 
   const loadQuestions = useCallback(async () => {
     try {
+      // carregar título do desafio para detectar Quiz do Milhão
+      try {
+        const { data: challenge } = await supabase
+          .from('challenges')
+          .select('title')
+          .eq('id', challengeId)
+          .maybeSingle();
+        if (challenge?.title) setChallengeTitle(challenge.title);
+      } catch {/* ignore */}
       // If attempt already submitted, don't show questions (only when attempts table is available)
       const hasAttempts = (import.meta as any).env?.VITE_HAS_QUIZ_ATTEMPTS === '1';
       if (hasAttempts) {
@@ -117,8 +130,14 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
   useEffect(() => {
     if (questions.length > 0) {
       loadOptions(questions[currentQuestionIndex].id);
+      setBuriniHelp(null);
+      setHelpUsedThisQuestion(false);
     }
   }, [currentQuestionIndex, loadOptions, questions]);
+
+  const isMilhao =
+    questions.length === 10 &&
+    /milh(ã|a)o/i.test(challengeTitle || '');
 
   const handleSubmitAnswer = async () => {
     if (!selectedOption) {
@@ -135,6 +154,7 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
         body: {
           question_id: questions[currentQuestionIndex].id,
           option_id: selectedOption,
+          used_help: helpUsedThisQuestion,
         },
       });
 
@@ -201,6 +221,8 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
   const currentQuestion = questions[currentQuestionIndex];
   const progress = ((currentQuestionIndex + 1) / questions.length) * 100;
 
+  const canUseBurini = isMilhao && !buriniUsed && currentQuestionIndex <= 6 && !answerResult;
+
   return (
     <div className="space-y-6">
       {/* Progress */}
@@ -225,6 +247,47 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
           </div>
         </CardHeader>
         <CardContent className="space-y-6">
+          {canUseBurini && (
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 p-3 rounded-md border border-blue-500/40 bg-blue-500/5">
+              <div className="text-xs text-muted-foreground">
+                <span className="font-semibold">Ajuda do Tutor Burini</span>
+                <span className="block">
+                  Uma análise técnica da questão, sem revelar diretamente a alternativa correta. Disponível apenas uma vez até a pergunta 7.
+                </span>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={async () => {
+                  try {
+                    const payload = {
+                      question: currentQuestion.question_text,
+                      options: options,
+                      nivel: currentQuestionIndex + 1,
+                    };
+                    const { data, error } = await supabase.functions.invoke("ai", {
+                      body: { handler: "quiz-burini", ...payload },
+                    } as any);
+                    if (error) throw error;
+                    const help = data?.help || data;
+                    if (help?.analysis) {
+                      setBuriniHelp(help);
+                      setBuriniUsed(true);
+                      setHelpUsedThisQuestion(true);
+                    } else {
+                      toast.error("Não foi possível obter ajuda do Burini agora.");
+                    }
+                  } catch (e: any) {
+                    console.error("Erro na ajuda do Burini:", e);
+                    toast.error("Erro ao acionar o Tutor Burini.");
+                  }
+                }}
+              >
+                Pergunte ao Burini
+              </Button>
+            </div>
+          )}
+
           {/* Options */}
           <RadioGroup value={selectedOption} onValueChange={setSelectedOption}>
             <div className="space-y-3">
@@ -293,6 +356,25 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
                 </p>
               )}
             </div>
+          )}
+
+          {buriniHelp && (
+            <Alert className="border-blue-500/40 bg-blue-500/5 text-xs space-y-1">
+              <AlertCircle className="h-4 w-4 text-blue-400" />
+              <AlertDescription>
+                <p className="font-semibold mb-1">Análise do Tutor Burini</p>
+                <p className="mb-1 whitespace-pre-line">{buriniHelp.analysis}</p>
+                {Array.isArray(buriniHelp.weak_options) && buriniHelp.weak_options.length > 0 && (
+                  <p className="mb-1">
+                    <span className="font-semibold">Alternativas menos prováveis:</span>{" "}
+                    {buriniHelp.weak_options.map((w: any) => w?.label).filter(Boolean).join(", ")}
+                  </p>
+                )}
+                {buriniHelp.hint && (
+                  <p className="italic text-muted-foreground">{buriniHelp.hint}</p>
+                )}
+              </AlertDescription>
+            </Alert>
           )}
 
           {/* Actions */}

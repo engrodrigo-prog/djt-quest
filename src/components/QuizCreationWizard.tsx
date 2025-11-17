@@ -242,10 +242,10 @@ export function QuizCreationWizard() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <HelpCircle className="h-5 w-5 text-purple-400" />
-            Quiz Especial • Milzão (IA)
+            Quiz Especial • Milhão (IA)
           </CardTitle>
           <CardDescription>
-            Use IA para gerar perguntas especiais ou um Quiz do Milzão completo (10 níveis) diretamente para este quiz.
+            Use IA para gerar perguntas especiais ou um Quiz do Milhão completo (10 níveis) diretamente para este quiz.
           </CardDescription>
         </CardHeader>
         <CardContent>

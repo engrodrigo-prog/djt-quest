@@ -1,8 +1,8 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Target, HelpCircle, MessageSquare } from 'lucide-react'
+import { Target, HelpCircle, MessageSquare, Crown } from 'lucide-react'
 
-export function ContentHub({ onOpen }: { onOpen: (id: 'campaigns' | 'campaigns-manage' | 'quiz' | 'quiz-manage' | 'forums' | 'forums-manage') => void }) {
+export function ContentHub({ onOpen }: { onOpen: (id: 'campaigns' | 'campaigns-manage' | 'quiz' | 'quiz-manage' | 'forums' | 'forums-manage' | 'ai-quiz') => void }) {
   return (
     <div className="space-y-6">
       <div>
@@ -34,6 +34,10 @@ export function ContentHub({ onOpen }: { onOpen: (id: 'campaigns' | 'campaigns-m
           <CardContent className="flex flex-col gap-2">
             <Button onClick={() => onOpen('quiz')} className="w-full">Criar Quiz</Button>
             <Button variant="outline" onClick={() => onOpen('quiz-manage')} className="w-full">Gerenciar Quizzes</Button>
+            <Button variant="secondary" onClick={() => onOpen('ai-quiz')} className="w-full inline-flex items-center gap-2">
+              <Crown className="h-4 w-4" />
+              Quiz do Milhão (IA)
+            </Button>
           </CardContent>
         </Card>
 

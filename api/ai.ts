@@ -9,6 +9,8 @@ import transcribeAudio from '../server/api-handlers/transcribe-audio.js';
 import forumCleanupText from '../server/api-handlers/forum-cleanup-text.js';
 import suggestHashtags from '../server/api-handlers/ai-suggest-hashtags.js';
 import aiQuizMilhao from '../server/api-handlers/ai-quiz-milhao.js';
+import aiQuizBurini from '../server/api-handlers/ai-quiz-burini.js';
+import aiQuizMilhao from '../server/api-handlers/ai-quiz-milhao.js';
 
 type Handler = (req: VercelRequest, res: VercelResponse) => any | Promise<any>;
 
@@ -18,6 +20,8 @@ const handlers: Record<string, Handler> = {
   // Quiz helpers
   'quiz-draft': aiQuizDraft,
   'generate-wrongs': aiGenerateWrongs,
+  'quiz-milhao': aiQuizMilhao,
+  'quiz-burini': aiQuizBurini,
   'quiz-milhao': aiQuizMilhao,
   // Audio -> texto
   'transcribe-audio': transcribeAudio,
