@@ -15,7 +15,7 @@ const WRONG_COUNT = 4;
 const MIN_LENGTH = 5;
 const MILHAO_TOTAL = 10;
 
-export const AiQuizGenerator = () => {
+export const AiQuizGenerator = ({ defaultChallengeId }: { defaultChallengeId?: string }) => {
   const [topic, setTopic] = useState('')
   const [difficulty, setDifficulty] = useState<'basico'|'intermediario'|'avancado'|'especialista'>('basico')
   const [mode, setMode] = useState<'especial' | 'milzao'>('especial')
@@ -43,9 +43,14 @@ export const AiQuizGenerator = () => {
         .select('id, title, type')
         .order('title')
         .limit(200)
-      setChallenges(data || [])
+      const list = data || []
+      setChallenges(list)
+      // Pré-selecionar desafio padrão (quando vier do Studio)
+      if (defaultChallengeId && !challengeId && list.some((c: any) => c.id === defaultChallengeId)) {
+        setChallengeId(defaultChallengeId)
+      }
     })()
-  }, [])
+  }, [defaultChallengeId, challengeId])
 
   const generate = async () => {
     if (!topic.trim()) {

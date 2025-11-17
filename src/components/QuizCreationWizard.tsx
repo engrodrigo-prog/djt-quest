@@ -13,6 +13,7 @@ import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { QuizQuestionForm } from './QuizQuestionForm';
 import { QuizQuestionsList } from './QuizQuestionsList';
+import { AiQuizGenerator } from './AiQuizGenerator';
 
 const quizSchema = z.object({
   title: z.string().min(3, "Título deve ter no mínimo 3 caracteres"),
@@ -236,6 +237,21 @@ export function QuizCreationWizard() {
       <QuizQuestionsList key={refreshKey} challengeId={quizId} onUpdate={handleQuestionAdded} />
       
       <QuizQuestionForm challengeId={quizId} onQuestionAdded={handleQuestionAdded} />
+
+      <Card className="border-purple-500/30 bg-purple-500/5">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <HelpCircle className="h-5 w-5 text-purple-400" />
+            Quiz Especial • Milzão (IA)
+          </CardTitle>
+          <CardDescription>
+            Use IA para gerar perguntas especiais ou um Quiz do Milzão completo (10 níveis) diretamente para este quiz.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <AiQuizGenerator defaultChallengeId={quizId} />
+        </CardContent>
+      </Card>
     </div>
   );
 }
