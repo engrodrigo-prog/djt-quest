@@ -50,11 +50,23 @@ export function ContentHub({ onOpen }: { onOpen: (id: 'campaigns' | 'campaigns-m
             </div>
           </CardHeader>
           <CardContent className="flex flex-col gap-2">
-            <Button onClick={() => onOpen('quiz')} className="w-full">Criar Quiz</Button>
-            <Button variant="outline" onClick={() => onOpen('quiz-manage')} className="w-full">Gerenciar Quizzes</Button>
-            <Button variant="secondary" onClick={() => onOpen('ai-quiz')} className="w-full inline-flex items-center gap-2">
+            <Button onClick={() => onOpen('quiz')} className="w-full">
+              Criar Quiz
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => onOpen('ai-quiz')}
+              className="w-full inline-flex items-center gap-2"
+            >
               <Crown className="h-4 w-4" />
               Quiz do Milhão (IA)
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => onOpen('quiz-manage')}
+              className="w-full"
+            >
+              Gerenciar Quizzes
             </Button>
           </CardContent>
         </Card>
