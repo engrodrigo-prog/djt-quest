@@ -21,7 +21,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const uid = userData?.user?.id;
     if (!uid) return res.status(401).json({ error: "Unauthorized" });
 
-    const { content_md, attachments = [], location_label, location_lat, location_lng } = req.body || {};
+    const { content_md, attachments = [], location_label, location_lat, location_lng, campaign_id, participant_ids } = req.body || {};
     const text = String(content_md || "").trim();
     const atts = Array.isArray(attachments) ? attachments : [];
     if (!text && atts.length === 0) return res.status(400).json({ error: "Conteúdo ou mídia obrigatórios" });
@@ -38,6 +38,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         location_label: location_label || null,
         location_lat: typeof location_lat === "number" ? location_lat : null,
         location_lng: typeof location_lng === "number" ? location_lng : null,
+        campaign_id: typeof campaign_id === "string" && campaign_id.trim().length > 0 ? campaign_id : null,
       })
       .select()
       .single();
@@ -49,9 +50,30 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       await recomputeSepbookMentionsForPost(data.id);
     } catch {}
 
-    // XP por engajamento no SEPBook (post completo) — limitado a 100 XP/mês por usuário
+    // XP por engajamento no SEPBook (post completo) — limitado a 100 XP/mês por usuário.
+    // Agora aplica para o autor e participantes marcados (sem duplicar).
     try {
-      await admin.rpc("increment_sepbook_profile_xp", { p_user_id: uid, p_amount: 5 });
+      const participants = new Set<string>();
+      participants.add(uid);
+      if (Array.isArray(participant_ids)) {
+        for (const raw of participant_ids) {
+          const id = String(raw || "").trim();
+          if (id) participants.add(id);
+        }
+      }
+
+      const ids = Array.from(participants);
+
+      // Registrar participantes vinculados ao post
+      if (ids.length > 0) {
+        const rows = ids.map((userId) => ({ post_id: data.id, user_id: userId }));
+        await admin.from("sepbook_post_participants").insert(rows as any).catch(() => {});
+      }
+
+      // Incrementar XP (função já limita a 100 XP/mês por usuário)
+      for (const id of ids) {
+        await admin.rpc("increment_sepbook_profile_xp", { p_user_id: id, p_amount: 5 }).catch(() => {});
+      }
     } catch {}
 
     return res.status(200).json({

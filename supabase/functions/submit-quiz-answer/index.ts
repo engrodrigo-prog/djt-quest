@@ -87,13 +87,12 @@ serve(async (req) => {
 
     const { data: profile } = await supabase
       .from('profiles')
-      .select('xp, is_leader')
+      .select('xp')
       .eq('id', user.id)
       .maybeSingle();
 
-    const isLeader = profile?.is_leader === true;
-    const xpEarned = isCorrect && !isLeader ? option.quiz_questions.xp_value : 0;
-    const xpBlockedForLeader = isCorrect && isLeader;
+    const xpEarned = isCorrect ? option.quiz_questions.xp_value : 0;
+    const xpBlockedForLeader = false;
 
     // Insert user answer
     const { error: insertError } = await supabase

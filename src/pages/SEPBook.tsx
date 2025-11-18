@@ -40,6 +40,18 @@ interface SepComment {
   created_at: string;
 }
 
+interface CampaignOption {
+  id: string;
+  title: string;
+  is_team_campaign?: boolean | null;
+}
+
+interface TeamMember {
+  id: string;
+  name: string;
+  team_id?: string | null;
+}
+
 export default function SEPBook() {
   const { user, profile, isLeader } = useAuth();
   const { toast } = useToast();
@@ -83,6 +95,10 @@ export default function SEPBook() {
   const [hashtagSuggestions, setHashtagSuggestions] = useState<string[]>([]);
   const [hashtagLoading, setHashtagLoading] = useState(false);
   const [cleaningPostId, setCleaningPostId] = useState<string | null>(null);
+  const [campaignOptions, setCampaignOptions] = useState<CampaignOption[]>([]);
+  const [selectedCampaignId, setSelectedCampaignId] = useState<string>("");
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
+  const [selectedParticipants, setSelectedParticipants] = useState<Set<string>>(new Set());
 
   const formatName = (name: string | null | undefined) => {
     const parts = String(name || "").trim().split(/\s+/).filter(Boolean);
@@ -125,6 +141,59 @@ export default function SEPBook() {
   useEffect(() => {
     fetchFeed();
   }, []);
+
+  // Campanhas vigentes (para vincular evidências)
+  useEffect(() => {
+    (async () => {
+      try {
+        const now = new Date().toISOString();
+        const { data, error } = await supabase
+          .from("campaigns")
+          .select("id, title, is_team_campaign, start_date, end_date, is_active")
+          .eq("is_active", true);
+        if (error) {
+          console.warn("SEPBook: falha ao carregar campanhas ativas", error.message);
+          return;
+        }
+        const active = (data || []).filter((c: any) => {
+          const start = c.start_date || now;
+          const end = c.end_date || now;
+          return start <= now && end >= now;
+        });
+        setCampaignOptions(
+          active.map((c: any) => ({
+            id: c.id,
+            title: c.title,
+            is_team_campaign: c.is_team_campaign ?? false,
+          }))
+        );
+      } catch (e) {
+        console.warn("SEPBook: erro inesperado ao carregar campanhas", e);
+      }
+    })();
+  }, []);
+
+  // Membros da equipe do usuário (para evidências em equipe)
+  useEffect(() => {
+    const teamId = (profile as any)?.team_id;
+    if (!teamId) return;
+    (async () => {
+      try {
+        const { data, error } = await supabase
+          .from("profiles")
+          .select("id, name, team_id")
+          .eq("team_id", teamId)
+          .order("name");
+        if (error) {
+          console.warn("SEPBook: falha ao carregar membros da equipe", error.message);
+          return;
+        }
+        setTeamMembers((data || []) as any);
+      } catch (e) {
+        console.warn("SEPBook: erro inesperado ao carregar membros da equipe", e);
+      }
+    })();
+  }, [profile]);
 
   const fetchTrending = async (range: typeof trendRange) => {
     setTrendingLoading(true);
@@ -414,12 +483,20 @@ export default function SEPBook() {
           location_label: locationLabel,
           location_lat: coords?.lat ?? null,
           location_lng: coords?.lng ?? null,
+          campaign_id: selectedCampaignId || null,
+          participant_ids:
+            selectedCampaignId &&
+            campaignOptions.find((c) => c.id === selectedCampaignId)?.is_team_campaign
+              ? Array.from(selectedParticipants)
+              : [],
         }),
       });
       const json = await resp.json();
       if (!resp.ok) throw new Error(json?.error || "Falha ao publicar no SEPBook");
       setContent("");
       setAttachments([]);
+      setSelectedCampaignId("");
+      setSelectedParticipants(new Set());
       setUseLocation(false);
       setCoords(null);
       setLocationLabel(null);
@@ -766,6 +843,29 @@ export default function SEPBook() {
                   onChange={(e) => handleContentChange(e.target.value)}
                   placeholder="Compartilhe um aprendizado, uma boa prática ou um registro de bastidor..."
                 />
+                {campaignOptions.length > 0 && (
+                  <div className="space-y-1">
+                    <p className="text-[11px] text-muted-foreground">
+                      Vincular a uma campanha vigente (opcional)
+                    </p>
+                    <select
+                      value={selectedCampaignId}
+                      onChange={(e) => {
+                        setSelectedCampaignId(e.target.value);
+                        setSelectedParticipants(new Set());
+                      }}
+                      className="w-full rounded-md border bg-background px-2 py-1 text-[11px]"
+                    >
+                      <option value="">Nenhuma campanha selecionada</option>
+                      {campaignOptions.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.title}
+                          {c.is_team_campaign ? " • campanha em equipe" : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
                 <AttachmentUploader
                   onAttachmentsChange={setAttachments}
                   maxFiles={4}
@@ -836,6 +936,40 @@ export default function SEPBook() {
                       </button>
                     </div>
                   )}
+                  {selectedCampaignId &&
+                    campaignOptions.find((c) => c.id === selectedCampaignId)?.is_team_campaign &&
+                    teamMembers.length > 0 && (
+                      <div className="w-full space-y-1">
+                        <p className="text-[11px] text-muted-foreground">
+                          Marque quem participou com você nesta campanha. Os membros da sua equipe aparecem primeiro.
+                        </p>
+                        <div className="max-h-40 overflow-auto rounded-md border border-border/60 bg-black/20 px-2 py-1 space-y-1">
+                          {teamMembers.map((m) => {
+                            const checked = selectedParticipants.has(m.id);
+                            return (
+                              <label
+                                key={m.id}
+                                className="flex items-center gap-2 text-[11px] cursor-pointer select-none px-1 py-0.5 rounded hover:bg-white/5"
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={(e) => {
+                                    setSelectedParticipants((prev) => {
+                                      const next = new Set(prev);
+                                      if (e.target.checked) next.add(m.id);
+                                      else next.delete(m.id);
+                                      return next;
+                                    });
+                                  }}
+                                />
+                                <span className="flex-1 truncate">{m.name}</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
                   {mentionSuggestions.length > 0 && mentionQuery.length >= 1 && (
                     <div className="flex flex-wrap justify-center gap-1 text-[11px]">
                       {mentionSuggestions.map((s, idx) => (
@@ -877,7 +1011,7 @@ export default function SEPBook() {
                       ))}
                     </div>
                   )}
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <Button
                       size="sm"
                       variant="ghost"
