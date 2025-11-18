@@ -15,7 +15,6 @@ interface Campaign {
   is_active?: boolean | null;
   start_date?: string | null;
   end_date?: string | null;
-  is_team_campaign?: boolean | null;
 }
 
 export const CampaignManagement = () => {
@@ -267,11 +266,6 @@ export const CampaignManagement = () => {
                     >
                       {c.is_active ? "Ativa" : "Encerrada"}
                     </Badge>
-                    {c.is_team_campaign && (
-                      <Badge variant="secondary" className="text-[10px] mt-0.5">
-                        Campanha em equipe
-                      </Badge>
-                    )}
                     <div className="flex gap-1 mt-1">
                       {isEditing ? (
                         <>

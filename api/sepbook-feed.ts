@@ -25,7 +25,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const { data: posts, error } = await admin
       .from("sepbook_posts")
-      .select("id, user_id, content_md, attachments, like_count, comment_count, created_at, location_label, campaign_id")
+      .select("id, user_id, content_md, attachments, like_count, comment_count, created_at, location_label")
       .order("created_at", { ascending: false })
       .limit(50);
     if (error) {
@@ -59,49 +59,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       profileMap.set(p.id, { name: p.name, sigla_area: p.sigla_area, avatar_url: p.avatar_url, operational_base: (p as any).operational_base || null });
     });
 
-    // Campanhas e participantes por post
-    const campaignIds = Array.from(new Set((posts || []).map((p) => p.campaign_id).filter(Boolean)));
-    let campaignMap = new Map<string, { title: string | null }>();
-    if (campaignIds.length) {
-      const { data: camps } = await admin
-        .from("campaigns")
-        .select("id, title")
-        .in("id", campaignIds as any);
-      campaignMap = new Map((camps || []).map((c: any) => [c.id, { title: c.title }]));
-    }
-
-    const postIds = (posts || []).map((p) => p.id);
-    let participantsByPost = new Map<string, any[]>();
-    if (postIds.length) {
-      const { data: participants } = await admin
-        .from("sepbook_post_participants")
-        .select("post_id, user_id")
-        .in("post_id", postIds as any);
-      const ids = Array.from(new Set((participants || []).map((r: any) => r.user_id)));
-      let participantProfiles: any[] = [];
-      if (ids.length) {
-        const { data: pp } = await admin
-          .from("profiles")
-          .select("id, name, sigla_area")
-          .in("id", ids as any);
-        participantProfiles = pp || [];
-      }
-      const profileById = new Map(participantProfiles.map((p: any) => [p.id, p]));
-      (participants || []).forEach((row: any) => {
-        const arr = participantsByPost.get(row.post_id) || [];
-        const prof = profileById.get(row.user_id);
-        arr.push({
-          id: row.user_id,
-          name: prof?.name || "Colaborador",
-          sigla_area: prof?.sigla_area || null,
-        });
-        participantsByPost.set(row.post_id, arr);
-      });
-    }
-
     const items = (posts || []).map((p) => {
       const prof = profileMap.get(p.user_id) || { name: "Colaborador", sigla_area: null, avatar_url: null, operational_base: null };
-      const campaign = p.campaign_id ? campaignMap.get(p.campaign_id) : undefined;
       return {
         id: p.id,
         user_id: p.user_id,
@@ -116,8 +75,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         created_at: p.created_at,
         location_label: p.location_label,
         has_liked: likedSet.has(p.id),
-        campaign: campaign ? { id: p.campaign_id, title: campaign.title } : null,
-        participants: participantsByPost.get(p.id) || [],
       };
     });
 

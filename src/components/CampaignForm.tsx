@@ -17,7 +17,6 @@ export const CampaignForm = () => {
   const { toast } = useToast();
   const [submitting, setSubmitting] = useState(false);
   const [coverUrl, setCoverUrl] = useState<string | null>(null);
-  const [isTeamCampaign, setIsTeamCampaign] = useState(false);
 
   const {
     register,
@@ -27,9 +26,6 @@ export const CampaignForm = () => {
     formState: { errors },
   } = useForm<CampaignFormData>({
     resolver: zodResolver(campaignSchema),
-    defaultValues: {
-      is_team_campaign: false,
-    } as any,
   });
 
   const onSubmit = async (data: CampaignFormData) => {
@@ -43,7 +39,6 @@ export const CampaignForm = () => {
         start_date: data.start_date,
         end_date: data.end_date,
         is_active: true,
-        is_team_campaign: data.is_team_campaign ?? false,
         cover_image_url: coverUrl || null,
       } as any);
 
@@ -56,7 +51,6 @@ export const CampaignForm = () => {
 
       reset();
       setCoverUrl(null);
-      setIsTeamCampaign(false);
     } catch (error: any) {
       console.error("Error creating campaign:", error);
       toast({
@@ -78,26 +72,10 @@ export const CampaignForm = () => {
       if (!draft || draft.kind !== 'campanha') return;
       const title = String(draft.title || '').replace(/^Campanha:\s*/i,'').trim();
       const description = String(draft.summary || '');
-      // We cannot set form values directly without useForm setValue; filled by placeholders via direct DOM fallback
-      // Keep as hint: user will copy/adjust. For minimal warnings, just notify.
       if (title) setValue('title', title);
       if (description) setValue('description', description);
       localStorage.removeItem('studio_compendium_draft');
     } catch {}
-  }, []);
-
-  // Preferência de tipo vinda do card do Studio (individual x coletiva)
-  useEffect(() => {
-    try {
-      const t = localStorage.getItem('campaign_form_type');
-      if (!t) return;
-      const isTeam = t === 'team';
-      setIsTeamCampaign(isTeam);
-      setValue('is_team_campaign' as any, isTeam, { shouldValidate: false });
-      // não removo a chave, assim o padrão se mantém até o próximo ajuste
-    } catch {
-      // ignore
-    }
   }, [setValue]);
 
   const handleCleanupDescription = async () => {
@@ -218,25 +196,6 @@ export const CampaignForm = () => {
               {errors.end_date && (
                 <p className="text-sm text-destructive mt-1">{errors.end_date.message}</p>
               )}
-            </div>
-          </div>
-
-          <div className="flex items-start gap-2">
-            <input
-              id="is_team_campaign"
-              type="checkbox"
-              checked={isTeamCampaign}
-              onChange={(e) => {
-                setIsTeamCampaign(e.target.checked);
-                setValue("is_team_campaign" as any, e.target.checked, { shouldValidate: true });
-              }}
-              className="mt-1"
-            />
-            <div>
-              <Label htmlFor="is_team_campaign">Campanha em equipe</Label>
-              <p className="text-xs text-muted-foreground">
-                Quando marcada, as evidências no SEPBook poderão selecionar vários participantes da equipe para receber XP juntos.
-              </p>
             </div>
           </div>
 
