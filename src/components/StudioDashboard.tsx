@@ -44,40 +44,17 @@ export const StudioDashboard = ({ onSelectModule, userRole }: StudioDashboardPro
 
     const fetchCounts = async () => {
       try {
-        const { data: userData } = await supabase.auth.getUser();
-        const uid = userData.user?.id;
-        if (!uid || !active) {
-          if (active) {
-            setBadges({
-              approvals: 0,
-              passwordResets: 0,
-              evaluations: 0,
-              forumMentions: 0,
-              registrations: 0,
-            });
-          }
-          return;
-        }
-
-        const q = (tbl: string, filter: (rq: any) => any) =>
-          filter(supabase.from(tbl)).select('id', { count: 'exact', head: true });
-
-        const [ap, pr, rg, ev, la, fm] = await Promise.all([
-          q('profile_change_requests', (rq) => rq.eq('status', 'pending')),
-          q('password_reset_requests', (rq) => rq.eq('status', 'pending')),
-          q('pending_registrations', (rq) => rq.eq('status', 'pending')),
-          q('evaluation_queue', (rq) => rq.eq('assigned_to', uid).is('completed_at', null)),
-          q('leadership_challenge_assignments', (rq) => rq.eq('user_id', uid).eq('status', 'assigned')),
-          q('forum_mentions', (rq) => rq.eq('mentioned_user_id', uid).eq('is_read', false)),
-        ] as any);
+        const resp = await apiFetch('/api/admin?handler=studio-pending-counts');
+        const json = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(json?.error || 'Falha nas contagens');
 
         if (active) {
           setBadges({
-            approvals: ap?.count || 0,
-            passwordResets: pr?.count || 0,
-            registrations: rg?.count || 0,
-            evaluations: (ev as any)?.count || 0,
-            forumMentions: (fm as any)?.count || 0,
+            approvals: json?.approvals || 0,
+            passwordResets: json?.passwordResets || 0,
+            registrations: json?.registrations || 0,
+            evaluations: json?.evaluations || 0,
+            forumMentions: json?.forumMentions || 0,
           });
         }
       } catch {

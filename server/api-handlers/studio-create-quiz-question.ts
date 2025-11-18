@@ -70,7 +70,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       explanation: (opt?.explanation && String(opt.explanation).trim()) || null,
     }))
 
-    const { error: oErr } = await supabaseAdmin.from('quiz_options').insert(toInsert)
+    // Embaralhar ordem das alternativas para evitar padrão fixo
+    const shuffled = [...toInsert].sort(() => Math.random() - 0.5)
+
+    const { error: oErr } = await supabaseAdmin.from('quiz_options').insert(shuffled)
     if (oErr) return res.status(400).json({ error: oErr.message })
 
     return res.status(200).json({ success: true, questionId: question!.id })

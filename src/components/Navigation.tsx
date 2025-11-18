@@ -71,41 +71,20 @@ const Navigation = () => {
 
     const fetchCounts = async () => {
       try {
-        // Consultar diretamente via Supabase, respeitando a hierarquia via RLS/has_role
-        const { data: userData } = await supabase.auth.getUser();
-        const uid = userData.user?.id;
-        if (!uid || !active) {
-          setStudioBadge(0);
-          setEvalBadge(0);
-          setForumBadge(0);
-          setSepbookNew(0);
-          setSepbookMentions(0);
-          return;
-        }
+        const resp = await apiFetch('/api/admin?handler=studio-pending-counts');
+        const json = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(json?.error || 'Falha nas contagens');
 
-        const q = (tbl: string, filter: (rq: any) => any) =>
-          filter(supabase.from(tbl)).select('id', { count: 'exact', head: true });
+        const approvals = json?.approvals || 0;
+        const passwordResets = json?.passwordResets || 0;
+        const registrations = json?.registrations || 0;
+        const evaluations = json?.evaluations || 0;
+        const leadershipAssignments = json?.leadershipAssignments || 0;
+        const forumMentions = json?.forumMentions || 0;
 
-        const [ap, pr, rg, ev, la, fm] = await Promise.all([
-          q('profile_change_requests', (rq) => rq.eq('status', 'pending')),
-          q('password_reset_requests', (rq) => rq.eq('status', 'pending')),
-          q('pending_registrations', (rq) => rq.eq('status', 'pending')),
-          q('evaluation_queue', (rq) => rq.eq('assigned_to', uid).is('completed_at', null)),
-          q('leadership_challenge_assignments', (rq) => rq.eq('user_id', uid).eq('status', 'assigned')),
-          q('forum_mentions', (rq) => rq.eq('mentioned_user_id', uid).eq('is_read', false)),
-        ] as any);
-
-        const approvals = ap?.count || 0;
-        const passwordResets = pr?.count || 0;
-        const registrations = rg?.count || 0;
-        const evaluations = (ev as any)?.count || 0;
-        const leadershipAssignments = (la as any)?.count || 0;
-        const forumMentions = (fm as any)?.count || 0;
-
-        // Studio/Evaluations: apenas se usuário tiver acesso relevante
+        if (!active) return;
         setStudioBadge(studioAccess ? approvals + passwordResets + registrations : 0);
         setEvalBadge(isLeader ? evaluations + leadershipAssignments : 0);
-        // Fórum: sempre mostrar menções pendentes
         setForumBadge(forumMentions);
 
         // SEPBook summary continua vindo da API dedicada

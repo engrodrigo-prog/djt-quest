@@ -231,11 +231,14 @@ export function QuizQuestionForm({ challengeId, onQuestionAdded }: QuizQuestionF
       if (!token) throw new Error('Não autenticado');
 
       const payload = await ensureWrongOptions(data, token);
+      // Embaralhar ordem das alternativas para evitar padrão fixo de posição da correta
+      const shuffledOptions = [...payload.options].sort(() => Math.random() - 0.5);
+      const shuffledPayload = { ...payload, options: shuffledOptions };
       try {
-        await createViaApi(payload, token);
+        await createViaApi(shuffledPayload, token);
       } catch (apiError) {
         console.warn('API quiz creation failed, falling back to direct insert:', apiError);
-        await createDirect(payload);
+        await createDirect(shuffledPayload);
       }
 
       toast.success('Pergunta criada com sucesso!');
