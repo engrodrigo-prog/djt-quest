@@ -258,6 +258,7 @@ const Auth = () => {
                     <Input
                       placeholder="Digite nome ou matrícula..."
                       value={query}
+                      autoComplete="off"
                       inputMode="numeric"
                       onChange={(e) => handleQueryChange(e.target.value)}
                       onFocus={() => setOpen(true)}
@@ -391,6 +392,24 @@ const Auth = () => {
             
             <Button type="submit" className="w-full" disabled={!selectedUserId || loading}>
               {loading ? 'Entrando...' : 'Entrar'}
+            </Button>
+
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full mt-1 text-sm"
+              onClick={() => {
+                try {
+                  const url = `${window.location.origin}/auth`;
+                  const text = `Acesse o DJT Quest pelo link:\n${url}`;
+                  const waUrl = `https://wa.me/?text=${encodeURIComponent(text)}`;
+                  window.open(waUrl, '_blank', 'noopener,noreferrer');
+                } catch {
+                  // fallback silencioso
+                }
+              }}
+            >
+              Compartilhar acesso pelo WhatsApp
             </Button>
 
             <div className="text-center text-sm mt-4">

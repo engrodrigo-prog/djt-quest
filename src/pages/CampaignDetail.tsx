@@ -218,6 +218,24 @@ export default function CampaignDetail() {
                   <Zap className="h-4 w-4 mr-1" />
                   Subir no SEPBook
                 </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="text-xs"
+                  onClick={() => {
+                    try {
+                      const base = window.location.origin;
+                      const url = `${base}/campaign/${encodeURIComponent(campaign.id)}`;
+                      const text = `Conheça a campanha "${campaign.title}" no DJT Quest:\n${url}`;
+                      const waUrl = `https://wa.me/?text=${encodeURIComponent(text)}`;
+                      window.open(waUrl, '_blank', 'noopener,noreferrer');
+                    } catch {
+                      // silencioso
+                    }
+                  }}
+                >
+                  Compartilhar no WhatsApp
+                </Button>
               </div>
             </div>
           </CardHeader>
@@ -323,4 +341,3 @@ export default function CampaignDetail() {
     </div>
   );
 }
-

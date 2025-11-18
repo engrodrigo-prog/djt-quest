@@ -497,6 +497,26 @@ export default function ForumTopic() {
                   >
                     Top Temas & Ações
                   </Button>
+                  {id && (
+                    <Button
+                      size="xs"
+                      variant="outline"
+                      className="text-[11px]"
+                      onClick={() => {
+                        try {
+                          const base = window.location.origin;
+                          const url = `${base}/forums/${encodeURIComponent(id)}`;
+                          const text = `Veja este fórum no DJT Quest:\n${topic.title}\n${url}`;
+                          const waUrl = `https://wa.me/?text=${encodeURIComponent(text)}`;
+                          window.open(waUrl, '_blank', 'noopener,noreferrer');
+                        } catch {
+                          // silencioso
+                        }
+                      }}
+                    >
+                      Compartilhar no WhatsApp
+                    </Button>
+                  )}
                   {isLeaderMod && topic.status !== 'closed' && (
                     <Button size="xs" onClick={handleClose} className="text-[11px]">
                       Fechar & Curar

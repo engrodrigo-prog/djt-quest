@@ -342,6 +342,27 @@ const ChallengeDetail = () => {
             </div>
             <CardTitle className="text-2xl">{challenge.title}</CardTitle>
             <CardDescription>{challenge.description}</CardDescription>
+            <div className="flex flex-wrap gap-2 mt-3 text-xs">
+              <Button
+                size="xs"
+                variant="outline"
+                onClick={() => {
+                  try {
+                    const base = window.location.origin;
+                    const url = `${base}/challenges/${encodeURIComponent(challenge.id)}`;
+                    const text = challenge.type === 'quiz'
+                      ? `Participe deste quiz no DJT Quest:\n${challenge.title}\n${url}`
+                      : `Participe deste desafio no DJT Quest:\n${challenge.title}\n${url}`;
+                    const waUrl = `https://wa.me/?text=${encodeURIComponent(text)}`;
+                    window.open(waUrl, '_blank', 'noopener,noreferrer');
+                  } catch {
+                    // silencioso
+                  }
+                }}
+              >
+                Compartilhar no WhatsApp
+              </Button>
+            </div>
             {challenge.cover_image_url && (
               <div className="mt-3">
                 <img src={challenge.cover_image_url} alt="Capa do desafio" className="w-full max-h-64 object-cover rounded-md border" />
