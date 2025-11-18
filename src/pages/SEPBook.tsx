@@ -49,7 +49,16 @@ export default function SEPBook() {
   const [posts, setPosts] = useState<SepPost[]>([]);
   const [loading, setLoading] = useState(false);
   const [feedLoading, setFeedLoading] = useState(false);
-  const [useLocation, setUseLocation] = useState(true);
+  const [useLocation, setUseLocation] = useState(false);
+  const [askedLocationOnce, setAskedLocationOnce] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      const v = localStorage.getItem("sepbook_location_asked");
+      return v === "1";
+    } catch {
+      return false;
+    }
+  });
   const [locationLabel, setLocationLabel] = useState<string | null>(null);
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [cleaning, setCleaning] = useState(false);
@@ -227,8 +236,14 @@ export default function SEPBook() {
   };
 
   useEffect(() => {
-    if (useLocation) resolveLocation();
-  }, [useLocation]);
+    if (useLocation && !askedLocationOnce) {
+      resolveLocation();
+      setAskedLocationOnce(true);
+      try {
+        localStorage.setItem("sepbook_location_asked", "1");
+      } catch {}
+    }
+  }, [useLocation, askedLocationOnce]);
 
   const loadComments = async (postId: string) => {
     setLoadingComments((prev) => ({ ...prev, [postId]: true }));
@@ -383,22 +398,7 @@ export default function SEPBook() {
     }
     setLoading(true);
     try {
-      // Sugestão automática de hashtags para posts existentes (aplica direto sem pedir)
       let finalText = text;
-      if (!text.includes("#")) {
-        try {
-          const r = await fetch("/api/ai?handler=suggest-hashtags", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ text }),
-          });
-          const js = await r.json();
-          if (r.ok && Array.isArray(js.hashtags) && js.hashtags.length > 0) {
-            const toAdd = js.hashtags.filter((h: string) => !finalText.includes(h));
-            if (toAdd.length > 0) finalText = `${finalText}\n${toAdd.join(" ")}`;
-          }
-        } catch {}
-      }
       const { data: session } = await supabase.auth.getSession();
       const token = session.session?.access_token;
       if (!token) throw new Error("Não autenticado");
@@ -720,42 +720,16 @@ export default function SEPBook() {
                   <MapPin className="h-3.5 w-3.5 mt-0.5" />
                   <span>
                     As publicações podem usar localização aproximada para análises internas da DJT.
+                    {askedLocationOnce
+                      ? " Você pode ativar ou desativar a localização a qualquer momento."
+                      : " Ao ativar localização pela primeira vez, o navegador pode pedir permissão de GPS."}
                   </span>
                 </div>
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                   <p className="text-xs text-muted-foreground">
                     Você pode digitar ou falar sua publicação. Use a varinha para revisar ortografia e pontuação.
                   </p>
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="ghost"
-                    className="h-7 w-7"
-                    onClick={handleCleanupContent}
-                    disabled={cleaning}
-                    title="Revisar ortografia e pontuação (sem mudar conteúdo)"
-                  >
-                    <Wand2 className="h-4 w-4" />
-                  </Button>
-                </div>
-                <Textarea
-                  rows={3}
-                  value={content}
-                  onChange={(e) => handleContentChange(e.target.value)}
-                  placeholder="Compartilhe um aprendizado, uma boa prática ou um registro de bastidor..."
-                />
-            <AttachmentUploader
-              onAttachmentsChange={setAttachments}
-              maxFiles={4}
-              maxSizeMB={20}
-              bucket="evidence"
-              pathPrefix="sepbook"
-              acceptMimeTypes={["image/jpeg", "image/png", "image/webp", "image/gif", "video/mp4", "video/webm"]}
-              maxVideoSeconds={20}
-              onUploadingChange={setAttachmentsUploading}
-            />
-                <div className="flex flex-col items-center justify-center gap-2">
-                  <div className="flex items-center gap-3">
+                  <div className="flex flex-wrap items-center gap-2">
                     <VoiceRecorderButton
                       onText={(text) =>
                         setContent((prev) =>
@@ -763,6 +737,47 @@ export default function SEPBook() {
                         )
                       }
                     />
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      className="h-7 w-7"
+                      onClick={handleCleanupContent}
+                      disabled={cleaning}
+                      title="Revisar ortografia e pontuação (sem mudar conteúdo)"
+                    >
+                      <Wand2 className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant={useLocation ? "secondary" : "outline"}
+                      className="h-7 w-7"
+                      onClick={() => setUseLocation((prev) => !prev)}
+                      title={useLocation ? "Desativar localização" : "Ativar localização aproximada"}
+                    >
+                      <MapPin className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+                <Textarea
+                  rows={3}
+                  value={content}
+                  onChange={(e) => handleContentChange(e.target.value)}
+                  placeholder="Compartilhe um aprendizado, uma boa prática ou um registro de bastidor..."
+                />
+                <AttachmentUploader
+                  onAttachmentsChange={setAttachments}
+                  maxFiles={4}
+                  maxSizeMB={20}
+                  bucket="evidence"
+                  pathPrefix="sepbook"
+                  acceptMimeTypes={["image/jpeg", "image/png", "image/webp", "image/gif", "video/mp4", "video/webm"]}
+                  maxVideoSeconds={20}
+                  onUploadingChange={setAttachmentsUploading}
+                />
+                <div className="flex flex-col items-center justify-center gap-2">
+                  <div className="flex flex-wrap items-center gap-3">
                     <button
                       type="button"
                       onClick={() => setShowTagPicker((v) => !v)}
@@ -794,22 +809,31 @@ export default function SEPBook() {
                     </div>
                   )}
                   {hashtagSuggestions.length > 0 && (
-                    <div className="flex flex-wrap justify-center gap-1 text-[11px]">
-                      {hashtagSuggestions.map((tag, idx) => (
-                        <button
-                          key={tag + idx}
-                          type="button"
-                          onClick={() =>
-                            setContent((prev) => {
-                              if (prev.includes(tag)) return prev;
-                              return [prev.trim(), tag].filter(Boolean).join(" ");
-                            })
-                          }
-                          className="px-2 py-0.5 rounded-full border border-amber-500/50 bg-amber-500/10 hover:bg-amber-500/20"
-                        >
-                          {tag}
-                        </button>
-                      ))}
+                    <div className="flex flex-col items-center gap-1 text-[11px]">
+                      <div className="flex flex-wrap justify-center gap-1">
+                        {hashtagSuggestions.map((tag, idx) => (
+                          <button
+                            key={tag + idx}
+                            type="button"
+                            onClick={() =>
+                              setContent((prev) => {
+                                if (prev.includes(tag)) return prev;
+                                return [prev.trim(), tag].filter(Boolean).join(" ");
+                              })
+                            }
+                            className="px-2 py-0.5 rounded-full border border-amber-500/50 bg-amber-500/10 hover:bg-amber-500/20"
+                          >
+                            {tag}
+                          </button>
+                        ))}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setHashtagSuggestions([])}
+                        className="mt-1 text-[10px] text-amber-100/80 underline underline-offset-2"
+                      >
+                        Não usar hashtags sugeridas agora
+                      </button>
                     </div>
                   )}
                   {mentionSuggestions.length > 0 && mentionQuery.length >= 1 && (
