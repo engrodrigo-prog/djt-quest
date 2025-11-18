@@ -17,6 +17,7 @@ export const CampaignForm = () => {
   const { toast } = useToast();
   const [submitting, setSubmitting] = useState(false);
   const [coverUrl, setCoverUrl] = useState<string | null>(null);
+  const [isTeamCampaign, setIsTeamCampaign] = useState(false);
 
   const {
     register,
@@ -26,6 +27,9 @@ export const CampaignForm = () => {
     formState: { errors },
   } = useForm<CampaignFormData>({
     resolver: zodResolver(campaignSchema),
+    defaultValues: {
+      is_team_campaign: false,
+    } as any,
   });
 
   const onSubmit = async (data: CampaignFormData) => {
@@ -39,6 +43,7 @@ export const CampaignForm = () => {
         start_date: data.start_date,
         end_date: data.end_date,
         is_active: true,
+        is_team_campaign: data.is_team_campaign ?? false,
         cover_image_url: coverUrl || null,
       } as any);
 
@@ -51,6 +56,7 @@ export const CampaignForm = () => {
 
       reset();
       setCoverUrl(null);
+      setIsTeamCampaign(false);
     } catch (error: any) {
       console.error("Error creating campaign:", error);
       toast({
@@ -198,6 +204,25 @@ export const CampaignForm = () => {
               {errors.end_date && (
                 <p className="text-sm text-destructive mt-1">{errors.end_date.message}</p>
               )}
+            </div>
+          </div>
+
+          <div className="flex items-start gap-2">
+            <input
+              id="is_team_campaign"
+              type="checkbox"
+              checked={isTeamCampaign}
+              onChange={(e) => {
+                setIsTeamCampaign(e.target.checked);
+                setValue("is_team_campaign" as any, e.target.checked, { shouldValidate: true });
+              }}
+              className="mt-1"
+            />
+            <div>
+              <Label htmlFor="is_team_campaign">Campanha em equipe</Label>
+              <p className="text-xs text-muted-foreground">
+                Quando marcada, as evidências no SEPBook poderão selecionar vários participantes da equipe para receber XP juntos.
+              </p>
             </div>
           </div>
 

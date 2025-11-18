@@ -26,6 +26,8 @@ interface SepPost {
   created_at: string;
   location_label?: string | null;
   has_liked?: boolean;
+  campaign?: { id: string; title: string | null } | null;
+  participants?: { id: string; name: string; sigla_area?: string | null }[];
 }
 
 interface SepComment {
@@ -1130,6 +1132,25 @@ export default function SEPBook() {
                 </div>
               </CardHeader>
               <CardContent className="space-y-2">
+                {(p.campaign || (p.participants && p.participants.length > 0)) && (
+                  <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+                    {p.campaign && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary">
+                        <span className="font-semibold">Campanha:</span> {p.campaign.title || "Sem título"}
+                      </span>
+                    )}
+                    {p.participants && p.participants.length > 0 && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-300">
+                        <span className="font-semibold">Participantes:</span>
+                        <span className="truncate max-w-[220px]">
+                          {p.participants
+                            .map((m) => (m.sigla_area ? `[${m.sigla_area}] ${m.name}` : m.name))
+                            .join(", ")}
+                        </span>
+                      </span>
+                    )}
+                  </div>
+                )}
                 {editingId === p.id ? (
                   <div className="space-y-2">
                     <div className="flex items-center justify-between text-[11px] text-muted-foreground">

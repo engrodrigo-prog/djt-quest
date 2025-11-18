@@ -61,6 +61,7 @@ export const campaignSchema = z.object({
   end_date: z.string().refine((val) => !isNaN(Date.parse(val)), {
     message: "Data de término inválida",
   }),
+  is_team_campaign: z.boolean().default(false),
 });
 
 export type CampaignFormData = z.infer<typeof campaignSchema>;
