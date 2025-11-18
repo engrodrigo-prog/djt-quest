@@ -19,7 +19,25 @@ export function ContentHub({ onOpen }: { onOpen: (id: 'campaigns' | 'campaigns-m
             </div>
           </CardHeader>
           <CardContent className="flex flex-col gap-2">
-            <Button onClick={() => onOpen('campaigns')} className="w-full">Criar Campanha</Button>
+            <Button
+              onClick={() => {
+                try { localStorage.setItem('campaign_form_type', 'individual'); } catch {}
+                onOpen('campaigns');
+              }}
+              className="w-full"
+            >
+              Criar Campanha Individual
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                try { localStorage.setItem('campaign_form_type', 'team'); } catch {}
+                onOpen('campaigns');
+              }}
+              className="w-full"
+            >
+              Criar Campanha Coletiva
+            </Button>
             <Button variant="outline" onClick={() => onOpen('campaigns-manage')} className="w-full">Gerenciar Campanhas</Button>
           </CardContent>
         </Card>

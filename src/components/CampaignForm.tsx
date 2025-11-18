@@ -86,6 +86,20 @@ export const CampaignForm = () => {
     } catch {}
   }, []);
 
+  // Preferência de tipo vinda do card do Studio (individual x coletiva)
+  useEffect(() => {
+    try {
+      const t = localStorage.getItem('campaign_form_type');
+      if (!t) return;
+      const isTeam = t === 'team';
+      setIsTeamCampaign(isTeam);
+      setValue('is_team_campaign' as any, isTeam, { shouldValidate: false });
+      // não removo a chave, assim o padrão se mantém até o próximo ajuste
+    } catch {
+      // ignore
+    }
+  }, [setValue]);
+
   const handleCleanupDescription = async () => {
     try {
       const desc = (document.getElementById("description") as HTMLTextAreaElement | null)?.value || "";
