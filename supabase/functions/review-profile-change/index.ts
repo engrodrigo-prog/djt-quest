@@ -36,9 +36,6 @@ Deno.serve(async (req) => {
     if (!request_id || !action || !['approved', 'rejected'].includes(action)) {
       throw new Error('Invalid request_id or action');
     }
-    if (!request?.field_name) {
-      throw new Error('Invalid request');
-    }
 
     // Verificar se usuário é líder
     const { data: roles } = await supabaseClient
@@ -58,6 +55,10 @@ Deno.serve(async (req) => {
 
     if (fetchError || !request) {
       throw new Error('Request not found or already processed');
+    }
+
+    if (!request.field_name) {
+      throw new Error('Invalid request');
     }
 
     const { data: reviewerProfile } = await supabaseClient

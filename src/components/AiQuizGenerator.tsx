@@ -18,7 +18,7 @@ const MILHAO_TOTAL = 10;
 export const AiQuizGenerator = ({ defaultChallengeId }: { defaultChallengeId?: string }) => {
   const [topic, setTopic] = useState('')
   const [difficulty, setDifficulty] = useState<'basico'|'intermediario'|'avancado'|'especialista'>('basico')
-  const [mode, setMode] = useState<'especial' | 'milzao'>('especial')
+  const [mode] = useState<'especial' | 'milzao'>('milzao')
   const [specialties, setSpecialties] = useState<string[]>([])
   const [context, setContext] = useState<string>('')
   const [challenges, setChallenges] = useState<Challenge[]>([])
@@ -171,18 +171,40 @@ export const AiQuizGenerator = ({ defaultChallengeId }: { defaultChallengeId?: s
     const idx = Math.min(MILHAO_TOTAL, Math.max(1, slotIndex)) - 1
     const base = fullQuiz || { quiz_id: 'local-milhao', tipo: mode, criador: '', questoes: [] }
     const questoes = Array.from({ length: MILHAO_TOTAL }, (_, i) => base.questoes?.[i] || null)
+    const cleanCorrect = correctText.trim()
+    const wrongTexts = wrongs
+      .map((w) => (w.text || '').trim())
+      .filter((t) => t.length > 0 && t.toLowerCase() !== cleanCorrect.toLowerCase())
+
+    const letters = ['A', 'B', 'C', 'D'] as const
+    const shuffledLetters = [...letters].sort(() => Math.random() - 0.5)
+    const correctIndex = Math.floor(Math.random() * shuffledLetters.length)
     const alternativas: Record<string, string> = {}
-    alternativas['A'] = correctText.trim()
-    wrongs.forEach((w, i) => {
-      const key = String.fromCharCode(66 + i)
-      alternativas[key] = w.text.trim()
-    })
+
+    alternativas[shuffledLetters[correctIndex]] = cleanCorrect
+
+    let wi = 0
+    for (let i = 0; i < shuffledLetters.length; i++) {
+      if (i === correctIndex) continue
+      const txt = wrongTexts[wi]
+      if (!txt) break
+      alternativas[shuffledLetters[i]] = txt
+      wi++
+    }
+
+    // Se sobrar espaço e ainda houver textos, preenche slots remanescentes
+    for (const extra of wrongTexts.slice(wi)) {
+      const slot = letters.find((L) => !alternativas[L])
+      if (!slot) break
+      alternativas[slot] = extra
+    }
+
     questoes[idx] = {
       id: idx + 1,
       nivel: idx + 1,
       enunciado: question.trim(),
       alternativas,
-      correta: 'A',
+      correta: shuffledLetters[correctIndex],
       xp_base: base.questoes?.[idx]?.xp_base || undefined,
     }
     setFullQuiz({ ...base, questoes })
@@ -213,45 +235,30 @@ export const AiQuizGenerator = ({ defaultChallengeId }: { defaultChallengeId?: s
     return true
   }
 
-  const save = async () => {
-    if (!challengeId) {
-      toast('Selecione um desafio para salvar a pergunta.')
+  const handlePublish = async () => {
+    if (!fullQuiz || !Array.isArray(fullQuiz.questoes) || fullQuiz.questoes.length === 0) {
+      toast('Gere o Quiz do Milhão completo antes de publicar.')
       return
     }
-    if (!validateFields()) return
-    setSaving(true)
+    const filled = fullQuiz.questoes.filter((q: any) => q && String(q.enunciado || '').trim().length > 0).length
+    if (filled < MILHAO_TOTAL) {
+      toast('Preencha as 10 posições do Quiz do Milhão antes de publicar.')
+      return
+    }
     try {
-      const { data: session } = await supabase.auth.getSession()
-      const token = session.session?.access_token
-      const payload = {
-        challengeId,
-        question_text: question.trim(),
-        difficulty_level: difficulty,
-        options: [
-          { option_text: correctText.trim(), is_correct: true, explanation: correctExplanation.trim() || null },
-          ...wrongs.map((w) => ({ option_text: w.text.trim(), is_correct: false, explanation: (w.explanation || '').trim() || null }))
-        ]
-      }
-
-      const resp = await apiFetch('/api/admin?handler=studio-create-quiz-question', {
+      setLoading(true)
+      const resp = await apiFetch('/api/admin?handler=studio-publish-quiz-milhao', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify(payload)
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ topic, quiz: fullQuiz }),
       })
-      const json = await resp.json()
-      if (!resp.ok) throw new Error(json?.error || 'Falha ao salvar')
-      toast('Pergunta salva no desafio!')
-      setQuestion('')
-      setCorrectText('')
-      setCorrectExplanation('')
-      setWrongs(Array.from({ length: WRONG_COUNT }, () => ({ text: '', explanation: '' })))
+      const json = await resp.json().catch(() => ({}))
+      if (!resp.ok) throw new Error(json?.error || 'Falha ao publicar Quiz do Milhão')
+      toast(`Quiz do Milhão publicado para todos: ${json?.title || ''}`)
     } catch (e: any) {
-      toast(`Erro ao salvar: ${e?.message || e}`)
+      toast(`Erro ao publicar Quiz do Milhão: ${e?.message || e}`)
     } finally {
-      setSaving(false)
+      setLoading(false)
     }
   }
 
@@ -275,36 +282,22 @@ export const AiQuizGenerator = ({ defaultChallengeId }: { defaultChallengeId?: s
             </div>
           )}
 
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <div className="space-y-2 md:col-span-2">
               <Label>Tema</Label>
               <Input value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="Ex.: NR10, subtransmissão, segurança, etc." />
             </div>
-            {mode !== 'milzao' && (
-              <div className="space-y-2">
-                <Label>Dificuldade</Label>
-                <Select value={difficulty} onValueChange={(v) => setDifficulty(v as any)}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecione" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="basico">Básico</SelectItem>
-                    <SelectItem value="intermediario">Intermediário</SelectItem>
-                    <SelectItem value="avancado">Avançado</SelectItem>
-                    <SelectItem value="especialista">Especialista</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
             <div className="space-y-2">
-              <Label>Modo do quiz</Label>
-              <Select value={mode} onValueChange={(v) => setMode(v as 'especial' | 'milzao')}>
+              <Label>Nível base para rascunhos (opcional)</Label>
+              <Select value={difficulty} onValueChange={(v) => setDifficulty(v as any)}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Escolha o modo" />
+                  <SelectValue placeholder="Selecione" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="especial">Quiz Especial (XP progressivo)</SelectItem>
-                  <SelectItem value="milzao">Quiz do Milhão (10 níveis)</SelectItem>
+                  <SelectItem value="basico">Básico</SelectItem>
+                  <SelectItem value="intermediario">Intermediário</SelectItem>
+                  <SelectItem value="avancado">Avançado</SelectItem>
+                  <SelectItem value="especialista">Especialista</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -360,27 +353,6 @@ export const AiQuizGenerator = ({ defaultChallengeId }: { defaultChallengeId?: s
                   </div>
                 ))}
               </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div className="space-y-2">
-              <Label>Salvar no desafio</Label>
-              <Select value={challengeId} onValueChange={(v) => setChallengeId(v)}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecione o desafio" />
-                </SelectTrigger>
-                <SelectContent>
-                  {challenges.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>{c.title}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex items-end">
-              <Button variant="game" className="w-full" onClick={save} disabled={saving}>
-                {saving ? 'Salvando...' : 'Salvar pergunta no desafio'}
-              </Button>
             </div>
           </div>
 
@@ -523,6 +495,18 @@ export const AiQuizGenerator = ({ defaultChallengeId }: { defaultChallengeId?: s
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+          {mode === 'milzao' && (
+            <div className="pt-4 flex justify-end">
+              <Button
+                type="button"
+                variant="game"
+                onClick={handlePublish}
+                disabled={loading || !fullQuiz}
+              >
+                {loading ? 'Publicando...' : 'Publicar Quiz do Milhão para todos'}
+              </Button>
             </div>
           )}
         </CardContent>

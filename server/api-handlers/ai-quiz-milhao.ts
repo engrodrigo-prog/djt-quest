@@ -152,14 +152,79 @@ Observações:
     json.tipo = mode === 'milzao' ? 'milhao' : 'especial';
     json.criador = callerEmail || json.criador || 'líder';
     json.quiz_id = json.quiz_id || 'milzao-' + callerId;
-    json.questoes = json.questoes.map((q: any, idx: number) => ({
-      id: idx + 1,
-      nivel: q.nivel ?? idx + 1,
-      enunciado: q.enunciado || q.question || '',
-      alternativas: q.alternativas || q.options || {},
-      correta: q.correta || q.answer || 'A',
-      xp_base: q.xp_base ?? xpTable[idx] ?? 100,
-    }));
+    const letters = ['A', 'B', 'C', 'D'] as const;
+
+    json.questoes = json.questoes.map((raw: any, idx: number) => {
+      const nivel = raw.nivel ?? idx + 1;
+      const enunciado = raw.enunciado || raw.question || '';
+      const baseAlternativas = raw.alternativas || raw.options || {};
+      const baseCorreta = (raw.correta || raw.answer || 'A').toString().trim().toUpperCase();
+      const xp_base = raw.xp_base ?? xpTable[idx] ?? 100;
+
+      // Normalizar alternativas para A-D
+      const normalized: Record<string, string> = {};
+      for (const [kRaw, vRaw] of Object.entries(baseAlternativas || {})) {
+        const k = kRaw.toString().trim().toUpperCase();
+        const v = (vRaw ?? '').toString().trim();
+        if (!v) continue;
+        if (!letters.includes(k as any)) continue;
+        normalized[k] = v;
+      }
+
+      const availableKeys = Object.keys(normalized);
+      const effectiveCorrectKey =
+        (availableKeys.includes(baseCorreta) ? baseCorreta : availableKeys[0]) || 'A';
+      const correctText = normalized[effectiveCorrectKey] || '';
+      const wrongTexts = letters
+        .filter((l) => l !== effectiveCorrectKey)
+        .map((l) => normalized[l])
+        .filter((v) => typeof v === 'string' && v.trim().length > 0);
+
+      // Se não conseguirmos identificar claramente correta + erradas, mantém estrutura original
+      if (!correctText || wrongTexts.length === 0) {
+        return {
+          id: idx + 1,
+          nivel,
+          enunciado,
+          alternativas: baseAlternativas,
+          correta: baseCorreta || 'A',
+          xp_base,
+        };
+      }
+
+      // Embaralhar posição da alternativa correta entre A-D
+      const perm = [...letters].sort(() => Math.random() - 0.5);
+      const correctIndex = Math.floor(Math.random() * perm.length);
+      const novasAlternativas: Record<string, string> = {};
+
+      novasAlternativas[perm[correctIndex]] = correctText;
+
+      let wi = 0;
+      for (let i = 0; i < perm.length; i++) {
+        if (i === correctIndex) continue;
+        const txt = wrongTexts[wi] || '';
+        if (txt) {
+          novasAlternativas[perm[i]] = txt;
+          wi++;
+        }
+      }
+
+      // Se ainda faltarem alternativas (entrada incompleta), reaproveita quaisquer textos restantes
+      for (const t of wrongTexts.slice(wi)) {
+        const slot = letters.find((L) => !novasAlternativas[L]);
+        if (!slot || !t) break;
+        novasAlternativas[slot] = t;
+      }
+
+      return {
+        id: idx + 1,
+        nivel,
+        enunciado,
+        alternativas: novasAlternativas,
+        correta: perm[correctIndex],
+        xp_base,
+      };
+    });
 
     return res.status(200).json({ success: true, quiz: json });
   } catch (err: any) {

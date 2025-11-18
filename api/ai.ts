@@ -1,7 +1,7 @@
 // @ts-nocheck
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
-// Import handlers statically so Vercel bundles them correctly
+// Import handlers estaticamente para o bundle da Vercel
 import aiHealth from '../server/api-handlers/ai-health.js';
 import aiQuizDraft from '../server/api-handlers/ai-quiz-draft.js';
 import aiGenerateWrongs from '../server/api-handlers/ai-generate-wrongs.js';
@@ -10,7 +10,6 @@ import forumCleanupText from '../server/api-handlers/forum-cleanup-text.js';
 import suggestHashtags from '../server/api-handlers/ai-suggest-hashtags.js';
 import aiQuizMilhao from '../server/api-handlers/ai-quiz-milhao.js';
 import aiQuizBurini from '../server/api-handlers/ai-quiz-burini.js';
-import aiQuizMilhao from '../server/api-handlers/ai-quiz-milhao.js';
 
 type Handler = (req: VercelRequest, res: VercelResponse) => any | Promise<any>;
 
@@ -22,7 +21,6 @@ const handlers: Record<string, Handler> = {
   'generate-wrongs': aiGenerateWrongs,
   'quiz-milhao': aiQuizMilhao,
   'quiz-burini': aiQuizBurini,
-  'quiz-milhao': aiQuizMilhao,
   // Audio -> texto
   'transcribe-audio': transcribeAudio,
   // Texto: limpeza ortográfica/pontuação (usado em fórum, quizzes, etc.)
