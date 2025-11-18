@@ -9,7 +9,7 @@ import { AttachmentViewer } from "@/components/AttachmentViewer";
 import { ThemedBackground } from "@/components/ThemedBackground";
 import Navigation from "@/components/Navigation";
 import { useToast } from "@/hooks/use-toast";
-import { MessageSquare, Heart, Trash2, MapPin, Wand2, Send, Flame, Plus, Hash, Pencil } from "lucide-react";
+import { MessageSquare, Heart, Trash2, MapPin, Wand2, Send, Flame, Plus, Hash, Pencil, Share2 } from "lucide-react";
 import { VoiceRecorderButton } from "@/components/VoiceRecorderButton";
 
 interface SepPost {
@@ -1184,23 +1184,46 @@ export default function SEPBook() {
                   </>
                 )}
                 <div className="flex items-center justify-between text-xs text-muted-foreground mt-2">
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1"
+                      onClick={() => toggleLike(p)}
+                    >
+                      <Heart
+                        className={`h-4 w-4 ${p.has_liked ? "fill-red-500 text-red-500" : ""}`}
+                      />
+                      <span>{p.like_count || 0}</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1"
+                      onClick={() => toggleComments(p.id)}
+                    >
+                      <MessageSquare className="h-4 w-4" />
+                      <span>{p.comment_count || 0} comentários</span>
+                    </button>
+                  </div>
                   <button
                     type="button"
-                    className="inline-flex items-center gap-1"
-                    onClick={() => toggleLike(p)}
+                    className="inline-flex items-center justify-center h-7 w-7 rounded-full border border-border/50 hover:bg-accent"
+                    onClick={() => {
+                      try {
+                        const base = window.location.origin;
+                        const url = `${base}/sepbook`;
+                        const preview = (p.content_md || '').slice(0, 140).replace(/\s+/g, ' ');
+                        const text = preview
+                          ? `Veja esta publicação no SEPBook (DJT Quest):\n"${preview}..." \n${url}`
+                          : `Veja esta publicação no SEPBook (DJT Quest):\n${url}`;
+                        const waUrl = `https://wa.me/?text=${encodeURIComponent(text)}`;
+                        window.open(waUrl, '_blank', 'noopener,noreferrer');
+                      } catch {
+                        // silencioso
+                      }
+                    }}
+                    title="Compartilhar esta publicação no WhatsApp"
                   >
-                    <Heart
-                      className={`h-4 w-4 ${p.has_liked ? "fill-red-500 text-red-500" : ""}`}
-                    />
-                    <span>{p.like_count || 0}</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="inline-flex items-center gap-1"
-                    onClick={() => toggleComments(p.id)}
-                  >
-                    <MessageSquare className="h-4 w-4" />
-                    <span>{p.comment_count || 0} comentários</span>
+                    <Share2 className="h-3.5 w-3.5" />
                   </button>
                 </div>
                 {openComments[p.id] && (

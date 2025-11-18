@@ -14,7 +14,7 @@ import { AttachmentUploader } from '@/components/AttachmentUploader'
 import { AttachmentMetadataModal } from '@/components/AttachmentMetadataModal'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import Navigation from '@/components/Navigation'
-import { Wand2 } from 'lucide-react'
+import { Wand2, Share2 } from 'lucide-react'
 
 interface Topic { id: string; title: string; description: string | null; status: string; chas_dimension: 'C'|'H'|'A'|'S'; quiz_specialties: string[] | null; tags: string[] | null }
 interface Post {
@@ -499,9 +499,9 @@ export default function ForumTopic() {
                   </Button>
                   {id && (
                     <Button
-                      size="xs"
-                      variant="outline"
-                      className="text-[11px]"
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8"
                       onClick={() => {
                         try {
                           const base = window.location.origin;
@@ -513,8 +513,9 @@ export default function ForumTopic() {
                           // silencioso
                         }
                       }}
+                      title="Compartilhar este fórum no WhatsApp"
                     >
-                      Compartilhar no WhatsApp
+                      <Share2 className="h-4 w-4" />
                     </Button>
                   )}
                   {isLeaderMod && topic.status !== 'closed' && (
