@@ -18,8 +18,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const authHeader = req.headers["authorization"] as string | undefined;
     if (!authHeader?.startsWith("Bearer ")) return res.status(401).json({ error: "Unauthorized" });
     const token = authHeader.slice(7);
-    const { data: userData } = await admin.auth.getUser(token);
-    const uid = userData?.user?.id;
+    let uid: string | null = null;
+    try {
+      const { data: userData } = await admin.auth.getUser(token);
+      uid = userData?.user?.id || null;
+    } catch {
+      // timeout ou indisponibilidade Supabase: devolve contagens zeradas para não quebrar o client
+      return res.status(200).json({ new_posts: 0, mentions: 0 });
+    }
     if (!uid) return res.status(401).json({ error: "Unauthorized" });
 
     const { data: lastSeenRow } = await admin
@@ -53,4 +59,3 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 }
 
 export const config = { api: { bodyParser: false } };
-

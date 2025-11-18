@@ -27,9 +27,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === 'OPTIONS') return res.status(204).send('')
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' })
 
+  const emptyPayload = { approvals: 0, passwordResets: 0, evaluations: 0, leadershipAssignments: 0, forumMentions: 0, registrations: 0 }
+
   try {
     if (!SUPABASE_URL || !SERVICE_KEY) {
-      return res.status(200).json({ approvals: 0, passwordResets: 0, evaluations: 0, leadershipAssignments: 0, forumMentions: 0, registrations: 0 })
+      return res.status(200).json(emptyPayload)
     }
 
     const authHeader = (req.headers['authorization'] as string | undefined) || ''
@@ -42,22 +44,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     try {
       const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : ''
       if (!token) {
-        return res.status(200).json({ approvals: 0, passwordResets: 0, evaluations: 0, leadershipAssignments: 0, forumMentions: 0, registrations: 0 })
+        return res.status(200).json(emptyPayload)
       }
       const { data: userData } = await admin.auth.getUser(token)
       userId = userData?.user?.id || null
-    } catch {}
+    } catch {
+      // rede supabase offline/timeout -> devolve zeros para não quebrar frontend
+      return res.status(200).json(emptyPayload)
+    }
 
     const safeCount = async (query: any) => {
       try {
         const { count, error } = await query.select('id', { count: 'exact', head: true })
         if (error) return 0
         return count || 0
-      } catch { return 0 }
+      } catch {
+        return 0
+      }
     }
 
     if (!userId) {
-      return res.status(200).json({ approvals: 0, passwordResets: 0, evaluations: 0, leadershipAssignments: 0, forumMentions: 0, registrations: 0 })
+      return res.status(200).json(emptyPayload)
     }
 
     // Determinar se o usuário é staff (coord/gerente/admin) para contar filas globais
@@ -76,7 +83,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     return res.status(200).json({ approvals, passwordResets, evaluations, leadershipAssignments, forumMentions, registrations: pendingRegistrations })
   } catch (err: any) {
-    return res.status(200).json({ approvals: 0, passwordResets: 0, evaluations: 0, leadershipAssignments: 0, forumMentions: 0, registrations: 0 })
+    return res.status(200).json(emptyPayload)
   }
 }
 
