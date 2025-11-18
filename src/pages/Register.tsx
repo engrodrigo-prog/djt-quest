@@ -239,14 +239,21 @@ export default function Register() {
                     handleChange('operational_base', baseOptions[0]);
                   }
                 }}
-                value={formData.sigla_area}
+                value={formData.sigla_area || undefined}
               >
                 <SelectTrigger id="sigla_area">
-                  <SelectValue placeholder="Selecione sua equipe/sigla" />
+                  <SelectValue placeholder="Selecione sua equipe (sigla – nome)" />
                 </SelectTrigger>
                 <SelectContent>
                   {teams.map((t) => (
-                    <SelectItem key={t.id} value={t.id}>{t.id}</SelectItem>
+                    <SelectItem key={t.id} value={t.id}>
+                      <span className="font-mono font-semibold">{t.id}</span>
+                      {t.name && (
+                        <span className="ml-1 text-xs text-muted-foreground">
+                          — {t.name}
+                        </span>
+                      )}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
