@@ -431,8 +431,17 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
   const displaySummary = (s: StudySource) => s.summary?.trim() || s.url || "Sem resumo";
   const statusBadge = (s: StudySource) => {
     if (s.ingest_status === "ok") return null;
-    if (s.ingest_status === "pending") return <Badge variant="outline" className="text-[10px] border-amber-400 text-amber-200">curando...</Badge>;
-    if (s.ingest_status === "failed") return <Badge variant="outline" className="text-[10px] border-red-400 text-red-200">falhou</Badge>;
+    if (s.ingest_status === "pending") return (
+      <Badge variant="outline" className="text-[10px] border-amber-400 text-amber-200">
+        analisando com IA...
+      </Badge>
+    );
+    if (s.ingest_status === "failed")
+      return (
+        <Badge variant="outline" className="text-[10px] border-red-400 text-red-200">
+          falhou
+        </Badge>
+      );
     return null;
   };
 
