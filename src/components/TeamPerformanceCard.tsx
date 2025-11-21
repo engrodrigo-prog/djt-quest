@@ -50,20 +50,23 @@ export const TeamPerformanceCard = () => {
   const isNegative = modifier < 1.0;
 
   return (
-    <Card className="p-6 bg-gradient-to-br from-primary/5 to-primary/10 backdrop-blur-sm">
+    <Card className="relative overflow-hidden p-6 bg-white/5 border border-white/20 text-white shadow-xl backdrop-blur-md">
+      <div aria-hidden className="absolute inset-0 bg-gradient-to-br from-primary/20 via-primary/25 to-primary/30" />
+      <div aria-hidden className="absolute inset-0 bg-gradient-to-b from-black/20 to-transparent" />
+      <div className="relative">
       <div className="flex items-start justify-between mb-4">
         <div>
-          <h3 className="text-lg font-semibold text-foreground">Performance da Equipe</h3>
-          <p className="text-sm text-muted-foreground">{teamData.name}</p>
+          <h3 className="text-lg font-semibold tracking-tight text-white">Performance da Equipe</h3>
+          <p className="text-sm text-white/70">{teamData.name}</p>
         </div>
-        {isPositive && <TrendingUp className="w-6 h-6 text-green-500" />}
-        {isNegative && <TrendingDown className="w-6 h-6 text-red-500" />}
-        {!isPositive && !isNegative && <Minus className="w-6 h-6 text-muted-foreground" />}
+        {isPositive && <TrendingUp className="w-6 h-6 text-emerald-300" />}
+        {isNegative && <TrendingDown className="w-6 h-6 text-rose-300" />}
+        {!isPositive && !isNegative && <Minus className="w-6 h-6 text-white/60" />}
       </div>
 
       <div className="space-y-3">
         <div className="flex items-center gap-3">
-          <span className="text-3xl font-bold text-foreground">
+          <span className="text-3xl font-bold text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.4)]">
             {isPositive && "+"}
             {percentage}%
           </span>
@@ -76,25 +79,26 @@ export const TeamPerformanceCard = () => {
         </div>
 
         {teamData.modifier_reason && (
-          <p className="text-sm text-muted-foreground border-l-2 border-primary pl-3">
+          <p className="text-sm text-white/80 border-l-2 border-white/30 pl-3">
             {teamData.modifier_reason}
           </p>
         )}
 
         {teamData.last_modifier_update && (
-          <p className="text-xs text-muted-foreground">
+          <p className="text-xs text-white/70">
             Última atualização:{" "}
             {new Date(teamData.last_modifier_update).toLocaleDateString("pt-BR")}
           </p>
         )}
 
-        <div className="pt-3 border-t border-border">
-          <p className="text-xs text-muted-foreground">
+        <div className="pt-3 border-t border-white/30">
+          <p className="text-xs text-white/75">
             {isPositive && "🚀 Sua equipe está acima da média! Continue assim!"}
             {isNegative && "⚠️ Sua equipe precisa melhorar. Vamos juntos!"}
             {!isPositive && !isNegative && "✅ Sua equipe está na média esperada."}
           </p>
         </div>
+      </div>
       </div>
     </Card>
   );

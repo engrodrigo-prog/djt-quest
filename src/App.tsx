@@ -25,6 +25,7 @@ const UserSetup = lazy(() => import("./pages/UserSetup"));
 const LeaderDashboard = lazy(() => import("./pages/LeaderDashboard"));
 const SEPBook = lazy(() => import("./pages/SEPBook"));
 const CampaignDetail = lazy(() => import("./pages/CampaignDetail"));
+const Study = lazy(() => import("./pages/Study"));
 
 const queryClient = new QueryClient();
 const LEADER_ALLOWED_ROLES = ['coordenador_djtx', 'gerente_divisao_djtx', 'gerente_djt', 'admin'];
@@ -118,6 +119,11 @@ const App = () => (
             <Route path="/sepbook" element={
               <ProtectedRoute>
                 <SEPBook />
+              </ProtectedRoute>
+            } />
+            <Route path="/study" element={
+              <ProtectedRoute>
+                <Study />
               </ProtectedRoute>
             } />
             <Route path="/forum/:topicId" element={

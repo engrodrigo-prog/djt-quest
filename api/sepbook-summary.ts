@@ -10,51 +10,73 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "GET") return res.status(405).json({ error: "Method not allowed" });
 
   try {
-    if (!SUPABASE_URL || !SERVICE_KEY) return res.status(500).json({ error: "Missing Supabase config" });
+    if (!SUPABASE_URL || !SERVICE_KEY) {
+      // Sem config completa: devolve contagens zeradas para não quebrar UI
+      return res.status(200).json({ new_posts: 0, mentions: 0 });
+    }
+
     const admin = createClient(SUPABASE_URL, SERVICE_KEY, {
       auth: { autoRefreshToken: false, persistSession: false },
     });
 
     const authHeader = req.headers["authorization"] as string | undefined;
-    if (!authHeader?.startsWith("Bearer ")) return res.status(401).json({ error: "Unauthorized" });
+    if (!authHeader?.startsWith("Bearer ")) {
+      // Quando não há token (por exemplo, tela pública), apenas retorna zeros
+      return res.status(200).json({ new_posts: 0, mentions: 0 });
+    }
+
     const token = authHeader.slice(7);
     let uid: string | null = null;
     try {
       const { data: userData } = await admin.auth.getUser(token);
       uid = userData?.user?.id || null;
     } catch {
-      // timeout ou indisponibilidade Supabase: devolve contagens zeradas para não quebrar o client
+      // Timeout ou indisponibilidade Supabase: devolve contagens zeradas para não quebrar o client
       return res.status(200).json({ new_posts: 0, mentions: 0 });
     }
-    if (!uid) return res.status(401).json({ error: "Unauthorized" });
+    if (!uid) {
+      return res.status(200).json({ new_posts: 0, mentions: 0 });
+    }
 
-    const { data: lastSeenRow } = await admin
-      .from("sepbook_last_seen")
-      .select("last_seen_at")
-      .eq("user_id", uid)
-      .maybeSingle();
+    const safeCount = async (query: any) => {
+      try {
+        const { count, error } = await query.select("id", { count: "exact", head: true });
+        if (error) return 0;
+        return count || 0;
+      } catch {
+        return 0;
+      }
+    };
 
-    const fallback = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-    const lastSeen = lastSeenRow?.last_seen_at || fallback;
+    let lastSeen = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    try {
+      const { data: lastSeenRow } = await admin
+        .from("sepbook_last_seen")
+        .select("last_seen_at")
+        .eq("user_id", uid)
+        .maybeSingle();
+      if (lastSeenRow?.last_seen_at) {
+        lastSeen = lastSeenRow.last_seen_at;
+      }
+    } catch {
+      // Se falhar, mantém o fallback de 7 dias
+    }
 
-    const { count: newPosts } = await admin
-      .from("sepbook_posts")
-      .select("id", { count: "exact", head: true })
-      .gt("created_at", lastSeen)
-      .neq("user_id", uid);
+    const newPosts = await safeCount(
+      admin.from("sepbook_posts").gt("created_at", lastSeen).neq("user_id", uid)
+    );
 
-    const { count: mentions } = await admin
-      .from("sepbook_mentions")
-      .select("post_id", { count: "exact", head: true })
-      .eq("mentioned_user_id", uid)
-      .eq("is_read", false);
+    const mentions = await safeCount(
+      admin.from("sepbook_mentions").eq("mentioned_user_id", uid).eq("is_read", false)
+    );
 
     return res.status(200).json({
-      new_posts: newPosts || 0,
-      mentions: mentions || 0,
+      new_posts: newPosts,
+      mentions,
     });
-  } catch (e: any) {
-    return res.status(500).json({ error: e?.message || "Unknown error" });
+  } catch {
+    // Qualquer outra falha inesperada: retorna zeros em vez de 500
+    return res.status(200).json({ new_posts: 0, mentions: 0 });
   }
 }
 

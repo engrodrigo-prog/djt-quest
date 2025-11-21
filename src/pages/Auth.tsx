@@ -232,7 +232,7 @@ const Auth = () => {
   };
 
   return (
-    <div 
+    <div
       className="min-h-screen flex items-center justify-center p-4 animate-fade-in relative"
       style={{
         backgroundImage: `url(${djtCover})`,
@@ -240,18 +240,20 @@ const Auth = () => {
         backgroundPosition: 'center',
       }}
     >
-      <div className="absolute inset-0 bg-black/30" />
-      <Card className="w-full max-w-md bg-background shadow-2xl relative z-10">
-        <CardHeader>
-          <CardTitle>DJT Quest - Login</CardTitle>
-          <CardDescription>
+      <div className="absolute inset-0 bg-black/45 backdrop-blur-[10px]" />
+      <Card className="w-full max-w-md bg-white/90 text-slate-900 border border-white/70 shadow-[0_24px_70px_rgba(0,0,0,0.55)] relative z-10 backdrop-blur-xl">
+        <CardHeader className="space-y-2">
+          <CardTitle className="text-3xl font-semibold leading-tight tracking-tight text-slate-900">
+            DJT Quest - Login
+          </CardTitle>
+          <CardDescription className="text-sm text-slate-700">
             {selectedUserName ? `Bem-vindo de volta, ${selectedUserName}!` : 'Digite nome ou matrícula para localizar seu acesso'}
           </CardDescription>
         </CardHeader>
-        <CardContent>
-          <form onSubmit={handleLogin} className="space-y-4">
+        <CardContent className="text-slate-900">
+          <form onSubmit={handleLogin} className="space-y-4 text-slate-900">
             <div className="space-y-2">
-              <Label htmlFor="user">Matrícula</Label>
+              <Label htmlFor="user" className="text-slate-900">Matrícula</Label>
               <Popover open={open} onOpenChange={setOpen}>
                 <PopoverTrigger asChild>
                   <div className="relative">
@@ -314,7 +316,7 @@ const Auth = () => {
                           }
                         }
                       }}
-                      className="w-full pr-10"
+                      className="w-full pr-10 bg-white text-slate-900 placeholder:text-slate-500 border-slate-300 focus-visible:ring-primary"
                       aria-expanded={open}
                       aria-controls="user-combobox"
                     />
@@ -364,7 +366,7 @@ const Auth = () => {
             </div>
             
             <div className="space-y-2">
-              <Label htmlFor="password">Senha</Label>
+              <Label htmlFor="password" className="text-slate-900">Senha</Label>
               <input type="text" name="username" autoComplete="username" hidden readOnly />
               <Input
                 id="password"
@@ -376,28 +378,29 @@ const Auth = () => {
                 autoFocus={!!selectedUserName}
                 autoComplete={selectedUserId ? "current-password" : "off"}
                 ref={passwordRef}
+                className="bg-white text-slate-900 placeholder:text-slate-500 border-slate-300 focus-visible:ring-primary"
               />
-              <p className="text-xs text-muted-foreground">
-                Senha padrão: <code className="bg-muted px-1 rounded">123456</code>
+              <p className="text-xs text-slate-600">
+                Senha padrão: <code className="bg-slate-100 text-slate-900 px-1 rounded">123456</code>
               </p>
               <Button
                 type="button"
                 variant="link"
-                className="px-0"
+                className="px-0 text-primary hover:text-primary/80"
                 onClick={() => setForgotOpen(true)}
               >
                 Esqueci minha senha
               </Button>
             </div>
             
-            <Button type="submit" className="w-full" disabled={!selectedUserId || loading}>
+            <Button type="submit" className="w-full bg-primary text-primary-foreground hover:opacity-90" disabled={!selectedUserId || loading}>
               {loading ? 'Entrando...' : 'Entrar'}
             </Button>
 
             <Button
               type="button"
               variant="outline"
-              className="w-full mt-1 text-sm"
+              className="w-full mt-1 text-sm bg-white text-slate-900 border-slate-300 hover:bg-slate-50"
               onClick={() => {
                 try {
                   const url = `${window.location.origin}/auth`;
@@ -413,7 +416,7 @@ const Auth = () => {
             </Button>
 
             <div className="text-center text-sm mt-4">
-              <span className="text-muted-foreground">Não tem conta? </span>
+              <span className="text-slate-600">Não tem conta? </span>
               <Link 
                 to="/register" 
                 className="text-primary hover:underline font-medium"

@@ -11,12 +11,14 @@ const buttonVariants = cva(
       variant: {
         default: "bg-primary text-primary-foreground hover:bg-primary/90",
         destructive: "bg-destructive text-destructive-foreground hover:bg-destructive/90",
-        outline: "border border-input bg-background hover:bg-accent hover:text-accent-foreground",
+        outline: "border border-input bg-background text-foreground hover:bg-accent/10 hover:text-accent-foreground",
         secondary: "bg-secondary text-secondary-foreground hover:bg-secondary/80",
-        ghost: "hover:bg-accent hover:text-accent-foreground",
+        // Ghost com leve fundo para que ícones e textos não sumam em fundos escuros ou claros
+        ghost: "bg-foreground/5 text-foreground hover:bg-accent/15 hover:text-accent-foreground",
         link: "text-primary underline-offset-4 hover:underline",
         game: "relative bg-gradient-to-r from-indigo-600 via-violet-500 to-sky-500 text-white shadow-[0_0_0_0_rgba(0,0,0,0.0)] hover:shadow-[0_10px_25px_-10px_rgba(59,130,246,0.8)] transition-all duration-300 hover:translate-y-[-1px] border border-white/10",
-        gameGhost: "relative bg-transparent text-foreground border border-white/10 hover:border-primary/40 hover:bg-primary/5 transition-all duration-300",
+        // Versão “fantasma” sempre com contraste suave
+        gameGhost: "relative bg-foreground/5 text-foreground border border-white/10 hover:border-primary/60 hover:bg-foreground/10 transition-all duration-300",
       },
       size: {
         default: "h-10 px-4 py-2",

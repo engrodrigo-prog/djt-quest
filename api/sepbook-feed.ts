@@ -10,7 +10,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "GET") return res.status(405).json({ error: "Method not allowed" });
 
   try {
-    if (!SUPABASE_URL || !SERVICE_KEY) return res.status(500).json({ error: "Missing Supabase config" });
+    if (!SUPABASE_URL || !SERVICE_KEY) {
+      // Sem config de backend: devolve feed vazio para não quebrar o cliente
+      return res.status(200).json({ items: [] });
+    }
     const admin = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { autoRefreshToken: false, persistSession: false } });
 
     const authHeader = req.headers["authorization"] as string | undefined;
@@ -23,20 +26,35 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       } catch {}
     }
 
-    const { data: posts, error } = await admin
-      .from("sepbook_posts")
-      .select("id, user_id, content_md, attachments, like_count, comment_count, created_at, location_label")
-      .order("created_at", { ascending: false })
-      .limit(50);
-    if (error) {
-      // Se a tabela ainda não existir (migração não aplicada), devolve lista vazia e dica de migração
-      if (/sepbook_posts/i.test(error.message) && /relation|table.*does not exist/i.test(error.message)) {
-        return res.status(200).json({ items: [], meta: { warning: "Tabela sepbook_posts ausente. Aplique a migração supabase/migrations/20251115153000_sepbook.sql." } });
+    let posts: any[] = [];
+    try {
+      const { data, error } = await admin
+        .from("sepbook_posts")
+        .select(
+          `
+          id, user_id, content_md, attachments, like_count, comment_count, created_at, location_label, campaign_id, challenge_id, group_label,
+          participants:sepbook_post_participants(user_id, profiles(id, name, sigla_area))
+        `,
+        )
+        .order("created_at", { ascending: false })
+        .limit(50);
+      if (error) {
+        // Se a tabela ainda não existir (migração não aplicada), devolve lista vazia com aviso opcional
+        if (/sepbook_posts/i.test(error.message) && /relation|table.*does not exist/i.test(error.message)) {
+          return res
+            .status(200)
+            .json({ items: [], meta: { warning: "Tabela sepbook_posts ausente. Aplique a migração supabase/migrations/20251115153000_sepbook.sql." } });
+        }
+        // Outro erro de banco: devolve feed vazio para não quebrar a UI
+        return res.status(200).json({ items: [], meta: { warning: "Falha ao carregar SEPBook. Tente novamente mais tarde." } });
       }
-      return res.status(400).json({ error: error.message });
+      posts = data || [];
+    } catch {
+      // Falha de rede/fetch para o Supabase: devolve feed vazio
+      return res.status(200).json({ items: [], meta: { warning: "SEPBook temporariamente indisponível." } });
     }
 
-    const userIds = Array.from(new Set((posts || []).map((p) => p.user_id)));
+    const userIds = Array.from(new Set(posts.map((p) => p.user_id)));
     const { data: profiles } = await admin
       .from("profiles")
       .select("id, name, sigla_area, avatar_url, operational_base")
@@ -61,6 +79,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const items = (posts || []).map((p) => {
       const prof = profileMap.get(p.user_id) || { name: "Colaborador", sigla_area: null, avatar_url: null, operational_base: null };
+      const participants =
+        Array.isArray(p.participants) && p.participants.length > 0
+          ? (p.participants as any[]).map((row) => ({
+              id: row.user_id,
+              name: row.profiles?.name || "Participante",
+              sigla_area: row.profiles?.sigla_area || null,
+            }))
+          : [];
       return {
         id: p.id,
         user_id: p.user_id,
@@ -74,6 +100,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         comment_count: p.comment_count || 0,
         created_at: p.created_at,
         location_label: p.location_label,
+        campaign_id: p.campaign_id || null,
+        challenge_id: p.challenge_id || null,
+        group_label: p.group_label || null,
+        participants,
         has_liked: likedSet.has(p.id),
       };
     });

@@ -1,8 +1,9 @@
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { AvatarDisplay } from "@/components/AvatarDisplay";
 import { Badge } from "@/components/ui/badge";
-import { User, Settings, LogOut, Shield, Users, Camera, Key } from "lucide-react";
+import { User, Settings, LogOut, Shield, Users, Camera, Key, Repeat } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface ProfileDropdownProps {
   profile: {
@@ -10,6 +11,8 @@ interface ProfileDropdownProps {
     avatar_url: string | null;
     team?: { name: string } | null;
     tier: string;
+    matricula?: string | null;
+    email?: string | null;
   };
   isLeader: boolean;
   onSignOut: () => void;
@@ -17,11 +20,26 @@ interface ProfileDropdownProps {
 
 export const ProfileDropdown = ({ profile, isLeader, onSignOut }: ProfileDropdownProps) => {
   const navigate = useNavigate();
+  const { roleOverride, setRoleOverride } = useAuth();
+  const canImpersonate =
+    profile?.matricula === "601555" ||
+    (profile?.email || "").toLowerCase() === "rodrigonasc@cpfl.com.br";
+  const currentMode =
+    roleOverride === "lider"
+      ? "Modo líder (teste)"
+      : roleOverride === "colaborador"
+      ? "Modo colaborador (teste)"
+      : isLeader
+      ? "Líder"
+      : "Colaborador";
   
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button className="cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded-full">
+        <button
+          className="cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded-full"
+          aria-label="Abrir menu do perfil"
+        >
           <AvatarDisplay 
             avatarUrl={profile.avatar_url} 
             name={profile.name} 
@@ -44,11 +62,12 @@ export const ProfileDropdown = ({ profile, isLeader, onSignOut }: ProfileDropdow
               <p className="text-xs text-muted-foreground flex items-center gap-1">
                 <Users className="h-3 w-3 flex-shrink-0" />
                 <span className="truncate">DJTX-{profile.team?.name || 'Sem equipe'}</span>
-              </p>
+             </p>
               {isLeader && (
                 <div className="mt-1">
                   <Badge 
-                    className="cursor-pointer bg-blue-600 hover:bg-blue-500 text-white"
+                    variant="secondary"
+                    className="cursor-pointer text-primary hover:bg-secondary/60"
                     onClick={() => navigate('/leader-dashboard')}
                   >
                     Líder
@@ -59,12 +78,12 @@ export const ProfileDropdown = ({ profile, isLeader, onSignOut }: ProfileDropdow
                 {isLeader ? (
                   <>
                     <Shield className="h-3 w-3 text-primary flex-shrink-0" />
-                    <span className="text-primary font-medium">Líder</span>
+                    <span className="text-primary font-medium">{currentMode}</span>
                   </>
                 ) : (
                   <>
                     <User className="h-3 w-3 flex-shrink-0" />
-                    <span>Colaborador</span>
+                    <span>{currentMode}</span>
                   </>
                 )}
               </p>
@@ -75,6 +94,21 @@ export const ProfileDropdown = ({ profile, isLeader, onSignOut }: ProfileDropdow
         <DropdownMenuSeparator />
         
         {/* Ações */}
+        {canImpersonate && (
+          <>
+            <DropdownMenuItem
+              onClick={() => setRoleOverride(roleOverride === "lider" ? null : "lider")}
+            >
+              <Repeat className="h-4 w-4 mr-2" />
+              {roleOverride === "lider" ? "Voltar ao papel real" : "Navegar como Líder"}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setRoleOverride("colaborador")}>
+              <Repeat className="h-4 w-4 mr-2" />
+              Navegar como Colaborador
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+          </>
+        )}
         <DropdownMenuItem onClick={() => navigate('/profile?avatar=open')}>
           <Camera className="h-4 w-4 mr-2" />
           Atualizar Foto

@@ -25,6 +25,7 @@ import { ContentHub } from '@/components/ContentHub';
 import { UserApprovalsHub } from '@/components/UserApprovalsHub';
 import { CampaignManagement } from '@/components/CampaignManagement';
 import { ChallengeManagement } from '@/components/ChallengeManagement';
+import { StudyLab } from '@/components/StudyLab';
 
 const Studio = () => {
   const { user, loading, isLeader, studioAccess, userRole } = useAuth();
@@ -78,6 +79,8 @@ const Studio = () => {
         return <TeamPerformanceManager />;
       case 'ai-quiz':
         return <AiQuizGenerator />;
+      case 'study-lab':
+        return <StudyLab showOrgCatalog />;
       case 'team-bonus':
         return <TeamEventForm />;
       case 'user-management':

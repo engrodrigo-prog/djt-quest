@@ -92,11 +92,25 @@ export default function SEPBook() {
   const [cleaningPostId, setCleaningPostId] = useState<string | null>(null);
   const [campaignOptions, setCampaignOptions] = useState<CampaignOption[]>([]);
   const [selectedCampaignId, setSelectedCampaignId] = useState<string>("");
+  const [selectedParticipants, setSelectedParticipants] = useState<Set<string>>(new Set());
+  const [participantOptions, setParticipantOptions] = useState<Array<{ id: string; name: string; sigla_area: string | null }>>([]);
+  const [participantSearch, setParticipantSearch] = useState("");
 
   const formatName = (name: string | null | undefined) => {
     const parts = String(name || "").trim().split(/\s+/).filter(Boolean);
     if (parts.length <= 1) return parts.join(" ");
     return `${parts[0]} ${parts[parts.length - 1]}`;
+  };
+
+  const sortParticipants = (list: Array<{ id: string; name: string; sigla_area: string | null }>) => {
+    const myTeam = (profile as any)?.sigla_area?.toString().toLowerCase() || "";
+    return [...list].sort((a, b) => {
+      const aSame = myTeam && (a.sigla_area || "").toLowerCase() === myTeam;
+      const bSame = myTeam && (b.sigla_area || "").toLowerCase() === myTeam;
+      if (aSame && !bSame) return -1;
+      if (!aSame && bSame) return 1;
+      return a.name.localeCompare(b.name, "pt-BR", { sensitivity: "base" });
+    });
   };
 
   useEffect(() => {
@@ -161,6 +175,28 @@ export default function SEPBook() {
         );
       } catch (e) {
         console.warn("SEPBook: erro inesperado ao carregar campanhas", e);
+      }
+    })();
+  }, []);
+
+  // Participantes disponíveis (marcar colegas de qualquer equipe)
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data, error } = await supabase
+          .from("profiles")
+          .select("id, name, sigla_area")
+          .order("name")
+          .limit(200);
+        if (!error && Array.isArray(data)) {
+          setParticipantOptions(sortParticipants(data as any));
+          // Se ainda não houver seleção, destaca o próprio usuário como participante principal
+          if (user?.id) {
+            setSelectedParticipants(new Set([user.id]));
+          }
+        }
+      } catch (e) {
+        console.warn("SEPBook: falha ao carregar participantes", e);
       }
     })();
   }, []);
@@ -441,6 +477,8 @@ export default function SEPBook() {
       const { data: session } = await supabase.auth.getSession();
       const token = session.session?.access_token;
       if (!token) throw new Error("Não autenticado");
+      const participantsToSend = new Set(selectedParticipants);
+      if (user?.id) participantsToSend.add(user.id);
       const resp = await fetch("/api/sepbook-post", {
         method: "POST",
         headers: {
@@ -453,7 +491,9 @@ export default function SEPBook() {
           location_label: locationLabel,
           location_lat: coords?.lat ?? null,
           location_lng: coords?.lng ?? null,
-          // campaign_id e participantes são ignorados enquanto coluna e tabela não existirem em produção
+          campaign_id: selectedCampaignId || null,
+          participant_ids: Array.from(participantsToSend),
+          // challenge_id pode ser enviado quando vinculado a um desafio específico
         }),
       });
       const json = await resp.json();
@@ -748,17 +788,17 @@ export default function SEPBook() {
           </Card>
         )}
 
-        <Card>
+        <Card className="bg-white/5 border border-white/20 text-white backdrop-blur-md shadow-xl">
           <CardHeader>
-            <CardTitle>SEPBook</CardTitle>
-            <CardDescription>
+            <CardTitle className="text-2xl font-semibold tracking-tight text-white">SEPBook</CardTitle>
+            <CardDescription className="text-sm text-white/80">
               Rede social interna da DJT para compartilhar momentos, bastidores e aprendizados espontâneos.
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-3">
+          <CardContent className="space-y-3 text-white">
             {showComposer ? (
               <>
-                <div className="text-xs text-muted-foreground border rounded-md p-2 flex gap-2 items-start">
+                <div className="text-xs text-white/85 border border-white/30 rounded-md p-2 flex gap-2 items-start bg-white/5">
                   <MapPin className="h-3.5 w-3.5 mt-0.5" />
                   <span>
                     As publicações podem usar localização aproximada para análises internas da DJT.
@@ -810,7 +850,7 @@ export default function SEPBook() {
                 />
                 {campaignOptions.length > 0 && (
                   <div className="space-y-1">
-                    <p className="text-[11px] text-muted-foreground">
+                    <p className="text-[11px] text-white/80">
                       Vincular a uma campanha vigente (opcional)
                     </p>
                     <select
@@ -819,7 +859,7 @@ export default function SEPBook() {
                         setSelectedCampaignId(e.target.value);
                         setSelectedParticipants(new Set());
                       }}
-                      className="w-full rounded-md border bg-background px-2 py-1 text-[11px]"
+                      className="w-full rounded-md border bg-white text-slate-900 px-2 py-1 text-[11px]"
                     >
                       <option value="">Nenhuma campanha selecionada</option>
                       {campaignOptions.map((c) => (
@@ -828,6 +868,96 @@ export default function SEPBook() {
                         </option>
                       ))}
                     </select>
+                  </div>
+                )}
+                {participantOptions.length > 0 && (
+                  <div className="space-y-1">
+                    <p className="text-[11px] text-white/80">
+                      Marcar participantes (opcional) — quem estava com você na ação
+                    </p>
+                    <div className="rounded-md border border-white/25 bg-white/8 px-2 py-2 text-[11px] space-y-2">
+                      <div className="flex flex-wrap gap-1">
+                        {Array.from(selectedParticipants).map((id) => {
+                          const p = participantOptions.find((opt) => opt.id === id);
+                          if (!p) return null;
+                          const isSelf = user?.id === p.id;
+                          return (
+                            <button
+                              key={p.id}
+                              type="button"
+                              onClick={() => {
+                                if (isSelf) return; // não remove a si mesmo
+                                setSelectedParticipants((prev) => {
+                                  const next = new Set(prev);
+                                  next.delete(p.id);
+                                  return next;
+                                });
+                              }}
+                              className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 border ${
+                                isSelf
+                                  ? "bg-emerald-600/20 border-emerald-400 text-emerald-100"
+                                  : "bg-muted border-muted-foreground/40 text-foreground"
+                              }`}
+                            >
+                              <span className="font-medium">
+                                {formatName(p.name)}{isSelf ? " (você)" : ""}
+                              </span>
+                              {!isSelf && <span className="text-xs">×</span>}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="search"
+                          value={participantSearch}
+                          onChange={(e) => setParticipantSearch(e.target.value)}
+                          placeholder="Buscar por nome ou equipe..."
+                          className="flex-1 rounded-md border bg-white text-slate-900 px-2 py-1 text-[11px]"
+                        />
+                      </div>
+                      <div className="max-h-32 overflow-y-auto border-t border-border/40 pt-1">
+                        {sortParticipants(
+                          participantOptions
+                          .filter((p) => {
+                            const q = participantSearch.trim().toLowerCase();
+                            if (!q) return true;
+                            return (
+                              p.name.toLowerCase().includes(q) ||
+                              (p.sigla_area || "").toLowerCase().includes(q)
+                            );
+                          }))
+                          .map((p) => {
+                            const isSelected = selectedParticipants.has(p.id);
+                            return (
+                              <button
+                                key={p.id}
+                                type="button"
+                                onClick={() =>
+                                  setSelectedParticipants((prev) => {
+                                    const next = new Set(prev);
+                                    if (next.has(p.id)) {
+                                      if (user?.id === p.id) return next; // não desmarca o próprio usuário
+                                      next.delete(p.id);
+                                    } else {
+                                      next.add(p.id);
+                                    }
+                                    return next;
+                                  })
+                                }
+                                className={`w-full text-left px-2 py-0.5 rounded-md text-[11px] ${
+                                  isSelected ? "bg-primary/20 text-primary-foreground" : "hover:bg-muted"
+                                }`}
+                              >
+                                {p.name} {p.sigla_area ? `(${p.sigla_area})` : ""}
+                              </button>
+                            );
+                          })}
+                      </div>
+                      <p className="text-[10px] text-white/75">
+                        Sua participação já será registrada automaticamente; use esta lista para marcar quem estava com você.
+                      </p>
+                    </div>
                   </div>
                 )}
                 <AttachmentUploader

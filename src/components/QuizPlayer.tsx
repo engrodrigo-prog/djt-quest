@@ -38,6 +38,19 @@ interface AnswerResult {
   xpBlockedForLeader?: boolean;
 }
 
+const MILHAO_LEVELS = [
+  { level: 1, xp: 100, faixa: "Básico", titulo: "Aquecimento I" },
+  { level: 2, xp: 150, faixa: "Básico", titulo: "Aquecimento II" },
+  { level: 3, xp: 200, faixa: "Básico", titulo: "Aquecimento III" },
+  { level: 4, xp: 250, faixa: "Intermediário", titulo: "Desafio I" },
+  { level: 5, xp: 300, faixa: "Intermediário", titulo: "Desafio II" },
+  { level: 6, xp: 400, faixa: "Intermediário", titulo: "Desafio III" },
+  { level: 7, xp: 550, faixa: "Avançado", titulo: "Avanço I" },
+  { level: 8, xp: 700, faixa: "Avançado", titulo: "Avanço II" },
+  { level: 9, xp: 850, faixa: "Avançado", titulo: "Avanço III" },
+  { level: 10, xp: 1000, faixa: "Sênior", titulo: "Pergunta do Milhão" },
+] as const;
+
 export function QuizPlayer({ challengeId }: QuizPlayerProps) {
   const navigate = useNavigate();
   const [questions, setQuestions] = useState<Question[]>([]);
@@ -222,35 +235,79 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
   const progress = ((currentQuestionIndex + 1) / questions.length) * 100;
 
   const canUseBurini = isMilhao && !buriniUsed && currentQuestionIndex <= 6 && !answerResult;
+  const currentMilhaoMeta = isMilhao ? MILHAO_LEVELS[currentQuestionIndex] : null;
+
+  const difficultyLabelMap: Record<string, string> = {
+    basica: "Básico",
+    intermediaria: "Intermediário",
+    avancada: "Avançado",
+    especialista: "Especialista",
+  };
+  const difficultyLabel =
+    difficultyLabelMap[currentQuestion.difficulty_level] || currentQuestion.difficulty_level;
 
   return (
     <div className="space-y-6">
-      {/* Progress */}
+      {/* Progress / Milhão HUD */}
       <div className="space-y-2">
         <div className="flex justify-between text-sm">
-          <span>
-            Pergunta {currentQuestionIndex + 1} de {questions.length}
-          </span>
+          {isMilhao && currentMilhaoMeta ? (
+            <span className="font-medium">
+              Nível {currentMilhaoMeta.level} de 10 • {currentMilhaoMeta.titulo}
+            </span>
+          ) : (
+            <span>
+              Pergunta {currentQuestionIndex + 1} de {questions.length}
+            </span>
+          )}
           <span className="font-medium">{currentQuestion.xp_value} XP</span>
         </div>
         <Progress value={progress} />
+        {isMilhao && currentMilhaoMeta && (
+          <>
+            <p className="text-[11px] text-muted-foreground">
+              {currentMilhaoMeta.faixa} — a cada pergunta o desafio aumenta, como no &quot;Show do Milhão&quot;.
+            </p>
+            <div className="flex flex-wrap gap-1 text-[10px]">
+              {MILHAO_LEVELS.map((lvl, idx) => {
+                const isCurrent = idx === currentQuestionIndex;
+                return (
+                  <span
+                    key={lvl.level}
+                    className={`px-2 py-0.5 rounded-full border ${
+                      isCurrent
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-background/40 text-muted-foreground border-border"
+                    }`}
+                  >
+                    {lvl.level}
+                  </span>
+                );
+              })}
+            </div>
+          </>
+        )}
       </div>
 
       {/* Question */}
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
-            <CardTitle className="text-xl">{currentQuestion.question_text}</CardTitle>
-            <span className="text-sm px-3 py-1 rounded-full bg-primary/10 text-primary">
-              {currentQuestion.difficulty_level}
+            <CardTitle className="text-lg font-semibold leading-tight text-foreground">
+              {currentQuestion.question_text}
+            </CardTitle>
+            <span className="text-sm px-3 py-1 rounded-full bg-primary/10 text-primary border border-primary/20">
+              {isMilhao && currentMilhaoMeta
+                ? `${currentMilhaoMeta.faixa} • Nível ${currentMilhaoMeta.level}`
+                : difficultyLabel}
             </span>
           </div>
         </CardHeader>
         <CardContent className="space-y-6">
           {canUseBurini && (
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 p-3 rounded-md border border-blue-500/40 bg-blue-500/5">
-              <div className="text-xs text-muted-foreground">
-                <span className="font-semibold">Ajuda do Tutor Burini</span>
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 p-3 rounded-md border border-primary/25 bg-primary/5">
+              <div className="text-sm text-muted-foreground leading-relaxed">
+                <span className="font-semibold text-foreground">Ajuda do Tutor Burini</span>
                 <span className="block">
                   Uma análise técnica da questão, sem revelar diretamente a alternativa correta. Disponível apenas uma vez até a pergunta 7.
                 </span>
@@ -313,7 +370,7 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
                     <RadioGroupItem value={option.id} id={option.id} disabled={!!answerResult} />
                     <div className="flex-1">
                       <Label htmlFor={option.id} className="cursor-pointer">
-                        <span className="font-medium mr-2">{String.fromCharCode(65 + index)}.</span>
+                        <span className="font-semibold mr-2 text-foreground">{String.fromCharCode(65 + index)}.</span>
                         {option.option_text}
                       </Label>
                       {answerResult && (isSelected || showCorrect) && option.explanation && (
@@ -359,11 +416,11 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
           )}
 
           {buriniHelp && (
-            <Alert className="border-blue-500/40 bg-blue-500/5 text-xs space-y-1">
-              <AlertCircle className="h-4 w-4 text-blue-400" />
+            <Alert className="border border-primary/25 bg-primary/5 text-sm space-y-1">
+              <AlertCircle className="h-4 w-4 text-primary" />
               <AlertDescription>
-                <p className="font-semibold mb-1">Análise do Tutor Burini</p>
-                <p className="mb-1 whitespace-pre-line">{buriniHelp.analysis}</p>
+                <p className="font-semibold mb-1 text-foreground">Análise do Tutor Burini</p>
+                <p className="mb-1 whitespace-pre-line text-foreground">{buriniHelp.analysis}</p>
                 {Array.isArray(buriniHelp.weak_options) && buriniHelp.weak_options.length > 0 && (
                   <p className="mb-1">
                     <span className="font-semibold">Alternativas menos prováveis:</span>{" "}

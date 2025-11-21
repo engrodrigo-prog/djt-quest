@@ -15,6 +15,19 @@ const WRONG_COUNT = 4;
 const MIN_LENGTH = 5;
 const MILHAO_TOTAL = 10;
 
+const MILHAO_LEVELS = [
+  { level: 1, xp: 100, faixa: 'Básico', titulo: 'Aquecimento I' },
+  { level: 2, xp: 150, faixa: 'Básico', titulo: 'Aquecimento II' },
+  { level: 3, xp: 200, faixa: 'Básico', titulo: 'Aquecimento III' },
+  { level: 4, xp: 250, faixa: 'Intermediário', titulo: 'Desafio I' },
+  { level: 5, xp: 300, faixa: 'Intermediário', titulo: 'Desafio II' },
+  { level: 6, xp: 400, faixa: 'Intermediário', titulo: 'Desafio III' },
+  { level: 7, xp: 550, faixa: 'Avançado', titulo: 'Avanço I' },
+  { level: 8, xp: 700, faixa: 'Avançado', titulo: 'Avanço II' },
+  { level: 9, xp: 850, faixa: 'Avançado', titulo: 'Avanço III' },
+  { level: 10, xp: 1000, faixa: 'Sênior', titulo: 'Pergunta do Milhão' },
+] as const;
+
 export const AiQuizGenerator = ({ defaultChallengeId }: { defaultChallengeId?: string }) => {
   const [topic, setTopic] = useState('')
   const [difficulty, setDifficulty] = useState<'basico'|'intermediario'|'avancado'|'especialista'>('basico')
@@ -35,6 +48,10 @@ export const AiQuizGenerator = ({ defaultChallengeId }: { defaultChallengeId?: s
   const [fullQuiz, setFullQuiz] = useState<any | null>(null)
   const [manualSlots, setManualSlots] = useState<Record<number, boolean>>({})
   const [slotIndex, setSlotIndex] = useState<number>(1)
+  const [studySources, setStudySources] = useState<Array<{ id: string; title: string }>>([])
+  const [selectedSourceId, setSelectedSourceId] = useState<string>("")
+  const [datasetText, setDatasetText] = useState("")
+  const [datasetTitle, setDatasetTitle] = useState("")
 
   useEffect(() => {
     (async () => {
@@ -51,6 +68,23 @@ export const AiQuizGenerator = ({ defaultChallengeId }: { defaultChallengeId?: s
       }
     })()
   }, [defaultChallengeId, challengeId])
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data, error } = await supabase
+          .from('study_sources')
+          .select('id, title')
+          .order('created_at', { ascending: false })
+          .limit(50)
+        if (!error && Array.isArray(data)) {
+          setStudySources(data as any)
+        }
+      } catch {
+        // ignore on failure
+      }
+    })()
+  }, [])
 
   const generate = async () => {
     if (!topic.trim()) {
@@ -89,28 +123,62 @@ export const AiQuizGenerator = ({ defaultChallengeId }: { defaultChallengeId?: s
   }
 
   const generateFullQuiz = async () => {
-    if (!topic.trim()) {
-      toast('Informe um tema para gerar o quiz completo.')
+    if (!topic.trim() && !datasetText.trim() && !selectedSourceId) {
+      toast('Informe um tema ou uma base de estudo para gerar o quiz completo.')
       return
     }
     setLoading(true)
     try {
       const { data: session } = await supabase.auth.getSession()
       const token = session.session?.access_token
-      const resp = await apiFetch('/api/ai?handler=quiz-milhao', {
+      const handler = selectedSourceId || datasetText.trim() ? 'study-quiz' : 'quiz-milhao'
+      const body =
+        handler === 'study-quiz'
+          ? {
+              mode: 'milhao',
+              language: 'pt-BR',
+              source_ids: selectedSourceId ? [selectedSourceId] : [],
+              sources: datasetText.trim()
+                ? [
+                    {
+                      title: datasetTitle || topic || 'Base de estudo deste quiz',
+                      text: datasetText,
+                    },
+                  ]
+                : [],
+              question_count: MILHAO_TOTAL,
+            }
+          : { topic, mode, language: 'pt-BR' }
+
+      const resp = await apiFetch(`/api/ai?handler=${handler}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ topic, mode, language: 'pt-BR' }),
+        body: JSON.stringify(body),
       })
       const json = await resp.json()
       if (!resp.ok) throw new Error(json?.error || 'Falha ao gerar quiz completo')
-      if (!json?.quiz || !Array.isArray(json.quiz.questoes)) {
+
+      const sourceQuiz = json.quiz || json
+      const incoming = Array.isArray(sourceQuiz.questoes)
+        ? sourceQuiz.questoes
+        : Array.isArray(sourceQuiz.questions)
+        ? sourceQuiz.questions.map((q: any, idx: number) => ({
+            id: idx + 1,
+            nivel: idx + 1,
+            enunciado: q.question_text,
+            alternativas: q.options,
+            correta: q.correct_letter,
+            xp_base: q.xp_value,
+          }))
+        : []
+
+      if (!incoming.length) {
         throw new Error('Resposta da IA em formato inesperado.')
       }
-      const incoming = json.quiz.questoes || []
+
       const merged = Array.from({ length: MILHAO_TOTAL }, (_, idx) => {
       const manual = fullQuiz?.questoes?.[idx]
         if (manual && manualSlots[idx + 1]) {
@@ -120,9 +188,41 @@ export const AiQuizGenerator = ({ defaultChallengeId }: { defaultChallengeId?: s
       }).filter(Boolean)
 
       setFullQuiz({
-        ...json.quiz,
+        ...(sourceQuiz || {}),
+        tipo: 'milhao',
         questoes: merged,
       })
+
+      if (datasetText.trim()) {
+        const keep = window.confirm(
+          'Quiz gerado com sucesso a partir deste dataset. Deseja guardar esse material como base de estudos para futuros quizzes?'
+        )
+        if (keep) {
+          try {
+            const { data: session2 } = await supabase.auth.getSession()
+            const uid = session2.session?.user?.id
+            if (uid) {
+              const { error } = await supabase.from('study_sources').insert({
+                user_id: uid,
+                title: datasetTitle || topic || 'Base de estudo do Quiz do Milhão',
+                kind: 'text',
+                url: null,
+                storage_path: null,
+                summary: datasetText.slice(0, 500),
+                full_text: datasetText,
+                is_persistent: true,
+              })
+              if (error) {
+                console.warn('AiQuizGenerator: falha ao salvar estudo', error.message)
+              } else {
+                toast('Dataset salvo na sua base de estudos.')
+              }
+            }
+          } catch (e: any) {
+            console.warn('AiQuizGenerator: erro ao salvar estudo', e?.message || e)
+          }
+        }
+      }
       toast('Quiz completo (10 perguntas) gerado! Perguntas manuais foram mantidas e as demais preenchidas pela IA.')
     } catch (e: any) {
       toast(`Erro ao gerar quiz completo: ${e?.message || e}`)
@@ -219,6 +319,9 @@ export const AiQuizGenerator = ({ defaultChallengeId }: { defaultChallengeId?: s
     ? Math.min(100, Math.round((milhaoFilledCount / MILHAO_TOTAL) * 100))
     : 0
 
+  const clampedSlotIndex = Math.min(MILHAO_TOTAL, Math.max(1, slotIndex))
+  const currentMilhaoLevel = MILHAO_LEVELS[clampedSlotIndex - 1]
+
   const validateFields = () => {
     if (question.trim().length < MIN_LENGTH) {
       toast('A pergunta deve ter pelo menos 5 caracteres.')
@@ -266,12 +369,13 @@ export const AiQuizGenerator = ({ defaultChallengeId }: { defaultChallengeId?: s
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle>Quiz Especial • Milhão (IA)</CardTitle>
+          <CardTitle>Quiz Especial • Quiz do Milhão (IA)</CardTitle>
           <CardDescription>
-            Informe um tema técnico. A IA pode gerar uma pergunta individual ou um quiz completo com 10 perguntas para compor seu Quiz Especial ou Quiz do Milhão.
+            Informe um tema técnico. A IA pode gerar uma pergunta individual ou um quiz completo em 10 níveis crescentes,
+            no estilo &quot;Show do Milhão&quot; / &quot;Who Wants to Be a Millionaire&quot;, para compor seu desafio.
           </CardDescription>
         </CardHeader>
-          <CardContent className="space-y-4">
+        <CardContent className="space-y-4">
           {mode === 'milzao' && (
             <div className="space-y-2 mb-2">
               <div className="flex items-center justify-between text-[11px] text-muted-foreground">
@@ -302,6 +406,45 @@ export const AiQuizGenerator = ({ defaultChallengeId }: { defaultChallengeId?: s
               </Select>
             </div>
           </div>
+          <div className="space-y-2">
+            <Label>Dataset rápido para este quiz (opcional)</Label>
+            <Textarea
+              rows={3}
+              value={datasetText}
+              onChange={(e) => setDatasetText(e.target.value)}
+              placeholder="Cole aqui trechos importantes do PDF, normas ou anotações que devem inspirar o Quiz do Milhão."
+            />
+            <Input
+              className="mt-1"
+              value={datasetTitle}
+              onChange={(e) => setDatasetTitle(e.target.value)}
+              placeholder="Título deste dataset (ex.: NR10 - Segurança em SEP)"
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Se você informar um dataset aqui, o Quiz do Milhão será gerado usando esse conteúdo como base principal.
+              Após a geração, você poderá guardar esse material na sua base de estudos.
+            </p>
+          </div>
+          {studySources.length > 0 && (
+            <div className="space-y-2">
+              <Label>Base de estudo (opcional)</Label>
+              <select
+                className="w-full h-9 rounded-md bg-transparent border px-2 text-sm"
+                value={selectedSourceId}
+                onChange={(e) => setSelectedSourceId(e.target.value)}
+              >
+                <option value="">Nenhuma (usar apenas o tema)</option>
+                {studySources.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.title}
+                  </option>
+                ))}
+              </select>
+              <p className="text-[11px] text-muted-foreground">
+                Quando uma base for selecionada, o Quiz do Milhão será gerado usando esse material como referência principal.
+              </p>
+            </div>
+          )}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div className="space-y-2">
               <Label>Especialidades (opcional)</Label>
@@ -359,7 +502,13 @@ export const AiQuizGenerator = ({ defaultChallengeId }: { defaultChallengeId?: s
           {mode === 'milzao' && (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3 border-t pt-4 mt-4">
               <div className="space-y-2 md:col-span-1">
-              <Label>Posição no Quiz do Milhão (1 a 10)</Label>
+                <Label>Posição no Quiz do Milhão (1 a 10)</Label>
+                {currentMilhaoLevel && (
+                  <p className="text-[11px] text-muted-foreground">
+                    Nível {currentMilhaoLevel.level} • {currentMilhaoLevel.titulo} • {currentMilhaoLevel.faixa} •{' '}
+                    {currentMilhaoLevel.xp} XP
+                  </p>
+                )}
                 <Input
                   type="number"
                   min={1}
@@ -368,10 +517,11 @@ export const AiQuizGenerator = ({ defaultChallengeId }: { defaultChallengeId?: s
                   onChange={(e) => setSlotIndex(Number(e.target.value) || 1)}
                 />
                 <Button type="button" variant="outline" className="w-full mt-2" onClick={saveCurrentToSlot}>
-                  Usar pergunta atual na posição {Math.min(MILHAO_TOTAL, Math.max(1, slotIndex))}
+                  Usar pergunta atual na posição {clampedSlotIndex}
                 </Button>
                 <p className="text-[11px] text-muted-foreground mt-1">
-                  Crie uma ou mais perguntas manualmente e envie para posições específicas. Depois, use &quot;Gerar quiz completo&quot; para preencher as demais com IA.
+                  Crie uma ou mais perguntas manualmente e envie para níveis específicos (do aquecimento à Pergunta do Milhão).
+                  Depois, use &quot;Gerar quiz completo&quot; para preencher as demais com IA mantendo a escalada de dificuldade.
                 </p>
               </div>
               <div className="md:col-span-2">

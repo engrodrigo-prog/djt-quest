@@ -40,39 +40,40 @@ All colors MUST be HSL.
 
 @layer base {
   :root {
-    /* DJT Quest Dark Palette as default */
+    /* DJT Quest Color Palette */
     --djt-blue-dark: 197 65% 28%;
     --djt-blue-medium: 199 66% 44%;
     --djt-orange: 36 100% 50%;
     --djt-yellow: 45 100% 51%;
     
-    --background: 210 20% 8%;
-    --foreground: 210 10% 95%;
-    --card: 210 20% 12%;
-    --card-foreground: 210 10% 95%;
-    --popover: 210 20% 12%;
-    --popover-foreground: 210 10% 95%;
-    --primary: 200 95% 45%;
+    /* Suaviza o fundo para reduzir brilho em telas claras */
+    --background: 210 20% 96%;
+    --foreground: 210 15% 10%;
+    --card: 0 0% 100%;
+    --card-foreground: 210 15% 10%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 210 15% 10%;
+    --primary: 200 95% 35%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 142 76% 40%;
+    --secondary: 142 76% 36%;
     --secondary-foreground: 0 0% 100%;
-    --muted: 210 15% 20%;
-    --muted-foreground: 210 15% 80%;
-    --accent: 39 100% 55%;
-    --accent-foreground: 210 20% 8%;
-    --destructive: 0 62% 50%;
+    --muted: 210 15% 94%;
+    --muted-foreground: 210 10% 45%;
+    --accent: 39 100% 50%;
+    --accent-foreground: 210 15% 10%;
+    --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 98%;
-    --border: 210 15% 20%;
-    --input: 210 15% 20%;
-    --ring: 200 95% 45%;
+    --border: 210 15% 90%;
+    --input: 210 15% 90%;
+    --ring: 200 95% 35%;
     --radius: 0.75rem;
-    --sidebar-background: 240 5.9% 10%;
-    --sidebar-foreground: 240 4.8% 95.9%;
-    --sidebar-primary: 224.3 76.3% 48%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 3.7% 15.9%;
-    --sidebar-accent-foreground: 240 4.8% 95.9%;
-    --sidebar-border: 240 3.7% 15.9%;
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 240 5.3% 26.1%;
+    --sidebar-primary: 240 5.9% 10%;
+    --sidebar-primary-foreground: 0 0% 98%;
+    --sidebar-accent: 240 4.8% 95.9%;
+    --sidebar-accent-foreground: 240 5.9% 10%;
+    --sidebar-border: 220 13% 91%;
     --sidebar-ring: 217.2 91.2% 59.8%;
   }
 
@@ -119,16 +120,30 @@ All colors MUST be HSL.
   }
 
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground font-sans antialiased text-[15px] leading-relaxed;
   }
 
-  /* Reserve space for the bottom navigation so it never covers content */
-  /* Reduced to improve mobile ergonomics while keeping desktop balance */
-  :root { --bottom-nav-height: 96px; }
-  #root {
-    padding-bottom: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom, 0px));
+  h1 {
+    @apply text-3xl md:text-4xl font-semibold leading-tight tracking-tight text-foreground;
   }
 
-  /* Fluid base font size: adapts to screen width without extremes */
-  html { font-size: clamp(14px, 1.0vw + 12px, 18px); }
+  h2 {
+    @apply text-2xl md:text-3xl font-semibold leading-snug text-foreground;
+  }
+
+  h3 {
+    @apply text-xl font-semibold leading-snug text-foreground;
+  }
+
+  h4 {
+    @apply text-lg font-semibold leading-snug text-foreground;
+  }
+
+  p {
+    @apply leading-relaxed;
+  }
+
+  small {
+    @apply text-xs leading-tight text-muted-foreground;
+  }
 }

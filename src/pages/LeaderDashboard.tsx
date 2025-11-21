@@ -68,7 +68,7 @@ export default function LeaderDashboard() {
   const showChallengesTab = false;
   const [forums, setForums] = useState<ForumTopic[]>([]);
   const [topMembers, setTopMembers] = useState<TeamMember[]>([]);
-  const [userProfile, setUserProfile] = useState<{ name: string; avatar_url: string | null; team: { name: string } | null; tier: string } | null>(null);
+  const [userProfile, setUserProfile] = useState<{ name: string; avatar_url: string | null; team: { name: string } | null; tier: string; matricula?: string | null; email?: string | null } | null>(null);
   const [scope, setScope] = useState<Scope>('team');
   const [windowSel, setWindowSel] = useState<'30d' | '90d' | '365d'>('30d');
   const [xpPossible, setXpPossible] = useState<number>(0);
@@ -82,7 +82,7 @@ export default function LeaderDashboard() {
     
     const { data, error } = await supabase
       .from("profiles")
-      .select("name, tier, avatar_url, team_id")
+      .select("name, tier, avatar_url, team_id, matricula, email")
       .eq("id", user.id)
       .single();
     
@@ -324,18 +324,18 @@ export default function LeaderDashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-secondary/5 pb-40 md:pb-20">
+    <div className="min-h-screen bg-background text-foreground pb-40 md:pb-20">
       {/* Header */}
-      <header className="sticky top-0 z-20 bg-[#0b2a34]/85 text-blue-50 border-b border-cyan-700/30">
+      <header className="sticky top-0 z-20 bg-card/90 text-foreground border-b border-border/60 backdrop-blur">
         <div className="container mx-auto px-3 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-1.5">
-              <Shield className="h-6 w-6 text-blue-300" />
-              <Zap className="h-6 w-6 text-blue-200" />
+              <Shield className="h-6 w-6 text-primary" />
+              <Zap className="h-6 w-6 text-secondary" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-blue-50">DJT - Quest</h1>
-              <p className="text-[10px] text-blue-100/80 leading-none">CPFL Piratininga e Santa Cruz Subtransmissão</p>
+              <h1 className="text-xl font-semibold leading-tight">DJT - Quest</h1>
+              <p className="text-[11px] text-muted-foreground leading-none">CPFL Piratininga e Santa Cruz Subtransmissão</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -360,11 +360,11 @@ export default function LeaderDashboard() {
       <main className="container mx-auto px-3 py-4 space-y-6">
         <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
           <div>
-            <h2 className="text-2xl font-bold">Dashboard de Liderança</h2>
-            <p className="text-blue-100/80 text-sm">
+            <h2 className="text-3xl font-semibold leading-tight">Dashboard de Liderança</h2>
+            <p className="text-sm text-muted-foreground">
               XP agregado do seu escopo ({scope === 'team' ? 'Equipe' : scope === 'coord' ? 'Coordenação' : 'Divisão'})
             </p>
-            <p className="text-xs text-blue-50/80 mt-1">
+            <p className="text-xs text-muted-foreground mt-1">
               Atuando como: {orgScope?.divisionName || '—'}{orgScope?.coordName ? ` • ${orgScope.coordName}` : ''}{orgScope?.teamName ? ` • ${orgScope.teamName}` : ''}
             </p>
           </div>
@@ -396,63 +396,63 @@ export default function LeaderDashboard() {
           </div>
         </div>
 
-        {/* XP Possível x Atingido */}
-        <Card>
+      {/* XP Possível x Atingido */}
+        <Card className="bg-white/5 border border-white/20 text-white backdrop-blur-md shadow-lg">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm">XP possível vs XP atingido</CardTitle>
-            <CardDescription>
+            <CardTitle className="text-lg font-semibold leading-tight text-white">XP possível vs XP atingido</CardTitle>
+            <CardDescription className="text-white/80">
               Janela: {windowSel === '30d' ? 'últimos 30 dias' : windowSel === '90d' ? 'últimos 90 dias' : 'últimos 12 meses'}
             </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="flex items-center justify-between mb-2 text-sm">
-              <span className="text-muted-foreground">Possível</span>
-              <span className="font-semibold">{xpPossible} XP</span>
+              <span className="text-white/70">Possível</span>
+              <span className="font-semibold text-white">{xpPossible} XP</span>
             </div>
             <Progress value={xpPossible ? Math.min(100, Math.round((xpAchieved / Math.max(1, xpPossible)) * 100)) : 0} className="h-2" />
             <div className="flex items-center justify-between mt-2 text-sm">
-              <span className="text-muted-foreground">Atingido</span>
-              <span className="font-semibold">{xpAchieved} XP</span>
+              <span className="text-white/70">Atingido</span>
+              <span className="font-semibold text-white">{xpAchieved} XP</span>
             </div>
           </CardContent>
         </Card>
 
         {/* Estatísticas Gerais */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-        <Card>
+        <Card className="bg-white/5 border border-white/20 text-white backdrop-blur-md shadow-lg">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Colaboradores ({scope === 'team' ? 'Equipe' : scope === 'coord' ? 'Coord.' : 'Div.'})</CardTitle>
-            <Users className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-lg font-semibold leading-tight text-white">Colaboradores ({scope === 'team' ? 'Equipe' : scope === 'coord' ? 'Coord.' : 'Div.'})</CardTitle>
+            <Users className="h-4 w-4 text-white/70" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{teamStats?.total_members || 0}</div>
-            <p className="text-xs text-muted-foreground">
+            <div className="text-2xl font-bold text-white">{teamStats?.total_members || 0}</div>
+            <p className="text-xs text-white/70">
               Membros da equipe
             </p>
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="bg-white/5 border border-white/20 text-white backdrop-blur-md shadow-lg">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Ranking (Equipe)</CardTitle>
-            <Trophy className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-lg font-semibold leading-tight text-white">Ranking (Equipe)</CardTitle>
+            <Trophy className="h-4 w-4 text-white/70" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{scope === 'team' && teamStats?.rank_position ? `#${teamStats.rank_position}` : '-'}</div>
-            <p className="text-xs text-muted-foreground">
+            <div className="text-2xl font-bold text-white">{scope === 'team' && teamStats?.rank_position ? `#${teamStats.rank_position}` : '-'}</div>
+            <p className="text-xs text-white/70">
               {scope === 'team' ? 'Posição geral' : 'Não aplicável neste escopo'}
             </p>
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="bg-white/5 border border-white/20 text-white backdrop-blur-md shadow-lg">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Engajamento</CardTitle>
-            <Target className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-lg font-semibold leading-tight text-white">Engajamento</CardTitle>
+            <Target className="h-4 w-4 text-white/70" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{teamStats?.engagement_rate || 0}%</div>
-            <p className="text-xs text-muted-foreground">
+            <div className="text-2xl font-bold text-white">{teamStats?.engagement_rate || 0}%</div>
+            <p className="text-xs text-white/70">
               Últimos 7 dias
             </p>
           </CardContent>
@@ -477,34 +477,34 @@ export default function LeaderDashboard() {
         </TabsList>
 
         <TabsContent value="campaigns" className="space-y-4">
-          <Card>
+          <Card className="bg-white/5 border border-white/20 text-white backdrop-blur-md shadow-lg">
             <CardHeader>
-              <CardTitle>Campanhas Vigentes</CardTitle>
-              <CardDescription>
+              <CardTitle className="text-white">Campanhas Vigentes</CardTitle>
+              <CardDescription className="text-white/80">
                 Acompanhe a adesão e conclusão das campanhas ativas
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               {campaigns.length === 0 ? (
-                <p className="text-muted-foreground text-center py-8">
+                <p className="text-white/70 text-center py-8">
                   Nenhuma campanha ativa no momento
                 </p>
               ) : (
                 campaigns.map((campaign) => (
-                  <div key={campaign.campaign_id} className="space-y-2 p-4 border rounded-lg">
+                  <div key={campaign.campaign_id} className="space-y-2 p-4 border border-white/30 rounded-lg bg-white/5">
                     <div className="flex items-center justify-between">
-                      <h3 className="font-semibold">{campaign.campaign_title}</h3>
+                      <h3 className="font-semibold text-white">{campaign.campaign_title}</h3>
                       <div className="flex gap-2">
-                        <Badge variant="outline">
+                        <Badge variant="outline" className="border-white/50 text-white">
                           Adesão: {campaign.adhesion_percentage?.toFixed(0) || 0}%
                         </Badge>
-                        <Badge variant="secondary">
+                        <Badge variant="outline" className="border-white/50 text-white">
                           Conclusão: {campaign.completion_percentage?.toFixed(0) || 0}%
                         </Badge>
                       </div>
                     </div>
                     <div className="space-y-2">
-                      <div className="flex justify-between text-sm text-muted-foreground">
+                      <div className="flex justify-between text-sm text-white/70">
                         <span>Adesão</span>
                         <span>{campaign.participants_count} / {campaign.total_members}</span>
                       </div>
@@ -519,42 +519,42 @@ export default function LeaderDashboard() {
 
         {showChallengesTab && (
           <TabsContent value="challenges" className="space-y-4">
-            <Card>
+            <Card className="bg-white/5 border border-white/20 text-white backdrop-blur-md shadow-lg">
               <CardHeader>
-                <CardTitle>Desafios Vigentes</CardTitle>
-                <CardDescription>
+                <CardTitle className="text-white">Desafios Vigentes</CardTitle>
+                <CardDescription className="text-white/80">
                   Performance da equipe nos desafios ativos
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 {challenges.length === 0 ? (
-                  <p className="text-muted-foreground text-center py-8">
+                  <p className="text-white/70 text-center py-8">
                     Nenhum desafio ativo no momento
                   </p>
                 ) : (
                   challenges.map((challenge) => (
-                    <div key={challenge.challenge_id} className="space-y-2 p-4 border rounded-lg">
+                    <div key={challenge.challenge_id} className="space-y-2 p-4 border border-white/30 rounded-lg bg-white/5">
                       <div className="flex items-center justify-between">
                         <div>
-                          <h3 className="font-semibold">{challenge.challenge_title}</h3>
-                          <p className="text-sm text-muted-foreground capitalize">
+                          <h3 className="font-semibold text-white">{challenge.challenge_title}</h3>
+                          <p className="text-sm text-white/70 capitalize">
                             {challenge.challenge_type}
                           </p>
                         </div>
                         <div className="flex gap-2">
-                          <Badge variant="outline">
+                          <Badge variant="outline" className="border-white/50 text-white">
                             {challenge.adhesion_percentage?.toFixed(0) || 0}% adesão
                           </Badge>
                         </div>
                       </div>
                       <div className="space-y-2">
-                        <div className="flex justify-between text-sm">
+                        <div className="flex justify-between text-sm text-white/80">
                           <span>Participantes: {challenge.participants_count}</span>
                           <span>Concluíram: {challenge.completion_percentage?.toFixed(0) || 0}%</span>
                         </div>
                         <Progress value={challenge.adhesion_percentage || 0} />
                         {challenge.avg_xp_earned > 0 && (
-                          <p className="text-sm text-muted-foreground">
+                          <p className="text-sm text-white/70">
                             XP médio conquistado: {Math.floor(challenge.avg_xp_earned)}
                           </p>
                         )}
@@ -568,35 +568,35 @@ export default function LeaderDashboard() {
         )}
 
         <TabsContent value="forums" className="space-y-4">
-          <Card>
+          <Card className="bg-white/5 border border-white/20 text-white backdrop-blur-md shadow-lg">
             <CardHeader>
-              <CardTitle>Fóruns Ativos</CardTitle>
-              <CardDescription>
+              <CardTitle className="text-white">Fóruns Ativos</CardTitle>
+              <CardDescription className="text-white/80">
                 Últimos tópicos com atividade
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               {forums.length === 0 ? (
-                <p className="text-muted-foreground text-center py-8">
+                <p className="text-white/70 text-center py-8">
                   Nenhum fórum ativo
                 </p>
               ) : (
                 forums.map((forum) => (
                   <div 
                     key={forum.id} 
-                    className="flex items-center justify-between p-3 border rounded-lg hover:bg-accent cursor-pointer transition-colors"
+                    className="flex items-center justify-between p-3 border border-white/30 rounded-lg hover:bg-white/10 cursor-pointer transition-colors"
                     onClick={() => navigate(`/forum/${forum.id}`)}
                   >
                     <div className="flex items-center gap-3">
-                      <MessageSquare className="h-4 w-4 text-muted-foreground" />
+                      <MessageSquare className="h-4 w-4 text-white/70" />
                       <div>
-                        <p className="font-medium">{forum.title}</p>
-                        <p className="text-sm text-muted-foreground">
+                        <p className="font-medium text-white">{forum.title}</p>
+                        <p className="text-sm text-white/70">
                           {forum.posts_count} posts
                         </p>
                       </div>
                     </div>
-                    <Badge variant="outline">
+                    <Badge variant="outline" className="border-white/50 text-white">
                       {new Date(forum.last_post_at).toLocaleDateString('pt-BR')}
                     </Badge>
                   </div>
@@ -607,31 +607,31 @@ export default function LeaderDashboard() {
         </TabsContent>
 
         <TabsContent value="team" className="space-y-4">
-          <Card>
+          <Card className="bg-white/5 border border-white/20 text-white backdrop-blur-md shadow-lg">
             <CardHeader>
-              <CardTitle>Top 5 da Equipe</CardTitle>
-              <CardDescription>
+              <CardTitle className="text-white">Top 5 da Equipe</CardTitle>
+              <CardDescription className="text-white/80">
                 Colaboradores com maior XP
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               {topMembers.length === 0 ? (
-                <p className="text-muted-foreground text-center py-8">
+                <p className="text-white/70 text-center py-8">
                   Nenhum membro cadastrado
                 </p>
               ) : (
                 topMembers.map((member, index) => (
-                  <div key={member.id} className="flex items-center justify-between p-3 border rounded-lg">
+                  <div key={member.id} className="flex items-center justify-between p-3 border border-white/30 rounded-lg bg-white/5">
                     <div className="flex items-center gap-3">
                       <div className="flex items-center justify-center w-8 h-8 rounded-full bg-primary text-primary-foreground font-bold">
                         {index + 1}
                       </div>
                       <div>
-                        <p className="font-medium">{member.name}</p>
-                        <p className="text-sm text-muted-foreground">{member.tier}</p>
+                        <p className="font-medium text-white">{member.name}</p>
+                        <p className="text-sm text-white/70">{member.tier}</p>
                       </div>
                     </div>
-                    <Badge variant="secondary">{member.xp} XP</Badge>
+                    <Badge variant="outline" className="border-white/50 text-white">{member.xp} XP</Badge>
                   </div>
                 ))
               )}

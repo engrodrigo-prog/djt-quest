@@ -114,6 +114,14 @@ export const StudioDashboard = ({ onSelectModule, userRole }: StudioDashboardPro
       gradientTo: 'to-indigo-700',
     },
     {
+      id: 'study-lab',
+      title: 'Oráculo de Estudos (IA)',
+      description: 'Enviar PDFs, links e vídeos para gerar quizzes',
+      icon: ActivitySquare,
+      gradientFrom: 'from-emerald-500',
+      gradientTo: 'to-cyan-700',
+    },
+    {
       id: 'team-bonus',
       title: 'Bonificação',
       description: 'Reconhecimentos e pontos de atenção',
@@ -172,14 +180,14 @@ export const StudioDashboard = ({ onSelectModule, userRole }: StudioDashboardPro
   );
 
   return (
-    <div className="min-h-screen bg-transparent p-4 md:p-8">
+    <div className="min-h-screen bg-background text-foreground p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-6">
-          <h1 className="text-2xl md:text-3xl font-bold text-blue-50 mb-1">
+          <h1 className="text-3xl md:text-4xl font-semibold leading-tight mb-1">
             DJT Quest Studio
           </h1>
-          <p className="text-blue-100/80 text-sm md:text-base">
+          <p className="text-muted-foreground text-sm md:text-base">
             Console de gestão | Modo Líder
           </p>
         </div>
@@ -192,12 +200,24 @@ export const StudioDashboard = ({ onSelectModule, userRole }: StudioDashboardPro
             return (
               <Card
                 key={`module-${module.id}`}
-                className="relative overflow-hidden cursor-pointer group hover:shadow-2xl transition-all duration-300 hover:-translate-y-2 border-cyan-800/40 bg-white/5"
+                className="relative overflow-hidden cursor-pointer group hover:shadow-2xl transition-all duration-300 hover:-translate-y-2 border border-border/70 bg-card"
                 onClick={() => onSelectModule(module.id)}
+                role="button"
+                tabIndex={0}
+                aria-label={`Abrir módulo ${module.title}`}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    onSelectModule(module.id);
+                  }
+                }}
               >
                 {/* Badge de contagem (opcional) */}
                 {typeof module.badge !== 'undefined' && (
-                  <Badge className={`absolute top-3 right-3 z-10 ${module.badge >= 1 ? 'bg-destructive text-destructive-foreground' : 'bg-green-600 text-white'}`}>
+                  <Badge
+                    className="absolute top-3 right-3 z-10"
+                    variant={module.badge >= 1 ? "destructive" : "secondary"}
+                  >
                     {module.badge > 99 ? '99+' : module.badge}
                   </Badge>
                 )}
@@ -210,11 +230,13 @@ export const StudioDashboard = ({ onSelectModule, userRole }: StudioDashboardPro
                 {/* Conteúdo */}
                 <CardHeader className="pb-4 pt-0">
                   <div className="flex items-start justify-between gap-2">
-                    <CardTitle className="text-lg mb-1 text-blue-50">{module.title}</CardTitle>
+                    <CardTitle className="text-lg font-semibold leading-tight text-foreground mb-1">
+                      {module.title}
+                    </CardTitle>
                     <button
                       type="button"
                       aria-label={`Entenda ${module.title}`}
-                      className="mt-0.5 inline-flex items-center justify-center rounded-full border border-cyan-500/60 bg-black/40 p-1 text-cyan-200 hover:bg-cyan-500/20 hover:text-white"
+                      className="mt-0.5 inline-flex items-center justify-center rounded-full border border-border bg-muted/60 p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
                       onClick={(e) => {
                         e.stopPropagation();
                         setInfoId(tipKey);
@@ -224,7 +246,7 @@ export const StudioDashboard = ({ onSelectModule, userRole }: StudioDashboardPro
                       <AlertCircle className="h-3.5 w-3.5" />
                     </button>
                   </div>
-                  <CardDescription className="text-xs text-blue-100/80">
+                  <CardDescription className="text-sm text-muted-foreground">
                     {module.description}
                   </CardDescription>
                 </CardHeader>

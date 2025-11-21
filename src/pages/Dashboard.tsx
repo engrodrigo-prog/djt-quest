@@ -427,7 +427,9 @@ const Dashboard = () => {
                   name: profile.name,
                   avatar_url: profile.avatar_url,
                   team: profile.team,
-                  tier: profile.tier
+                  tier: profile.tier,
+                  matricula: (profile as any)?.matricula || null,
+                  email: (profile as any)?.email || null
                 }}
                 isLeader={isLeader || false}
                 onSignOut={handleSignOut}
@@ -494,31 +496,31 @@ const Dashboard = () => {
 
         {/* Open Forums */}
         {openForums.length > 0 && (
-          <Card>
+          <Card className="bg-white/5 border border-white/20 text-white backdrop-blur-md shadow-lg">
             <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-lg">
-                <Target className="h-5 w-5 text-secondary" />
+              <CardTitle className="flex items-center gap-2 text-lg text-white">
+                <Target className="h-5 w-5 text-white" />
                 Fóruns Abertos
               </CardTitle>
-              <CardDescription>Participe das discussões em andamento</CardDescription>
+              <CardDescription className="text-white/80">Participe das discussões em andamento</CardDescription>
             </CardHeader>
             <CardContent className="space-y-2">
               {openForums.slice(0,4).map((t) => (
                 <div
                   key={t.id}
-                  className="flex items-center justify-between p-3 border rounded-lg hover:bg-accent/10 cursor-pointer gap-3"
+                  className="flex items-center justify-between p-3 border border-white/30 rounded-lg hover:bg-white/10 cursor-pointer gap-3"
                   onClick={() => navigate(`/forum/${t.id}`)}
                 >
                   <div className="min-w-0 flex-1">
-                    <p className="font-medium truncate">{t.title}</p>
-                    <p className="text-xs text-muted-foreground truncate">{t.description}</p>
+                    <p className="font-medium truncate text-white">{t.title}</p>
+                    <p className="text-xs text-white/70 truncate">{t.description}</p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Badge variant="outline">{t.posts_count || 0} posts</Badge>
+                    <Badge variant="outline" className="border-white/50 text-white">{t.posts_count || 0} posts</Badge>
                     {canDeleteContent && (
                       <button
                         type="button"
-                        className="p-1 rounded-full hover:bg-destructive/10 text-destructive"
+                        className="p-1 rounded-full hover:bg-destructive/20 text-destructive"
                         onClick={(e) => {
                           e.stopPropagation();
                           handleDeleteForumFromDashboard(t.id, t.title);
@@ -540,26 +542,31 @@ const Dashboard = () => {
 
         {/* Active Campaigns */}
         <section>
-          <div className="flex items-center gap-2 mb-3">
-            <Target className="h-5 w-5 text-blue-300" />
-            <h2 className="text-xl font-bold text-blue-50">Campanhas Ativas</h2>
+          <div className="flex items-center gap-2 mb-3 text-foreground">
+            <Target className="h-5 w-5 text-primary" />
+            <h2 className="text-2xl font-semibold leading-tight">Campanhas Ativas</h2>
           </div>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {campaigns.map((campaign) => (
-              <Card key={campaign.id} className="hover:shadow-lg transition-shadow">
-                <CardHeader className="pb-3">
-                  <Badge className="w-fit mb-2 text-[10px] bg-cyan-700/60 text-blue-50 border-cyan-500/50">{campaign.narrative_tag}</Badge>
-                  <CardTitle className="text-base leading-tight text-blue-50">{campaign.title}</CardTitle>
-                  <CardDescription className="text-xs line-clamp-2 text-blue-100/80">{campaign.description}</CardDescription>
+              <Card
+                key={campaign.id}
+                className="hover:shadow-lg transition-shadow bg-white/5 border border-white/20 text-white backdrop-blur-md"
+              >
+                <CardHeader className="pb-3 space-y-2">
+                  <Badge variant="outline" className="w-fit text-[11px] uppercase tracking-wide border-white/50 text-white">
+                    {campaign.narrative_tag}
+                  </Badge>
+                  <CardTitle className="text-lg leading-tight text-white">{campaign.title}</CardTitle>
+                  <CardDescription className="text-sm text-white/75 line-clamp-2">{campaign.description}</CardDescription>
                 </CardHeader>
                 <CardContent className="pt-0">
-                  <p className="text-[10px] text-blue-200/80 mb-2">
+                  <p className="text-xs text-white/70 mb-2">
                     {new Date(campaign.start_date).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })} -{" "}
                     {new Date(campaign.end_date).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })}
                   </p>
                   <Button
                     className="w-full h-9 text-sm"
-                    variant="default"
+                    variant="secondary"
                     onClick={() => navigate(`/campaign/${campaign.id}`)}
                   >
                     Ver detalhes & engajar

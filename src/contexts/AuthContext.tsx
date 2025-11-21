@@ -23,6 +23,8 @@ interface AuthContextType {
   isLeader: boolean;
   orgScope: OrgScope | null;
   profile: any | null;
+  roleOverride: 'colaborador' | 'lider' | null;
+  setRoleOverride: (val: 'colaborador' | 'lider' | null) => void;
   signIn: (email: string, password: string) => Promise<{ error: any }>;
   signUp: (email: string, password: string, name: string) => Promise<{ data: any; error: any }>;
   signOut: () => Promise<void>;
@@ -34,6 +36,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 // Cache configuration
 const CACHE_KEY = 'auth_user_cache';
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const ROLE_OVERRIDE_KEY = 'auth_role_override';
 
 const getCachedAuth = () => {
   try {
@@ -77,8 +80,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [hasActiveSession, setHasActiveSession] = useState(false);
   const [userRole, setUserRole] = useState<string | null>(null);
+  const [baseRole, setBaseRole] = useState<string | null>(null);
   const [studioAccess, setStudioAccess] = useState(false);
+  const [baseStudioAccess, setBaseStudioAccess] = useState(false);
   const [isLeader, setIsLeader] = useState(false);
+  const [baseIsLeader, setBaseIsLeader] = useState(false);
   const [orgScope, setOrgScope] = useState<OrgScope | null>(null);
   const [profile, setProfile] = useState<any | null>(null);
   const [previousRole, setPreviousRole] = useState<string | null>(null);
@@ -86,6 +92,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const roleRef = useRef<string | null>(null);
   const welcomeRef = useRef(false);
   const userIdRef = useRef<string | null>(null);
+  const [roleOverride, setRoleOverrideState] = useState<'colaborador' | 'lider' | null>(() => {
+    try {
+      const v = localStorage.getItem(ROLE_OVERRIDE_KEY);
+      if (v === 'colaborador' || v === 'lider') return v;
+      return null;
+    } catch {
+      return null;
+    }
+  });
 
   useEffect(() => {
     roleRef.current = userRole;
@@ -99,70 +114,152 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     userIdRef.current = user?.id ?? null;
   }, [user?.id]);
 
-  const fetchUserSession = async (userId: string) => {
+  const applyOverride = (authData: { role: string | null; studioAccess: boolean; isLeader: boolean }) => {
+    const { role, studioAccess: studio, isLeader: leader } = authData;
+    if (roleOverride === 'colaborador') {
+      setUserRole('colaborador');
+      setIsLeader(false);
+      setStudioAccess(false);
+      return;
+    }
+    if (roleOverride === 'lider') {
+      setUserRole('gerente_djt');
+      setIsLeader(true);
+      setStudioAccess(true);
+      return;
+    }
+    setUserRole(role);
+    setIsLeader(leader);
+    setStudioAccess(studio);
+  };
+
+  const setRoleOverride = (val: 'colaborador' | 'lider' | null) => {
+    setRoleOverrideState(val);
+    try {
+      if (val) localStorage.setItem(ROLE_OVERRIDE_KEY, val);
+      else localStorage.removeItem(ROLE_OVERRIDE_KEY);
+    } catch {
+      /* ignore */
+    }
+    applyOverride({
+      role: baseRole,
+      studioAccess: baseStudioAccess,
+      isLeader: baseIsLeader,
+    });
+  };
+
+  const fetchUserSession = async (providedSession?: Session | null) => {
     const cached = getCachedAuth();
     if (cached) {
-      console.log('🔹 Using cached auth:', cached);
-      setUserRole(cached.role);
-      setStudioAccess(cached.studioAccess);
-      setIsLeader(cached.isLeader);
+      setBaseRole(cached.role);
+      setBaseStudioAccess(cached.studioAccess);
+      setBaseIsLeader(cached.isLeader);
+      applyOverride({
+        role: cached.role,
+        studioAccess: cached.studioAccess,
+        isLeader: cached.isLeader,
+      });
       setOrgScope(cached.orgScope);
       setProfile(cached.profile);
     }
 
     try {
-      // Get fresh session token
-      const { data: { session: currentSession } } = await supabase.auth.getSession();
-      if (!currentSession) throw new Error('No session');
+      const currentSession = providedSession ?? null;
 
-      const { data, error } = await withTimeout(supabase.functions.invoke('auth-me', {
-        headers: {
-          Authorization: `Bearer ${currentSession.access_token}`
-        }
-      }), 3500);
+      if (!currentSession) {
+        // Trata como deslogado e sai sem loop
+        setUser(null);
+        setSession(null);
+        setHasActiveSession(false);
+        setBaseRole(null);
+        setBaseStudioAccess(false);
+        setBaseIsLeader(false);
+        applyOverride({
+          role: null,
+          studioAccess: false,
+          isLeader: false,
+        });
+        setOrgScope(null);
+        setProfile(null);
+        return null;
+      }
 
-      if (error) throw error;
+      const { data, error } = await withTimeout(
+        supabase.functions.invoke('auth-me', {
+          body: {},
+          headers: {
+            Authorization: `Bearer ${currentSession.access_token}`,
+          },
+        }),
+        3500
+      );
 
-      console.log('🔸 Fresh auth-me response:', data);
-      
+      if (error) {
+        console.warn('auth-me falhou', error.message || error);
+        setUser(null);
+        setSession(currentSession);
+        setHasActiveSession(false);
+        setBaseRole(null);
+        setBaseStudioAccess(false);
+        setBaseIsLeader(false);
+        applyOverride({
+          role: null,
+          studioAccess: false,
+          isLeader: false,
+        });
+        setOrgScope(null);
+        setProfile(null);
+        return null;
+      }
+
       const authData = {
         role: data.role,
         studioAccess: data.studioAccess,
         isLeader: data.isLeader,
         orgScope: data.orgScope,
-        profile: data.profile
+        profile: data.profile,
       };
-      
-      // Cache the result
+
       setCachedAuth(authData);
-      
-      setUserRole(data.role);
-      setStudioAccess(data.studioAccess);
-      setIsLeader(data.isLeader || false);
+      setBaseRole(data.role);
+      setBaseStudioAccess(data.studioAccess);
+      setBaseIsLeader(Boolean(data.isLeader));
+      applyOverride({
+        role: data.role,
+        studioAccess: data.studioAccess,
+        isLeader: Boolean(data.isLeader),
+      });
       setOrgScope(data.orgScope);
       setProfile(data.profile);
-      
+      setUser(currentSession.user ?? null);
+      setSession(currentSession ?? null);
+      setHasActiveSession(!!currentSession);
+
       return authData;
-    } catch (error) {
-      console.error('Error fetching user session:', error);
-      if (cached) {
-        return cached;
-      }
-      setUserRole('colaborador');
-      setStudioAccess(false);
-      setIsLeader(false);
+    } catch (error: any) {
+      console.warn('Erro ao buscar sessão', error?.message || error);
+      if (cached) return cached;
+      setBaseRole(null);
+      setBaseStudioAccess(false);
+      setBaseIsLeader(false);
+      applyOverride({
+        role: null,
+        studioAccess: false,
+        isLeader: false,
+      });
       setOrgScope(null);
+      setProfile(null);
+      setUser(null);
+      setSession(null);
+      setHasActiveSession(false);
       return null;
     }
   };
 
   const refreshUserSession = async () => {
-    // Clear cache to force refresh
     localStorage.removeItem(CACHE_KEY);
     const { data: { session: currentSession } } = await supabase.auth.getSession();
-    if (currentSession?.user?.id) {
-      await fetchUserSession(currentSession.user.id);
-    }
+    await fetchUserSession(currentSession);
   };
 
   useEffect(() => {
@@ -186,7 +283,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         if (session) {
           const oldRole = roleRef.current;
-          fetchUserSession(session.user.id)
+          fetchUserSession(session)
             .then((authData) => {
               console.log('👤 AuthContext: role check', { oldRole, newRole: authData?.role, hasShownWelcome: welcomeRef.current });
 
@@ -216,17 +313,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     );
 
-    // Check for existing session without blocking UI
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      setHasActiveSession(!!session);
-      setLoading(false);
-
-      if (session) {
-        fetchUserSession(session.user.id).catch((err) => console.error('Auth fetch (startup) error:', err));
-      }
-    });
+    setLoading(false);
 
     return () => subscription.unsubscribe();
   }, []);
@@ -253,6 +340,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signOut = async () => {
     console.log('🚪 Signing out, clearing cache');
     localStorage.removeItem(CACHE_KEY);
+    localStorage.removeItem(ROLE_OVERRIDE_KEY);
     await supabase.auth.signOut();
   };
 
@@ -267,6 +355,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isLeader,
       orgScope,
       profile,
+      roleOverride,
+      setRoleOverride,
       signIn,
       signUp, 
       signOut,

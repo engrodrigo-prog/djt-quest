@@ -9,6 +9,7 @@ import iconStudio from '@/assets/backgrounds/studio.png';
 import iconProfile from '@/assets/backgrounds/perfil.png';
 import iconLogout from '@/assets/backgrounds/SAIR.png';
 import iconSEPBook from '@/assets/backgrounds/SEPbook.png';
+import iconStudy from '@/assets/backgrounds/studylab.png';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useAuth } from '@/contexts/AuthContext';
@@ -34,9 +35,9 @@ const Navigation = () => {
 
   // Calculate dynamic item size so all buttons fit without gaps/scroll on current viewport
   const visibleCount = useMemo(() => {
-    // Home, Forums, SEPBook, Profile, Rankings, Logout
+    // Home, Forums, SEPBook, Study, Profile, Rankings, Logout
     // Optional: Evaluations (leader), Studio (studioAccess)
-    let count = 6;
+    let count = 7;
     if (isLeader) count += 1;
     if (studioAccess) count += 1;
     return count;
@@ -145,6 +146,20 @@ const Navigation = () => {
   }, []);
 
   const isActive = (path: string) => location.pathname === path;
+  const baseButtonClass =
+    "flex-col h-auto py-1 gap-1 snap-center rounded-none first:rounded-l-xl last:rounded-r-xl hover:bg-white/5";
+  const bubbleClass = (active: boolean) =>
+    cn(
+      "relative inline-flex items-center justify-center rounded-2xl border border-white/10 bg-slate-800/80 backdrop-blur-md shadow-[0_8px_20px_rgba(0,0,0,0.45)] transition-transform duration-150 hover:scale-105 active:scale-110",
+      active ? "ring-2 ring-cyan-300/60 shadow-[0_0_18px_rgba(0,255,255,0.28)] scale-105" : "ring-0"
+    );
+  const labelClass = (active: boolean) =>
+    cn("text-[11px] font-semibold leading-4 tracking-tight", active ? "text-slate-50" : "text-slate-200/80");
+  const badgeClass = (alert?: boolean) =>
+    cn(
+      "absolute -top-1 -right-1 text-white text-[11px] leading-none rounded-full px-1.5 py-0.5 min-w-[20px] text-center shadow-sm",
+      alert ? "bg-destructive" : "bg-emerald-600"
+    );
 
   return (
     <nav
@@ -160,69 +175,90 @@ const Navigation = () => {
           backgroundRepeat: 'no-repeat',
           filter: 'brightness(0.85) saturate(1.1)'
         }} />
-        <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/35 to-transparent" />
+        <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-slate-900/70 to-transparent" />
       </div>
-      <div ref={barRef} className="relative mx-auto max-w-[1200px] px-2 md:px-4 flex items-center justify-center gap-0 py-0 overflow-visible min-h-[96px]">
-        <div className="nav-rail relative flex items-center justify-center gap-0 bg-white/5 border border-cyan-800/40 rounded-2xl p-1 shadow-lg backdrop-blur-md">
+      <div ref={barRef} className="relative mx-auto max-w-[1200px] px-2 md:px-4 flex items-center justify-center gap-0 py-0 overflow-x-auto overflow-y-visible min-h-[96px] touch-pan-x">
+        <div className="nav-rail relative flex items-center justify-center gap-0 bg-slate-950/80 border border-white/10 rounded-2xl px-2 py-2 shadow-2xl backdrop-blur-xl min-w-max">
         <Button
           variant={isActive('/dashboard') ? 'default' : 'ghost'}
           size="sm"
           onClick={() => navigate('/dashboard')}
-          className="flex-col h-auto py-1 snap-center rounded-none first:rounded-l-xl last:rounded-r-xl hover:bg-white/5"
+          className={baseButtonClass}
           aria-label="Início"
+          aria-current={isActive('/dashboard') ? 'page' : undefined}
         >
-          <span style={{ width: itemSize, height: itemSize }} className={`relative inline-flex items-center justify-center rounded-2xl border border-white/10 shadow-[0_8px_20px_rgba(0,0,0,0.45)] bg-white/5 backdrop-blur-sm ${isActive('/dashboard') ? 'ring-2 ring-cyan-300/60 shadow-[0_0_18px_rgba(0,255,255,0.25)] scale-105' : 'ring-0'} transition-transform duration-150 hover:scale-105 active:scale-110`}>
+          <span style={{ width: itemSize, height: itemSize }} className={bubbleClass(isActive('/dashboard'))}>
             <span className="absolute inset-[3px] rounded-2xl overflow-hidden">
               <img src={iconHome} alt="Início" className="w-full h-full object-cover" />
             </span>
           </span>
+          <span className={labelClass(isActive('/dashboard'))}>Início</span>
         </Button>
         
         <Button
           variant={location.pathname.startsWith('/forum') ? 'default' : 'ghost'}
           size="sm"
           onClick={() => navigate('/forums')}
-          className="flex-col h-auto py-1 relative snap-center rounded-none first:rounded-l-xl last:rounded-r-xl hover:bg-white/5"
+          className={cn(baseButtonClass, 'relative')}
           aria-label="Fóruns"
+          aria-current={location.pathname.startsWith('/forum') ? 'page' : undefined}
         >
-          <span style={{ width: itemSize, height: itemSize }} className={`relative inline-flex items-center justify-center rounded-2xl border border-white/10 shadow-[0_8px_20px_rgba(0,0,0,0.45)] bg-white/5 backdrop-blur-sm ${location.pathname.startsWith('/forum') ? 'ring-2 ring-cyan-300/60 shadow-[0_0_18px_rgba(0,255,255,0.25)] scale-105' : 'ring-0'} transition-transform duration-150 hover:scale-105 active:scale-110`}>
+          <span style={{ width: itemSize, height: itemSize }} className={bubbleClass(location.pathname.startsWith('/forum'))}>
             <span className="absolute inset-[3px] rounded-2xl overflow-hidden">
               <img src={iconForum} alt="Fóruns" className="w-full h-full object-cover" />
             </span>
-            <span
-              className={`absolute -top-1 -right-1 text-white text-[10px] leading-none rounded-full px-1.5 py-0.5 ${forumBadge >= 1 ? 'bg-red-600' : 'bg-green-600'}`}
-              style={{ zIndex: 5 }}
-            >
+            <span className={badgeClass(forumBadge >= 1)} style={{ zIndex: 5 }}>
               {forumBadge > 99 ? '99+' : forumBadge}
             </span>
           </span>
+          <span className={labelClass(location.pathname.startsWith('/forum'))}>Fóruns</span>
         </Button>
 
         <Button
           variant={location.pathname.startsWith('/sepbook') ? 'default' : 'ghost'}
           size="sm"
           onClick={() => navigate('/sepbook')}
-          className="flex-col h-auto py-1 relative snap-center rounded-none first:rounded-l-xl last:rounded-r-xl hover:bg-white/5"
+          className={cn(baseButtonClass, 'relative')}
           aria-label="SEPBook"
+          aria-current={location.pathname.startsWith('/sepbook') ? 'page' : undefined}
         >
-          <span style={{ width: itemSize, height: itemSize }} className={`relative inline-flex items-center justify-center rounded-2xl border border-white/10 shadow-[0_8px_20px_rgba(0,0,0,0.45)] bg-white/5 backdrop-blur-sm ${location.pathname.startsWith('/sepbook') ? 'ring-2 ring-cyan-300/60 shadow-[0_0_18px_rgba(0,255,255,0.25)] scale-105' : 'ring-0'} transition-transform duration-150 hover:scale-105 active:scale-110`}>
+          <span style={{ width: itemSize, height: itemSize }} className={bubbleClass(location.pathname.startsWith('/sepbook'))}>
             <span className="absolute inset-[3px] rounded-2xl overflow-hidden">
               <img src={iconSEPBook} alt="SEPBook" className="w-full h-full object-cover" />
             </span>
             {sepbookNew > 0 && (
-              <span
-                className="absolute -top-1 -right-1 text-white text-[10px] leading-none rounded-full px-1.5 py-0.5 bg-emerald-600"
-                style={{ zIndex: 5 }}
-              >
+              <span className={badgeClass(false)} style={{ zIndex: 5 }}>
                 {sepbookNew > 99 ? '99+' : sepbookNew}
               </span>
             )}
           </span>
-          {sepbookMentions > 0 && (
-            <span className="mt-0.5 text-[10px] text-emerald-300 font-semibold">
-              {sepbookMentions}@
+          <div className="flex flex-col items-center leading-tight">
+            <span className={labelClass(location.pathname.startsWith('/sepbook'))}>SEPBook</span>
+            {sepbookMentions > 0 && (
+              <span className="text-[10px] text-emerald-300 font-semibold leading-tight -mt-0.5">
+                {sepbookMentions}@
+              </span>
+            )}
+          </div>
+        </Button>
+
+        <Button
+          variant={isActive('/study') ? 'default' : 'ghost'}
+          size="sm"
+          onClick={() => navigate('/study')}
+          className={baseButtonClass}
+          aria-label="Estudos"
+          aria-current={isActive('/study') ? 'page' : undefined}
+        >
+          <span
+            style={{ width: itemSize, height: itemSize }}
+            className={bubbleClass(isActive('/study'))}
+          >
+            <span className="absolute inset-[3px] rounded-2xl overflow-hidden">
+              <img src={iconStudy} alt="Estudos" className="w-full h-full object-cover" />
             </span>
-          )}
+          </span>
+          <span className={labelClass(isActive('/study'))}>Estudos</span>
         </Button>
         
         {isLeader && (
@@ -230,21 +266,20 @@ const Navigation = () => {
             variant={isActive('/evaluations') ? 'default' : 'ghost'}
             size="sm"
             onClick={() => navigate('/evaluations')}
-            className="flex-col h-auto py-1 relative snap-center rounded-none first:rounded-l-xl last:rounded-r-xl hover:bg-white/5"
+            className={cn(baseButtonClass, 'relative')}
             aria-label="Avaliar"
+            aria-current={isActive('/evaluations') ? 'page' : undefined}
           >
-            <span style={{ width: itemSize, height: itemSize }} className={`relative inline-flex items-center justify-center rounded-2xl border border-white/10 shadow-[0_8px_20px_rgba(0,0,0,0.45)] bg-white/5 backdrop-blur-sm ${isActive('/evaluations') ? 'ring-2 ring-cyan-300/60 shadow-[0_0_18px_rgba(0,255,255,0.25)] scale-105' : 'ring-0'} transition-transform duration-150 hover:scale-105 active:scale-110`}>
+            <span style={{ width: itemSize, height: itemSize }} className={bubbleClass(isActive('/evaluations'))}>
               <span className="absolute inset-[3px] rounded-2xl overflow-hidden">
                 <img src={iconAvaliar} alt="Avaliar" className="w-full h-full object-cover" />
               </span>
-            <span
-              className={`absolute -top-1 -right-1 text-white text-[10px] leading-none rounded-full px-1.5 py-0.5 ${evalBadge >= 1 ? 'bg-red-600' : 'bg-green-600'}`}
-              style={{ zIndex: 5 }}
-            >
-              {evalBadge > 99 ? '99+' : evalBadge}
+              <span className={badgeClass(evalBadge >= 1)} style={{ zIndex: 5 }}>
+                {evalBadge > 99 ? '99+' : evalBadge}
+              </span>
             </span>
-          </span>
-        </Button>
+            <span className={labelClass(isActive('/evaluations'))}>Avaliar</span>
+          </Button>
         )}
         
         {studioAccess && (
@@ -255,19 +290,21 @@ const Navigation = () => {
                   variant={isActive('/studio') ? 'default' : 'ghost'}
                   size="sm"
                   onClick={() => navigate('/studio')}
-                  className={cn("flex-col h-auto py-1 relative snap-center rounded-none first:rounded-l-xl last:rounded-r-xl hover:bg-white/5")}
+                  className={cn(baseButtonClass, "relative")}
                   aria-label="Studio"
+                  aria-current={isActive('/studio') ? 'page' : undefined}
                 >
                   <div className="relative flex items-center justify-center">
-                  <span style={{ width: itemSize, height: itemSize }} className={`relative inline-flex items-center justify-center rounded-2xl border border-white/10 shadow-[0_8px_20px_rgba(0,0,0,0.45)] bg-white/5 backdrop-blur-sm ${isActive('/studio') ? 'ring-2 ring-cyan-300/60 shadow-[0_0_18px_rgba(0,255,255,0.25)] scale-105' : 'ring-0'} transition-transform duration-150 hover:scale-105 active:scale-110`}>
+                  <span style={{ width: itemSize, height: itemSize }} className={bubbleClass(isActive('/studio'))}>
                     <span className="absolute inset-[3px] rounded-2xl overflow-hidden">
                       <img src={iconStudio} alt="Studio" className="w-full h-full object-cover" />
                     </span>
-                    <span className={`absolute -top-1 -right-1 text-white text-[10px] leading-none rounded-full px-1.5 py-0.5 ${studioBadge >= 1 ? 'bg-red-600' : 'bg-green-600'}`} style={{ zIndex: 5 }}>
+                    <span className={badgeClass(studioBadge >= 1)} style={{ zIndex: 5 }}>
                       {studioBadge > 99 ? '99+' : studioBadge}
                     </span>
                   </span>
                   </div>
+                  <span className={labelClass(isActive('/studio'))}>Studio</span>
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
@@ -281,28 +318,32 @@ const Navigation = () => {
           variant={isActive('/profile') ? 'default' : 'ghost'}
           size="sm"
           onClick={() => navigate('/profile')}
-          className="flex-col h-auto py-1 snap-center rounded-none first:rounded-l-xl last:rounded-r-xl hover:bg-white/5"
+          className={baseButtonClass}
           aria-label="Perfil"
+          aria-current={isActive('/profile') ? 'page' : undefined}
         >
-          <span style={{ width: itemSize, height: itemSize }} className={`inline-flex items-center justify-center rounded-2xl border border-white/10 shadow-[0_8px_20px_rgba(0,0,0,0.45)] bg-white/5 backdrop-blur-sm ${isActive('/profile') ? 'ring-2 ring-cyan-300/60 shadow-[0_0_18px_rgba(0,255,255,0.25)] scale-105' : 'ring-0'} transition-transform duration-150 hover:scale-105 active:scale-110`}>
+          <span style={{ width: itemSize, height: itemSize }} className={bubbleClass(isActive('/profile'))}>
             <span className="absolute inset-[3px] rounded-2xl overflow-hidden">
               <img src={iconProfile} alt="Perfil" className="w-full h-full object-cover" />
             </span>
           </span>
+          <span className={labelClass(isActive('/profile'))}>Perfil</span>
         </Button>
 
         <Button
           variant={isActive('/rankings') ? 'default' : 'ghost'}
           size="sm"
           onClick={() => navigate('/rankings')}
-          className="flex-col h-auto py-1 snap-center rounded-none first:rounded-l-xl last:rounded-r-xl hover:bg-white/5"
+          className={baseButtonClass}
           aria-label="Rankings"
+          aria-current={isActive('/rankings') ? 'page' : undefined}
         >
-          <span style={{ width: itemSize, height: itemSize }} className={`relative inline-flex items-center justify-center rounded-2xl border border-white/10 shadow-[0_8px_20px_rgba(0,0,0,0.45)] bg-white/5 backdrop-blur-sm ${isActive('/rankings') ? 'ring-2 ring-cyan-300/60 shadow-[0_0_18px_rgba(0,255,255,0.25)] scale-105' : 'ring-0'} transition-transform duration-150 hover:scale-105 active:scale-110`}>
+          <span style={{ width: itemSize, height: itemSize }} className={bubbleClass(isActive('/rankings'))}>
             <span className="absolute inset-[3px] rounded-2xl overflow-hidden">
               <img src={iconRanking} alt="Rankings" className="w-full h-full object-cover" />
             </span>
           </span>
+          <span className={labelClass(isActive('/rankings'))}>Rankings</span>
         </Button>
 
         <Button
@@ -317,14 +358,15 @@ const Navigation = () => {
               window.location.href = '/';
             }
           }}
-          className="flex-col h-auto py-1 snap-center rounded-none first:rounded-l-xl last:rounded-r-xl hover:bg-white/5"
+          className={baseButtonClass}
           aria-label="Sair"
         >
-          <span style={{ width: itemSize, height: itemSize }} className="inline-flex items-center justify-center rounded-2xl border border-white/10 shadow-[0_8px_20px_rgba(0,0,0,0.45)] bg-white/5 backdrop-blur-sm transition-transform duration-150 hover:scale-105 active:scale-110">
+          <span style={{ width: itemSize, height: itemSize }} className={bubbleClass(false)}>
             <span className="absolute inset-[3px] rounded-2xl overflow-hidden">
               <img src={iconLogout} alt="Sair" className="w-full h-full object-cover" />
             </span>
           </span>
+          <span className={labelClass(false)}>Sair</span>
         </Button>
         </div>
       </div>
