@@ -59,7 +59,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       const { data: sourceRow } = await admin
         .from("study_sources")
-        .select("id, user_id, title, summary, full_text, url")
+        .select("id, user_id, title, summary, full_text, url, ingest_status, ingest_error, ingested_at")
         .eq("id", source_id)
         .maybeSingle();
 
@@ -74,7 +74,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               if (fetched?.trim()) {
                 baseText = fetched;
                 // Persistir para próximas consultas
-                await admin.from("study_sources").update({ full_text: fetched }).eq("id", source_id);
+                await admin
+                  .from("study_sources")
+                  .update({
+                    full_text: fetched,
+                    ingest_status: "ok",
+                    ingested_at: new Date().toISOString(),
+                    ingest_error: null,
+                  })
+                  .eq("id", source_id);
               }
             } catch {
               /* não bloqueia resposta; segue com o que tiver */
@@ -176,6 +184,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             .from("study_sources")
             .update({
               full_text: trimmed,
+              ingest_status: "ok",
+              ingested_at: new Date().toISOString(),
+              ingest_error: null,
               ...(newTitle ? { title: newTitle } : {}),
               ...(newSummary ? { summary: newSummary } : {}),
               ...(topic ? { topic } : {}),
@@ -192,6 +203,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }
       } catch (e: any) {
         console.warn("Study ingest error", e?.message || e);
+        try {
+          await admin
+            .from("study_sources")
+            .update({
+              ingest_status: "failed",
+              ingest_error: e?.message || e?.toString?.() || "Erro ao ingerir material",
+            })
+            .eq("id", source_id);
+        } catch {}
       }
 
       return res.status(200).json({ success: true, ingested: true });
@@ -256,13 +276,13 @@ Formato da saída:
 
     if (!resp.ok) {
       const txt = await resp.text().catch(() => `HTTP ${resp.status}`);
-      return res.status(400).json({ error: `OpenAI error: ${txt}` });
+      return res.status(200).json({ success: false, error: `OpenAI error: ${txt}` });
     }
 
     const data = await resp.json().catch(() => null);
     const content = data?.choices?.[0]?.message?.content || "";
     if (!content) {
-      return res.status(400).json({ error: "OpenAI retornou resposta vazia" });
+      return res.status(200).json({ success: false, error: "OpenAI retornou resposta vazia" });
     }
 
     return res.status(200).json({ success: true, answer: content });

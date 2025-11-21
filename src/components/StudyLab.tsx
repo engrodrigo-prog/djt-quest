@@ -19,6 +19,9 @@ interface StudySource {
   url: string | null;
   storage_path: string | null;
   summary: string | null;
+  ingest_status?: "pending" | "ok" | "failed" | null;
+  ingested_at?: string | null;
+  ingest_error?: string | null;
   topic?: string | null;
   is_persistent: boolean;
   created_at: string;
@@ -48,7 +51,7 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
       setLoadingSources(true);
       const { data, error } = await supabase
         .from("study_sources")
-        .select("id, user_id, title, kind, url, storage_path, summary, topic, is_persistent, created_at, last_used_at")
+        .select("id, user_id, title, kind, url, storage_path, summary, ingest_status, ingested_at, ingest_error, topic, is_persistent, created_at, last_used_at")
         .order("created_at", { ascending: false });
       if (error) throw error;
       const normalized = await normalizeSources((data || []) as StudySource[]);
@@ -180,6 +183,7 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
           kind: "file",
           url: u,
           summary: info.summary,
+          ingest_status: "pending",
           is_persistent: true,
           last_used_at: new Date().toISOString(),
         };
@@ -187,7 +191,7 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
       const { data, error } = await supabase
         .from("study_sources")
         .insert(inserts)
-        .select("id, user_id, title, kind, url, storage_path, summary, topic, is_persistent, created_at, last_used_at");
+        .select("id, user_id, title, kind, url, storage_path, summary, ingest_status, ingested_at, ingest_error, topic, is_persistent, created_at, last_used_at");
       if (error) throw error;
       if (data && Array.isArray(data)) {
         const list = data as StudySource[];
@@ -288,10 +292,11 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
           kind: "url",
           url: link,
           summary: finalDesc,
+          ingest_status: "pending",
           is_persistent: true,
           last_used_at: new Date().toISOString(),
         })
-        .select("id, user_id, title, kind, url, storage_path, summary, topic, is_persistent, created_at, last_used_at")
+        .select("id, user_id, title, kind, url, storage_path, summary, ingest_status, ingested_at, ingest_error, topic, is_persistent, created_at, last_used_at")
         .maybeSingle();
       if (error) throw error;
       if (data) {
@@ -343,6 +348,30 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
       toast.error("Selecione um material da lista para conversar sobre ele.");
       return;
     }
+    const sel = sources.find((s) => s.id === selectedSourceId);
+    if (sel && sel.ingest_status === "failed") {
+      toast.error("Curadoria do material falhou. Reprocessando agora...");
+      setIngesting(true);
+      try {
+        const { data: session } = await supabase.auth.getSession();
+        const token = session.session?.access_token;
+        if (token) {
+          await fetch("/api/ai?handler=study-chat", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ mode: "ingest", source_id: sel.id }),
+          }).catch(() => undefined);
+          await fetchSources();
+        }
+      } finally {
+        setIngesting(false);
+      }
+      toast.error("Tente novamente após a curadoria.");
+      return;
+    }
 
     const nextMessages = [...chatMessages, { role: "user", content: trimmed } as ChatMessage];
     setChatMessages(nextMessages);
@@ -365,13 +394,17 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
           messages: nextMessages,
         }),
       });
-      const json = await resp.json().catch(() => ({}));
-      if (!resp.ok) {
+      const json = await resp.json().catch(() => ({} as any));
+      if (!resp.ok || json?.success === false) {
         const err = json?.error || "Falha no chat de estudos";
         setChatError(err);
-        throw new Error(err);
+        return;
       }
       const answer = json.answer || json.content || "";
+      if (!answer) {
+        setChatError("A IA retornou uma resposta vazia.");
+        return;
+      }
       setChatMessages((prev) => [...prev, { role: "assistant", content: answer }]);
       // Atualiza último uso para manter ativo
       try {
@@ -396,6 +429,12 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
     : [];
 
   const displaySummary = (s: StudySource) => s.summary?.trim() || s.url || "Sem resumo";
+  const statusBadge = (s: StudySource) => {
+    if (s.ingest_status === "ok") return null;
+    if (s.ingest_status === "pending") return <Badge variant="outline" className="text-[10px] border-amber-400 text-amber-200">curando...</Badge>;
+    if (s.ingest_status === "failed") return <Badge variant="outline" className="text-[10px] border-red-400 text-red-200">falhou</Badge>;
+    return null;
+  };
 
   const TOPIC_LABELS: Record<string, string> = {
     LINHAS: "Linhas de Transmissão",
@@ -507,16 +546,17 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
                         <div className="flex items-start justify-between gap-2">
                           <div>
                             <p className="font-semibold leading-tight text-white">
-                              {s.title?.trim() || deriveTitleFromUrl(s.url || "")}
-                            </p>
-                            <p className="text-[11px] text-white/70">
-                              {new Date(s.created_at).toLocaleString("pt-BR")}
-                            </p>
-                          </div>
-                          <div className="flex items-center gap-1">
-                            <Badge variant="outline" className="text-[10px] border-white/50 text-white">
-                              {s.kind.toUpperCase()}
-                            </Badge>
+                        {s.title?.trim() || deriveTitleFromUrl(s.url || "")}
+                      </p>
+                      <p className="text-[11px] text-white/70">
+                        {new Date(s.created_at).toLocaleString("pt-BR")}
+                      </p>
+                      {statusBadge(s)}
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Badge variant="outline" className="text-[10px] border-white/50 text-white">
+                        {s.kind.toUpperCase()}
+                      </Badge>
                             <button
                               type="button"
                               onClick={(e) => {
