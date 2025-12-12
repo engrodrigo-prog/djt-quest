@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { User, Settings, LogOut, Shield, Users, Camera, Key, Repeat } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import { toast } from "sonner";
 
 interface ProfileDropdownProps {
   profile: {
@@ -97,18 +98,35 @@ export const ProfileDropdown = ({ profile, isLeader, onSignOut }: ProfileDropdow
         {canImpersonate && (
           <>
             {roleOverride && (
-              <DropdownMenuItem onClick={() => setRoleOverride(null)}>
+              <DropdownMenuItem
+                onClick={() => {
+                  setRoleOverride(null);
+                  toast.success("Voltando ao seu papel real");
+                }}
+              >
                 <Repeat className="h-4 w-4 mr-2" />
                 Voltar ao papel real
               </DropdownMenuItem>
             )}
             <DropdownMenuItem
-              onClick={() => setRoleOverride("lider")}
+              onClick={() => {
+                setRoleOverride("lider");
+                toast.message("Modo líder (teste) ativado", {
+                  description: "Use “Voltar ao papel real” para desfazer.",
+                });
+              }}
             >
               <Repeat className="h-4 w-4 mr-2" />
               Navegar como Líder
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setRoleOverride("colaborador")}>
+            <DropdownMenuItem
+              onClick={() => {
+                setRoleOverride("colaborador");
+                toast.message("Modo colaborador (teste) ativado", {
+                  description: "Isso oculta Studio/Avaliações. Use “Voltar ao papel real” para desfazer.",
+                });
+              }}
+            >
               <Repeat className="h-4 w-4 mr-2" />
               Navegar como Colaborador
             </DropdownMenuItem>

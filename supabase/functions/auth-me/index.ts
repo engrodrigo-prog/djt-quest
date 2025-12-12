@@ -11,14 +11,22 @@ Deno.serve(async (req) => {
   }
 
   try {
+    const supabaseUrl = Deno.env.get('SUPABASE_URL');
+    const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY');
+    const supabaseServiceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+
+    if (!supabaseUrl || !supabaseAnonKey) {
+      throw new Error('Missing SUPABASE_URL or SUPABASE_ANON_KEY');
+    }
+
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) {
       throw new Error('No authorization header');
     }
 
     const supabaseAuth = createClient(
-      Deno.env.get('SUPABASE_URL')!,
-      Deno.env.get('SUPABASE_ANON_KEY')!,
+      supabaseUrl,
+      supabaseAnonKey,
       {
         global: {
           headers: {
@@ -34,18 +42,16 @@ Deno.serve(async (req) => {
       throw new Error('Unauthorized');
     }
 
-    // Client privilegiado para ler tabelas internas com RLS respeitando auth.uid()
-    const supabase = createClient(
-      Deno.env.get('SUPABASE_URL')!,
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || Deno.env.get('SUPABASE_ANON_KEY')!,
-      {
-        global: {
-          headers: {
-            Authorization: authHeader,
-          },
-        },
-      },
-    );
+    // Client privilegiado:
+    // - Prefer service role para bypass de RLS (necessário para ler user_roles e enriquecer orgScope).
+    // - Se não houver service key, faz fallback para modo "as user" (pode falhar dependendo de RLS).
+    const supabase = supabaseServiceRoleKey
+      ? createClient(supabaseUrl, supabaseServiceRoleKey, {
+          auth: { autoRefreshToken: false, persistSession: false },
+        })
+      : createClient(supabaseUrl, supabaseAnonKey, {
+          global: { headers: { Authorization: authHeader } },
+        });
 
     // Fetch ALL user roles
     const { data: rolesData } = await supabase

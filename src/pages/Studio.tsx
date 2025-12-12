@@ -28,7 +28,7 @@ import { ChallengeManagement } from '@/components/ChallengeManagement';
 import { StudyLab } from '@/components/StudyLab';
 
 const Studio = () => {
-  const { user, loading, isLeader, studioAccess, userRole } = useAuth();
+  const { user, loading, studioAccess, userRole, roleOverride } = useAuth();
   const [selectedModule, setSelectedModule] = useState<string | null>(null);
 
   if (loading) {
@@ -42,14 +42,15 @@ const Studio = () => {
     );
   }
 
-  if (!isLeader || !studioAccess) {
+  if (!studioAccess) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4">
         <Card className="max-w-md">
           <CardHeader>
             <CardTitle>Acesso Negado</CardTitle>
             <CardDescription>
-              Seu perfil atual não possui permissão para acessar o DJT Quest Studio. Entre como Coordenador, Líder ou Gerente.
+              Seu perfil atual não possui permissão para acessar o DJT Quest Studio.
+              {roleOverride ? ' Você está em modo de teste — volte ao papel real no menu do perfil.' : ' Entre como Coordenador, Líder ou Gerente.'}
             </CardDescription>
           </CardHeader>
         </Card>

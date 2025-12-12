@@ -196,7 +196,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             Authorization: `Bearer ${currentSession.access_token}`,
           },
         }),
-        3500
+        8000
       );
 
       if (error) {
