@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { supabase } from '@/integrations/supabase/client'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -52,6 +52,55 @@ export const AiQuizGenerator = ({ defaultChallengeId }: { defaultChallengeId?: s
   const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([])
   const [datasetText, setDatasetText] = useState("")
   const [datasetTitle, setDatasetTitle] = useState("")
+  const [isGeneratingQuiz, setIsGeneratingQuiz] = useState(false)
+  const [generationProgress, setGenerationProgress] = useState(0)
+  const [generationStatus, setGenerationStatus] = useState<string | null>(null)
+  const generationTimerRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (generationTimerRef.current) {
+        window.clearInterval(generationTimerRef.current)
+      }
+    }
+  }, [])
+
+  const beginGeneration = (label: string) => {
+    setIsGeneratingQuiz(true)
+    setGenerationStatus(label)
+    setGenerationProgress(5)
+    if (generationTimerRef.current) {
+      window.clearInterval(generationTimerRef.current)
+    }
+    generationTimerRef.current = window.setInterval(() => {
+      setGenerationProgress((prev) => {
+        if (prev >= 90) return prev
+        const inc = Math.max(1, Math.round(Math.random() * 4))
+        return Math.min(90, prev + inc)
+      })
+    }, 650)
+  }
+
+  const setGenerationStage = (label: string, progress?: number) => {
+    setGenerationStatus(label)
+    if (typeof progress === 'number') {
+      setGenerationProgress(() => Math.min(95, Math.max(0, progress)))
+    }
+  }
+
+  const endGeneration = (ok: boolean) => {
+    if (generationTimerRef.current) {
+      window.clearInterval(generationTimerRef.current)
+      generationTimerRef.current = null
+    }
+    setGenerationStatus(ok ? 'Quiz gerado!' : 'Falha ao gerar')
+    setGenerationProgress(100)
+    window.setTimeout(() => {
+      setIsGeneratingQuiz(false)
+      setGenerationStatus(null)
+      setGenerationProgress(0)
+    }, 900)
+  }
 
   useEffect(() => {
     (async () => {
@@ -126,31 +175,31 @@ export const AiQuizGenerator = ({ defaultChallengeId }: { defaultChallengeId?: s
     const hasDataset = datasetText.trim().length > 0
     const hasSources = selectedSourceIds.length > 0
 
-    if (!topic.trim() && !hasDataset && !hasSources) {
-      toast('Informe um tema ou selecione ao menos uma base de estudo para gerar o quiz completo.')
+    // Para evitar alucinações, o Quiz do Milhão deve ser baseado em fontes (StudyLab) e/ou dataset colado aqui.
+    if (!hasDataset && !hasSources) {
+      toast('Selecione ao menos uma base de estudo (StudyLab) ou cole um dataset (normas/padrões/procedimentos) para gerar o Quiz do Milhão.')
       return
     }
     setLoading(true)
+    beginGeneration('Preparando fontes...')
     try {
       const { data: session } = await supabase.auth.getSession()
       const token = session.session?.access_token
-      const handler = hasSources || hasDataset ? 'study-quiz' : 'quiz-milhao'
-      const body =
-        handler === 'study-quiz'
-          ? {
-              mode: 'milhao',
-              language: 'pt-BR',
-              source_ids: selectedSourceIds,
-              sources: hasDataset
-                ? [{
-                    title: datasetTitle || topic || 'Base de estudo deste quiz',
-                    text: datasetText,
-                  }]
-                : [],
-              question_count: MILHAO_TOTAL,
-            }
-          : { topic, mode, language: 'pt-BR' }
+      const handler = 'study-quiz'
+      const body = {
+        mode: 'milhao',
+        language: 'pt-BR',
+        source_ids: selectedSourceIds,
+        sources: hasDataset
+          ? [{
+              title: datasetTitle || topic || 'Base de estudo deste quiz',
+              text: datasetText,
+            }]
+          : [],
+        question_count: MILHAO_TOTAL,
+      }
 
+      setGenerationStage('Gerando questões (IA)...', 25)
       const resp = await apiFetch(`/api/ai?handler=${handler}`, {
         method: 'POST',
         headers: {
@@ -162,6 +211,7 @@ export const AiQuizGenerator = ({ defaultChallengeId }: { defaultChallengeId?: s
       const json = await resp.json()
       if (!resp.ok) throw new Error(json?.error || 'Falha ao gerar quiz completo')
 
+      setGenerationStage('Processando e aplicando níveis...', 92)
       const sourceQuiz = json.quiz || json
       const incoming = Array.isArray(sourceQuiz.questoes)
         ? sourceQuiz.questoes
@@ -225,8 +275,10 @@ export const AiQuizGenerator = ({ defaultChallengeId }: { defaultChallengeId?: s
         }
       }
       toast('Quiz completo (10 perguntas) gerado! Perguntas manuais foram mantidas e as demais preenchidas pela IA.')
+      endGeneration(true)
     } catch (e: any) {
       toast(`Erro ao gerar quiz completo: ${e?.message || e}`)
+      endGeneration(false)
     } finally {
       setLoading(false)
     }
@@ -380,10 +432,10 @@ export const AiQuizGenerator = ({ defaultChallengeId }: { defaultChallengeId?: s
           {mode === 'milzao' && (
             <div className="space-y-2 mb-2">
               <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-                <span>Progresso do Quiz do Milhão (10 perguntas)</span>
-                <span>{milhaoProgress}%</span>
+                <span>{isGeneratingQuiz ? (generationStatus || 'Gerando Quiz do Milhão...') : 'Progresso do Quiz do Milhão (10 perguntas)'}</span>
+                <span>{isGeneratingQuiz ? `${generationProgress}%` : `${milhaoProgress}%`}</span>
               </div>
-              <Progress value={milhaoProgress} className="h-2" />
+              <Progress value={isGeneratingQuiz ? generationProgress : milhaoProgress} className="h-2" />
             </div>
           )}
 

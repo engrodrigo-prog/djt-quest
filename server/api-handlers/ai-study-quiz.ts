@@ -10,6 +10,7 @@ const LETTERS = ["A", "B", "C", "D"] as const;
 type Letter = (typeof LETTERS)[number];
 
 const XP_TABLE_MILHAO = [100, 150, 200, 250, 300, 400, 550, 700, 850, 1000] as const;
+const BANNED_TERMS_RE = /smart\s*line|smartline|smarline/i;
 
 const asLetter = (value: any): Letter | null => {
   const s = (value ?? "").toString().trim().toUpperCase();
@@ -255,6 +256,8 @@ Regras de fidelidade:
 - Em "explanation", cite pelo menos uma referência no formato "Fonte X" (ex.: "Fonte 2") para mostrar de onde veio a resposta.
 - Não crie perguntas “meta” sobre o texto/fonte (ex.: “qual é o tema do texto?”, “o que a fonte diz?”). As perguntas devem ser sobre o conteúdo técnico.
 - No "question_text", não mencione “Fonte X”; use a referência apenas em "explanation".
+- Proibido mencionar SmartLine/Smartline/Smart Line (é outro produto/projeto e é fora do escopo).
+- Se as fontes forem normas/procedimentos (ex.: NR-10, LOTO, PT/APR, padrões CPFL), use a terminologia e ordem de passos exatamente como escrito nelas; não complete com “conhecimento geral”.
 
 Qualidade das alternativas (muito importante):
 - Cada questão deve ter exatamente 4 alternativas (A, B, C, D), com textos distintos.
@@ -424,6 +427,21 @@ ${joinedContext}`,
 
     json.mode = isMilhao ? "milhao" : "standard";
     json.questions = normalizedQuestions;
+
+    for (const q of normalizedQuestions) {
+      if (BANNED_TERMS_RE.test(String(q?.question_text || ""))) {
+        return res.status(400).json({ error: 'Conteúdo fora do escopo detectado ("SmartLine"). Revise as fontes selecionadas e gere novamente.' });
+      }
+      if (BANNED_TERMS_RE.test(String(q?.explanation || ""))) {
+        return res.status(400).json({ error: 'Conteúdo fora do escopo detectado ("SmartLine"). Revise as fontes selecionadas e gere novamente.' });
+      }
+      const opts = q?.options || {};
+      for (const v of Object.values(opts)) {
+        if (BANNED_TERMS_RE.test(String(v || ""))) {
+          return res.status(400).json({ error: 'Conteúdo fora do escopo detectado ("SmartLine"). Revise as fontes selecionadas e gere novamente.' });
+        }
+      }
+    }
 
     return res.status(200).json({ success: true, quiz: json, saved_sources: savedSources });
   } catch (err: any) {
