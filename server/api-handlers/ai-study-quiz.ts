@@ -6,16 +6,81 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY as string;
 const SUPABASE_URL = process.env.SUPABASE_URL as string;
 const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY) as string;
 
-function chooseModel(preferPremium = false) {
-  const premium = process.env.OPENAI_MODEL_PREMIUM;
-  const fast = process.env.OPENAI_MODEL_FAST;
-  const fallback = "gpt-4.1";
-  const pick = preferPremium ? premium || fast : fast || premium;
-  if (!pick) return fallback;
-  const lower = pick.toLowerCase();
-  if (!lower.startsWith("gpt-")) return fallback;
-  return pick;
-}
+const LETTERS = ["A", "B", "C", "D"] as const;
+type Letter = (typeof LETTERS)[number];
+
+const XP_TABLE_MILHAO = [100, 150, 200, 250, 300, 400, 550, 700, 850, 1000] as const;
+
+const asLetter = (value: any): Letter | null => {
+  const s = (value ?? "").toString().trim().toUpperCase();
+  return (LETTERS as readonly string[]).includes(s) ? (s as Letter) : null;
+};
+
+const shuffleInPlace = <T,>(arr: T[]) => {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+};
+
+const normalizeOptions = (raw: any): Record<Letter, string> | null => {
+  if (!raw) return null;
+
+  const out: Partial<Record<Letter, string>> = {};
+
+  if (Array.isArray(raw)) {
+    const vals = raw
+      .map((v) => (v ?? "").toString().trim())
+      .filter((v) => v.length > 0);
+    if (vals.length >= 4) {
+      out.A = vals[0];
+      out.B = vals[1];
+      out.C = vals[2];
+      out.D = vals[3];
+    }
+  } else if (typeof raw === "object") {
+    for (const [kRaw, vRaw] of Object.entries(raw)) {
+      const k = asLetter(kRaw);
+      if (!k) continue;
+      const v = (vRaw ?? "").toString().trim();
+      if (!v) continue;
+      out[k] = v;
+    }
+  }
+
+  const filled = LETTERS.every((k) => typeof out[k] === "string" && out[k]!.trim().length > 0);
+  if (!filled) return null;
+  return out as Record<Letter, string>;
+};
+
+const buildCorrectLetterPlan = (count: number): Letter[] => {
+  const plan: Letter[] = [];
+  for (let i = 0; i < count; i++) {
+    plan.push(LETTERS[i % LETTERS.length]);
+  }
+  return shuffleInPlace(plan);
+};
+
+const remapOptionsToTargetCorrect = (
+  options: Record<Letter, string>,
+  correctLetter: Letter,
+  targetCorrectLetter: Letter,
+): { options: Record<Letter, string>; correct_letter: Letter } => {
+  const correctText = options[correctLetter];
+  const wrongTexts = LETTERS.filter((l) => l !== correctLetter).map((l) => options[l]);
+  shuffleInPlace(wrongTexts);
+
+  const remainingLetters = LETTERS.filter((l) => l !== targetCorrectLetter);
+  shuffleInPlace(remainingLetters);
+
+  const out: Record<Letter, string> = { A: "", B: "", C: "", D: "" };
+  out[targetCorrectLetter] = correctText;
+  for (let i = 0; i < remainingLetters.length; i++) {
+    out[remainingLetters[i]] = wrongTexts[i] ?? "";
+  }
+  return { options: out, correct_letter: targetCorrectLetter };
+};
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === "OPTIONS") return res.status(204).send("");
@@ -182,40 +247,54 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const isMilhao = mode === "milhao";
     const system = `Você é um gerador de quizzes técnicos para treinamento profissional no setor elétrico brasileiro (CPFL, SEP, subtransmissão, segurança, proteção, telecom).
-Você receberá um conjunto de textos de estudo (fontes), e sua tarefa é criar um quiz completamente baseado nesses materiais.
+Você receberá um conjunto de textos de estudo (fontes), e sua tarefa é criar um quiz COMPLETAMENTE baseado nesses materiais.
 
-Regras gerais:
-- Use APENAS as informações presentes nas fontes para montar as perguntas.
-- Evite perguntas genéricas demais; faça perguntas aplicadas, que ajudem o colaborador a reter o conteúdo.
-- Cada questão deve ter:
-  - "question_text": enunciado claro e objetivo.
-  - "options": exatamente 4 alternativas (A, B, C, D) com textos distintos.
-  - "correct_letter": letra da alternativa correta.
-  - "explanation": explicação curta do porquê a alternativa correta é correta (e, se útil, o porquê as outras não são).
-  - "difficulty_level": "basica" | "intermediaria" | "avancada" | "especialista".
-  - "xp_value": valor de XP sugerido.
+Regras de fidelidade:
+- Use APENAS informações presentes nas fontes.
+- Se algum detalhe não estiver explicitamente nas fontes, NÃO invente.
+- Em "explanation", cite pelo menos uma referência no formato "Fonte X" (ex.: "Fonte 2") para mostrar de onde veio a resposta.
+
+Qualidade das alternativas (muito importante):
+- Cada questão deve ter exatamente 4 alternativas (A, B, C, D), com textos distintos.
+- Distratores devem ser plausíveis (near-miss), no mesmo estilo/tamanho da correta.
+- Evite alternativas obviamente absurdas, piadas, ou "todas/nenhuma das anteriores".
+- Deve existir UMA única alternativa correta (sem ambiguidade).
+- Evite que a correta seja sempre a mais longa ou a única com termos absolutos ("sempre", "nunca") sem suporte nas fontes.
+
+Campos obrigatórios por questão:
+- "question_text": enunciado claro, objetivo.
+- "options": { "A": "...", "B": "...", "C": "...", "D": "..." }
+- "correct_letter": "A" | "B" | "C" | "D"
+- "explanation": explicação curta (1-3 frases) do porquê a alternativa correta é a correta, ancorada nas fontes.
+- "difficulty_level": "basica" | "intermediaria" | "avancada" | "especialista"
+- "xp_value": número (XP sugerido)
 
 Modo padrão (standard):
-- Gere entre 3 e 15 perguntas (use o campo question_count como sugestão).
-- Distribua as dificuldades de forma equilibrada.
+- Gere entre 3 e 15 perguntas (use question_count como sugestão).
+- Misture dificuldades de forma equilibrada.
 
 Modo Quiz do Milhão (milhao):
-- Gere exatamente 10 perguntas, em níveis crescentes.
+- Gere exatamente 10 perguntas com jornada de dificuldade 1→10.
 - Use a tabela de XP: [100,150,200,250,300,400,550,700,850,1000] da pergunta 1 à 10.
-- Comece com questões básicas sobre conceitos diretos do texto e avance para cenários mais complexos/decisões técnicas.
+- Curva 1→10 (guia):
+  1) definição/recall direto do texto
+  2) identificação/interpretação de conceito no texto
+  3) aplicação simples (ex.: escolha de conduta ou conceito correto)
+  4) procedimento/ordem correta descrita nas fontes
+  5) diferenciar conceitos parecidos presentes nas fontes
+  6) consequência/risco de uma decisão (dentro do que as fontes permitem)
+  7) cenário prático com decisão (combinar 2+ detalhes do texto)
+  8) cenário com trade-off e melhor conduta (sem extrapolar)
+  9) troubleshooting/diagnóstico (combinar 2+ trechos do texto)
+ 10) cenário especialista multi-etapas (combinar 2+ trechos do texto), sem inventar normas/regras fora das fontes
 
-Retorne APENAS JSON válido, no formato:
+Retorne APENAS JSON válido (sem markdown), no formato:
 {
   "mode": "standard" | "milhao",
   "questions": [
     {
       "question_text": "...",
-      "options": {
-        "A": "...",
-        "B": "...",
-        "C": "...",
-        "D": "..."
-      },
+      "options": { "A": "...", "B": "...", "C": "...", "D": "..." },
       "correct_letter": "A",
       "explanation": "...",
       "difficulty_level": "basica",
@@ -234,34 +313,56 @@ Conteúdo de estudo:
 ${joinedContext}`,
     };
 
-    const model = chooseModel(true);
+    const models = Array.from(
+      new Set(
+        [
+          process.env.OPENAI_MODEL_PREMIUM,
+          process.env.OPENAI_MODEL_OVERRIDE,
+          process.env.OPENAI_MODEL_FAST,
+          "gpt-5.2",
+          "gpt-5.2-chat-latest",
+          "gpt-5",
+          "gpt-4.1",
+          "gpt-4.1-mini",
+          "gpt-4o",
+          "gpt-4o-mini",
+        ].filter(Boolean),
+      ),
+    );
 
-    const resp = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
-      },
-      body: JSON.stringify({
+    let content = "";
+    let lastErr = "";
+
+    for (const model of models) {
+      const body: any = {
         model,
-        messages: [
-          { role: "system", content: system },
-          userMessage,
-        ],
-        temperature: 0.7,
-        max_completion_tokens: 3500,
-      }),
-    });
+        messages: [{ role: "system", content: system }, userMessage],
+        temperature: 0.55,
+      };
+      if (/^gpt-5/i.test(String(model))) body.max_completion_tokens = 4500;
+      else body.max_tokens = 4500;
 
-    if (!resp.ok) {
-      const txt = await resp.text().catch(() => `HTTP ${resp.status}`);
-      return res.status(400).json({ error: `OpenAI error: ${txt}` });
+      const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${OPENAI_API_KEY}`,
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (!resp.ok) {
+        lastErr = await resp.text().catch(() => `HTTP ${resp.status}`);
+        continue;
+      }
+
+      const data = await resp.json().catch(() => null);
+      content = data?.choices?.[0]?.message?.content || "";
+      if (content) break;
     }
 
-    const data = await resp.json().catch(() => null);
-    const content = data?.choices?.[0]?.message?.content || "";
     if (!content) {
-      return res.status(400).json({ error: "OpenAI retornou resposta vazia" });
+      return res.status(400).json({ error: `OpenAI error: ${lastErr || "no output"}` });
     }
 
     let json: any;
@@ -277,6 +378,50 @@ ${joinedContext}`,
     if (!json || !Array.isArray(json.questions)) {
       return res.status(400).json({ error: "Formato inesperado da IA", raw: content });
     }
+
+    const desiredCount = isMilhao ? 10 : Math.max(3, Math.min(15, Number(question_count) || 5));
+    const questions = (json.questions as any[]).slice(0, desiredCount);
+    if (isMilhao && questions.length !== 10) {
+      return res
+        .status(400)
+        .json({ error: `A IA retornou ${questions.length} perguntas; esperado 10.`, raw: content });
+    }
+
+    const correctLetterPlan = buildCorrectLetterPlan(questions.length);
+
+    let normalizedQuestions: any[] = [];
+    try {
+      normalizedQuestions = questions.map((q: any, idx: number) => {
+        const options = normalizeOptions(q.options);
+        const correct = asLetter(q.correct_letter) || "A";
+        if (!options) {
+          throw new Error("Formato inválido de alternativas: esperado options com A-D");
+        }
+
+        const effectiveCorrect = options[correct] ? correct : ("A" as Letter);
+        const targetCorrect = correctLetterPlan[idx] || "A";
+        const remapped = remapOptionsToTargetCorrect(options, effectiveCorrect, targetCorrect);
+
+        const level = idx + 1;
+        const difficulty =
+          level <= 3 ? "basica" : level <= 6 ? "intermediaria" : level <= 8 ? "avancada" : "especialista";
+
+        return {
+          question_text: (q.question_text ?? "").toString().trim(),
+          options: remapped.options,
+          correct_letter: remapped.correct_letter,
+          explanation: (q.explanation ?? "").toString().trim(),
+          difficulty_level: isMilhao ? difficulty : (q.difficulty_level ?? difficulty),
+          xp_value: isMilhao ? XP_TABLE_MILHAO[idx] : Number(q.xp_value) || 100,
+          level,
+        };
+      });
+    } catch (e: any) {
+      return res.status(400).json({ error: e?.message || "Falha ao normalizar perguntas da IA", raw: content });
+    }
+
+    json.mode = isMilhao ? "milhao" : "standard";
+    json.questions = normalizedQuestions;
 
     return res.status(200).json({ success: true, quiz: json, saved_sources: savedSources });
   } catch (err: any) {
