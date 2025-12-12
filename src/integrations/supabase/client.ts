@@ -2,6 +2,9 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 
+const DJT_QUEST_SUPABASE_PROJECT_REF = 'eyuehdefoedxcunxiyvb';
+const DJT_QUEST_SUPABASE_HOST = `${DJT_QUEST_SUPABASE_PROJECT_REF}.supabase.co`;
+
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 // Accept either PUBLISHABLE_KEY or ANON_KEY for compatibility
 const SUPABASE_PUBLISHABLE_KEY =
@@ -13,6 +16,23 @@ const SUPABASE_PUBLISHABLE_KEY =
 if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
   // Help diagnose missing envs in production
   console.error('[Supabase] Missing VITE_SUPABASE_URL or VITE_SUPABASE_PUBLISHABLE_KEY/ANON_KEY');
+}
+
+if (SUPABASE_URL) {
+  try {
+    const url = new URL(SUPABASE_URL);
+    const hostname = url.hostname;
+    const isLocal = hostname === 'localhost' || hostname === '127.0.0.1';
+    const isExpected = hostname === DJT_QUEST_SUPABASE_HOST;
+    if (!isLocal && !isExpected) {
+      throw new Error(
+        `[Supabase] VITE_SUPABASE_URL aponta para um Supabase inesperado (${hostname}). Este app deve usar ${DJT_QUEST_SUPABASE_HOST}.`,
+      );
+    }
+  } catch (e) {
+    console.error(e);
+    throw e;
+  }
 }
 
 export const supabase = createClient<Database>(SUPABASE_URL as string, SUPABASE_PUBLISHABLE_KEY as string, {

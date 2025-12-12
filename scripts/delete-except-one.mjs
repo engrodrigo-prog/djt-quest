@@ -1,8 +1,11 @@
 import { createClient } from '@supabase/supabase-js';
+import { assertDjtQuestSupabaseUrl } from '../server/env-guard.js';
 
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const projectUrl = process.env.SUPABASE_URL || 'https://eyuehdefoedxcunxiyvb.supabase.co';
 const keepEmail = (process.env.KEEP_EMAIL || 'RODRIGONASC@CPFL.COM.BR').toLowerCase();
+
+assertDjtQuestSupabaseUrl(projectUrl, { allowLocal: true, envName: 'SUPABASE_URL' });
 
 if (!serviceRoleKey) {
   throw new Error('Defina SUPABASE_SERVICE_ROLE_KEY');

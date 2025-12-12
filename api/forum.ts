@@ -1,6 +1,8 @@
 // @ts-nocheck
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
+import { assertDjtQuestServerEnv } from '../server/env-guard.js';
+
 import forumPost from '../server/api-handlers/forum-post.js';
 import forumModerate from '../server/api-handlers/forum-moderate.js';
 import forumCloseTopic from '../server/api-handlers/forum-close-topic.js';
@@ -21,6 +23,12 @@ const handlers: Record<string, Handler> = {
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === 'OPTIONS') return res.status(204).send('');
+
+  try {
+    assertDjtQuestServerEnv({ requireSupabaseUrl: false });
+  } catch (e: any) {
+    return res.status(500).json({ error: e?.message || 'Invalid server environment' });
+  }
 
   const key =
     (typeof req.query.handler === 'string'

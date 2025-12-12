@@ -11,8 +11,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { createClient } from '@supabase/supabase-js';
+import { assertDjtQuestSupabaseUrl } from '../server/env-guard.js';
 
 const projectUrl = process.env.SUPABASE_URL || 'https://eyuehdefoedxcunxiyvb.supabase.co';
+assertDjtQuestSupabaseUrl(projectUrl, { allowLocal: true, envName: 'SUPABASE_URL' });
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 if (!serviceKey) throw new Error('Missing SUPABASE_SERVICE_ROLE_KEY');
 const supabase = createClient(projectUrl, serviceKey, { auth: { autoRefreshToken: false, persistSession: false } });
@@ -134,4 +136,3 @@ main().catch((err) => {
   console.error('Sanitization error:', err?.message || err);
   process.exit(1);
 });
-

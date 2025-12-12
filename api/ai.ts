@@ -1,6 +1,8 @@
 // @ts-nocheck
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
+import { assertDjtQuestServerEnv } from '../server/env-guard.js';
+
 // Import handlers estaticamente para o bundle da Vercel
 import aiHealth from '../server/api-handlers/ai-health.js';
 import aiQuizDraft from '../server/api-handlers/ai-quiz-draft.js';
@@ -35,6 +37,12 @@ const handlers: Record<string, Handler> = {
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === 'OPTIONS') return res.status(204).send('');
+
+  try {
+    assertDjtQuestServerEnv({ requireSupabaseUrl: false });
+  } catch (e: any) {
+    return res.status(500).json({ error: e?.message || 'Invalid server environment' });
+  }
 
   const key =
     (typeof req.query.handler === 'string'

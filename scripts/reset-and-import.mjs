@@ -1,8 +1,11 @@
 import { spawn } from 'child_process';
+import { assertDjtQuestSupabaseUrl } from '../server/env-guard.js';
 
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://eyuehdefoedxcunxiyvb.supabase.co';
 const KEEP_EMAIL = (process.env.KEEP_EMAIL || 'RODRIGONASC@CPFL.COM.BR');
+
+assertDjtQuestSupabaseUrl(SUPABASE_URL, { allowLocal: true, envName: 'SUPABASE_URL' });
 
 if (!SUPABASE_SERVICE_ROLE_KEY) {
   console.error('Defina SUPABASE_SERVICE_ROLE_KEY antes de executar.');

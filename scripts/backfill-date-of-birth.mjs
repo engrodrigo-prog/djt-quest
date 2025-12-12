@@ -1,9 +1,12 @@
 import fs from 'fs';
 import path from 'path';
 import { createClient } from '@supabase/supabase-js';
+import { assertDjtQuestSupabaseUrl } from '../server/env-guard.js';
 
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const projectUrl = process.env.SUPABASE_URL || 'https://eyuehdefoedxcunxiyvb.supabase.co';
+
+assertDjtQuestSupabaseUrl(projectUrl, { allowLocal: true, envName: 'SUPABASE_URL' });
 
 if (!serviceRoleKey) {
   throw new Error('Defina SUPABASE_SERVICE_ROLE_KEY');
@@ -90,4 +93,3 @@ main().catch((err) => {
   console.error('Erro no backfill de data de nascimento:', err.message);
   process.exit(1);
 });
-

@@ -1,6 +1,7 @@
 // @ts-nocheck
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { createClient } from "@supabase/supabase-js";
+import { assertDjtQuestServerEnv } from "../server/env-guard.js";
 
 const SUPABASE_URL = process.env.SUPABASE_URL as string;
 const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY) as string;
@@ -8,6 +9,12 @@ const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABA
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === "OPTIONS") return res.status(204).send("");
   if (req.method !== "GET") return res.status(405).json({ error: "Method not allowed" });
+
+  try {
+    assertDjtQuestServerEnv({ requireSupabaseUrl: false });
+  } catch (e: any) {
+    return res.status(500).json({ error: e?.message || "Invalid server environment" });
+  }
 
   try {
     if (!SUPABASE_URL || !SERVICE_KEY) {
