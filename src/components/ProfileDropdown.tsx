@@ -96,11 +96,17 @@ export const ProfileDropdown = ({ profile, isLeader, onSignOut }: ProfileDropdow
         {/* Ações */}
         {canImpersonate && (
           <>
+            {roleOverride && (
+              <DropdownMenuItem onClick={() => setRoleOverride(null)}>
+                <Repeat className="h-4 w-4 mr-2" />
+                Voltar ao papel real
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem
-              onClick={() => setRoleOverride(roleOverride === "lider" ? null : "lider")}
+              onClick={() => setRoleOverride("lider")}
             >
               <Repeat className="h-4 w-4 mr-2" />
-              {roleOverride === "lider" ? "Voltar ao papel real" : "Navegar como Líder"}
+              Navegar como Líder
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => setRoleOverride("colaborador")}>
               <Repeat className="h-4 w-4 mr-2" />
