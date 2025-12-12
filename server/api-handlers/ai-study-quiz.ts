@@ -95,6 +95,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const {
       url,
       title,
+      topic,
+      context,
+      specialties = [],
+      instructions,
       userId,
       sources = [],
       source_ids = [],
@@ -148,15 +152,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     };
 
-    const invalidSources =
-      !Array.isArray(sources) && !Array.isArray(source_ids) && !Array.isArray(source_urls) && !url;
-    if (invalidSources) {
-      return res.status(400).json({ error: "Informe uma URL ou fontes válidas." });
-    }
-
     const primaryUrl = (url || "").toString().trim();
-    if (!primaryUrl && (!Array.isArray(sources) || sources.length === 0) && (!Array.isArray(source_ids) || source_ids.length === 0) && (!Array.isArray(source_urls) || source_urls.length === 0)) {
-      return res.status(400).json({ error: "Missing url" });
+    const topicText = (topic || "").toString().trim();
+    const contextText = (context || "").toString().trim();
+    const instructionsText = (instructions || "").toString().trim();
+    const specialtiesList = Array.isArray(specialties)
+      ? (specialties as any[])
+          .map((s) => (s ?? "").toString().trim())
+          .filter((s) => s.length > 0)
+      : [];
+
+    const hasAnyInput =
+      Boolean(primaryUrl) ||
+      (Array.isArray(sources) && sources.length > 0) ||
+      (Array.isArray(source_ids) && source_ids.length > 0) ||
+      (Array.isArray(source_urls) && source_urls.length > 0) ||
+      Boolean(topicText) ||
+      Boolean(contextText) ||
+      Boolean(instructionsText);
+
+    if (!hasAnyInput) {
+      return res.status(400).json({ error: "Informe um tema/contexto, uma URL, ou fontes válidas." });
     }
 
     if (Array.isArray(sources)) {
@@ -168,6 +184,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           items.push({ title, text });
         }
       }
+    }
+
+    // Permite geração sem StudyLab: usa apenas instruções/contexto fornecidos no momento.
+    // Se houver fontes (dataset/StudyLab/URLs), elas continuam sendo a base principal.
+    const contextualSeedParts = [
+      topicText ? `Tema: ${topicText}` : "",
+      specialtiesList.length ? `Especialidades: ${specialtiesList.join(", ")}` : "",
+      contextText ? `Contexto: ${contextText}` : "",
+      instructionsText ? `Instruções: ${instructionsText}` : "",
+    ].filter(Boolean);
+
+    if (contextualSeedParts.length && items.length === 0) {
+      items.push({ title: "Instruções do usuário", text: contextualSeedParts.join("\n") });
     }
 
     if (Array.isArray(source_ids) && source_ids.length && admin) {
@@ -247,7 +276,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .join("\n\n");
 
     const isMilhao = mode === "milhao";
-    const system = `Você é um gerador de quizzes técnicos para treinamento profissional no setor elétrico brasileiro (CPFL, SEP, subtransmissão, segurança, proteção, telecom).
+    const hasReferenceSources =
+      Boolean(primaryUrl) ||
+      (Array.isArray(source_ids) && source_ids.length > 0) ||
+      (Array.isArray(source_urls) && source_urls.length > 0) ||
+      (Array.isArray(sources) && sources.length > 0);
+
+    const systemWithSources = `Você é um gerador de quizzes técnicos para treinamento profissional no setor elétrico brasileiro (CPFL, SEP, subtransmissão, segurança, proteção, telecom).
 Você receberá um conjunto de textos de estudo (fontes), e sua tarefa é criar um quiz COMPLETAMENTE baseado nesses materiais.
 
 Regras de fidelidade:
@@ -308,6 +343,53 @@ Retorne APENAS JSON válido (sem markdown), no formato:
   ]
 }`;
 
+    const systemWithoutSources = `Você é um gerador de quizzes técnicos para treinamento profissional no setor elétrico brasileiro (CPFL, SEP, subtransmissão, segurança, proteção, telecom).
+Você receberá um tema/contexto fornecido pelo usuário e deve criar um quiz coerente com essas instruções.
+
+Regras:
+- Não mencione SmartLine/Smartline/Smart Line (é outro produto/projeto e é fora do escopo).
+- Se o usuário não forneceu normas/manuais/textos, NÃO invente "padrões CPFL" ou detalhes de procedimentos internos; prefira perguntas sobre princípios, segurança, boas práticas e conceitos gerais do setor.
+- Evite perguntas “meta” sobre o contexto.
+
+Qualidade das alternativas (muito importante):
+- Cada questão deve ter exatamente 4 alternativas (A, B, C, D), com textos distintos.
+- Distratores devem ser plausíveis (near-miss), no mesmo estilo/tamanho da correta.
+- Evite alternativas obviamente absurdas, piadas, ou "todas/nenhuma das anteriores".
+- Deve existir UMA única alternativa correta (sem ambiguidade).
+
+Campos obrigatórios por questão:
+- "question_text": enunciado claro, objetivo.
+- "options": { "A": "...", "B": "...", "C": "...", "D": "..." }
+- "correct_letter": "A" | "B" | "C" | "D"
+- "explanation": explicação curta (1-3 frases) do porquê a alternativa correta é a correta (sem inventar referências).
+- "difficulty_level": "basica" | "intermediaria" | "avancada" | "especialista"
+- "xp_value": número (XP sugerido)
+
+Modo padrão (standard):
+- Gere entre 3 e 15 perguntas (use question_count como sugestão).
+- Misture dificuldades de forma equilibrada.
+
+Modo Quiz do Milhão (milhao):
+- Gere exatamente 10 perguntas com jornada de dificuldade 1→10.
+- Use a tabela de XP: [100,150,200,250,300,400,550,700,850,1000] da pergunta 1 à 10.
+
+Retorne APENAS JSON válido (sem markdown), no formato:
+{
+  "mode": "standard" | "milhao",
+  "questions": [
+    {
+      "question_text": "...",
+      "options": { "A": "...", "B": "...", "C": "...", "D": "..." },
+      "correct_letter": "A",
+      "explanation": "...",
+      "difficulty_level": "basica",
+      "xp_value": 100
+    }
+  ]
+}`;
+
+    const system = hasReferenceSources ? systemWithSources : systemWithoutSources;
+
     const userMessage = {
       role: "user",
       content: `Idioma: ${language}
@@ -342,7 +424,7 @@ ${joinedContext}`,
       const body: any = {
         model,
         messages: [{ role: "system", content: system }, userMessage],
-        temperature: 0.55,
+        temperature: hasReferenceSources ? 0.55 : 0.4,
       };
       if (/^gpt-5/i.test(String(model))) body.max_completion_tokens = 4500;
       else body.max_tokens = 4500;

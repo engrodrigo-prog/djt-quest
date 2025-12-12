@@ -175,10 +175,14 @@ export const AiQuizGenerator = ({ defaultChallengeId }: { defaultChallengeId?: s
     const hasDataset = datasetText.trim().length > 0
     const hasSources = selectedSourceIds.length > 0
 
-    // Para evitar alucinações, o Quiz do Milhão deve ser baseado em fontes (StudyLab) e/ou dataset colado aqui.
-    if (!hasDataset && !hasSources) {
-      toast('Selecione ao menos uma base de estudo (StudyLab) ou cole um dataset (normas/padrões/procedimentos) para gerar o Quiz do Milhão.')
+    if (!topic.trim() && !context.trim() && !hasDataset && !hasSources) {
+      toast('Informe ao menos um tema ou contexto (ou cole um dataset) para gerar o Quiz do Milhão.')
       return
+    }
+    if (!hasDataset && !hasSources) {
+      toast.message('Gerando sem base de estudo', {
+        description: 'As perguntas serão mais gerais. Para aderência máxima a normas/padrões internos, cole trechos ou selecione fontes.',
+      })
     }
     setLoading(true)
     beginGeneration('Preparando fontes...')
@@ -186,9 +190,21 @@ export const AiQuizGenerator = ({ defaultChallengeId }: { defaultChallengeId?: s
       const { data: session } = await supabase.auth.getSession()
       const token = session.session?.access_token
       const handler = 'study-quiz'
+      const instructions = [
+        topic?.trim() ? `Tema: ${topic.trim()}` : '',
+        specialties.length ? `Especialidades: ${specialties.join(', ')}` : '',
+        context?.trim() ? `Contexto do usuário: ${context.trim()}` : '',
+        'Regras: setor elétrico (CPFL/SEP/subtransmissão), foco em segurança e procedimentos. Se não houver material (normas/manuais) fornecido, não invente padrões internos; formule questões com base em boas práticas e princípios, e deixe enunciados claros e objetivos.',
+      ]
+        .filter(Boolean)
+        .join('\n')
       const body = {
         mode: 'milhao',
         language: 'pt-BR',
+        topic,
+        context,
+        specialties,
+        instructions,
         source_ids: selectedSourceIds,
         sources: hasDataset
           ? [{
