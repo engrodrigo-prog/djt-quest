@@ -98,7 +98,7 @@ const Studio = () => {
       case 'system':
         return <SystemHealthCheck />;
       case 'admin':
-        return userRole === 'gerente_djt' ? <AdminBonusManager /> : null;
+        return userRole === 'gerente_djt' || userRole === 'admin' ? <AdminBonusManager /> : null;
       default:
         return null;
     }

@@ -1,7 +1,6 @@
 import { createContext, useContext, useEffect, useState, ReactNode, useRef } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
-import { useNavigate } from 'react-router-dom';
 
 interface OrgScope {
   teamId: string | null;
@@ -28,7 +27,13 @@ interface AuthContextType {
   signIn: (email: string, password: string) => Promise<{ error: any }>;
   signUp: (email: string, password: string, name: string) => Promise<{ data: any; error: any }>;
   signOut: () => Promise<void>;
-  refreshUserSession: () => Promise<void>;
+  refreshUserSession: () => Promise<{
+    role: string | null;
+    studioAccess: boolean;
+    isLeader: boolean;
+    orgScope: OrgScope | null;
+    profile: any | null;
+  } | null>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -92,7 +97,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const roleRef = useRef<string | null>(null);
   const welcomeRef = useRef(false);
   const userIdRef = useRef<string | null>(null);
-  const redirectingRef = useRef(false);
   const [roleOverride, setRoleOverrideState] = useState<'colaborador' | 'lider' | null>(() => {
     try {
       const v = localStorage.getItem(ROLE_OVERRIDE_KEY);
@@ -293,7 +297,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const refreshUserSession = async () => {
     localStorage.removeItem(CACHE_KEY);
     const { data: { session: currentSession } } = await supabase.auth.getSession();
-    await fetchUserSession(currentSession);
+    return await fetchUserSession(currentSession);
   };
 
   useEffect(() => {
@@ -336,17 +340,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           fetchUserSession(session)
             .then((authData) => {
               console.log('👤 AuthContext: role check', { oldRole, newRole: authData?.role, hasShownWelcome: welcomeRef.current });
-
-              if (
-                authData?.isLeader &&
-                window.location.pathname === '/auth' &&
-                !redirectingRef.current
-              ) {
-                redirectingRef.current = true;
-                setTimeout(() => {
-                  window.location.href = '/leader-dashboard';
-                }, 500);
-              }
 
               if (oldRole === 'colaborador' && authData?.role && authData.role.includes('gerente') && !welcomeRef.current) {
                 setHasShownWelcome(true);

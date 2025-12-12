@@ -94,12 +94,14 @@ Deno.serve(async (req) => {
     }
 
     // Define role hierarchy (highest to lowest privilege)
+    // NOTE: keep in sync with frontend guards (allowed roles include 'admin').
     const roleHierarchy = [
+      'admin',
       'gerente_djt',
       'gerente_divisao_djtx',
       'coordenador_djtx',
       'lider_equipe',
-      'colaborador'
+      'colaborador',
     ];
 
     // Get the highest privilege role
@@ -113,9 +115,15 @@ Deno.serve(async (req) => {
         }
       }
     }
-    const isLeader = profile?.is_leader || false;
-    const privilegedRoles = new Set(['gerente_djt','gerente_divisao_djtx','coordenador_djtx']);
-    const studioAccess = Boolean(profile?.studio_access) || isLeader || privilegedRoles.has(role);
+    const privilegedRoles = new Set([
+      'admin',
+      'gerente_djt',
+      'gerente_divisao_djtx',
+      'coordenador_djtx',
+      'lider_equipe',
+    ]);
+    const isLeader = Boolean(profile?.is_leader) || privilegedRoles.has(role);
+    const studioAccess = Boolean(profile?.studio_access) || privilegedRoles.has(role);
 
     // Build organizational scope
     const orgScope = {

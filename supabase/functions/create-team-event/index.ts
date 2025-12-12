@@ -49,7 +49,11 @@ Deno.serve(async (req) => {
       .select('role')
       .eq('user_id', user.id);
 
-    const userRole = roles?.[0]?.role;
+    const userRoles = new Set((roles || []).map((r: any) => String(r.role)));
+    const isAdmin = userRoles.has('admin');
+    const isGerenteDjt = userRoles.has('gerente_djt');
+    const isGerenteDivisao = userRoles.has('gerente_divisao_djtx');
+    const isCoordenador = userRoles.has('coordenador_djtx');
 
     // Buscar dados da equipe alvo
     const { data: targetTeam } = await supabase
@@ -65,13 +69,13 @@ Deno.serve(async (req) => {
       .single();
 
     // Validação hierárquica
-    if (userRole === 'gerente_djt') {
+    if (isAdmin || isGerenteDjt) {
       // Gerente DJT pode tudo
-    } else if (userRole === 'gerente_divisao_djtx') {
+    } else if (isGerenteDivisao) {
       if (targetTeam?.coordinations?.[0]?.division_id !== profile?.division_id) {
         throw new Error('Você só pode bonificar equipes da sua divisão');
       }
-    } else if (userRole === 'coordenador_djtx') {
+    } else if (isCoordenador) {
       if (targetTeam?.coordination_id !== profile?.coord_id) {
         throw new Error('Você só pode bonificar equipes da sua coordenação');
       }

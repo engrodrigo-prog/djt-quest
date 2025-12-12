@@ -176,7 +176,7 @@ export const StudioDashboard = ({ onSelectModule, userRole }: StudioDashboardPro
   ];
 
   const visibleModules = modules.filter(
-    (module) => !module.requiredRole || module.requiredRole === userRole
+    (module) => !module.requiredRole || module.requiredRole === userRole || userRole === 'admin'
   );
 
   return (

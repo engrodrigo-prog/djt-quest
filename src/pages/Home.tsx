@@ -7,10 +7,10 @@ import djtCover from '@/assets/backgrounds/djt-quest-cover.png';
 
 const Home = () => {
   const navigate = useNavigate();
-  const { hasActiveSession } = useAuth();
+  const { hasActiveSession, isLeader } = useAuth();
   const [isTransitioning, setIsTransitioning] = useState(false);
 
-  const targetPath = hasActiveSession ? '/dashboard' : '/auth';
+  const targetPath = hasActiveSession ? (isLeader ? '/leader-dashboard' : '/dashboard') : '/auth';
 
   const handleGo = (event?: MouseEvent<HTMLAnchorElement | HTMLButtonElement>) => {
     event?.preventDefault();

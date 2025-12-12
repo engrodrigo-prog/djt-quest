@@ -37,6 +37,7 @@ interface CoordinationRow {
 export function AdminBonusManager() {
   const { user, orgScope, userRole } = useAuth();
   const { toast } = useToast();
+  const isGlobal = userRole === 'gerente_djt' || userRole === 'admin';
   const [loading, setLoading] = useState(false);
   const [teams, setTeams] = useState<Team[]>([]);
   const [selectedTeam, setSelectedTeam] = useState<string>('');
@@ -84,7 +85,7 @@ export function AdminBonusManager() {
     } else if (userRole === 'gerente_divisao_djtx' && orgScope.divisionId) {
       query = query.eq('coordinations.division_id', orgScope.divisionId);
     }
-    // gerente_djt vê todas as equipes (sem filtro adicional)
+    // gerente_djt/admin vê todas as equipes (sem filtro adicional)
 
     const { data, error } = await query;
 
@@ -266,7 +267,7 @@ export function AdminBonusManager() {
 
   return (
     <div className="space-y-6">
-      {userRole === 'gerente_djt' && (
+      {isGlobal && (
         <Card className="border-blue-500/30 bg-blue-500/5">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -383,16 +384,16 @@ export function AdminBonusManager() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Crown className="h-5 w-5 text-amber-500" />
-            Bonificação {userRole === 'gerente_djt' ? 'Global' : 'de Equipes'}
+            Bonificação {isGlobal ? 'Global' : 'de Equipes'}
           </CardTitle>
           <CardDescription>
-            {userRole === 'gerente_djt'
-              ? 'Como Gerente DJT, você pode bonificar qualquer equipe da organização'
+            {isGlobal
+              ? 'Como Admin/Gerente DJT, você pode bonificar qualquer equipe da organização'
               : userRole === 'gerente_divisao_djtx'
               ? 'Como Gerente de Divisão, você pode bonificar equipes da sua divisão'
               : 'Como Coordenador, você pode bonificar equipes da sua coordenação'}
           </CardDescription>
-          {orgScope && userRole !== 'gerente_djt' && (
+          {orgScope && !isGlobal && (
             <div className="flex items-center gap-1 text-sm text-muted-foreground mt-2 pt-2 border-t">
               <Building2 className="h-3 w-3" />
               <span className="text-xs">DJT</span>

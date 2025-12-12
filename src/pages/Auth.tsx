@@ -43,15 +43,18 @@ const Auth = () => {
   const [resetLoading, setResetLoading] = useState(false);
   const passwordRef = useRef<HTMLInputElement>(null);
   const matriculaLookupRef = useRef<string | null>(null);
+  const suggestionsLookupRef = useRef<string | null>(null);
   const { signIn, refreshUserSession } = useAuth();
   const navigate = useNavigate();
 
   const normalizedQuery = query.trim().toLowerCase();
   const digitsQuery = normalizeMatricula(query);
   const nameTokens = normalizedQuery.split(/\s+/).filter(Boolean);
+  const isEmailMode = normalizedQuery.includes('@');
   const isMatriculaMode = !!digitsQuery && /^[0-9]+$/.test(digitsQuery);
   const allowSuggestions =
     (isMatriculaMode && digitsQuery.length >= MATRICULA_LOOKUP_MIN_LENGTH) ||
+    (isEmailMode && normalizedQuery.length >= 3) ||
     (!isMatriculaMode && nameTokens.length >= 2 && nameTokens[1].length >= 1);
 
   const matchesSearch = (u: UserOption, needle: string) => {
@@ -84,7 +87,7 @@ const Auth = () => {
         return;
       }
 
-      await refreshUserSession();
+      const authData = await refreshUserSession();
       localStorage.setItem(LAST_USER_KEY, user.id);
       // Se ainda está com a senha padrão, direciona ao Perfil e abre o diálogo de troca de senha
       if (password === '123456') {
@@ -93,7 +96,7 @@ const Auth = () => {
           window.dispatchEvent(new CustomEvent('open-password-dialog'));
         }, 300);
       } else {
-        navigate("/dashboard");
+        navigate(authData?.isLeader ? '/leader-dashboard' : '/dashboard');
       }
     } catch (error) {
       console.error("Login error:", error);
@@ -120,10 +123,18 @@ const Auth = () => {
     setOpen(true);
 
     // Sempre que o usuário começar a digitar de novo, limpe seleção e senha
-    if (!value) {
+    if (selectedUserId) {
       setSelectedUserId("");
       setSelectedUserName("");
       setPassword("");
+    }
+
+    if (!value.trim()) {
+      setUsers([]);
+      setSelectedUserId("");
+      setSelectedUserName("");
+      setPassword("");
+      suggestionsLookupRef.current = null;
     }
 
     const digitsOnly = normalizeMatricula(value);
@@ -137,12 +148,27 @@ const Auth = () => {
     if (matriculaLookupRef.current === digits) return;
     matriculaLookupRef.current = digits;
     try {
-      const { data, error } = await supabase
+      // Try exact match first to avoid selecting a wrong partial match.
+      const { data: exact, error: exactErr } = await supabase
         .from('profiles')
         .select('id, name, email, matricula')
-        .or(`matricula.eq.${digits},matricula.ilike.%${digits}%`)
-        .limit(1)
+        .eq('matricula', digits)
         .maybeSingle();
+
+      let data = exact;
+      let error = exactErr;
+
+      if (!data) {
+        const { data: partial, error: partialErr } = await supabase
+          .from('profiles')
+          .select('id, name, email, matricula')
+          .ilike('matricula', `%${digits}%`)
+          .order('matricula', { ascending: true })
+          .limit(1)
+          .maybeSingle();
+        data = partial;
+        error = partialErr;
+      }
 
       if (error || !data) return;
 
@@ -151,7 +177,7 @@ const Auth = () => {
         if (prev.some((u) => u.id === option.id)) return prev;
         return [option, ...prev];
       });
-        selectUser(option);
+      selectUser(option);
     } catch (error) {
       console.error('Lookup error:', error);
     } finally {
@@ -169,13 +195,21 @@ const Auth = () => {
 
     try {
       if (digitsOnly.length >= MATRICULA_LOOKUP_MIN_LENGTH) {
-        const { data, error } = await supabase
+        const { data: exact, error: exactErr } = await supabase
           .from('profiles')
           .select('id, name, email, matricula')
-          .or(`matricula.eq.${digitsOnly},matricula.ilike.%${digitsOnly}%`)
+          .eq('matricula', digitsOnly)
+          .maybeSingle();
+        if (!exactErr && exact) return exact as UserOption;
+
+        const { data: partial, error: partialErr } = await supabase
+          .from('profiles')
+          .select('id, name, email, matricula')
+          .ilike('matricula', `%${digitsOnly}%`)
+          .order('matricula', { ascending: true })
           .limit(1)
           .maybeSingle();
-        if (!error && data) return data as UserOption;
+        if (!partialErr && partial) return partial as UserOption;
       }
 
       if (trimmed.includes('@')) {
@@ -204,33 +238,81 @@ const Auth = () => {
     return null;
   }, [query]);
 
-  const fetchUsers = useCallback(async () => {
+  const fetchSuggestions = useCallback(async (input: string) => {
+    const trimmed = input.trim();
+    if (!trimmed) return;
+
+    const lower = trimmed.toLowerCase();
+    const digitsOnly = normalizeMatricula(trimmed);
+    const isDigitsOnly = !!digitsOnly && /^[0-9]+$/.test(digitsOnly);
+    const isEmail = lower.includes('@');
+    const words = lower.split(/\s+/).filter(Boolean);
+    const canSearch =
+      (isDigitsOnly && digitsOnly.length >= MATRICULA_LOOKUP_MIN_LENGTH) ||
+      (isEmail && lower.length >= 3) ||
+      (!isDigitsOnly && !isEmail && words.length >= 2 && words[1].length >= 1);
+
+    if (!canSearch) return;
+
+    const key = isDigitsOnly ? `m:${digitsOnly}` : isEmail ? `e:${lower}` : `n:${lower}`;
+    if (suggestionsLookupRef.current === key) return;
+    suggestionsLookupRef.current = key;
+
     try {
-      const { data, error } = await supabase
+      let q = supabase
         .from('profiles')
-        .select('id, name, email, matricula')
-        .order('name', { ascending: true });
+        .select('id, name, email, matricula');
 
-      if (error) throw error;
-      setUsers(data || []);
-
-      // Check for last user in localStorage
-      const lastUserId = localStorage.getItem(LAST_USER_KEY);
-      if (lastUserId && data) {
-        const lastUser = data.find(u => u.id === lastUserId);
-        if (lastUser) {
-          selectUser(lastUser);
-        }
+      if (isDigitsOnly) {
+        q = q.or(`matricula.eq.${digitsOnly},matricula.ilike.%${digitsOnly}%`);
+      } else if (isEmail) {
+        q = q.or(`email.eq.${lower},email.ilike.%${lower}%`);
+      } else {
+        q = q.or(`name.ilike.%${lower}%,email.ilike.%${lower}%`);
       }
+
+      const { data, error } = await q.order('name', { ascending: true }).limit(10);
+      if (suggestionsLookupRef.current !== key) return; // stale response
+      if (error) return;
+      setUsers((data as UserOption[]) || []);
     } catch (error) {
-      console.error('Error fetching users:', error);
-      toast.error('Erro ao carregar usuários');
+      console.error('Suggestions lookup error:', error);
     }
+  }, []);
+
+  useEffect(() => {
+    const lastUserId = localStorage.getItem(LAST_USER_KEY);
+    if (!lastUserId) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('id, name, email, matricula')
+          .eq('id', lastUserId)
+          .maybeSingle();
+        if (cancelled || error || !data) return;
+        const option = data as UserOption;
+        setUsers((prev) => (prev.some((u) => u.id === option.id) ? prev : [option, ...prev]));
+        selectUser(option);
+      } catch (error) {
+        if (!cancelled) console.error('Error loading last user:', error);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [selectUser]);
 
   useEffect(() => {
-    fetchUsers();
-  }, [fetchUsers]);
+    if (!allowSuggestions) return;
+    const t = setTimeout(() => {
+      void fetchSuggestions(query);
+    }, 250);
+    return () => clearTimeout(t);
+  }, [allowSuggestions, fetchSuggestions, query]);
 
   const handleForgotSubmit = async () => {
     if (!resetIdentifier.trim()) {
@@ -306,7 +388,7 @@ const Auth = () => {
         <CardContent className="text-slate-900">
           <form onSubmit={handleLogin} className="space-y-4 text-slate-900">
             <div className="space-y-2">
-              <Label htmlFor="user" className="text-slate-900">Matrícula</Label>
+              <Label htmlFor="user" className="text-slate-900">Matrícula / Nome / E-mail</Label>
               <Popover open={open} onOpenChange={setOpen}>
                 <PopoverTrigger asChild>
                   <div className="relative">
@@ -324,50 +406,15 @@ const Auth = () => {
                           setOpen(false);
                         } else if (e.key === 'Enter') {
                           e.preventDefault();
-                          const q = query.trim().toLowerCase();
-                          const digitsOnly = normalizeMatricula(query);
-                          const words = q.split(/\s+/).filter(Boolean);
-                          let exactMatch = users.find((u) =>
-                            (u.matricula ?? '').trim().toLowerCase() === q ||
-                            (u.name ?? '').trim().toLowerCase() === q
-                          );
-                          
-                          // Se não achou local, aplica regra de busca:
-                          // - Matrícula: só depois de 6 dígitos
-                          // - Nome: depois de digitar ao menos 2 palavras (nome + primeira letra do segundo nome)
-                          if (!exactMatch) {
-                            if (digitsOnly && digitsOnly.length >= MATRICULA_LOOKUP_MIN_LENGTH) {
-                              const { data: remote } = await supabase
-                                .from('profiles')
-                                .select('id, name, email, matricula')
-                                .or(`matricula.eq.${digitsOnly},matricula.ilike.%${digitsOnly}%`)
-                                .limit(5);
-                              if (remote && remote.length > 0) {
-                                setUsers(remote);
-                                exactMatch = remote.find((u) => normalizeMatricula(u.matricula) === digitsOnly) || remote[0];
-                              }
-                            } else if (words.length >= 2 && words[1].length >= 1) {
-                              const { data: remote } = await supabase
-                                .from('profiles')
-                                .select('id, name, email, matricula')
-                                .or(`name.ilike.%${q}%,email.ilike.%${q}%`)
-                                .limit(5);
-                              if (remote && remote.length > 0) {
-                                setUsers(remote);
-                                exactMatch = remote[0];
-                              }
-                            } else {
-                              toast.error('Digite ao menos 6 dígitos da matrícula ou o nome e a primeira letra do segundo nome para buscar.');
-                            }
+                          const resolved = await resolveUserFromQuery();
+                          const candidate = resolved || (filteredUsers.length === 1 ? filteredUsers[0] : null);
+                          if (!candidate) {
+                            toast.error('Usuário não encontrado. Verifique matrícula, nome ou e-mail.');
+                            return;
                           }
-
-                          if (exactMatch) {
-                            selectUser(exactMatch);
-                            await attemptLogin(exactMatch);
-                          } else if (filteredUsers.length === 1) {
-                            const onlyUser = filteredUsers[0];
-                            selectUser(onlyUser);
-                            await attemptLogin(onlyUser);
+                          selectUser(candidate);
+                          if (password.trim()) {
+                            await attemptLogin(candidate);
                           }
                         }
                       }}
@@ -389,7 +436,7 @@ const Auth = () => {
                   <Command shouldFilter={false}>
                     <CommandList>
                       <CommandEmpty>
-                        Nenhum usuário encontrado para “{query}”. Pesquise pelo nome ou matrícula.
+                        Nenhum usuário encontrado para “{query}”. Pesquise pelo nome, matrícula ou e-mail.
                       </CommandEmpty>
                       <CommandGroup heading={filteredUsers.length > 0 ? `${filteredUsers.length} encontrado(s)` : undefined}>
                         {filteredUsers.map((user) => (

@@ -1,6 +1,7 @@
 import { ReactNode, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
+import { CompleteProfile } from '@/components/CompleteProfile';
 
 interface ProtectedRouteProps {
   children: ReactNode;
@@ -15,10 +16,13 @@ export function ProtectedRoute({
   requireLeader = false,
   allowedRoles,
 }: ProtectedRouteProps) {
-  const { user, loading, studioAccess, isLeader, userRole } = useAuth();
+  const { user, loading, studioAccess, isLeader, userRole, profile } = useAuth();
   const navigate = useNavigate();
 
   const allowedRolesKey = allowedRoles?.join(',') ?? '';
+  const needsProfileCompletion = Boolean(
+    user && profile && (profile.must_change_password || profile.needs_profile_completion),
+  );
 
   useEffect(() => {
     const needsRole = requireStudio || requireLeader || allowedRolesKey.length > 0;
@@ -32,6 +36,8 @@ export function ProtectedRoute({
     if (!loading && !user) {
       navigate('/auth');
     } else if (!loading && user) {
+      if (needsProfileCompletion) return;
+
       // Aguarda resolução do papel antes de decidir navegação
       if (roleNotLoadedYet) return;
 
@@ -49,7 +55,7 @@ export function ProtectedRoute({
         navigate('/');
       }
     }
-  }, [user, loading, studioAccess, requireStudio, isLeader, requireLeader, allowedRolesKey, userRole, navigate]);
+  }, [user, loading, needsProfileCompletion, studioAccess, requireStudio, isLeader, requireLeader, allowedRolesKey, userRole, navigate]);
 
   if (loading) {
     return (
@@ -57,6 +63,10 @@ export function ProtectedRoute({
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
       </div>
     );
+  }
+
+  if (needsProfileCompletion) {
+    return <CompleteProfile profile={profile} />;
   }
 
   const needsRole = requireStudio || requireLeader || allowedRolesKey.length > 0;
