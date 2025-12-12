@@ -253,6 +253,8 @@ Regras de fidelidade:
 - Use APENAS informações presentes nas fontes.
 - Se algum detalhe não estiver explicitamente nas fontes, NÃO invente.
 - Em "explanation", cite pelo menos uma referência no formato "Fonte X" (ex.: "Fonte 2") para mostrar de onde veio a resposta.
+- Não crie perguntas “meta” sobre o texto/fonte (ex.: “qual é o tema do texto?”, “o que a fonte diz?”). As perguntas devem ser sobre o conteúdo técnico.
+- No "question_text", não mencione “Fonte X”; use a referência apenas em "explanation".
 
 Qualidade das alternativas (muito importante):
 - Cada questão deve ter exatamente 4 alternativas (A, B, C, D), com textos distintos.
