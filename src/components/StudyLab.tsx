@@ -44,6 +44,8 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
+  const [showUploader, setShowUploader] = useState(false);
+  const [polling, setPolling] = useState(false);
 
   const fetchSources = async () => {
     if (!user) return;
@@ -75,6 +77,21 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
     fetchSources();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
+
+  // Auto-refresh enquanto houver materiais em pendente
+  useEffect(() => {
+    const hasPending = sources.some((s) => s.ingest_status === "pending");
+    if (!hasPending) {
+      setPolling(false);
+      return;
+    }
+    setPolling(true);
+    const id = setInterval(() => {
+      fetchSources();
+    }, 8000);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sources.length, sources.map((s) => s.ingest_status).join(",")]);
 
   const selectedSource = useMemo(
     () => sources.find((s) => s.id === selectedSourceId) || null,
@@ -226,6 +243,7 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
         }
 
         toast.success("Documentos adicionados e enviados para análise da IA.");
+        setShowUploader(false);
       }
     } catch (e: any) {
       toast.error(e?.message || "Não foi possível adicionar o documento.");
@@ -330,6 +348,7 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
         toast.success("Material adicionado e analisado pela IA.");
       }
       setUrl("");
+      setShowUploader(false);
     } catch (e: any) {
       toast.error(e?.message || "Não foi possível adicionar o material.");
     } finally {
@@ -431,16 +450,34 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
   const displaySummary = (s: StudySource) => s.summary?.trim() || s.url || "Sem resumo";
   const statusBadge = (s: StudySource) => {
     if (s.ingest_status === "ok") return null;
-    if (s.ingest_status === "pending") return (
-      <Badge variant="outline" className="text-[10px] border-amber-400 text-amber-200">
-        analisando com IA...
-      </Badge>
-    );
+    if (s.ingest_status === "pending")
+      return (
+        <div className="inline-flex items-center gap-1">
+          <span className="inline-flex h-2 w-2 rounded-full bg-amber-300 animate-pulse" aria-hidden />
+          <Badge variant="outline" className="text-[10px] border-amber-400 text-amber-200 bg-amber-400/10">
+            analisando com IA...
+          </Badge>
+        </div>
+      );
     if (s.ingest_status === "failed")
       return (
-        <Badge variant="outline" className="text-[10px] border-red-400 text-red-200">
-          falhou
-        </Badge>
+        <div className="inline-flex items-center gap-2">
+          <Badge variant="outline" className="text-[10px] border-red-400 text-red-200 bg-red-500/10">
+            falhou
+          </Badge>
+          <Button
+            type="button"
+            size="xs"
+            variant="outline"
+            className="h-6 text-[11px] border-white/40 text-white"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleReprocess(s.id);
+            }}
+          >
+            Tentar novamente
+          </Button>
+        </div>
       );
     return null;
   };
@@ -512,17 +549,68 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
+            <div className="flex-1" />
+            <Button
+              type="button"
+              variant={showUploader ? "secondary" : "default"}
+              className={showUploader ? "text-white bg-primary hover:bg-primary/90" : "border-white/40 text-white bg-primary/80 hover:bg-primary"}
+              onClick={() => setShowUploader((v) => !v)}
+            >
+              {showUploader ? "Fechar" : "Adicionar material"}
+            </Button>
           </div>
           <CardDescription className="text-white/80">
             Selecione um material para usá-lo como contexto do chat. Materiais inativos por 30 dias são limpos automaticamente.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4 max-h-[420px] overflow-y-auto text-white">
+        <CardContent className="space-y-4 max-h-[520px] overflow-y-auto text-white">
+          {showUploader && (
+            <div className="rounded-lg border border-white/20 bg-white/5 p-4 space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="study-url" className="text-white">URL do material</Label>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <Input
+                    id="study-url"
+                    type="url"
+                    value={url}
+                    onChange={(e) => setUrl(e.target.value)}
+                    placeholder="https://artigo-ou-video..."
+                    className="flex-1"
+                  />
+                  <Button onClick={handleAddSource} disabled={adding || !url.trim()}>
+                    <LinkIcon className="h-4 w-4 mr-2" />
+                    {adding ? "Adicionando..." : "Adicionar"}
+                  </Button>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-white">Ou envie um documento (PDF, Word, Excel)</Label>
+                <AttachmentUploader
+                  onAttachmentsChange={handleFilesUploaded}
+                  maxFiles={3}
+                  maxSizeMB={20}
+                  bucket="evidence"
+                  pathPrefix="study"
+                  acceptMimeTypes={[
+                    "application/pdf",
+                    "application/msword",
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    "application/vnd.ms-excel",
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                  ]}
+                  maxVideoSeconds={0}
+                />
+                <p className="text-xs text-white/80">
+                  Materiais inativos por 30 dias sem consulta saem automaticamente do catálogo.
+                </p>
+              </div>
+            </div>
+          )}
           <div className="space-y-2">
             <p className="text-xs font-semibold text-white/80">Seus materiais</p>
             {loadingSources && <p className="text-sm text-white/70">Carregando sua base de estudos...</p>}
             {!loadingSources && mySources.length === 0 && (
-              <p className="text-sm text-white/70">Nenhum material salvo ainda. Adicione um link abaixo.</p>
+              <p className="text-sm text-white/70">Nenhum material salvo ainda. Use o botão acima para adicionar.</p>
             )}
             {TOPIC_ORDER.map((key) => {
               const items = myByTopic[key];
@@ -590,11 +678,11 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
             })}
           </div>
 
-          {showOrgCatalog && orgSources.length > 0 && (
-            <div className="space-y-2 pt-2 border-t border-white/20">
-              <p className="text-xs font-semibold text-white/80">Da organização</p>
-              {orgSources.map((s) => (
-                <div key={s.id} className="rounded-md border border-white/30 bg-white/5 px-3 py-2">
+      {showOrgCatalog && orgSources.length > 0 && (
+        <div className="space-y-2 pt-2 border-t border-white/20">
+          <p className="text-xs font-semibold text-white/80">Da organização</p>
+          {orgSources.map((s) => (
+            <div key={s.id} className="rounded-md border border-white/30 bg-white/5 px-3 py-2">
                   <div className="flex items-center justify-between">
                     <p className="font-semibold leading-tight text-white">
                       {s.title?.trim() || deriveTitleFromUrl(s.url || "")}
@@ -613,61 +701,6 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
               ))}
             </div>
           )}
-        </CardContent>
-      </Card>
-
-      {/* Card menor para upload/adicionar material */}
-      <Card className="bg-white/5 border border-white/20 text-white backdrop-blur-md shadow-md">
-        <CardHeader className="flex flex-col gap-1">
-          <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-lg bg-primary/20 flex items-center justify-center">
-              <BookOpenCheck className="h-6 w-6 text-primary" />
-            </div>
-            <div>
-              <CardTitle className="text-xl font-semibold leading-tight text-white">Adicionar material</CardTitle>
-              <CardDescription className="text-white/80">URL ou documento; manteremos por 30 dias sem uso.</CardDescription>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-4 text-white">
-          <div className="space-y-2">
-            <Label htmlFor="study-url" className="text-white">URL do material</Label>
-            <div className="flex flex-col gap-2 sm:flex-row">
-              <Input
-                id="study-url"
-                type="url"
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                placeholder="https://artigo-ou-video..."
-                className="flex-1"
-              />
-              <Button onClick={handleAddSource} disabled={adding || !url.trim()}>
-                <LinkIcon className="h-4 w-4 mr-2" />
-                {adding ? "Adicionando..." : "Adicionar"}
-              </Button>
-            </div>
-          </div>
-          <div className="space-y-2">
-            <Label className="text-white">Ou envie um documento (PDF, Word, Excel)</Label>
-            <AttachmentUploader
-              onAttachmentsChange={handleFilesUploaded}
-              maxFiles={3}
-              maxSizeMB={20}
-              bucket="evidence"
-              pathPrefix="study"
-              acceptMimeTypes={[
-                "application/pdf",
-                "application/msword",
-                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                "application/vnd.ms-excel",
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-              ]}
-              maxVideoSeconds={0}
-            />
-            <p className="text-xs text-white/80">
-              Materiais inativos por 30 dias sem consulta saem automaticamente do catálogo.
-            </p>
-          </div>
         </CardContent>
       </Card>
 
@@ -735,3 +768,29 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
     </div>
   );
 };
+  const handleReprocess = async (id: string) => {
+    if (!user) {
+      toast("Faça login para reprocessar materiais.");
+      return;
+    }
+    try {
+      setIngesting(true);
+      const { data: session } = await supabase.auth.getSession();
+      const token = session.session?.access_token;
+      if (token) {
+        await fetch("/api/ai?handler=study-chat", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ mode: "ingest", source_id: id }),
+        });
+        await fetchSources();
+      }
+    } catch (e: any) {
+      toast.error(e?.message || "Não foi possível reprocessar agora.");
+    } finally {
+      setIngesting(false);
+    }
+  };

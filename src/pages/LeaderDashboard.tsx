@@ -326,18 +326,26 @@ export default function LeaderDashboard() {
   return (
     <div className="min-h-screen bg-background text-foreground pb-40 md:pb-20">
       {/* Header */}
-      <header className="sticky top-0 z-20 bg-card/90 text-foreground border-b border-border/60 backdrop-blur">
+      <header className="sticky top-0 z-20 bg-[#0b2a34]/85 text-blue-50 border-b border-cyan-700/30 backdrop-blur">
         <div className="container mx-auto px-3 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => navigate('/leader-dashboard')}
+            className="flex items-center gap-2 group focus:outline-none"
+          >
             <div className="flex items-center gap-1.5">
               <Shield className="h-6 w-6 text-primary" />
               <Zap className="h-6 w-6 text-secondary" />
             </div>
-            <div>
-              <h1 className="text-xl font-semibold leading-tight">DJT - Quest</h1>
-              <p className="text-[11px] text-muted-foreground leading-none">CPFL Piratininga e Santa Cruz Subtransmissão</p>
+            <div className="text-left">
+              <p className="text-xl font-semibold leading-tight text-blue-50 group-hover:text-white">
+                DJT - Quest
+              </p>
+              <p className="text-[10px] text-blue-100/80 leading-none">
+                CPFL Piratininga e Santa Cruz Subtransmissão
+              </p>
             </div>
-          </div>
+          </button>
           <div className="flex items-center gap-2">
             {userProfile && (
               <ProfileDropdown

@@ -49,7 +49,7 @@ export const AiQuizGenerator = ({ defaultChallengeId }: { defaultChallengeId?: s
   const [manualSlots, setManualSlots] = useState<Record<number, boolean>>({})
   const [slotIndex, setSlotIndex] = useState<number>(1)
   const [studySources, setStudySources] = useState<Array<{ id: string; title: string }>>([])
-  const [selectedSourceId, setSelectedSourceId] = useState<string>("")
+  const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([])
   const [datasetText, setDatasetText] = useState("")
   const [datasetTitle, setDatasetTitle] = useState("")
 
@@ -123,28 +123,29 @@ export const AiQuizGenerator = ({ defaultChallengeId }: { defaultChallengeId?: s
   }
 
   const generateFullQuiz = async () => {
-    if (!topic.trim() && !datasetText.trim() && !selectedSourceId) {
-      toast('Informe um tema ou uma base de estudo para gerar o quiz completo.')
+    const hasDataset = datasetText.trim().length > 0
+    const hasSources = selectedSourceIds.length > 0
+
+    if (!topic.trim() && !hasDataset && !hasSources) {
+      toast('Informe um tema ou selecione ao menos uma base de estudo para gerar o quiz completo.')
       return
     }
     setLoading(true)
     try {
       const { data: session } = await supabase.auth.getSession()
       const token = session.session?.access_token
-      const handler = selectedSourceId || datasetText.trim() ? 'study-quiz' : 'quiz-milhao'
+      const handler = hasSources || hasDataset ? 'study-quiz' : 'quiz-milhao'
       const body =
         handler === 'study-quiz'
           ? {
               mode: 'milhao',
               language: 'pt-BR',
-              source_ids: selectedSourceId ? [selectedSourceId] : [],
-              sources: datasetText.trim()
-                ? [
-                    {
-                      title: datasetTitle || topic || 'Base de estudo deste quiz',
-                      text: datasetText,
-                    },
-                  ]
+              source_ids: selectedSourceIds,
+              sources: hasDataset
+                ? [{
+                    title: datasetTitle || topic || 'Base de estudo deste quiz',
+                    text: datasetText,
+                  }]
                 : [],
               question_count: MILHAO_TOTAL,
             }
@@ -406,45 +407,71 @@ export const AiQuizGenerator = ({ defaultChallengeId }: { defaultChallengeId?: s
               </Select>
             </div>
           </div>
-          <div className="space-y-2">
-            <Label>Dataset rápido para este quiz (opcional)</Label>
-            <Textarea
-              rows={3}
-              value={datasetText}
-              onChange={(e) => setDatasetText(e.target.value)}
-              placeholder="Cole aqui trechos importantes do PDF, normas ou anotações que devem inspirar o Quiz do Milhão."
-            />
-            <Input
-              className="mt-1"
-              value={datasetTitle}
-              onChange={(e) => setDatasetTitle(e.target.value)}
-              placeholder="Título deste dataset (ex.: NR10 - Segurança em SEP)"
-            />
-            <p className="text-[11px] text-muted-foreground">
-              Se você informar um dataset aqui, o Quiz do Milhão será gerado usando esse conteúdo como base principal.
-              Após a geração, você poderá guardar esse material na sua base de estudos.
-            </p>
-          </div>
-          {studySources.length > 0 && (
+          <div className="space-y-3">
+            <Label>Datasets e bases de estudo</Label>
             <div className="space-y-2">
-              <Label>Base de estudo (opcional)</Label>
-              <select
-                className="w-full h-9 rounded-md bg-transparent border px-2 text-sm"
-                value={selectedSourceId}
-                onChange={(e) => setSelectedSourceId(e.target.value)}
-              >
-                <option value="">Nenhuma (usar apenas o tema)</option>
-                {studySources.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.title}
-                  </option>
-                ))}
-              </select>
+              <Textarea
+                rows={3}
+                value={datasetText}
+                onChange={(e) => setDatasetText(e.target.value)}
+                placeholder="Cole aqui trechos importantes do PDF, normas ou anotações que devem inspirar o Quiz do Milhão."
+              />
+              <Input
+                className="mt-1"
+                value={datasetTitle}
+                onChange={(e) => setDatasetTitle(e.target.value)}
+                placeholder="Título deste dataset (ex.: NR10 - Segurança em SEP)"
+              />
               <p className="text-[11px] text-muted-foreground">
-                Quando uma base for selecionada, o Quiz do Milhão será gerado usando esse material como referência principal.
+                Use o dataset rápido para trechos pontuais. Para bases maiores, use o StudyLab e selecione abaixo.
               </p>
             </div>
-          )}
+
+            {studySources.length > 0 && (
+              <div className="space-y-2 rounded-md border border-border p-3 bg-muted/30">
+                <p className="text-[11px] text-muted-foreground">Selecione uma ou mais bases de estudo curadas no StudyLab.</p>
+                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 max-h-40 overflow-y-auto">
+                  {studySources.map((s) => {
+                    const checked = selectedSourceIds.includes(s.id);
+                    return (
+                      <label
+                        key={s.id}
+                        className={`flex items-center gap-2 text-sm cursor-pointer rounded-md border px-3 py-2 transition ${
+                          checked ? 'border-primary bg-primary/10 text-primary-foreground' : 'border-border bg-background'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          className="accent-primary"
+                          checked={checked}
+                          onChange={(e) => {
+                            setSelectedSourceIds((prev) =>
+                              e.target.checked ? [...prev, s.id] : prev.filter((id) => id !== s.id)
+                            );
+                          }}
+                        />
+                        <span className="line-clamp-2">{s.title}</span>
+                      </label>
+                    );
+                  })}
+                  {studySources.length === 0 && (
+                    <p className="text-xs text-muted-foreground col-span-full">Nenhuma fonte disponível. Cadastre no StudyLab.</p>
+                  )}
+                </div>
+                {selectedSourceIds.length > 0 && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="text-xs"
+                    onClick={() => setSelectedSourceIds([])}
+                  >
+                    Limpar seleção ({selectedSourceIds.length})
+                  </Button>
+                )}
+              </div>
+            )}
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div className="space-y-2">
               <Label>Especialidades (opcional)</Label>
@@ -528,19 +555,21 @@ export const AiQuizGenerator = ({ defaultChallengeId }: { defaultChallengeId?: s
                 {fullQuiz && Array.isArray(fullQuiz.questoes) && (
                   <div className="space-y-3">
                     <div>
-                      <Label>Preview do quiz completo ({fullQuiz.tipo === 'milhao' ? 'Quiz do Milhão' : 'Especial'})</Label>
-                      <p className="text-xs text-muted-foreground">
+                      <Label className="text-base text-white">
+                        Preview do quiz completo ({fullQuiz.tipo === 'milhao' ? 'Quiz do Milhão' : 'Especial'})
+                      </Label>
+                      <p className="text-xs text-white/70">
                         Revise as 10 perguntas geradas. As posições marcadas manualmente são preservadas.
                       </p>
                     </div>
-                    <div className="max-h-[380px] overflow-y-auto space-y-2 pr-1">
+                    <div className="max-h-[380px] overflow-y-auto space-y-3 pr-1">
                       {Array.from({ length: MILHAO_TOTAL }, (_, idx) => {
                         const q = fullQuiz.questoes?.[idx]
                         if (!q) {
                           return (
                             <div
                               key={idx}
-                              className="rounded-md border border-dashed border-border/60 bg-muted/20 p-3 text-xs text-muted-foreground"
+                              className="rounded-xl border border-dashed border-white/30 bg-white/5 p-3 text-xs text-white/70"
                             >
                               Slot {idx + 1}: vazio (será preenchido pela IA ao gerar o quiz completo).
                             </div>
@@ -549,22 +578,22 @@ export const AiQuizGenerator = ({ defaultChallengeId }: { defaultChallengeId?: s
                         return (
                           <div
                             key={idx}
-                            className="rounded-md border border-border/60 bg-muted/30 p-3 space-y-1"
+                            className="rounded-xl border border-white/30 bg-white/8 p-3 space-y-1 text-white"
                           >
-                            <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                            <div className="flex items-center justify-between gap-2 text-[11px] text-white/70">
                               <span>
                                 Q{idx + 1} • Nível {q.nivel ?? idx + 1} • {q.xp_base ?? ''} XP
                               </span>
                               {manualSlots[idx + 1] && (
-                                <span className="px-2 py-0.5 rounded-full bg-primary/10 text-primary">
+                                <span className="px-2 py-0.5 rounded-full bg-primary/20 text-primary-foreground text-[10px]">
                                   Manual
                                 </span>
                               )}
                             </div>
-                            <p className="text-sm font-medium">
+                            <p className="text-sm font-semibold">
                               {q.enunciado}
                             </p>
-                            <ul className="mt-1 text-xs text-muted-foreground space-y-0.5">
+                            <ul className="mt-1 text-xs text-white/80 space-y-0.5">
                               {['A','B','C','D'].map((key) => {
                                 const text = q.alternativas?.[key] || ''
                                 if (!text) return null
@@ -589,26 +618,28 @@ export const AiQuizGenerator = ({ defaultChallengeId }: { defaultChallengeId?: s
           {mode !== 'milzao' && fullQuiz && Array.isArray(fullQuiz.questoes) && (
             <div className="space-y-3 border-t pt-4 mt-4">
               <div>
-                <Label>Preview do quiz completo ({fullQuiz.tipo === 'milhao' ? 'Quiz do Milhão' : 'Especial'})</Label>
-                <p className="text-xs text-muted-foreground">
+                <Label className="text-base text-white">
+                  Preview do quiz completo ({fullQuiz.tipo === 'milhao' ? 'Quiz do Milhão' : 'Especial'})
+                </Label>
+                <p className="text-xs text-white/70">
                   Revise as 10 perguntas geradas. Use-as como base para criar ou ajustar perguntas no seu desafio.
                 </p>
               </div>
-              <div className="max-h-[380px] overflow-y-auto space-y-2 pr-1">
+              <div className="max-h-[380px] overflow-y-auto space-y-3 pr-1">
                 {fullQuiz.questoes.map((q: any, idx: number) => (
                   <div
                     key={q.id ?? idx}
-                    className="rounded-md border border-border/60 bg-muted/30 p-3 space-y-1"
+                    className="rounded-xl border border-white/30 bg-white/8 p-3 space-y-1 text-white"
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <p className="text-xs font-semibold text-muted-foreground">
+                      <p className="text-xs font-semibold text-white/70">
                         Q{idx + 1} • Nível {q.nivel ?? idx + 1} • {q.xp_base ?? ''} XP
                       </p>
                     </div>
-                    <p className="text-sm font-medium">
+                    <p className="text-sm font-semibold">
                       {q.enunciado}
                     </p>
-                    <ul className="mt-1 text-xs text-muted-foreground space-y-0.5">
+                    <ul className="mt-1 text-xs text-white/80 space-y-0.5">
                       {['A','B','C','D'].map((key) => {
                         const text = q.alternativas?.[key] || ''
                         if (!text) return null

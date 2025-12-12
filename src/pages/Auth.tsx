@@ -161,6 +161,49 @@ const Auth = () => {
     }
   }, [selectUser]);
 
+  const resolveUserFromQuery = useCallback(async (): Promise<UserOption | null> => {
+    const trimmed = query.trim();
+    const digitsOnly = normalizeMatricula(trimmed);
+    const lower = trimmed.toLowerCase();
+    const words = lower.split(/\s+/).filter(Boolean);
+
+    try {
+      if (digitsOnly.length >= MATRICULA_LOOKUP_MIN_LENGTH) {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('id, name, email, matricula')
+          .or(`matricula.eq.${digitsOnly},matricula.ilike.%${digitsOnly}%`)
+          .limit(1)
+          .maybeSingle();
+        if (!error && data) return data as UserOption;
+      }
+
+      if (trimmed.includes('@')) {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('id, name, email, matricula')
+          .or(`email.eq.${lower},email.ilike.%${lower}%`)
+          .limit(1)
+          .maybeSingle();
+        if (!error && data) return data as UserOption;
+      }
+
+      if (words.length >= 2 && words[1].length >= 1) {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('id, name, email, matricula')
+          .or(`name.ilike.%${lower}%,email.ilike.%${lower}%`)
+          .limit(1)
+          .maybeSingle();
+        if (!error && data) return data as UserOption;
+      }
+    } catch (error) {
+      console.error('Login lookup error:', error);
+    }
+
+    return null;
+  }, [query]);
+
   const fetchUsers = useCallback(async () => {
     try {
       const { data, error } = await supabase
@@ -217,12 +260,22 @@ const Auth = () => {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!selectedUserId) {
-      toast.error("Selecione um usuário");
-      return;
+    let selectedUser = selectedUserId
+      ? users.find(u => u.id === selectedUserId)
+      : null;
+
+    if (!selectedUser) {
+      const resolved = await resolveUserFromQuery();
+      if (resolved) {
+        setUsers((prev) => {
+          if (prev.some((u) => u.id === resolved.id)) return prev;
+          return [resolved, ...prev];
+        });
+        selectUser(resolved);
+        selectedUser = resolved;
+      }
     }
 
-    const selectedUser = users.find(u => u.id === selectedUserId);
     if (!selectedUser) {
       toast.error("Usuário não encontrado");
       return;
@@ -258,6 +311,8 @@ const Auth = () => {
                 <PopoverTrigger asChild>
                   <div className="relative">
                     <Input
+                      id="user"
+                      name="user"
                       placeholder="Digite nome ou matrícula..."
                       value={query}
                       autoComplete="off"
@@ -393,7 +448,11 @@ const Auth = () => {
               </Button>
             </div>
             
-            <Button type="submit" className="w-full bg-primary text-primary-foreground hover:opacity-90" disabled={!selectedUserId || loading}>
+            <Button
+              type="submit"
+              className="w-full bg-primary text-primary-foreground hover:opacity-90"
+              disabled={loading || (!selectedUserId && !query.trim())}
+            >
               {loading ? 'Entrando...' : 'Entrar'}
             </Button>
 

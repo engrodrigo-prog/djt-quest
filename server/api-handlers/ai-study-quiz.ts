@@ -6,6 +6,17 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY as string;
 const SUPABASE_URL = process.env.SUPABASE_URL as string;
 const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY) as string;
 
+function chooseModel(preferPremium = false) {
+  const premium = process.env.OPENAI_MODEL_PREMIUM;
+  const fast = process.env.OPENAI_MODEL_FAST;
+  const fallback = "gpt-4.1";
+  const pick = preferPremium ? premium || fast : fast || premium;
+  if (!pick) return fallback;
+  const lower = pick.toLowerCase();
+  if (!lower.startsWith("gpt-")) return fallback;
+  return pick;
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === "OPTIONS") return res.status(204).send("");
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
@@ -223,10 +234,7 @@ Conteúdo de estudo:
 ${joinedContext}`,
     };
 
-    const model =
-      process.env.OPENAI_MODEL_PREMIUM ||
-      process.env.OPENAI_MODEL_FAST ||
-      "gpt-4.1";
+    const model = chooseModel(true);
 
     const resp = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",

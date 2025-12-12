@@ -92,6 +92,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const roleRef = useRef<string | null>(null);
   const welcomeRef = useRef(false);
   const userIdRef = useRef<string | null>(null);
+  const redirectingRef = useRef(false);
   const [roleOverride, setRoleOverrideState] = useState<'colaborador' | 'lider' | null>(() => {
     try {
       const v = localStorage.getItem(ROLE_OVERRIDE_KEY);
@@ -196,9 +197,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (error) {
         console.warn('auth-me falhou', error.message || error);
-        setUser(null);
+        // Não derruba a sessão; apenas mantém usuário básico sem papel carregado
+        setUser(currentSession.user ?? null);
         setSession(currentSession);
-        setHasActiveSession(false);
+        setHasActiveSession(true);
+
+        if (cached) {
+          setBaseRole(cached.role);
+          setBaseStudioAccess(cached.studioAccess);
+          setBaseIsLeader(cached.isLeader);
+          applyOverride({
+            role: cached.role,
+            studioAccess: cached.studioAccess,
+            isLeader: cached.isLeader,
+          });
+          setOrgScope(cached.orgScope);
+          setProfile(cached.profile);
+          return cached;
+        }
+
+        // Sem dados de papel, segue como logado porém sem privilégios especiais
         setBaseRole(null);
         setBaseStudioAccess(false);
         setBaseIsLeader(false);
@@ -238,7 +256,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return authData;
     } catch (error: any) {
       console.warn('Erro ao buscar sessão', error?.message || error);
-      if (cached) return cached;
+
+      // Mantém a sessão corrente como válida
+      setUser(providedSession?.user ?? null);
+      setSession(providedSession ?? null);
+      setHasActiveSession(!!providedSession);
+
+      if (cached) {
+        setBaseRole(cached.role);
+        setBaseStudioAccess(cached.studioAccess);
+        setBaseIsLeader(cached.isLeader);
+        applyOverride({
+          role: cached.role,
+          studioAccess: cached.studioAccess,
+          isLeader: cached.isLeader,
+        });
+        setOrgScope(cached.orgScope);
+        setProfile(cached.profile);
+        return cached;
+      }
+
       setBaseRole(null);
       setBaseStudioAccess(false);
       setBaseIsLeader(false);
@@ -249,9 +286,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
       setOrgScope(null);
       setProfile(null);
-      setUser(null);
-      setSession(null);
-      setHasActiveSession(false);
       return null;
     }
   };
@@ -263,7 +297,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
-    // Set up auth state listener
+    // Inicializa sessão atual ao montar
+    let active = true;
+    (async () => {
+      try {
+        const { data: { session: currentSession } } = await supabase.auth.getSession();
+        if (!active) return;
+
+        if (currentSession) {
+          await fetchUserSession(currentSession);
+        } else {
+          setUser(null);
+          setSession(null);
+          setHasActiveSession(false);
+        }
+      } finally {
+        if (active) setLoading(false);
+      }
+    })();
+
+    // Listener para mudanças futuras de auth (login/logout)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
         const previousUserId = userIdRef.current;
@@ -278,16 +331,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(session?.user ?? null);
         setHasActiveSession(!!session);
 
-        // Do not block UI on role/profile fetch
-        setLoading(false);
-
         if (session) {
           const oldRole = roleRef.current;
           fetchUserSession(session)
             .then((authData) => {
               console.log('👤 AuthContext: role check', { oldRole, newRole: authData?.role, hasShownWelcome: welcomeRef.current });
 
-              if (authData?.isLeader && window.location.pathname === '/auth') {
+              if (
+                authData?.isLeader &&
+                window.location.pathname === '/auth' &&
+                !redirectingRef.current
+              ) {
+                redirectingRef.current = true;
                 setTimeout(() => {
                   window.location.href = '/leader-dashboard';
                 }, 500);
@@ -313,9 +368,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     );
 
-    setLoading(false);
-
-    return () => subscription.unsubscribe();
+    return () => {
+      active = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   const signIn = async (email: string, password: string) => {
