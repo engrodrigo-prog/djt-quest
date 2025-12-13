@@ -28,7 +28,17 @@ const CampaignDetail = lazy(() => import("./pages/CampaignDetail"));
 const Study = lazy(() => import("./pages/Study"));
 
 const queryClient = new QueryClient();
-const LEADER_ALLOWED_ROLES = ['coordenador_djtx', 'gerente_divisao_djtx', 'gerente_djt', 'admin'];
+// Compat: inclui roles legados (gerente/coordenador/lider_divisao) além dos atuais.
+const LEADER_ALLOWED_ROLES = [
+  'coordenador_djtx',
+  'gerente_divisao_djtx',
+  'gerente_djt',
+  'admin',
+  'coordenador',
+  'lider_divisao',
+  'gerente',
+  'lider_equipe',
+];
 
 const ProfileCheckWrapper = ({ children }: { children: React.ReactNode }) => {
   const { profile, loading } = useAuth();

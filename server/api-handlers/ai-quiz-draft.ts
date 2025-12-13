@@ -30,7 +30,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (userErr || !userData?.user) return res.status(401).json({ error: 'Unauthorized' })
     const callerId = userData.user.id
     const { data: roles } = await supabaseAdmin.from('user_roles').select('role').eq('user_id', callerId)
-    const allowed = new Set(['admin', 'gerente_djt', 'gerente_divisao_djtx', 'coordenador_djtx'])
+    const allowed = new Set([
+      'admin',
+      'gerente_djt',
+      'gerente_divisao_djtx',
+      'coordenador_djtx',
+      // Compat legado
+      'gerente',
+      'lider_divisao',
+      'coordenador',
+      'lider_equipe',
+    ])
     const hasPermission = (roles || []).some((r: any) => allowed.has(r.role))
     if (!hasPermission) return res.status(403).json({ error: 'Sem permissão (apenas líderes)' })
 
@@ -49,6 +59,7 @@ Responda apenas em JSON válido, sem comentários.`
     }
 
     const models = Array.from(new Set([
+      'gpt-5.2',
       process.env.OPENAI_MODEL_FAST,
       process.env.OPENAI_MODEL_OVERRIDE,
       'gpt-4.1-mini','gpt-4o-mini','gpt-4o','gpt-3.5-turbo'
@@ -56,15 +67,18 @@ Responda apenas em JSON válido, sem comentários.`
     let content = ''
     let lastErr = ''
     for (const model of models) {
+      const body: any = {
+        model,
+        messages: [{ role: 'system', content: system }, user],
+        temperature: 0.7,
+      }
+      if (/^gpt-5/i.test(String(model))) body.max_completion_tokens = 650
+      else body.max_tokens = 650
+
       const resp = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${OPENAI_API_KEY}` },
-        body: JSON.stringify({
-          model,
-          messages: [ { role: 'system', content: system }, user ],
-          temperature: 0.7,
-          max_tokens: 500,
-        }),
+        body: JSON.stringify(body),
       })
       if (!resp.ok) { lastErr = await resp.text().catch(()=>`HTTP ${resp.status}`); continue }
       const data = await resp.json().catch(()=>null)

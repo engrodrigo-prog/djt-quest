@@ -294,11 +294,13 @@ Regras de fidelidade:
 - Não crie perguntas “meta” sobre o texto/fonte (ex.: “qual é o tema do texto?”, “o que a fonte diz?”). As perguntas devem ser sobre o conteúdo técnico.
 - No "question_text", não mencione “Fonte X”; use a referência apenas em "explanation".
 - Proibido mencionar SmartLine/Smartline/Smart Line (é outro produto/projeto e é fora do escopo).
+- Não cite/compare com nomes de programas de TV ou marcas; apenas siga um formato clássico de perguntas progressivas (sem nomes próprios).
 - Se as fontes forem normas/procedimentos (ex.: NR-10, LOTO, PT/APR, padrões CPFL), use a terminologia e ordem de passos exatamente como escrito nelas; não complete com “conhecimento geral”.
 
 Qualidade das alternativas (muito importante):
 - Cada questão deve ter exatamente 4 alternativas (A, B, C, D), com textos distintos.
-- Distratores devem ser plausíveis (near-miss), no mesmo estilo/tamanho da correta.
+- Distratores devem ser plausíveis (near-miss), no mesmo estilo/tamanho da correta e tecnicamente verossímeis no contexto da pergunta.
+- Distratores devem refletir confusões comuns do setor (troca de termos, passo de procedimento fora de ordem, parâmetro parecido, sigla confundida), e não “absurdos”.
 - Evite alternativas obviamente absurdas, piadas, ou "todas/nenhuma das anteriores".
 - Deve existir UMA única alternativa correta (sem ambiguidade).
 - Evite que a correta seja sempre a mais longa ou a única com termos absolutos ("sempre", "nunca") sem suporte nas fontes.
@@ -327,7 +329,7 @@ Modo Quiz do Milhão (milhao):
   6) consequência/risco de uma decisão (dentro do que as fontes permitem)
   7) cenário prático com decisão (combinar 2+ detalhes do texto)
   8) cenário com trade-off e melhor conduta (sem extrapolar)
-  9) troubleshooting/diagnóstico (combinar 2+ trechos do texto)
+ 9) troubleshooting/diagnóstico (combinar 2+ trechos do texto)
  10) cenário especialista multi-etapas (combinar 2+ trechos do texto), sem inventar normas/regras fora das fontes
 
 Retorne APENAS JSON válido (sem markdown), no formato:
@@ -351,11 +353,13 @@ Você receberá um tema/contexto fornecido pelo usuário e deve criar um quiz co
 Regras:
 - Não mencione SmartLine/Smartline/Smart Line (é outro produto/projeto e é fora do escopo).
 - Se o usuário não forneceu normas/manuais/textos, NÃO invente "padrões CPFL" ou detalhes de procedimentos internos; prefira perguntas sobre princípios, segurança, boas práticas e conceitos gerais do setor.
+- Não cite/compare com nomes de programas de TV ou marcas; apenas siga um formato clássico de perguntas progressivas (sem nomes próprios).
 - Evite perguntas “meta” sobre o contexto.
 
 Qualidade das alternativas (muito importante):
 - Cada questão deve ter exatamente 4 alternativas (A, B, C, D), com textos distintos.
-- Distratores devem ser plausíveis (near-miss), no mesmo estilo/tamanho da correta.
+- Distratores devem ser plausíveis (near-miss), no mesmo estilo/tamanho da correta e tecnicamente verossímeis no setor elétrico.
+- Distratores devem refletir confusões comuns (conceito parecido, termo/sigla trocada, parâmetro próximo), e não “absurdos”.
 - Evite alternativas obviamente absurdas, piadas, ou "todas/nenhuma das anteriores".
 - Deve existir UMA única alternativa correta (sem ambiguidade).
 
@@ -405,10 +409,10 @@ ${joinedContext}`,
     const models = Array.from(
       new Set(
         [
+          "gpt-5.2",
           process.env.OPENAI_MODEL_PREMIUM,
           process.env.OPENAI_MODEL_OVERRIDE,
           process.env.OPENAI_MODEL_FAST,
-          "gpt-5.2",
           "gpt-5.2-chat-latest",
           "gpt-5",
           "gpt-4.1",

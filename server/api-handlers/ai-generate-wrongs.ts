@@ -2,7 +2,14 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || ''
-const OPENAI_TEXT_MODEL = process.env.OPENAI_TEXT_MODEL || 'gpt-4o-mini'
+const OPENAI_TEXT_MODEL =
+  process.env.OPENAI_TEXT_MODEL ||
+  process.env.OPENAI_MODEL_FAST ||
+  process.env.OPENAI_MODEL_OVERRIDE ||
+  process.env.OPENAI_MODEL_PREMIUM ||
+  'gpt-5.2'
+
+const BANNED_TERMS_RE = /smart\s*line|smartline|smarline/i;
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === 'OPTIONS') return res.status(204).send('')
@@ -20,23 +27,33 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (OPENAI_API_KEY) {
       try {
-        const sys = `Você gera alternativas INCORRETAS plausíveis para perguntas de múltipla escolha em ${language}.\nRegras:\n- NUNCA repita a resposta correta; mantenha sentido e plausibilidade.\n- Texto curto (<= 120 caracteres), direto e específico.\n- Evite negações simples (“não …”), reordenação trivial ou sinônimos óbvios.\n- Use erros comuns, confusões de conceito, valores aproximados, ou condicionais ambíguas.\n- Adeque a dificuldade (básico/intermediário/avançado/especialista).\n- Sempre retorne apenas JSON válido no formato: {"items":[{"text":"...","explanation":"..."}]} (sem texto extra).`;
+        const sys = `Você gera alternativas INCORRETAS plausíveis para perguntas de múltipla escolha em ${language}.
+Regras:
+- NUNCA repita a resposta correta; mantenha sentido e plausibilidade.
+- Texto curto (<= 140 caracteres), direto e específico.
+- Evite negações simples (“não …”), reordenação trivial ou sinônimos óbvios.
+- Use erros comuns, confusões de conceito, parâmetros próximos, termos/siglas similares, passos fora de ordem.
+- Adeque a dificuldade (básico/intermediário/avançado/especialista).
+- Proibido mencionar SmartLine/Smartline/Smart Line.
+- Retorne apenas JSON válido no formato: {"items":[{"text":"...","explanation":"..."}]} (sem texto extra).`;
         const user = `Gere ${target} alternativas erradas.\nPergunta: ${question}\nResposta correta: ${correct}\nNível: ${difficulty}`
+        const body: any = {
+          model: OPENAI_TEXT_MODEL,
+          messages: [
+            { role: 'system', content: sys },
+            { role: 'user', content: user },
+          ],
+          temperature: 0.65,
+        }
+        if (/^gpt-5/i.test(String(OPENAI_TEXT_MODEL))) body.max_completion_tokens = 550
+        else body.max_tokens = 550
         const resp = await fetch('https://api.openai.com/v1/chat/completions', {
           method: 'POST',
           headers: {
             Authorization: `Bearer ${OPENAI_API_KEY}`,
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({
-            model: OPENAI_TEXT_MODEL,
-            messages: [
-              { role: 'system', content: sys },
-              { role: 'user', content: user },
-            ],
-            temperature: 0.7,
-            max_tokens: 400,
-          }),
+          body: JSON.stringify(body),
         })
         if (!resp.ok) {
           const txt = await resp.text()
@@ -55,6 +72,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             wrong = Array.isArray(parsed?.items) ? parsed.items : []
           }
         }
+        wrong = wrong.filter((w) => !BANNED_TERMS_RE.test(String(w?.text || '')))
       } catch (e) {
         // fallthrough to heuristic
       }
@@ -92,9 +110,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .slice(0, target)
 
     if (items.length < target) {
-      // pad with generic distractors
-      const pads = ['Alternativa plausível A', 'Alternativa plausível B', 'Alternativa plausível C', 'Alternativa plausível D']
-      while (items.length < target) items.push({ text: pads[items.length], explanation: '' })
+      // pad com distratores genéricos porém verossímeis (evita placeholders óbvios)
+      const pads = [
+        'Condição parcialmente correta, mas com parâmetro diferente.',
+        'Procedimento plausível, porém com etapa fora de ordem.',
+        'Conceito próximo, mas aplicado ao equipamento errado.',
+        'Definição semelhante, porém com requisito de segurança ausente.',
+      ]
+      while (items.length < target) items.push({ text: pads[items.length % pads.length], explanation: '' })
     }
 
     return res.status(200).json({ wrong: items })

@@ -95,7 +95,8 @@ All colors MUST be HSL.
     --secondary: 142 76% 40%;
     --secondary-foreground: 0 0% 100%;
     --muted: 210 15% 20%;
-    --muted-foreground: 210 10% 60%;
+    /* Mais contraste no tema escuro (melhora legibilidade de textos auxiliares) */
+    --muted-foreground: 210 10% 72%;
     --accent: 39 100% 55%;
     --accent-foreground: 210 20% 8%;
     --destructive: 0 62% 50%;

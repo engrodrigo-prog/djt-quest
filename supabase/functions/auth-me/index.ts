@@ -101,11 +101,15 @@ Deno.serve(async (req) => {
 
     // Define role hierarchy (highest to lowest privilege)
     // NOTE: keep in sync with frontend guards (allowed roles include 'admin').
+    // Compat: aceita nomes legados usados em migrações antigas.
     const roleHierarchy = [
       'admin',
       'gerente_djt',
+      'gerente',
       'gerente_divisao_djtx',
+      'lider_divisao',
       'coordenador_djtx',
+      'coordenador',
       'lider_equipe',
       'colaborador',
     ];
@@ -121,6 +125,16 @@ Deno.serve(async (req) => {
         }
       }
     }
+
+    // Normalizar roles legados para os literais atuais do app
+    const normalizeRole = (r: string) => {
+      if (r === 'gerente') return 'gerente_djt';
+      if (r === 'lider_divisao') return 'gerente_divisao_djtx';
+      if (r === 'coordenador') return 'coordenador_djtx';
+      return r;
+    };
+    role = normalizeRole(role);
+
     const privilegedRoles = new Set([
       'admin',
       'gerente_djt',
@@ -128,6 +142,8 @@ Deno.serve(async (req) => {
       'coordenador_djtx',
       'lider_equipe',
     ]);
+
+    // Considera flags do perfil como fallback (ambientes onde user_roles não é legível via RLS).
     const isLeader = Boolean(profile?.is_leader) || privilegedRoles.has(role);
     const studioAccess = Boolean(profile?.studio_access) || privilegedRoles.has(role);
 

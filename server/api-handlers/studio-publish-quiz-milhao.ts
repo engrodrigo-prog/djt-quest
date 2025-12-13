@@ -4,7 +4,17 @@ import { createClient } from '@supabase/supabase-js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL as string;
 const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY) as string;
-const STAFF_ROLES = new Set(['admin', 'gerente_djt', 'gerente_divisao_djtx', 'coordenador_djtx']);
+const STAFF_ROLES = new Set([
+  'admin',
+  'gerente_djt',
+  'gerente_divisao_djtx',
+  'coordenador_djtx',
+  // Compat legado
+  'gerente',
+  'lider_divisao',
+  'coordenador',
+  'lider_equipe',
+]);
 const MILHAO_PRIZE_XP = [100, 200, 300, 400, 500, 1000, 2000, 3000, 5000, 10000] as const;
 
 function levelToDifficulty(level: number): string {

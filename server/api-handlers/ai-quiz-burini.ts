@@ -9,7 +9,9 @@ const MODEL =
   process.env.OPENAI_MODEL_PREMIUM ||
   process.env.OPENAI_MODEL_OVERRIDE ||
   process.env.OPENAI_MODEL_FAST ||
-  'gpt-4o';
+  'gpt-5.2';
+
+const BANNED_TERMS_RE = /smart\s*line|smartline|smarline/i;
 
 type MonitorKey = 'subestacoes' | 'linhas' | 'protecao' | 'automacao' | 'telecom';
 
@@ -87,6 +89,10 @@ Seu estilo:
 - NUNCA entrega diretamente "a letra correta".
 - Pode indicar 1 ou 2 alternativas mais improváveis e explicar o porquê.
 - Se necessário, sugira duas alternativas que podem ser eliminadas (sem garantir a correta).`;
+    const safety = `Regras de segurança/conteúdo:
+- Proibido mencionar SmartLine/Smartline/Smart Line (outro projeto).
+- Não cite/compare com nomes de programas de TV/marcas.
+- Não invente procedimentos internos inexistentes; se faltar contexto, explique a incerteza e foque em princípios.`;
 
     const user = `Pergunta de quiz (nível: ${nivel || 'progressivo'}):
 ${question}
@@ -120,7 +126,7 @@ Retorne JSON estrito:
       model: MODEL,
       temperature: 0.4,
       messages: [
-        { role: 'system', content: system },
+        { role: 'system', content: `${system}\n\n${safety}` },
         { role: 'user', content: user },
       ],
     };
@@ -156,6 +162,11 @@ Retorne JSON estrito:
 
     if (!json || typeof json.analysis !== 'string') {
       return res.status(400).json({ error: 'Resposta da IA em formato inesperado', raw: content });
+    }
+
+    const rawOut = JSON.stringify(json);
+    if (BANNED_TERMS_RE.test(rawOut)) {
+      return res.status(400).json({ error: 'Conteúdo fora do escopo detectado ("SmartLine").' });
     }
 
     return res.status(200).json({

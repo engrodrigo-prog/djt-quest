@@ -32,7 +32,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const callerEmail = userData.user.email || '';
 
     const { data: roles } = await supabaseAdmin.from('user_roles').select('role').eq('user_id', callerId);
-    const allowed = new Set(['admin', 'gerente_djt', 'gerente_divisao_djtx', 'coordenador_djtx']);
+    const allowed = new Set([
+      'admin',
+      'gerente_djt',
+      'gerente_divisao_djtx',
+      'coordenador_djtx',
+      // Compat legado
+      'gerente',
+      'lider_divisao',
+      'coordenador',
+      'lider_equipe',
+    ]);
     const hasPermission = (roles || []).some((r: any) => allowed.has(r.role));
     if (!hasPermission) return res.status(403).json({ error: 'Sem permissão (apenas líderes)' });
 
@@ -94,6 +104,7 @@ Observações:
     const models = Array.from(
       new Set(
         [
+          'gpt-5.2',
           process.env.OPENAI_MODEL_PREMIUM,
           process.env.OPENAI_MODEL_FAST,
           process.env.OPENAI_MODEL_OVERRIDE,
@@ -107,18 +118,21 @@ Observações:
     let content = '';
     let lastErr = '';
     for (const model of models) {
+      const body: any = {
+        model,
+        messages: [{ role: 'system', content: system }, userMessage],
+        temperature: 0.7,
+      };
+      if (/^gpt-5/i.test(String(model))) body.max_completion_tokens = 4500;
+      else body.max_tokens = 4500;
+
       const resp = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${OPENAI_API_KEY}`,
         },
-        body: JSON.stringify({
-          model,
-          messages: [{ role: 'system', content: system }, userMessage],
-          temperature: 0.7,
-          max_tokens: 4000,
-        }),
+        body: JSON.stringify(body),
       });
       if (!resp.ok) {
         lastErr = await resp.text().catch(() => `HTTP ${resp.status}`);
