@@ -9,6 +9,7 @@ import {
   ClipboardCheck,
   Key,
   AlertCircle,
+  Trash2,
 } from "lucide-react";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -163,6 +164,14 @@ export const StudioDashboard = ({ onSelectModule, userRole }: StudioDashboardPro
       icon: ActivitySquare,
       gradientFrom: 'from-border',
       gradientTo: 'to-muted',
+    },
+    {
+      id: 'maintenance',
+      title: 'Manutenção',
+      description: 'Limpar sessão e uploads antigos',
+      icon: Trash2,
+      gradientFrom: 'from-slate-600',
+      gradientTo: 'to-slate-900',
     },
     {
       id: 'admin',

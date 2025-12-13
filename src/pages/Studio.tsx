@@ -26,6 +26,7 @@ import { UserApprovalsHub } from '@/components/UserApprovalsHub';
 import { CampaignManagement } from '@/components/CampaignManagement';
 import { ChallengeManagement } from '@/components/ChallengeManagement';
 import { StudyLab } from '@/components/StudyLab';
+import { StudioMaintenance } from '@/components/StudioMaintenance';
 
 const Studio = () => {
   const { user, loading, studioAccess, userRole, roleOverride } = useAuth();
@@ -82,6 +83,8 @@ const Studio = () => {
         return <AiQuizGenerator />;
       case 'study-lab':
         return <StudyLab showOrgCatalog />;
+      case 'maintenance':
+        return <StudioMaintenance />;
       case 'team-bonus':
         return <TeamEventForm />;
       case 'user-management':
