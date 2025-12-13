@@ -5,12 +5,14 @@ import { Button } from '@/components/ui/button';
 import { Play } from 'lucide-react';
 import djtCover from '@/assets/backgrounds/djt-quest-cover.png';
 
-const Home = () => {
+  const Home = () => {
   const navigate = useNavigate();
-  const { hasActiveSession, isLeader } = useAuth();
+  const { hasActiveSession } = useAuth();
   const [isTransitioning, setIsTransitioning] = useState(false);
 
-  const targetPath = hasActiveSession ? (isLeader ? '/leader-dashboard' : '/dashboard') : '/auth';
+  // Início deve ser o mesmo para todos (líderes também jogam quizzes).
+  // O painel de liderança continua acessível via menu do perfil/botão "Líder".
+  const targetPath = hasActiveSession ? '/dashboard' : '/auth';
 
   const handleGo = (event?: MouseEvent<HTMLAnchorElement | HTMLButtonElement>) => {
     event?.preventDefault();

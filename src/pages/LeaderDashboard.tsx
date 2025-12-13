@@ -69,6 +69,15 @@ export default function LeaderDashboard() {
   const [forums, setForums] = useState<ForumTopic[]>([]);
   const [topMembers, setTopMembers] = useState<TeamMember[]>([]);
   const [userProfile, setUserProfile] = useState<{ name: string; avatar_url: string | null; team: { name: string } | null; tier: string; matricula?: string | null; email?: string | null } | null>(null);
+  // Por padrão, líder não entra na soma do time (regras do jogo).
+  // Para testes do admin (601555), é possível incluir o líder nos cálculos localmente.
+  const [includeLeadersInTeamStats, setIncludeLeadersInTeamStats] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('team_stats_include_leaders') === '1';
+    } catch {
+      return false;
+    }
+  });
   const [scope, setScope] = useState<Scope>('team');
   const [windowSel, setWindowSel] = useState<'30d' | '90d' | '365d'>('30d');
   const [xpPossible, setXpPossible] = useState<number>(0);
@@ -113,11 +122,15 @@ export default function LeaderDashboard() {
       return;
     }
 
-    const { data: members } = await (supabase as any)
+    let membersQuery = (supabase as any)
       .from('profiles')
       .select('xp, id')
-      .eq(scopeFilter.col as any, scopeFilter.val as any)
-      .eq('is_leader', false);
+      .eq(scopeFilter.col as any, scopeFilter.val as any);
+    if (!includeLeadersInTeamStats) {
+      membersQuery = membersQuery.eq('is_leader', false);
+    }
+
+    const { data: members } = await membersQuery;
 
     if (members) {
       const totalMembers = members.length;
@@ -143,7 +156,7 @@ export default function LeaderDashboard() {
         rank_position: rankPosition
       });
     }
-  }, [coordId, divisionId, scope, teamId]);
+  }, [coordId, divisionId, scope, teamId, includeLeadersInTeamStats]);
 
   const loadCampaigns = useCallback(async () => {
     if (!teamId) {
@@ -216,18 +229,19 @@ export default function LeaderDashboard() {
       return;
     }
 
-    const { data } = await (supabase as any)
+    let q = (supabase as any)
       .from('profiles')
       .select('id, name, xp, tier')
-      .eq(scopeFilter.col as any, scopeFilter.val as any)
-      .eq('is_leader', false)
-      .order('xp', { ascending: false })
-      .limit(5);
+      .eq(scopeFilter.col as any, scopeFilter.val as any);
+    if (!includeLeadersInTeamStats) {
+      q = q.eq('is_leader', false);
+    }
+    const { data } = await q.order('xp', { ascending: false }).limit(5);
 
     if (data) {
       setTopMembers(data);
     }
-  }, [coordId, divisionId, scope, teamId]);
+  }, [coordId, divisionId, scope, teamId, includeLeadersInTeamStats]);
 
   const loadDashboardData = useCallback(async () => {
     setLoading(true);
@@ -279,11 +293,14 @@ export default function LeaderDashboard() {
       const idFilter = scope === 'team' ? teamId : scope === 'coord' ? coordId : divisionId;
       let members: Array<{ id: string }> = [];
       if (idFilter) {
-        const { data: m } = await (supabase as any)
+        let mq = (supabase as any)
           .from('profiles')
           .select('id')
-          .eq(scope === 'team' ? 'team_id' : scope === 'coord' ? 'coord_id' : 'division_id', idFilter)
-          .eq('is_leader', false);
+          .eq(scope === 'team' ? 'team_id' : scope === 'coord' ? 'coord_id' : 'division_id', idFilter);
+        if (!includeLeadersInTeamStats) {
+          mq = mq.eq('is_leader', false);
+        }
+        const { data: m } = await mq;
         members = m || [];
       }
       let xpAch = 0;
@@ -302,7 +319,15 @@ export default function LeaderDashboard() {
     } finally {
       setLoading(false);
     }
-  }, [coordId, divisionId, loadCampaigns, loadChallenges, loadForums, loadTeamStats, loadTopMembers, scope, teamId, windowSel]);
+  }, [coordId, divisionId, loadCampaigns, loadChallenges, loadForums, loadTeamStats, loadTopMembers, scope, teamId, windowSel, includeLeadersInTeamStats]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('team_stats_include_leaders', includeLeadersInTeamStats ? '1' : '0');
+    } catch {
+      // ignore
+    }
+  }, [includeLeadersInTeamStats]);
 
   useEffect(() => {
     loadDashboardData();
@@ -401,6 +426,18 @@ export default function LeaderDashboard() {
                 </SelectContent>
               </Select>
             </div>
+            {(userProfile?.matricula === '601555' ||
+              (userProfile?.email || '').toLowerCase() === 'rodrigonasc@cpfl.com.br') && (
+              <Button
+                type="button"
+                size="sm"
+                variant={includeLeadersInTeamStats ? 'secondary' : 'outline'}
+                onClick={() => setIncludeLeadersInTeamStats((v) => !v)}
+                className="gap-2"
+              >
+                {includeLeadersInTeamStats ? 'Teste: líder conta' : 'Teste: líder não conta'}
+              </Button>
+            )}
           </div>
         </div>
 

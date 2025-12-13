@@ -32,6 +32,7 @@ interface Challenge {
   xp_reward: number;
   require_two_leader_eval: boolean;
    campaign_id?: string | null;
+  created_at?: string;
 }
 
 const Dashboard = () => {
@@ -39,6 +40,7 @@ const Dashboard = () => {
   const navigate = useNavigate();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [allChallenges, setAllChallenges] = useState<Challenge[]>([]);
+  const [quizQuestionCounts, setQuizQuestionCounts] = useState<Record<string, number>>({});
   const [userEvents, setUserEvents] = useState<Array<{ id: string; challenge_id: string; status: string; created_at: string }>>([]);
   const [challengeTab, setChallengeTab] = useState<'vigentes' | 'historico'>('vigentes');
   const [typeFilters, setTypeFilters] = useState<Set<string>>(new Set());
@@ -158,32 +160,51 @@ const Dashboard = () => {
           setUserEvents(eventsResult.data as any);
         }
 
+        // Contagem de perguntas por quiz (para exibir "Quiz do Milhão" e também calcular conclusão)
+        const countsObj: Record<string, number> = {};
+        try {
+          const list = (challengesResult.data || []) as any[];
+          const quizIds = list
+            .filter((c) => (c.type || '').toLowerCase().includes('quiz'))
+            .map((c) => c.id)
+            .filter(Boolean);
+          if (quizIds.length) {
+            const { data: quizQuestions, error: quizQuestionsError } = await supabase
+              .from('quiz_questions')
+              .select('challenge_id')
+              .in('challenge_id', quizIds);
+            if (quizQuestionsError) {
+              console.warn('Dashboard: quiz_questions indisponível', quizQuestionsError.message);
+            } else {
+              (quizQuestions || []).forEach((q: any) => {
+                const cid = q.challenge_id;
+                if (!cid) return;
+                countsObj[cid] = (countsObj[cid] || 0) + 1;
+              });
+            }
+          }
+        } catch (e: any) {
+          console.warn('Dashboard: falha ao contar perguntas de quizzes', e?.message || e);
+        } finally {
+          setQuizQuestionCounts(countsObj);
+        }
+
         // Calcular quizzes concluídos: respostas >= total de perguntas
         if (userAnswersResult.error) {
           console.warn('Dashboard: respostas de quiz indisponíveis', userAnswersResult.error.message);
         } else if (userAnswersResult.data && challengesResult.data) {
-          const quizChallenges = (challengesResult.data as Challenge[]).filter(c => (c.type || '').toLowerCase().includes('quiz'));
-          const questionCounts = new Map<string, number>();
-          // Buscar contagem de perguntas por desafio (apenas para quizzes)
-          const { data: quizQuestions, error: quizQuestionsError } = await supabase
-            .from('quiz_questions')
-            .select('challenge_id');
-
-          if (quizQuestionsError) {
-            console.warn('Dashboard: quiz_questions indisponível', quizQuestionsError.message);
-          }
-          (quizQuestions || []).forEach((q: any) => {
-            questionCounts.set(q.challenge_id, (questionCounts.get(q.challenge_id) || 0) + 1);
-          });
+          const quizChallenges = (challengesResult.data as Challenge[]).filter((c) =>
+            (c.type || '').toLowerCase().includes('quiz'),
+          );
 
           const answeredCounts = new Map<string, number>();
-          (userAnswersResult.data as { challenge_id: string }[]).forEach(row => {
+          (userAnswersResult.data as { challenge_id: string }[]).forEach((row) => {
             answeredCounts.set(row.challenge_id, (answeredCounts.get(row.challenge_id) || 0) + 1);
           });
 
           const completed = new Set<string>();
-          quizChallenges.forEach(q => {
-            const total = questionCounts.get(q.id) || 0;
+          quizChallenges.forEach((q) => {
+            const total = countsObj[q.id] || 0;
             const answered = answeredCounts.get(q.id) || 0;
             if (total > 0 && answered >= total) completed.add(q.id);
           });
@@ -328,6 +349,20 @@ const Dashboard = () => {
   const isTopLeader = authProfile?.matricula === '601555';
   const canDeleteContent = Boolean(isLeader || (userRole && (userRole.includes('gerente') || userRole.includes('coordenador'))));
   const forumPotentialXp = useMemo(() => openForums.length * 500, [openForums]);
+
+  const featuredMilhao = useMemo(() => {
+    const isMilhao = (t: string) => /milh(ã|a)o/i.test(t || '');
+    // allChallenges já vem ordenado por created_at desc
+    return (allChallenges || []).find((c) => {
+      if (!c) return false;
+      if ((c.type || '').toLowerCase() !== 'quiz') return false;
+      if (!isMilhao(String(c.title || ''))) return false;
+      if ((c.xp_reward || 0) <= 0) return false;
+      // Evita mostrar tentativas antigas que falharam e ficaram sem perguntas
+      const total = quizQuestionCounts[c.id] || 0;
+      return total >= 10;
+    }) || null;
+  }, [allChallenges, quizQuestionCounts]);
 
   const handleDeleteChallenge = async (challenge: Challenge) => {
     if (!user) return;
@@ -542,6 +577,41 @@ const Dashboard = () => {
         )}
 
         {/* Active Campaigns */}
+        {featuredMilhao && (
+          <section>
+            <div className="flex items-center gap-2 mb-3 text-foreground">
+              <Trophy className="h-5 w-5 text-amber-300" />
+              <h2 className="text-2xl font-semibold leading-tight">Quiz do Milhão (Aberto)</h2>
+            </div>
+            <Card className="bg-white/5 border border-white/20 text-white backdrop-blur-md shadow-lg">
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between gap-2">
+                  <Badge variant="outline" className="w-fit text-[11px] uppercase tracking-wide border-white/50 text-white">
+                    10 níveis • {featuredMilhao.xp_reward} XP total
+                  </Badge>
+                  {completedChallengeIds.has(featuredMilhao.id) && (
+                    <Badge variant="secondary" className="text-[11px]">
+                      Concluído
+                    </Badge>
+                  )}
+                </div>
+                <CardTitle className="text-lg leading-tight text-white">{featuredMilhao.title}</CardTitle>
+                <CardDescription className="text-sm text-white/75 line-clamp-2">
+                  {featuredMilhao.description || 'Desafio progressivo com 10 perguntas (dificuldade 1→10).'}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="pt-0">
+                <Button
+                  className="w-full h-9 text-sm"
+                  variant="secondary"
+                  onClick={() => navigate(`/challenge/${featuredMilhao.id}`)}
+                >
+                  {completedChallengeIds.has(featuredMilhao.id) ? 'Ver novamente' : 'Começar agora'}
+                </Button>
+              </CardContent>
+            </Card>
+          </section>
+        )}
         <section>
           <div className="flex items-center gap-2 mb-3 text-foreground">
             <Target className="h-5 w-5 text-primary" />
