@@ -11,6 +11,31 @@ const MODEL =
   process.env.OPENAI_MODEL_FAST ||
   'gpt-4o';
 
+type MonitorKey = 'subestacoes' | 'linhas' | 'protecao' | 'automacao' | 'telecom';
+
+const MONITORS: Record<MonitorKey, { key: MonitorKey; name: string }> = {
+  subestacoes: { key: 'subestacoes', name: 'Monitor Subestações' },
+  linhas: { key: 'linhas', name: 'Monitor Linhas' },
+  protecao: { key: 'protecao', name: 'Monitor Proteção' },
+  automacao: { key: 'automacao', name: 'Monitor Automação' },
+  telecom: { key: 'telecom', name: 'Monitor Telecom' },
+};
+
+const normalizeDomain = (raw: any): MonitorKey => {
+  const s = String(raw || '').toLowerCase().trim();
+  if (s.includes('linha')) return 'linhas';
+  if (s.includes('prote')) return 'protecao';
+  if (s.includes('auto')) return 'automacao';
+  if (s.includes('tele')) return 'telecom';
+  return 'subestacoes';
+};
+
+const pickTwo = <T,>(arr: T[]) => {
+  const copy = [...arr];
+  copy.sort(() => Math.random() - 0.5);
+  return copy.slice(0, 2);
+};
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === 'OPTIONS') return res.status(204).send('');
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
@@ -33,17 +58,35 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { data: userData, error: userErr } = await admin.auth.getUser(token);
     if (userErr || !userData?.user) return res.status(401).json({ error: 'Unauthorized' });
 
-    const { question, options, nivel } = req.body || {};
+    const { question, options, nivel, question_id, domain } = req.body || {};
     if (!question || !Array.isArray(options) || options.length < 2) {
       return res.status(400).json({ error: 'Campos obrigatórios: question, options[]' });
     }
 
-    const system = `Você é o Tutor Burini, especialista técnico da DJT/CPFL atuando em quizzes profissionais de SEP, proteção, telecom, operação e segurança.
+    const monitor = MONITORS[normalizeDomain(domain)];
+
+    // Se possível, elimina 2 alternativas erradas (por ID) sem expor a correta.
+    let eliminate_option_ids: string[] = [];
+    if (question_id) {
+      try {
+        const { data: rows } = await admin
+          .from('quiz_options')
+          .select('id, is_correct')
+          .eq('question_id', question_id);
+        const wrongIds = (rows || []).filter((r: any) => !r.is_correct).map((r: any) => r.id);
+        eliminate_option_ids = pickTwo(wrongIds);
+      } catch {
+        eliminate_option_ids = [];
+      }
+    }
+
+    const system = `Você é o ${monitor.name}, um especialista técnico da DJT/CPFL atuando em quizzes profissionais de SEP, proteção, telecom, operação e segurança.
 Seu estilo:
 - Linguagem técnica, direta, profissional, em pt-BR.
 - Explica o raciocínio, compara alternativas, destaca riscos e normas.
 - NUNCA entrega diretamente "a letra correta".
-- Pode indicar 1 ou 2 alternativas mais improváveis e explicar o porquê.`;
+- Pode indicar 1 ou 2 alternativas mais improváveis e explicar o porquê.
+- Se necessário, sugira duas alternativas que podem ser eliminadas (sem garantir a correta).`;
 
     const user = `Pergunta de quiz (nível: ${nivel || 'progressivo'}):
 ${question}
@@ -115,7 +158,14 @@ Retorne JSON estrito:
       return res.status(400).json({ error: 'Resposta da IA em formato inesperado', raw: content });
     }
 
-    return res.status(200).json({ success: true, help: json });
+    return res.status(200).json({
+      success: true,
+      help: {
+        ...json,
+        monitor: monitor,
+        eliminate_option_ids,
+      },
+    });
   } catch (err: any) {
     console.error('Error in ai-quiz-burini:', err);
     return res.status(500).json({ error: err?.message || 'Unknown error' });
@@ -123,4 +173,3 @@ Retorne JSON estrito:
 }
 
 export const config = { api: { bodyParser: true } };
-

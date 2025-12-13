@@ -9,7 +9,9 @@ const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABA
 const LETTERS = ["A", "B", "C", "D"] as const;
 type Letter = (typeof LETTERS)[number];
 
-const XP_TABLE_MILHAO = [100, 150, 200, 250, 300, 400, 550, 700, 850, 1000] as const;
+// Tabela de "premiação" em XP (10 degraus) inspirada no formato clássico de quiz de 10 níveis.
+// Mantém saltos maiores do meio para o fim, como no programa original (sem citar nomes).
+const XP_TABLE_MILHAO = [100, 200, 300, 400, 500, 1000, 2000, 3000, 5000, 10000] as const;
 const BANNED_TERMS_RE = /smart\s*line|smartline|smarline/i;
 
 const asLetter = (value: any): Letter | null => {
@@ -315,7 +317,7 @@ Modo padrão (standard):
 
 Modo Quiz do Milhão (milhao):
 - Gere exatamente 10 perguntas com jornada de dificuldade 1→10.
-- Use a tabela de XP: [100,150,200,250,300,400,550,700,850,1000] da pergunta 1 à 10.
+- Use a tabela de XP: [100,200,300,400,500,1000,2000,3000,5000,10000] da pergunta 1 à 10.
 - Curva 1→10 (guia):
   1) definição/recall direto do texto
   2) identificação/interpretação de conceito no texto
@@ -371,7 +373,7 @@ Modo padrão (standard):
 
 Modo Quiz do Milhão (milhao):
 - Gere exatamente 10 perguntas com jornada de dificuldade 1→10.
-- Use a tabela de XP: [100,150,200,250,300,400,550,700,850,1000] da pergunta 1 à 10.
+- Use a tabela de XP: [100,200,300,400,500,1000,2000,3000,5000,10000] da pergunta 1 à 10.
 
 Retorne APENAS JSON válido (sem markdown), no formato:
 {

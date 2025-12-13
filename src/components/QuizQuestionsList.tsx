@@ -24,9 +24,18 @@ interface QuizQuestionsListProps {
 export function QuizQuestionsList({ challengeId, onUpdate }: QuizQuestionsListProps) {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [loading, setLoading] = useState(true);
+  const [challengeTitle, setChallengeTitle] = useState<string>("");
+
+  const MILHAO_PRIZE_XP = [100, 200, 300, 400, 500, 1000, 2000, 3000, 5000, 10000] as const;
 
   const loadQuestions = useCallback(async () => {
     try {
+      try {
+        const { data: ch } = await supabase.from("challenges").select("title").eq("id", challengeId).maybeSingle();
+        if (ch?.title) setChallengeTitle(String(ch.title));
+      } catch {
+        // ignore
+      }
       const { data, error } = await supabase
         .from("quiz_questions")
         .select("*")
@@ -73,7 +82,10 @@ export function QuizQuestionsList({ challengeId, onUpdate }: QuizQuestionsListPr
     );
   }
 
-  const totalXP = questions.reduce((sum, q) => sum + q.xp_value, 0);
+  const isMilhao = /milh(ã|a)o/i.test(challengeTitle || "");
+  const totalXP = isMilhao
+    ? questions.reduce((sum, _q, idx) => sum + (MILHAO_PRIZE_XP[idx] ?? 0), 0)
+    : questions.reduce((sum, q) => sum + q.xp_value, 0);
 
   const dbToUi: Record<string, DifficultyLevel> = {
     basica: 'basico',
@@ -108,7 +120,8 @@ export function QuizQuestionsList({ challengeId, onUpdate }: QuizQuestionsListPr
                 <div className="flex items-center gap-2 mb-1">
                   <span className="font-semibold text-sm">#{index + 1}</span>
                   <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">
-                    {difficultyLevels[dbToUi[question.difficulty_level] || 'basico'].label} - {question.xp_value} XP
+                    {difficultyLevels[dbToUi[question.difficulty_level] || 'basico'].label} -{" "}
+                    {isMilhao ? (MILHAO_PRIZE_XP[index] ?? question.xp_value) : question.xp_value} XP
                   </span>
                 </div>
                 <p className="text-sm">{question.question_text}</p>

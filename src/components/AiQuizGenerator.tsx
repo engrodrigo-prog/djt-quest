@@ -17,15 +17,15 @@ const MILHAO_TOTAL = 10;
 
 const MILHAO_LEVELS = [
   { level: 1, xp: 100, faixa: 'Básico', titulo: 'Aquecimento I' },
-  { level: 2, xp: 150, faixa: 'Básico', titulo: 'Aquecimento II' },
-  { level: 3, xp: 200, faixa: 'Básico', titulo: 'Aquecimento III' },
-  { level: 4, xp: 250, faixa: 'Intermediário', titulo: 'Desafio I' },
-  { level: 5, xp: 300, faixa: 'Intermediário', titulo: 'Desafio II' },
-  { level: 6, xp: 400, faixa: 'Intermediário', titulo: 'Desafio III' },
-  { level: 7, xp: 550, faixa: 'Avançado', titulo: 'Avanço I' },
-  { level: 8, xp: 700, faixa: 'Avançado', titulo: 'Avanço II' },
-  { level: 9, xp: 850, faixa: 'Avançado', titulo: 'Avanço III' },
-  { level: 10, xp: 1000, faixa: 'Sênior', titulo: 'Pergunta do Milhão' },
+  { level: 2, xp: 200, faixa: 'Básico', titulo: 'Aquecimento II' },
+  { level: 3, xp: 300, faixa: 'Básico', titulo: 'Aquecimento III' },
+  { level: 4, xp: 400, faixa: 'Intermediário', titulo: 'Desafio I' },
+  { level: 5, xp: 500, faixa: 'Intermediário', titulo: 'Desafio II' },
+  { level: 6, xp: 1000, faixa: 'Intermediário', titulo: 'Desafio III' },
+  { level: 7, xp: 2000, faixa: 'Avançado', titulo: 'Avanço I' },
+  { level: 8, xp: 3000, faixa: 'Avançado', titulo: 'Avanço II' },
+  { level: 9, xp: 5000, faixa: 'Avançado', titulo: 'Avanço III' },
+  { level: 10, xp: 10000, faixa: 'Sênior', titulo: 'Pergunta Máxima' },
 ] as const;
 
 export const AiQuizGenerator = ({ defaultChallengeId }: { defaultChallengeId?: string }) => {
@@ -441,7 +441,7 @@ export const AiQuizGenerator = ({ defaultChallengeId }: { defaultChallengeId?: s
           <CardTitle>Quiz Especial • Quiz do Milhão (IA)</CardTitle>
           <CardDescription>
             Informe um tema técnico. A IA pode gerar uma pergunta individual ou um quiz completo em 10 níveis crescentes,
-            no estilo &quot;Show do Milhão&quot; / &quot;Who Wants to Be a Millionaire&quot;, para compor seu desafio.
+            no formato clássico de 10 níveis (premiação em XP) para compor seu desafio.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

@@ -9,6 +9,7 @@ import { Progress } from "@/components/ui/progress";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { apiFetch } from "@/lib/api";
 
 interface QuizPlayerProps {
   challengeId: string;
@@ -40,29 +41,53 @@ interface AnswerResult {
 
 const MILHAO_LEVELS = [
   { level: 1, xp: 100, faixa: "Básico", titulo: "Aquecimento I" },
-  { level: 2, xp: 150, faixa: "Básico", titulo: "Aquecimento II" },
-  { level: 3, xp: 200, faixa: "Básico", titulo: "Aquecimento III" },
-  { level: 4, xp: 250, faixa: "Intermediário", titulo: "Desafio I" },
-  { level: 5, xp: 300, faixa: "Intermediário", titulo: "Desafio II" },
-  { level: 6, xp: 400, faixa: "Intermediário", titulo: "Desafio III" },
-  { level: 7, xp: 550, faixa: "Avançado", titulo: "Avanço I" },
-  { level: 8, xp: 700, faixa: "Avançado", titulo: "Avanço II" },
-  { level: 9, xp: 850, faixa: "Avançado", titulo: "Avanço III" },
-  { level: 10, xp: 1000, faixa: "Sênior", titulo: "Pergunta do Milhão" },
+  { level: 2, xp: 200, faixa: "Básico", titulo: "Aquecimento II" },
+  { level: 3, xp: 300, faixa: "Básico", titulo: "Aquecimento III" },
+  { level: 4, xp: 400, faixa: "Intermediário", titulo: "Desafio I" },
+  { level: 5, xp: 500, faixa: "Intermediário", titulo: "Desafio II" },
+  { level: 6, xp: 1000, faixa: "Intermediário", titulo: "Desafio III" },
+  { level: 7, xp: 2000, faixa: "Avançado", titulo: "Avanço I" },
+  { level: 8, xp: 3000, faixa: "Avançado", titulo: "Avanço II" },
+  { level: 9, xp: 5000, faixa: "Avançado", titulo: "Avanço III" },
+  { level: 10, xp: 10000, faixa: "Sênior", titulo: "Pergunta Máxima" },
 ] as const;
+
+type MonitorKey = "subestacoes" | "linhas" | "protecao" | "automacao" | "telecom";
+const MONITORS: Record<MonitorKey, { key: MonitorKey; name: string }> = {
+  subestacoes: { key: "subestacoes", name: "Monitor Subestações" },
+  linhas: { key: "linhas", name: "Monitor Linhas" },
+  protecao: { key: "protecao", name: "Monitor Proteção" },
+  automacao: { key: "automacao", name: "Monitor Automação" },
+  telecom: { key: "telecom", name: "Monitor Telecom" },
+};
+
+const inferDomain = (questionText: string, challengeTitle: string, quizSpecialties: string[] | null): MonitorKey => {
+  const t = `${challengeTitle || ""} ${questionText || ""}`.toLowerCase();
+  const specs = (quizSpecialties || []).map((s) => String(s || "").toLowerCase());
+
+  const has = (needle: string) => t.includes(needle);
+  if (specs.some((s) => s.includes("telecom")) || has("telecom") || has("fibra") || has("rádio") || has("radio")) return "telecom";
+  if (specs.some((s) => s.includes("autom")) || has("automação") || has("automacao") || has("scada") || has("rtu")) return "automacao";
+  if (specs.some((s) => s.includes("prote")) || has("proteção") || has("protecao") || has("relé") || has("rele") || has("ansi")) return "protecao";
+  if (has("linha") || has("lt ") || has("torre") || has("isolador") || has("cabos") || has("cabo condutor")) return "linhas";
+  return "subestacoes";
+};
 
 export function QuizPlayer({ challengeId }: QuizPlayerProps) {
   const navigate = useNavigate();
   const [questions, setQuestions] = useState<Question[]>([]);
   const [challengeTitle, setChallengeTitle] = useState<string>('');
+  const [challengeSpecialties, setChallengeSpecialties] = useState<string[] | null>(null);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [options, setOptions] = useState<Option[]>([]);
   const [selectedOption, setSelectedOption] = useState<string>("");
   const [answerResult, setAnswerResult] = useState<AnswerResult | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [buriniHelp, setBuriniHelp] = useState<{ analysis: string; hint?: string; weak_options?: any[] } | null>(null);
-  const [buriniUsed, setBuriniUsed] = useState(false);
+  const [monitorHelp, setMonitorHelp] = useState<{ analysis: string; hint?: string; weak_options?: any[]; monitor?: any; eliminate_option_ids?: string[] } | null>(null);
+  const [monitorUsed, setMonitorUsed] = useState(false);
+  const [skipUsed, setSkipUsed] = useState(false);
+  const [eliminatedOptionIds, setEliminatedOptionIds] = useState<Record<string, true>>({});
   const [helpUsedThisQuestion, setHelpUsedThisQuestion] = useState(false);
 
   const loadQuestions = useCallback(async () => {
@@ -71,10 +96,11 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
       try {
         const { data: challenge } = await supabase
           .from('challenges')
-          .select('title')
+          .select('title, quiz_specialties')
           .eq('id', challengeId)
           .maybeSingle();
         if (challenge?.title) setChallengeTitle(challenge.title);
+        if (Array.isArray((challenge as any)?.quiz_specialties)) setChallengeSpecialties((challenge as any).quiz_specialties);
       } catch {/* ignore */}
       // If attempt already submitted, don't show questions (only when attempts table is available)
       const hasAttempts = (import.meta as any).env?.VITE_HAS_QUIZ_ATTEMPTS === '1';
@@ -130,6 +156,7 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
       setOptions(shuffled);
       setSelectedOption("");
       setAnswerResult(null);
+      setEliminatedOptionIds({});
     } catch (error) {
       console.error("Error loading options:", error);
       toast.error("Erro ao carregar alternativas");
@@ -143,7 +170,7 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
   useEffect(() => {
     if (questions.length > 0) {
       loadOptions(questions[currentQuestionIndex].id);
-      setBuriniHelp(null);
+      setMonitorHelp(null);
       setHelpUsedThisQuestion(false);
     }
   }, [currentQuestionIndex, loadOptions, questions]);
@@ -234,8 +261,11 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
   const currentQuestion = questions[currentQuestionIndex];
   const progress = ((currentQuestionIndex + 1) / questions.length) * 100;
 
-  const canUseBurini = isMilhao && !buriniUsed && currentQuestionIndex <= 6 && !answerResult;
+  const canUseMonitor = isMilhao && !monitorUsed && !answerResult;
+  const canSkip = isMilhao && !skipUsed && !answerResult && currentQuestionIndex < questions.length - 1;
   const currentMilhaoMeta = isMilhao ? MILHAO_LEVELS[currentQuestionIndex] : null;
+  const domain = inferDomain(currentQuestion.question_text, challengeTitle, challengeSpecialties);
+  const monitor = MONITORS[domain];
 
   const difficultyLabelMap: Record<string, string> = {
     basica: "Básico",
@@ -260,13 +290,15 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
               Pergunta {currentQuestionIndex + 1} de {questions.length}
             </span>
           )}
-          <span className="font-medium">{currentQuestion.xp_value} XP</span>
+          <span className="font-medium">
+            {isMilhao && currentMilhaoMeta ? currentMilhaoMeta.xp : currentQuestion.xp_value} XP
+          </span>
         </div>
         <Progress value={progress} />
         {isMilhao && currentMilhaoMeta && (
           <>
             <p className="text-[11px] text-muted-foreground">
-              {currentMilhaoMeta.faixa} — a cada pergunta o desafio aumenta, como no &quot;Show do Milhão&quot;.
+              {currentMilhaoMeta.faixa} — a cada pergunta o desafio aumenta (10 níveis progressivos).
             </p>
             <div className="flex flex-wrap gap-1 text-[10px]">
               {MILHAO_LEVELS.map((lvl, idx) => {
@@ -304,44 +336,77 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
           </div>
         </CardHeader>
         <CardContent className="space-y-6">
-          {canUseBurini && (
+          {(canSkip || canUseMonitor) && (
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 p-3 rounded-md border border-primary/25 bg-primary/5">
               <div className="text-sm text-muted-foreground leading-relaxed">
-                <span className="font-semibold text-foreground">Ajuda do Tutor Burini</span>
+                <span className="font-semibold text-foreground">Ajudas do Quiz</span>
                 <span className="block">
-                  Uma análise técnica da questão, sem revelar diretamente a alternativa correta. Disponível apenas uma vez até a pergunta 7.
+                  Pular (1x) ou consultar o especialista do tema (1x) para eliminar 2 alternativas.
                 </span>
               </div>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={async () => {
-                  try {
-                    const payload = {
-                      question: currentQuestion.question_text,
-                      options: options,
-                      nivel: currentQuestionIndex + 1,
-                    };
-                    const { data, error } = await supabase.functions.invoke("ai", {
-                      body: { handler: "quiz-burini", ...payload },
-                    } as any);
-                    if (error) throw error;
-                    const help = data?.help || data;
-                    if (help?.analysis) {
-                      setBuriniHelp(help);
-                      setBuriniUsed(true);
+              <div className="flex flex-wrap gap-2">
+                {canSkip && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      setSkipUsed(true);
                       setHelpUsedThisQuestion(true);
-                    } else {
-                      toast.error("Não foi possível obter ajuda do Burini agora.");
-                    }
-                  } catch (e: any) {
-                    console.error("Erro na ajuda do Burini:", e);
-                    toast.error("Erro ao acionar o Tutor Burini.");
-                  }
-                }}
-              >
-                Pergunte ao Burini
-              </Button>
+                      toast.message("Pergunta pulada", { description: "Você pode pular apenas uma vez." });
+                      setCurrentQuestionIndex((prev) => Math.min(prev + 1, questions.length - 1));
+                    }}
+                  >
+                    Pular
+                  </Button>
+                )}
+                {canUseMonitor && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={async () => {
+                      try {
+                        const payload = {
+                          question_id: currentQuestion.id,
+                          question: currentQuestion.question_text,
+                          options: options,
+                          nivel: currentQuestionIndex + 1,
+                          domain,
+                        };
+                        const resp = await apiFetch("/api/ai?handler=quiz-burini", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify(payload),
+                        });
+                        const json = await resp.json().catch(() => ({}));
+                        if (!resp.ok) throw new Error(json?.error || "Falha ao consultar especialista");
+                        const help = json?.help || json;
+                        if (help?.analysis) {
+                          setMonitorHelp(help);
+                          setMonitorUsed(true);
+                          setHelpUsedThisQuestion(true);
+                          const ids = Array.isArray(help?.eliminate_option_ids) ? help.eliminate_option_ids : [];
+                          if (ids.length) {
+                            const map: Record<string, true> = {};
+                            ids.slice(0, 2).forEach((id: string) => {
+                              if (id) map[id] = true;
+                            });
+                            setEliminatedOptionIds(map);
+                            if (map[selectedOption]) setSelectedOption("");
+                          }
+                          toast.success(`${(help?.monitor?.name || monitor.name)} eliminou 2 alternativas.`);
+                        } else {
+                          toast.error("Não foi possível obter ajuda agora.");
+                        }
+                      } catch (e: any) {
+                        console.error("Erro ao acionar especialista:", e);
+                        toast.error("Erro ao acionar o especialista.");
+                      }
+                    }}
+                  >
+                    Consultar {monitor.name}
+                  </Button>
+                )}
+              </div>
             </div>
           )}
 
@@ -353,6 +418,7 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
                 const isCorrectOption = answerResult?.correctOptionId === option.id;
                 const showCorrect = answerResult && !answerResult.isCorrect && isCorrectOption;
                 const showWrong = answerResult && !answerResult.isCorrect && isSelected;
+                const isEliminated = !answerResult && Boolean(eliminatedOptionIds[option.id]);
 
                 return (
                   <div
@@ -362,16 +428,21 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
                         ? "border-green-500 bg-green-50 dark:bg-green-950"
                         : showWrong
                         ? "border-red-500 bg-red-50 dark:bg-red-950"
+                        : isEliminated
+                        ? "border-border bg-muted/40 opacity-60"
                         : isSelected
                         ? "border-primary bg-primary/5"
                         : "border-border"
                     }`}
                   >
-                    <RadioGroupItem value={option.id} id={option.id} disabled={!!answerResult} />
+                    <RadioGroupItem value={option.id} id={option.id} disabled={!!answerResult || isEliminated} />
                     <div className="flex-1">
-                      <Label htmlFor={option.id} className="cursor-pointer">
+                      <Label
+                        htmlFor={option.id}
+                        className={`cursor-pointer ${isEliminated ? "line-through text-muted-foreground" : ""}`}
+                      >
                         <span className="font-semibold mr-2 text-foreground">{String.fromCharCode(65 + index)}.</span>
-                        {option.option_text}
+                        {isEliminated ? "Alternativa eliminada" : option.option_text}
                       </Label>
                       {answerResult && (isSelected || showCorrect) && option.explanation && (
                         <p className="mt-2 text-sm text-muted-foreground">{option.explanation}</p>
@@ -415,20 +486,22 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
             </div>
           )}
 
-          {buriniHelp && (
+          {monitorHelp && (
             <Alert className="border border-primary/25 bg-primary/5 text-sm space-y-1">
               <AlertCircle className="h-4 w-4 text-primary" />
               <AlertDescription>
-                <p className="font-semibold mb-1 text-foreground">Análise do Tutor Burini</p>
-                <p className="mb-1 whitespace-pre-line text-foreground">{buriniHelp.analysis}</p>
-                {Array.isArray(buriniHelp.weak_options) && buriniHelp.weak_options.length > 0 && (
+                <p className="font-semibold mb-1 text-foreground">
+                  Análise do {monitorHelp?.monitor?.name || monitor.name}
+                </p>
+                <p className="mb-1 whitespace-pre-line text-foreground">{monitorHelp.analysis}</p>
+                {Array.isArray(monitorHelp.weak_options) && monitorHelp.weak_options.length > 0 && (
                   <p className="mb-1">
                     <span className="font-semibold">Alternativas menos prováveis:</span>{" "}
-                    {buriniHelp.weak_options.map((w: any) => w?.label).filter(Boolean).join(", ")}
+                    {monitorHelp.weak_options.map((w: any) => w?.label).filter(Boolean).join(", ")}
                   </p>
                 )}
-                {buriniHelp.hint && (
-                  <p className="italic text-muted-foreground">{buriniHelp.hint}</p>
+                {monitorHelp.hint && (
+                  <p className="italic text-muted-foreground">{monitorHelp.hint}</p>
                 )}
               </AlertDescription>
             </Alert>

@@ -80,8 +80,8 @@ Retorne APENAS JSON válido, no formato:
 }
 
 Observações:
-- Preencha "xp_base" com a tabela: [100,150,200,250,300,400,550,700,850,1000] de P1 a P10.
-- Campo "tipo": use "milhao" quando o objetivo for Show do Milhão, ou "especial" como padrão.
+- Preencha "xp_base" com a tabela: [100,200,300,400,500,1000,2000,3000,5000,10000] de P1 a P10.
+- Campo "tipo": use "milhao" quando o objetivo for um quiz de 10 níveis, ou "especial" como padrão.
 - Traga temas atuais do setor elétrico brasileiro (2024), normas e discussões recentes de transmissão/distribuição, e conexão com iniciativas da CPFL (modernização de rede, automação, OSM, segurança operacional).
 - Não repita perguntas genéricas; use linguagem técnica clara.
 - NÃO inclua comentários fora do JSON.`;
@@ -148,7 +148,7 @@ Observações:
     }
 
     // Normalização mínima: garantir campos obrigatórios e tipo
-    const xpTable = [100, 150, 200, 250, 300, 400, 550, 700, 850, 1000];
+    const xpTable = [100, 200, 300, 400, 500, 1000, 2000, 3000, 5000, 10000];
     json.tipo = mode === 'milzao' ? 'milhao' : 'especial';
     json.criador = callerEmail || json.criador || 'líder';
     json.quiz_id = json.quiz_id || 'milzao-' + callerId;

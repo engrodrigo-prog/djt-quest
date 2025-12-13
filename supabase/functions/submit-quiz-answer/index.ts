@@ -56,7 +56,7 @@ serve(async (req) => {
     // Get the selected option
     const { data: option, error: optionError } = await supabase
       .from('quiz_options')
-      .select('*, quiz_questions!inner(challenge_id, xp_value)')
+      .select('*, quiz_questions!inner(challenge_id, xp_value, order_index)')
       .eq('id', option_id)
       .single();
 
@@ -66,6 +66,19 @@ serve(async (req) => {
 
     const isCorrect = option.is_correct;
     const challengeId = option.quiz_questions.challenge_id;
+    const questionOrderIndex = Number(option.quiz_questions.order_index ?? 0);
+
+    // XP ladder (10 degraus) inspirada no formato clássico de 10 níveis (sem citar nomes).
+    const MILHAO_XP_TABLE = [100, 200, 300, 400, 500, 1000, 2000, 3000, 5000, 10000];
+
+    let isMilhao = false;
+    try {
+      const { data: ch } = await supabase.from('challenges').select('title').eq('id', challengeId).maybeSingle();
+      const title = String(ch?.title || '');
+      isMilhao = /milh(ã|a)o/i.test(title);
+    } catch {
+      isMilhao = false;
+    }
 
     // Ensure attempt exists and not already submitted
     await supabase
@@ -91,7 +104,9 @@ serve(async (req) => {
       .eq('id', user.id)
       .maybeSingle();
 
-    const xpEarned = isCorrect ? option.quiz_questions.xp_value : 0;
+    const xpEarned = isCorrect
+      ? (isMilhao ? (MILHAO_XP_TABLE[questionOrderIndex] ?? option.quiz_questions.xp_value) : option.quiz_questions.xp_value)
+      : 0;
     const xpBlockedForLeader = false;
 
     // Insert user answer

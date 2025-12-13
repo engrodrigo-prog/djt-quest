@@ -5,6 +5,7 @@ import { createClient } from '@supabase/supabase-js';
 const SUPABASE_URL = process.env.SUPABASE_URL as string;
 const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY) as string;
 const STAFF_ROLES = new Set(['admin', 'gerente_djt', 'gerente_divisao_djtx', 'coordenador_djtx']);
+const MILHAO_PRIZE_XP = [100, 200, 300, 400, 500, 1000, 2000, 3000, 5000, 10000] as const;
 
 function levelToDifficulty(level: number): string {
   if (level <= 3) return 'basica';
@@ -14,10 +15,10 @@ function levelToDifficulty(level: number): string {
 }
 
 function levelToXp(level: number): number {
-  if (level <= 3) return 5;
-  if (level <= 5) return 10;
-  if (level <= 7) return 20;
-  return 40;
+  if (level <= 3) return 10;
+  if (level <= 6) return 20;
+  if (level <= 9) return 30;
+  return 50;
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -72,13 +73,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (chErr) return res.status(400).json({ error: chErr.message });
 
+    // xp_reward do desafio (soma da "premiação" do formato 10 níveis)
     let totalXp = 0;
     for (let idx = 0; idx < quiz.questoes.length; idx++) {
       const q = quiz.questoes[idx];
       const level = Number(q.nivel || idx + 1);
       const difficulty_level = levelToDifficulty(level);
       const xp_value = levelToXp(level);
-      totalXp += xp_value;
+      totalXp += MILHAO_PRIZE_XP[idx] ?? xp_value;
 
       const { data: question, error: qErr } = await admin
         .from('quiz_questions')
@@ -123,4 +125,3 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 }
 
 export const config = { api: { bodyParser: true } };
-
