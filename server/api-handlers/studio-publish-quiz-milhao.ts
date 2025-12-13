@@ -85,58 +85,75 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (chErr) return res.status(400).json({ error: chErr.message });
 
+    const createdQuestionIds: string[] = [];
+    const cleanup = async () => {
+      try {
+        if (createdQuestionIds.length) {
+          await admin.from('quiz_options').delete().in('question_id', createdQuestionIds);
+          await admin.from('quiz_questions').delete().in('id', createdQuestionIds);
+        } else {
+          await admin.from('quiz_questions').delete().eq('challenge_id', challenge.id);
+        }
+      } catch {
+        // ignore
+      }
+      try {
+        await admin.from('challenges').delete().eq('id', challenge.id);
+      } catch {
+        // ignore
+      }
+    };
+
     // xp_reward do desafio (soma da "premiação" do formato 10 níveis)
     let totalXp = 0;
-    for (let idx = 0; idx < quiz.questoes.length; idx++) {
-      const q = quiz.questoes[idx];
-      const level = Number(q.nivel || idx + 1);
-      const difficulty_level = levelToDifficulty(level);
-      const xp_value = levelToXp(level);
-      totalXp += MILHAO_PRIZE_XP[idx] ?? xp_value;
+    try {
+      for (let idx = 0; idx < quiz.questoes.length; idx++) {
+        const q = quiz.questoes[idx];
+        const level = Number(q.nivel || idx + 1);
+        const difficulty_level = levelToDifficulty(level);
+        const xp_value = levelToXp(level);
+        totalXp += MILHAO_PRIZE_XP[idx] ?? xp_value;
 
-      // Validar alternativas (4 e exatamente 1 correta) antes de inserir
-      const alternativas = q.alternativas || {};
-      const correctKey = String(q.correta || 'A').trim().toUpperCase();
-      const letters = ['A', 'B', 'C', 'D'];
-      const presentLetters = letters.filter((k) => String(alternativas[k] || '').trim().length > 0);
-      if (presentLetters.length !== 4) {
-        return res.status(400).json({
-          error: `Questão ${idx + 1}: esperado 4 alternativas (A-D), recebido ${presentLetters.length}.`,
-        });
-      }
-      if (!letters.includes(correctKey)) {
-        return res.status(400).json({
-          error: `Questão ${idx + 1}: letra correta inválida (${correctKey}).`,
-        });
-      }
+        // Validar alternativas (4 e exatamente 1 correta) antes de inserir
+        const alternativas = q.alternativas || {};
+        const correctKey = String(q.correta || 'A').trim().toUpperCase();
+        const letters = ['A', 'B', 'C', 'D'];
+        const presentLetters = letters.filter((k) => String(alternativas[k] || '').trim().length > 0);
+        if (presentLetters.length !== 4) {
+          throw new Error(`Questão ${idx + 1}: esperado 4 alternativas (A-D), recebido ${presentLetters.length}.`);
+        }
+        if (!letters.includes(correctKey)) {
+          throw new Error(`Questão ${idx + 1}: letra correta inválida (${correctKey}).`);
+        }
 
-      const { data: question, error: qErr } = await admin
-        .from('quiz_questions')
-        .insert({
-          challenge_id: challenge.id,
-          question_text: q.enunciado || '',
-          difficulty_level,
-          xp_value,
-          order_index: idx,
-          created_by: uid,
-        } as any)
-        .select()
-        .single();
-      if (qErr) return res.status(400).json({ error: qErr.message, detail: qErr });
+        const { data: question, error: qErr } = await admin
+          .from('quiz_questions')
+          .insert({
+            challenge_id: challenge.id,
+            question_text: q.enunciado || '',
+            difficulty_level,
+            xp_value,
+            order_index: idx,
+            created_by: uid,
+          } as any)
+          .select()
+          .single();
+        if (qErr) throw new Error(qErr.message);
+        createdQuestionIds.push(question.id);
 
-      const rows = ['A', 'B', 'C', 'D']
-        .filter((k) => alternativas[k])
-        .map((k) => ({
+        const rows = ['A', 'B', 'C', 'D'].map((k) => ({
           question_id: question.id,
           option_text: alternativas[k],
           is_correct: k === correctKey,
           explanation: null,
         }));
 
-      if (rows.length) {
         const { error: optErr } = await admin.from('quiz_options').insert(rows as any);
-        if (optErr) return res.status(400).json({ error: optErr.message, detail: optErr });
+        if (optErr) throw new Error(optErr.message);
       }
+    } catch (e: any) {
+      await cleanup();
+      return res.status(400).json({ error: e?.message || 'Falha ao publicar Quiz do Milhão' });
     }
 
     // Atualizar xp_reward resumido do desafio
