@@ -268,8 +268,11 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
   const monitor = MONITORS[domain];
 
   const difficultyLabelMap: Record<string, string> = {
+    basico: "Básico",
     basica: "Básico",
+    intermediario: "Intermediário",
     intermediaria: "Intermediário",
+    avancado: "Avançado",
     avancada: "Avançado",
     especialista: "Especialista",
   };

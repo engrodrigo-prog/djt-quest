@@ -76,13 +76,12 @@ export function QuizQuestionForm({ challengeId, onQuestionAdded }: QuizQuestionF
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('Não autenticado');
 
-    const diffMap: Record<string, string> = { basico: 'basica', intermediario: 'intermediaria', avancado: 'avancada', especialista: 'especialista' };
     const { data: question, error: questionError } = await supabase
       .from('quiz_questions')
       .insert({
         challenge_id: challengeId,
         question_text: payload.question_text,
-        difficulty_level: diffMap[String(payload.difficulty_level)] || 'basica',
+        difficulty_level: payload.difficulty_level,
         xp_value: difficultyLevels[payload.difficulty_level].xp,
         created_by: user.id,
       })

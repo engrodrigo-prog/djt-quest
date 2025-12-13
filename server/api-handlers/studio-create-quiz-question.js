@@ -2,16 +2,11 @@ import { createClient } from '@supabase/supabase-js';
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const XP_BY_LEVEL = {
-    basico: 10,
-    intermediario: 20,
-    avancado: 30,
-    especialista: 50,
-};
-const LEVEL_MAP = {
-    basico: 'basica',
-    intermediario: 'intermediaria',
-    avancado: 'avancada',
-    especialista: 'especialista',
+    // precisa respeitar o CHECK do banco (5,10,20,40)
+    basico: 5,
+    intermediario: 10,
+    avancado: 20,
+    especialista: 40,
 };
 export default async function handler(req, res) {
     if (req.method === 'OPTIONS')
@@ -39,15 +34,15 @@ export default async function handler(req, res) {
         }
         const dl = String(difficulty_level);
         const xp = XP_BY_LEVEL[dl];
-        const dbLevel = LEVEL_MAP[dl];
-        if (!xp || !dbLevel)
+        if (!xp)
             return res.status(400).json({ error: 'difficulty_level inválido' });
         const { data: question, error: qErr } = await supabaseAdmin
             .from('quiz_questions')
             .insert({
             challenge_id: challengeId,
             question_text,
-            difficulty_level: dbLevel,
+            // OBS: precisa respeitar o CHECK do banco (basico/intermediario/avancado/especialista)
+            difficulty_level: dl,
             xp_value: xp,
             created_by: userId,
         })

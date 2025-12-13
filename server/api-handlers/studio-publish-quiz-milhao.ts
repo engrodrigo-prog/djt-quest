@@ -18,17 +18,19 @@ const STAFF_ROLES = new Set([
 const MILHAO_PRIZE_XP = [100, 200, 300, 400, 500, 1000, 2000, 3000, 5000, 10000] as const;
 
 function levelToDifficulty(level: number): string {
-  if (level <= 3) return 'basica';
-  if (level <= 6) return 'intermediaria';
-  if (level <= 8) return 'avancada';
+  // OBS: precisa respeitar o CHECK do banco (basico/intermediario/avancado/especialista)
+  if (level <= 3) return 'basico';
+  if (level <= 6) return 'intermediario';
+  if (level <= 8) return 'avancado';
   return 'especialista';
 }
 
 function levelToXp(level: number): number {
-  if (level <= 3) return 10;
-  if (level <= 6) return 20;
-  if (level <= 9) return 30;
-  return 50;
+  // OBS: precisa respeitar o CHECK do banco (5,10,20,40)
+  if (level <= 3) return 5;
+  if (level <= 6) return 10;
+  if (level <= 9) return 20;
+  return 40;
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -92,6 +94,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const xp_value = levelToXp(level);
       totalXp += MILHAO_PRIZE_XP[idx] ?? xp_value;
 
+      // Validar alternativas (4 e exatamente 1 correta) antes de inserir
+      const alternativas = q.alternativas || {};
+      const correctKey = String(q.correta || 'A').trim().toUpperCase();
+      const letters = ['A', 'B', 'C', 'D'];
+      const presentLetters = letters.filter((k) => String(alternativas[k] || '').trim().length > 0);
+      if (presentLetters.length !== 4) {
+        return res.status(400).json({
+          error: `Questão ${idx + 1}: esperado 4 alternativas (A-D), recebido ${presentLetters.length}.`,
+        });
+      }
+      if (!letters.includes(correctKey)) {
+        return res.status(400).json({
+          error: `Questão ${idx + 1}: letra correta inválida (${correctKey}).`,
+        });
+      }
+
       const { data: question, error: qErr } = await admin
         .from('quiz_questions')
         .insert({
@@ -104,10 +122,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         } as any)
         .select()
         .single();
-      if (qErr) return res.status(400).json({ error: qErr.message });
+      if (qErr) return res.status(400).json({ error: qErr.message, detail: qErr });
 
-      const alternativas = q.alternativas || {};
-      const correctKey = q.correta || 'A';
       const rows = ['A', 'B', 'C', 'D']
         .filter((k) => alternativas[k])
         .map((k) => ({
@@ -119,7 +135,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       if (rows.length) {
         const { error: optErr } = await admin.from('quiz_options').insert(rows as any);
-        if (optErr) return res.status(400).json({ error: optErr.message });
+        if (optErr) return res.status(400).json({ error: optErr.message, detail: optErr });
       }
     }
 

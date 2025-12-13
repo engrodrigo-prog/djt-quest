@@ -1,10 +1,11 @@
 import { z } from "zod";
 
 export const difficultyLevels = {
-  basico: { label: "Básico", xp: 10 },
-  intermediario: { label: "Intermediário", xp: 20 },
-  avancado: { label: "Avançado", xp: 30 },
-  especialista: { label: "Especialista", xp: 50 },
+  // OBS: precisa respeitar o CHECK do banco (5,10,20,40)
+  basico: { label: "Básico", xp: 5 },
+  intermediario: { label: "Intermediário", xp: 10 },
+  avancado: { label: "Avançado", xp: 20 },
+  especialista: { label: "Especialista", xp: 40 },
 } as const;
 
 export type DifficultyLevel = keyof typeof difficultyLevels;
