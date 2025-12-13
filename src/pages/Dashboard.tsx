@@ -435,14 +435,39 @@ const Dashboard = () => {
       <header className="sticky top-0 z-20 bg-[#0b2a34]/85 text-blue-50 border-b border-cyan-700/30">
         <div className="container mx-auto px-3 py-3 grid grid-cols-3 items-center">
           <div className="flex items-center gap-2 justify-self-start">
-            <div className="flex items-center gap-1.5">
-              <Shield className="h-6 w-6 text-primary" />
-              <Zap className="h-6 w-6 text-secondary" />
-            </div>
-            <div>
-              <h1 className="text-xl font-bold text-blue-50">DJT - Quest</h1>
-              <p className="text-[10px] text-blue-100/80 leading-none">CPFL Piratininga e Santa Cruz Subtransmissão</p>
-            </div>
+            {isLeader ? (
+              <button
+                type="button"
+                onClick={() => navigate('/leader-dashboard')}
+                className="flex items-center gap-2 text-left hover:opacity-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded-md px-1 -mx-1"
+                aria-label="Abrir dashboard de liderança"
+                title="Dashboard de liderança"
+              >
+                <div className="flex items-center gap-1.5">
+                  <Shield className="h-6 w-6 text-primary" />
+                  <Zap className="h-6 w-6 text-secondary" />
+                </div>
+                <div>
+                  <h1 className="text-xl font-bold text-blue-50">DJT - Quest</h1>
+                  <p className="text-[10px] text-blue-100/80 leading-none">
+                    Ver minha equipe (liderança)
+                  </p>
+                </div>
+              </button>
+            ) : (
+              <>
+                <div className="flex items-center gap-1.5">
+                  <Shield className="h-6 w-6 text-primary" />
+                  <Zap className="h-6 w-6 text-secondary" />
+                </div>
+                <div>
+                  <h1 className="text-xl font-bold text-blue-50">DJT - Quest</h1>
+                  <p className="text-[10px] text-blue-100/80 leading-none">
+                    CPFL Piratininga e Santa Cruz Subtransmissão
+                  </p>
+                </div>
+              </>
+            )}
           </div>
           <div className="flex items-center justify-center">
             <AIStatus />
