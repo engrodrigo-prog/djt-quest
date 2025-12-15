@@ -60,7 +60,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!studioAccess) return res.status(403).json({ error: 'Insufficient permissions' });
 
     const role = getEffectiveRole(roles, isLeader);
-    if (!role) return res.status(200).json({ success: true, registrations: [] });
+    // Se não identificamos um papel, mas o usuário tem studioAccess, devolve tudo (melhor visibilidade do que vazio).
+    if (!role) {
+      const { data, error } = await admin
+        .from('pending_registrations')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(500);
+      if (error) return res.status(400).json({ error: error.message });
+      return res.status(200).json({ success: true, registrations: data || [] });
+    }
 
     let teamId: string | null = (profile as any)?.team_id || null;
     if (!teamId) {

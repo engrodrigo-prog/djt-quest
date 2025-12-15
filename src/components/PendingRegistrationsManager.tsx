@@ -40,10 +40,8 @@ export function PendingRegistrationsManager() {
   const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number } | null>(null);
 
   useEffect(() => {
-    // Default: gerência/admin veem tudo
-    if (userRole === "admin" || userRole === "gerente_djt") {
-      setShowAll(true);
-    }
+    // Default: mostrar tudo para staff/líder (evita pendências sumirem por escopo)
+    setShowAll(true);
   }, [userRole]);
 
   const fetchRegistrations = useCallback(async () => {
