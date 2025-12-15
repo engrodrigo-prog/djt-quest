@@ -1,9 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
@@ -23,6 +26,10 @@ interface StudySource {
   ingested_at?: string | null;
   ingest_error?: string | null;
   topic?: string | null;
+  category?: string | null;
+  scope?: "user" | "org" | string | null;
+  published?: boolean | null;
+  metadata?: any | null;
   is_persistent: boolean;
   created_at: string;
   last_used_at: string | null;
@@ -30,15 +37,81 @@ interface StudySource {
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
 
+const STUDY_CATEGORIES = [
+  "MANUAIS",
+  "PROCEDIMENTOS",
+  "APOSTILAS",
+  "RELATORIO_OCORRENCIA",
+  "AUDITORIA_INTERNA",
+  "AUDITORIA_EXTERNA",
+  "OUTROS",
+] as const;
+
+type StudyCategory = (typeof STUDY_CATEGORIES)[number];
+type StudyScope = "user" | "org";
+
+const CATEGORY_LABELS: Record<StudyCategory, string> = {
+  MANUAIS: "Manuais",
+  PROCEDIMENTOS: "Procedimentos",
+  APOSTILAS: "Apostilas",
+  RELATORIO_OCORRENCIA: "Relatório de Ocorrência",
+  AUDITORIA_INTERNA: "Auditoria Interna",
+  AUDITORIA_EXTERNA: "Auditoria Externa",
+  OUTROS: "Outros",
+};
+
+const CATEGORY_ORDER: StudyCategory[] = [
+  "MANUAIS",
+  "PROCEDIMENTOS",
+  "APOSTILAS",
+  "RELATORIO_OCORRENCIA",
+  "AUDITORIA_INTERNA",
+  "AUDITORIA_EXTERNA",
+  "OUTROS",
+];
+
+type IncidentForm = {
+  ocorrido: string;
+  causaRaizModoFalha: string;
+  barreirasCuidados: string;
+  acoesCorretivasPreventivas: string;
+  mudancasImplementadas: string;
+};
+
+const EMPTY_INCIDENT: IncidentForm = {
+  ocorrido: "",
+  causaRaizModoFalha: "",
+  barreirasCuidados: "",
+  acoesCorretivasPreventivas: "",
+  mudancasImplementadas: "",
+};
+
+const normalizeCategory = (raw: unknown): StudyCategory => {
+  const s = (raw || "").toString().trim().toUpperCase().replace(/\s+/g, "_");
+  return (STUDY_CATEGORIES as readonly string[]).includes(s) ? (s as StudyCategory) : "OUTROS";
+};
+
+const normalizeScope = (raw: unknown): StudyScope => {
+  const s = (raw || "").toString().trim().toLowerCase();
+  return s === "org" ? "org" : "user";
+};
+
 export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean }) => {
   const { user, isLeader } = useAuth();
   const [sources, setSources] = useState<StudySource[]>([]);
   const [loadingSources, setLoadingSources] = useState(false);
   const [adding, setAdding] = useState(false);
-   const [ingesting, setIngesting] = useState(false);
+  const [ingesting, setIngesting] = useState(false);
 
   const [url, setUrl] = useState("");
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+
+  const [newCategory, setNewCategory] = useState<StudyCategory>("OUTROS");
+  const [newScope, setNewScope] = useState<StudyScope>("user");
+  const [newPublished, setNewPublished] = useState(true);
+  const [incident, setIncident] = useState<IncidentForm>(EMPTY_INCIDENT);
+  const insertedUrlsRef = useRef<Set<string>>(new Set());
 
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState("");
@@ -47,14 +120,43 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
   const [showUploader, setShowUploader] = useState(false);
   const [polling, setPolling] = useState(false);
 
+  useEffect(() => {
+    if (showUploader) {
+      insertedUrlsRef.current.clear();
+    }
+  }, [showUploader]);
+
+  // Studio (liderança) costuma publicar no catálogo da organização por padrão
+  useEffect(() => {
+    if (!isLeader) return;
+    if (!showOrgCatalog) return;
+    setNewScope((prev) => (prev === "org" ? prev : "org"));
+    setNewPublished((prev) => (typeof prev === "boolean" ? prev : true));
+  }, [isLeader, showOrgCatalog]);
+
   const fetchSources = async () => {
     if (!user) return;
     try {
       setLoadingSources(true);
-      const { data, error } = await supabase
-        .from("study_sources")
-        .select("id, user_id, title, kind, url, storage_path, summary, ingest_status, ingested_at, ingest_error, topic, is_persistent, created_at, last_used_at")
-        .order("created_at", { ascending: false });
+      const columnsV2 =
+        "id, user_id, title, kind, url, storage_path, summary, ingest_status, ingested_at, ingest_error, topic, category, scope, published, metadata, is_persistent, created_at, last_used_at";
+      const columnsV1 =
+        "id, user_id, title, kind, url, storage_path, summary, ingest_status, ingested_at, ingest_error, topic, is_persistent, created_at, last_used_at";
+
+      let data: any[] | null = null;
+      let error: any = null;
+
+      const v2 = await supabase.from("study_sources").select(columnsV2).order("created_at", { ascending: false });
+      data = v2.data as any[] | null;
+      error = v2.error;
+
+      // Backward-compat: se ainda não migrou a tabela, tenta sem colunas novas
+      if (error && /column .*?(category|scope|published|metadata)/i.test(String(error.message || error))) {
+        const v1 = await supabase.from("study_sources").select(columnsV1).order("created_at", { ascending: false });
+        data = v1.data as any[] | null;
+        error = v1.error;
+      }
+
       if (error) throw error;
       const normalized = await normalizeSources((data || []) as StudySource[]);
       setSources(normalized);
@@ -97,6 +199,34 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
     () => sources.find((s) => s.id === selectedSourceId) || null,
     [selectedSourceId, sources]
   );
+
+  const canPublishOrg = Boolean(isLeader);
+  const effectiveScope: StudyScope = canPublishOrg ? newScope : "user";
+  const effectivePublished = effectiveScope === "org" ? Boolean(newPublished) : false;
+
+  const buildInsertMetadata = (category: StudyCategory) => {
+    if (category !== "RELATORIO_OCORRENCIA") return {};
+    const payload = {
+      ocorrido: incident.ocorrido?.trim() || null,
+      causa_raiz_modo_falha: incident.causaRaizModoFalha?.trim() || null,
+      barreiras_cuidados: incident.barreirasCuidados?.trim() || null,
+      acoes_corretivas_preventivas: incident.acoesCorretivasPreventivas?.trim() || null,
+      mudancas_implementadas: incident.mudancasImplementadas?.trim() || null,
+    };
+    // remove chaves nulas para não poluir JSON
+    const cleaned: Record<string, string> = {};
+    for (const [k, v] of Object.entries(payload)) {
+      if (typeof v === "string" && v.trim()) cleaned[k] = v.trim();
+    }
+    return cleaned && Object.keys(cleaned).length ? { incident: cleaned } : { incident: {} };
+  };
+
+  const validateBeforeInsert = (category: StudyCategory) => {
+    if (category !== "RELATORIO_OCORRENCIA") return null;
+    if (!incident.ocorrido.trim()) return "Relatório de ocorrência: descreva o que aconteceu.";
+    if (!incident.causaRaizModoFalha.trim()) return "Relatório de ocorrência: informe causa raiz e/ou modo de falha.";
+    return null;
+  };
 
   const deriveTitleFromUrl = (link: string) => {
     try {
@@ -190,9 +320,24 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
 
   const handleFilesUploaded = async (urls: string[]) => {
     if (!user || !urls.length) return;
+    const category = normalizeCategory(newCategory);
+    const validationError = validateBeforeInsert(category);
+    if (validationError) {
+      toast.error(validationError);
+      return;
+    }
+
+    const existingUrls = new Set((sources || []).map((s) => s.url).filter(Boolean) as string[]);
+    const freshUrls = urls.filter((u) => u && !existingUrls.has(u) && !insertedUrlsRef.current.has(u));
+    if (!freshUrls.length) return;
+
+    // Evita duplicar em chamadas repetidas do AttachmentUploader (ele reemite a lista completa)
+    for (const u of freshUrls) insertedUrlsRef.current.add(u);
+
     setAdding(true);
     try {
-      const inserts = urls.map((u) => {
+      const metadata = buildInsertMetadata(category);
+      const inserts = freshUrls.map((u) => {
         const info = extractFileInfo(u);
         return {
           user_id: user.id,
@@ -203,12 +348,33 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
           ingest_status: "pending",
           is_persistent: true,
           last_used_at: new Date().toISOString(),
+          category,
+          scope: effectiveScope,
+          published: effectivePublished,
+          metadata,
         };
       });
-      const { data, error } = await supabase
-        .from("study_sources")
-        .insert(inserts)
-        .select("id, user_id, title, kind, url, storage_path, summary, ingest_status, ingested_at, ingest_error, topic, is_persistent, created_at, last_used_at");
+
+      const selectV2 =
+        "id, user_id, title, kind, url, storage_path, summary, ingest_status, ingested_at, ingest_error, topic, category, scope, published, metadata, is_persistent, created_at, last_used_at";
+      const selectV1 =
+        "id, user_id, title, kind, url, storage_path, summary, ingest_status, ingested_at, ingest_error, topic, is_persistent, created_at, last_used_at";
+
+      let data: any[] | null = null;
+      let error: any = null;
+
+      const v2 = await supabase.from("study_sources").insert(inserts as any).select(selectV2);
+      data = v2.data as any[] | null;
+      error = v2.error;
+
+      // Backward-compat: tabela ainda sem colunas novas
+      if (error && /column .*?(category|scope|published|metadata)/i.test(String(error.message || error))) {
+        const legacyInserts = inserts.map(({ category: _c, scope: _s, published: _p, metadata: _m, ...rest }) => rest);
+        const v1 = await supabase.from("study_sources").insert(legacyInserts as any).select(selectV1);
+        data = v1.data as any[] | null;
+        error = v1.error;
+      }
+
       if (error) throw error;
       if (data && Array.isArray(data)) {
         const list = data as StudySource[];
@@ -243,9 +409,9 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
         }
 
         toast.success("Documentos adicionados e enviados para análise da IA.");
-        setShowUploader(false);
       }
     } catch (e: any) {
+      for (const u of freshUrls) insertedUrlsRef.current.delete(u);
       toast.error(e?.message || "Não foi possível adicionar o documento.");
     } finally {
       setAdding(false);
@@ -288,6 +454,48 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
     }
   };
 
+  const handleReprocess = async (id: string) => {
+    if (!user) {
+      toast("Faça login para reprocessar materiais.");
+      return;
+    }
+    try {
+      setIngesting(true);
+      const { data: session } = await supabase.auth.getSession();
+      const token = session.session?.access_token;
+      if (token) {
+        await fetch("/api/ai?handler=study-chat", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ mode: "ingest", source_id: id }),
+        }).catch(() => undefined);
+        await fetchSources();
+      }
+    } catch (e: any) {
+      toast.error(e?.message || "Não foi possível reprocessar agora.");
+    } finally {
+      setIngesting(false);
+    }
+  };
+
+  const handleSetPublished = async (id: string, published: boolean) => {
+    if (!user) {
+      toast("Faça login para gerenciar publicações.");
+      return;
+    }
+    try {
+      const { error } = await supabase.from("study_sources").update({ published }).eq("id", id);
+      if (error) throw error;
+      setSources((prev) => prev.map((s) => (s.id === id ? { ...s, published } : s)));
+      toast.success(published ? "Publicado no catálogo da organização." : "Marcado como rascunho (somente liderança).");
+    } catch (e: any) {
+      toast.error(e?.message || "Não foi possível atualizar a publicação.");
+    }
+  };
+
   const handleAddSource = async () => {
     if (!user) {
       toast("Faça login para adicionar materiais.");
@@ -298,24 +506,53 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
       toast.error("Cole uma URL antes de adicionar.");
       return;
     }
+    const category = normalizeCategory(newCategory);
+    const validationError = validateBeforeInsert(category);
+    if (validationError) {
+      toast.error(validationError);
+      return;
+    }
     setAdding(true);
     try {
       const finalTitle = deriveTitleFromUrl(link);
       const finalDesc = deriveSummaryFromUrl(link);
-      const { data, error } = await supabase
-        .from("study_sources")
-        .insert({
-          user_id: user.id,
-          title: finalTitle,
-          kind: "url",
-          url: link,
-          summary: finalDesc,
-          ingest_status: "pending",
-          is_persistent: true,
-          last_used_at: new Date().toISOString(),
-        })
-        .select("id, user_id, title, kind, url, storage_path, summary, ingest_status, ingested_at, ingest_error, topic, is_persistent, created_at, last_used_at")
-        .maybeSingle();
+      const metadata = buildInsertMetadata(category);
+
+      const selectV2 =
+        "id, user_id, title, kind, url, storage_path, summary, ingest_status, ingested_at, ingest_error, topic, category, scope, published, metadata, is_persistent, created_at, last_used_at";
+      const selectV1 =
+        "id, user_id, title, kind, url, storage_path, summary, ingest_status, ingested_at, ingest_error, topic, is_persistent, created_at, last_used_at";
+
+      const payload = {
+        user_id: user.id,
+        title: finalTitle,
+        kind: "url",
+        url: link,
+        summary: finalDesc,
+        ingest_status: "pending",
+        is_persistent: true,
+        last_used_at: new Date().toISOString(),
+        category,
+        scope: effectiveScope,
+        published: effectivePublished,
+        metadata,
+      };
+
+      let data: any = null;
+      let error: any = null;
+
+      const v2 = await supabase.from("study_sources").insert(payload as any).select(selectV2).maybeSingle();
+      data = v2.data as any;
+      error = v2.error;
+
+      // Backward-compat
+      if (error && /column .*?(category|scope|published|metadata)/i.test(String(error.message || error))) {
+        const { category: _c, scope: _s, published: _p, metadata: _m, ...legacyPayload } = payload as any;
+        const v1 = await supabase.from("study_sources").insert(legacyPayload).select(selectV1).maybeSingle();
+        data = v1.data as any;
+        error = v1.error;
+      }
+
       if (error) throw error;
       if (data) {
         const created = data as StudySource;
@@ -438,15 +675,6 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
     }
   };
 
-  const mySources = user ? sources.filter((s) => s.user_id === user.id) : sources;
-  const orgSources = showOrgCatalog && isLeader && user
-    ? sources.filter(
-        (s) =>
-          s.user_id !== user.id &&
-          (!selectedSourceId || s.id !== selectedSourceId)
-      )
-    : [];
-
   const displaySummary = (s: StudySource) => s.summary?.trim() || s.url || "Sem resumo";
   const statusBadge = (s: StudySource) => {
     if (s.ingest_status === "ok") return null;
@@ -493,29 +721,73 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
     OUTROS: "Outros assuntos",
   };
 
-  const TOPIC_ORDER = [
-    "LINHAS",
-    "SUBESTACOES",
-    "PROCEDIMENTOS",
-    "PROTECAO",
-    "AUTOMACAO",
-    "TELECOM",
-    "SEGURANCA_DO_TRABALHO",
-    "OUTROS",
-  ];
+  const canManageSource = (s: StudySource) => {
+    if (!user) return false;
+    const scope = normalizeScope(s.scope);
+    if (scope === "org") return canPublishOrg;
+    return s.user_id === user.id;
+  };
 
-  const groupByTopic = (list: StudySource[]) => {
-    const groups: Record<string, StudySource[]> = {};
+  const matchesSearch = (s: StudySource, q: string) => {
+    const hay = [
+      s.title || "",
+      s.summary || "",
+      s.url || "",
+      normalizeCategory(s.category),
+      s.topic || "",
+      TOPIC_LABELS[(s.topic || "").toUpperCase().replace(/\s+/g, "_")] || "",
+    ]
+      .join(" ")
+      .toLowerCase();
+    return hay.includes(q);
+  };
+
+  const mySources = useMemo(() => {
+    if (!user) return [];
+    return sources.filter((s) => s.user_id === user.id && normalizeScope(s.scope) === "user");
+  }, [sources, user]);
+
+  const orgSources = useMemo(() => {
+    if (!showOrgCatalog) return [];
+    return sources.filter((s) => normalizeScope(s.scope) === "org");
+  }, [sources, showOrgCatalog]);
+
+  const q = search.trim().toLowerCase();
+  const filteredMySources = useMemo(() => (q ? mySources.filter((s) => matchesSearch(s, q)) : mySources), [q, mySources]);
+  const filteredOrgSources = useMemo(() => (q ? orgSources.filter((s) => matchesSearch(s, q)) : orgSources), [q, orgSources]);
+
+  const groupByCategory = (list: StudySource[]) => {
+    const groups: Partial<Record<StudyCategory, StudySource[]>> = {};
     for (const s of list) {
-      const raw = (s.topic || "OUTROS").toUpperCase().replace(/\s+/g, "_");
-      const key = TOPIC_ORDER.includes(raw) ? raw : "OUTROS";
+      const key = normalizeCategory(s.category);
       if (!groups[key]) groups[key] = [];
-      groups[key].push(s);
+      groups[key]!.push(s);
     }
     return groups;
   };
 
-  const myByTopic = groupByTopic(mySources);
+  const myByCategory = groupByCategory(filteredMySources);
+  const orgByCategory = groupByCategory(filteredOrgSources);
+
+  const visibleSources = useMemo(
+    () => [...filteredMySources, ...filteredOrgSources],
+    [filteredMySources, filteredOrgSources]
+  );
+
+  // Se o usuário filtrou/ocultou a seleção atual, seleciona o primeiro item visível.
+  useEffect(() => {
+    if (!visibleSources.length) {
+      if (selectedSourceId) setSelectedSourceId(null);
+      return;
+    }
+    if (!selectedSourceId) {
+      setSelectedSourceId(visibleSources[0].id);
+      return;
+    }
+    if (!visibleSources.some((s) => s.id === selectedSourceId)) {
+      setSelectedSourceId(visibleSources[0].id);
+    }
+  }, [selectedSourceId, visibleSources]);
 
   return (
     <div className="space-y-6">
@@ -566,6 +838,103 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
         <CardContent className="space-y-4 max-h-[520px] overflow-y-auto text-white">
           {showUploader && (
             <div className="rounded-lg border border-white/20 bg-white/5 p-4 space-y-4">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label className="text-white">Catalogar como</Label>
+                  <Select value={newCategory} onValueChange={(v) => setNewCategory(normalizeCategory(v))}>
+                    <SelectTrigger className="text-white">
+                      <SelectValue placeholder="Selecione..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {CATEGORY_ORDER.map((c) => (
+                        <SelectItem key={c} value={c}>
+                          {CATEGORY_LABELS[c]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {canPublishOrg && (
+                  <div className="space-y-2">
+                    <Label className="text-white">Destino</Label>
+                    <Select value={effectiveScope} onValueChange={(v) => setNewScope(normalizeScope(v))}>
+                      <SelectTrigger className="text-white">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="user">Meu StudyLab (privado)</SelectItem>
+                        <SelectItem value="org">Catálogo da organização</SelectItem>
+                      </SelectContent>
+                    </Select>
+
+                    {effectiveScope === "org" && (
+                      <div className="flex items-center justify-between rounded-md border border-white/20 bg-white/5 px-3 py-2">
+                        <div>
+                          <p className="text-xs font-medium text-white">Publicado</p>
+                          <p className="text-[11px] text-white/70">Visível para todos no StudyLab.</p>
+                        </div>
+                        <Switch checked={newPublished} onCheckedChange={setNewPublished} />
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {newCategory === "RELATORIO_OCORRENCIA" && (
+                <div className="rounded-md border border-white/20 bg-white/5 p-3 space-y-3">
+                  <p className="text-xs text-white/80">
+                    Relatório de ocorrência: responda (até 5) para capturar causas, modos de falha e aprendizados.
+                  </p>
+                  <div className="grid gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-white">1) O que aconteceu? *</Label>
+                      <Textarea
+                        value={incident.ocorrido}
+                        onChange={(e) => setIncident((prev) => ({ ...prev, ocorrido: e.target.value }))}
+                        rows={3}
+                        placeholder="Contexto, sequência do evento, condição encontrada..."
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-white">2) Causa raiz e/ou modo de falha? *</Label>
+                      <Textarea
+                        value={incident.causaRaizModoFalha}
+                        onChange={(e) => setIncident((prev) => ({ ...prev, causaRaizModoFalha: e.target.value }))}
+                        rows={3}
+                        placeholder="Modo de falha, causa raiz (5 porquês), fator humano/processo/equipamento..."
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-white">3) Barreiras/cuidado que poderiam evitar?</Label>
+                      <Textarea
+                        value={incident.barreirasCuidados}
+                        onChange={(e) => setIncident((prev) => ({ ...prev, barreirasCuidados: e.target.value }))}
+                        rows={3}
+                        placeholder="Procedimentos, checagens, EPIs, bloqueios, configuração, redundância..."
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-white">4) Ações corretivas e preventivas (CAPA)</Label>
+                      <Textarea
+                        value={incident.acoesCorretivasPreventivas}
+                        onChange={(e) => setIncident((prev) => ({ ...prev, acoesCorretivasPreventivas: e.target.value }))}
+                        rows={3}
+                        placeholder="O que foi feito para corrigir e para evitar repetição..."
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-white">5) O que mudou para não repetir?</Label>
+                      <Textarea
+                        value={incident.mudancasImplementadas}
+                        onChange={(e) => setIncident((prev) => ({ ...prev, mudancasImplementadas: e.target.value }))}
+                        rows={3}
+                        placeholder="Mudança em processo, proteção/automação, treinamento, parametrização, ferramentas..."
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
               <div className="space-y-2">
                 <Label htmlFor="study-url" className="text-white">URL do material</Label>
                 <div className="flex flex-col gap-2 sm:flex-row">
@@ -587,7 +956,7 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
                 <Label className="text-white">Ou envie um documento (PDF, Word, Excel)</Label>
                 <AttachmentUploader
                   onAttachmentsChange={handleFilesUploaded}
-                  maxFiles={3}
+                  maxFiles={newCategory === "RELATORIO_OCORRENCIA" ? 1 : 3}
                   maxSizeMB={20}
                   bucket="evidence"
                   pathPrefix="study"
@@ -606,22 +975,34 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
               </div>
             </div>
           )}
+          <div className="space-y-1">
+            <Label htmlFor="study-search" className="text-white text-xs">Buscar</Label>
+            <Input
+              id="study-search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Buscar por título, resumo, categoria ou tema..."
+              className="text-white placeholder:text-white/50"
+            />
+          </div>
           <div className="space-y-2">
-            <p className="text-xs font-semibold text-white/80">Seus materiais</p>
+            <p className="text-xs font-semibold text-white/80">Seu catálogo</p>
             {loadingSources && <p className="text-sm text-white/70">Carregando sua base de estudos...</p>}
-            {!loadingSources && mySources.length === 0 && (
+            {!loadingSources && filteredMySources.length === 0 && (
               <p className="text-sm text-white/70">Nenhum material salvo ainda. Use o botão acima para adicionar.</p>
             )}
-            {TOPIC_ORDER.map((key) => {
-              const items = myByTopic[key];
+            {CATEGORY_ORDER.map((cat) => {
+              const items = myByCategory[cat];
               if (!items || !items.length) return null;
               return (
-                <div key={key} className="space-y-1">
+                <div key={cat} className="space-y-1">
                   <p className="mt-2 text-[11px] font-semibold uppercase tracking-wide text-white/60">
-                    {TOPIC_LABELS[key] ?? key}
+                    {CATEGORY_LABELS[cat]}
                   </p>
                   {items.map((s) => {
                     const isActive = s.id === selectedSourceId;
+                    const topicKey = (s.topic || "").toUpperCase().replace(/\s+/g, "_");
+                    const topicLabel = topicKey ? (TOPIC_LABELS[topicKey] || s.topic || "") : "";
                     return (
                       <div
                         key={s.id}
@@ -643,28 +1024,35 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
                         <div className="flex items-start justify-between gap-2">
                           <div>
                             <p className="font-semibold leading-tight text-white">
-                        {s.title?.trim() || deriveTitleFromUrl(s.url || "")}
-                      </p>
-                      <p className="text-[11px] text-white/70">
-                        {new Date(s.created_at).toLocaleString("pt-BR")}
-                      </p>
-                      {statusBadge(s)}
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <Badge variant="outline" className="text-[10px] border-white/50 text-white">
-                        {s.kind.toUpperCase()}
-                      </Badge>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleDeleteSource(s.id);
-                              }}
-                              className="inline-flex h-6 w-6 items-center justify-center rounded-full text-white/70 hover:text-red-400 hover:bg-white/10 transition-colors"
-                              aria-label="Remover material de estudo"
-                            >
-                              <Trash2 className="h-3 w-3" />
-                            </button>
+                              {s.title?.trim() || deriveTitleFromUrl(s.url || "")}
+                            </p>
+                            <p className="text-[11px] text-white/70">
+                              {new Date(s.created_at).toLocaleString("pt-BR")}
+                            </p>
+                            {statusBadge(s)}
+                          </div>
+                          <div className="flex items-center gap-1">
+                            {topicLabel && (
+                              <Badge variant="outline" className="text-[10px] border-white/50 text-white/90">
+                                {topicLabel}
+                              </Badge>
+                            )}
+                            <Badge variant="outline" className="text-[10px] border-white/50 text-white">
+                              {s.kind.toUpperCase()}
+                            </Badge>
+                            {canManageSource(s) && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteSource(s.id);
+                                }}
+                                className="inline-flex h-6 w-6 items-center justify-center rounded-full text-white/70 hover:text-red-400 hover:bg-white/10 transition-colors"
+                                aria-label="Remover material de estudo"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </button>
+                            )}
                           </div>
                         </div>
                         <p className="text-sm text-white mt-1 line-clamp-2">
@@ -678,31 +1066,225 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
             })}
           </div>
 
-      {showOrgCatalog && orgSources.length > 0 && (
-        <div className="space-y-2 pt-2 border-t border-white/20">
-          <p className="text-xs font-semibold text-white/80">Da organização</p>
-          {orgSources.map((s) => (
-            <div key={s.id} className="rounded-md border border-white/30 bg-white/5 px-3 py-2">
-                  <div className="flex items-center justify-between">
-                    <p className="font-semibold leading-tight text-white">
-                      {s.title?.trim() || deriveTitleFromUrl(s.url || "")}
+          {showOrgCatalog && (
+            <div className="space-y-2 pt-2 border-t border-white/20">
+              <p className="text-xs font-semibold text-white/80">Catálogo da organização</p>
+              {!loadingSources && filteredOrgSources.length === 0 && (
+                <p className="text-sm text-white/70">Nenhum material publicado pela organização ainda.</p>
+              )}
+              {CATEGORY_ORDER.map((cat) => {
+                const items = orgByCategory[cat];
+                if (!items || !items.length) return null;
+                return (
+                  <div key={cat} className="space-y-1">
+                    <p className="mt-2 text-[11px] font-semibold uppercase tracking-wide text-white/60">
+                      {CATEGORY_LABELS[cat]}
                     </p>
-                    <Badge variant="outline" className="text-[10px] border-white/50 text-white">
-                      {s.kind.toUpperCase()}
-                    </Badge>
+                    {items.map((s) => {
+                      const isActive = s.id === selectedSourceId;
+                      const topicKey = (s.topic || "").toUpperCase().replace(/\s+/g, "_");
+                      const topicLabel = topicKey ? (TOPIC_LABELS[topicKey] || s.topic || "") : "";
+                      const isDraft = s.published === false;
+                      return (
+                        <div
+                          key={s.id}
+                          role="button"
+                          tabIndex={0}
+                          className={`w-full text-left rounded-md border px-3 py-2 transition-colors cursor-pointer ${
+                            isActive
+                              ? "border-primary/80 bg-primary/20"
+                              : "border-white/30 bg-white/5 hover:border-primary/40"
+                          }`}
+                          onClick={() => handleSelectSource(s.id)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              handleSelectSource(s.id);
+                            }
+                          }}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <p className="font-semibold leading-tight text-white">
+                                {s.title?.trim() || deriveTitleFromUrl(s.url || "")}
+                              </p>
+                              <p className="text-[11px] text-white/70">
+                                {new Date(s.created_at).toLocaleString("pt-BR")}
+                              </p>
+                              {statusBadge(s)}
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <Badge variant="outline" className="text-[10px] border-blue-300/60 text-blue-100 bg-blue-500/10">
+                                {isDraft ? "RASCUNHO" : "ORG"}
+                              </Badge>
+                              {topicLabel && (
+                                <Badge variant="outline" className="text-[10px] border-white/50 text-white/90">
+                                  {topicLabel}
+                                </Badge>
+                              )}
+                              <Badge variant="outline" className="text-[10px] border-white/50 text-white">
+                                {s.kind.toUpperCase()}
+                              </Badge>
+                              {canManageSource(s) && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDeleteSource(s.id);
+                                  }}
+                                  className="inline-flex h-6 w-6 items-center justify-center rounded-full text-white/70 hover:text-red-400 hover:bg-white/10 transition-colors"
+                                  aria-label="Remover material de estudo"
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                          <p className="text-sm text-white mt-1 line-clamp-2">
+                            {displaySummary(s)}
+                          </p>
+                        </div>
+                      );
+                    })}
                   </div>
-                  <p className="text-[11px] text-white/70">
-                    {new Date(s.created_at).toLocaleString("pt-BR")}
-                  </p>
-                  <p className="text-sm text-white mt-1 line-clamp-2">
-                    {displaySummary(s)}
-                  </p>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </CardContent>
       </Card>
+
+      {selectedSource && (
+        <Card className="bg-white/5 border border-white/20 text-white shadow-xl backdrop-blur-md">
+          <CardHeader className="space-y-1">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <CardTitle className="text-lg text-white truncate">{selectedSource.title}</CardTitle>
+                <CardDescription className="text-white/80">
+                  {normalizeCategory(selectedSource.category) in CATEGORY_LABELS
+                    ? CATEGORY_LABELS[normalizeCategory(selectedSource.category)]
+                    : "Outros"}
+                  {selectedSource.topic ? ` • ${TOPIC_LABELS[(selectedSource.topic || "").toUpperCase().replace(/\\s+/g, "_")] || selectedSource.topic}` : ""}
+                </CardDescription>
+              </div>
+              <div className="flex items-center gap-2">
+                {canPublishOrg && normalizeScope(selectedSource.scope) === "org" && (
+                  <div className="flex items-center gap-2 rounded-md border border-white/20 bg-white/5 px-3 py-2">
+                    <p className="text-xs text-white/80">Publicado</p>
+                    <Switch
+                      checked={selectedSource.published !== false}
+                      onCheckedChange={(v) => handleSetPublished(selectedSource.id, v)}
+                    />
+                  </div>
+                )}
+                {selectedSource.url && (
+                  <Button asChild size="sm" variant="outline" className="border-white/40 text-white">
+                    <a href={selectedSource.url} target="_blank" rel="noreferrer">
+                      Abrir
+                    </a>
+                  </Button>
+                )}
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4 text-white">
+            {selectedSource.summary && (
+              <p className="text-sm text-white/90 whitespace-pre-line">{selectedSource.summary}</p>
+            )}
+
+            {(() => {
+              const meta = selectedSource.metadata && typeof selectedSource.metadata === "object" ? selectedSource.metadata : null;
+              const incident = meta?.incident && typeof meta.incident === "object" ? meta.incident : null;
+              const aiIncident = meta?.ai?.incident && typeof meta.ai.incident === "object" ? meta.ai.incident : null;
+              const category = normalizeCategory(selectedSource.category);
+              if (category !== "RELATORIO_OCORRENCIA" && !incident && !aiIncident) return null;
+
+              const bullets = (arr: any) =>
+                Array.isArray(arr) ? arr.map((x) => String(x || "").trim()).filter(Boolean) : [];
+
+              const aprendizados = bullets(aiIncident?.aprendizados);
+              const cuidados = bullets(aiIncident?.cuidados);
+              const mudancas = bullets(aiIncident?.mudancas);
+
+              return (
+                <div className="space-y-4">
+                  {incident && (
+                    <div className="rounded-md border border-white/20 bg-white/5 p-3 space-y-2">
+                      <p className="text-xs font-semibold text-white/80">Relatório de Ocorrência (formulário)</p>
+                      {incident.ocorrido && (
+                        <p className="text-sm text-white/90 whitespace-pre-line">
+                          <span className="text-white/70">Ocorrido: </span>
+                          {String(incident.ocorrido)}
+                        </p>
+                      )}
+                      {incident.causa_raiz_modo_falha && (
+                        <p className="text-sm text-white/90 whitespace-pre-line">
+                          <span className="text-white/70">Causa raiz / modo de falha: </span>
+                          {String(incident.causa_raiz_modo_falha)}
+                        </p>
+                      )}
+                      {incident.barreiras_cuidados && (
+                        <p className="text-sm text-white/90 whitespace-pre-line">
+                          <span className="text-white/70">Barreiras / cuidados: </span>
+                          {String(incident.barreiras_cuidados)}
+                        </p>
+                      )}
+                      {incident.acoes_corretivas_preventivas && (
+                        <p className="text-sm text-white/90 whitespace-pre-line">
+                          <span className="text-white/70">Ações (CAPA): </span>
+                          {String(incident.acoes_corretivas_preventivas)}
+                        </p>
+                      )}
+                      {incident.mudancas_implementadas && (
+                        <p className="text-sm text-white/90 whitespace-pre-line">
+                          <span className="text-white/70">Mudanças implementadas: </span>
+                          {String(incident.mudancas_implementadas)}
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {(aprendizados.length || cuidados.length || mudancas.length) && (
+                    <div className="rounded-md border border-white/20 bg-white/5 p-3 space-y-3">
+                      <p className="text-xs font-semibold text-white/80">Insights (IA)</p>
+                      {aprendizados.length > 0 && (
+                        <div className="space-y-1">
+                          <p className="text-xs text-white/70">Aprendizados</p>
+                          <ul className="list-disc pl-5 text-sm text-white/90 space-y-1">
+                            {aprendizados.map((t, i) => (
+                              <li key={`apr-${i}`}>{t}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {cuidados.length > 0 && (
+                        <div className="space-y-1">
+                          <p className="text-xs text-white/70">Cuidados / barreiras</p>
+                          <ul className="list-disc pl-5 text-sm text-white/90 space-y-1">
+                            {cuidados.map((t, i) => (
+                              <li key={`cui-${i}`}>{t}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {mudancas.length > 0 && (
+                        <div className="space-y-1">
+                          <p className="text-xs text-white/70">Mudanças</p>
+                          <ul className="list-disc pl-5 text-sm text-white/90 space-y-1">
+                            {mudancas.map((t, i) => (
+                              <li key={`mud-${i}`}>{t}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Chat de Estudos */}
       <Card className="bg-white/5 border border-white/20 text-white shadow-xl backdrop-blur-md">
@@ -768,29 +1350,3 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
     </div>
   );
 };
-  const handleReprocess = async (id: string) => {
-    if (!user) {
-      toast("Faça login para reprocessar materiais.");
-      return;
-    }
-    try {
-      setIngesting(true);
-      const { data: session } = await supabase.auth.getSession();
-      const token = session.session?.access_token;
-      if (token) {
-        await fetch("/api/ai?handler=study-chat", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ mode: "ingest", source_id: id }),
-        });
-        await fetchSources();
-      }
-    } catch (e: any) {
-      toast.error(e?.message || "Não foi possível reprocessar agora.");
-    } finally {
-      setIngesting(false);
-    }
-  };

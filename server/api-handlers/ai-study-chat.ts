@@ -35,6 +35,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { messages = [], question = "", source_id = null, language = "pt-BR", mode = "study" } = req.body || {};
 
     let joinedContext = "";
+    let sourceRow: any = null;
     const stripHtml = (html: string) =>
       html
         .replace(/<script[\s\S]*?<\/script>/gi, " ")
@@ -71,11 +72,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }
       }
 
-      const { data: sourceRow } = await admin
-        .from("study_sources")
-        .select("id, user_id, title, summary, full_text, url, ingest_status, ingest_error, ingested_at")
-        .eq("id", source_id)
-        .maybeSingle();
+      const selectV2 = "id, user_id, title, summary, full_text, url, topic, category, metadata, ingest_status, ingest_error, ingested_at";
+      const selectV1 = "id, user_id, title, summary, full_text, url, ingest_status, ingest_error, ingested_at";
+
+      let sourceRes = await admin.from("study_sources").select(selectV2).eq("id", source_id).maybeSingle();
+      if (sourceRes.error && /column .*?(category|metadata)/i.test(String(sourceRes.error.message || sourceRes.error))) {
+        sourceRes = await admin.from("study_sources").select(selectV1).eq("id", source_id).maybeSingle();
+      }
+      sourceRow = sourceRes.data || null;
 
       if (sourceRow) {
         if (!uid || !sourceRow.user_id || sourceRow.user_id === uid) {
@@ -104,7 +108,34 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           }
 
           if (baseText.trim()) {
-            joinedContext = `### Fonte: ${sourceRow.title}\n${baseText}`;
+            const category = (sourceRow.category || "").toString().trim().toUpperCase();
+            const meta = sourceRow.metadata && typeof sourceRow.metadata === "object" ? sourceRow.metadata : null;
+            const incident = meta?.incident && typeof meta.incident === "object" ? meta.incident : null;
+            const aiIncident = meta?.ai?.incident && typeof meta.ai.incident === "object" ? meta.ai.incident : null;
+            const metaParts: string[] = [];
+            if (category) metaParts.push(`Tipo no catálogo: ${category}`);
+            if (incident) {
+              metaParts.push(
+                `Formulário (Relatório de Ocorrência):\n` +
+                  `- ocorrido: ${(incident.ocorrido || "").toString().slice(0, 500)}\n` +
+                  `- causa_raiz_modo_falha: ${(incident.causa_raiz_modo_falha || "").toString().slice(0, 500)}\n` +
+                  `- barreiras_cuidados: ${(incident.barreiras_cuidados || "").toString().slice(0, 500)}\n` +
+                  `- acoes_corretivas_preventivas: ${(incident.acoes_corretivas_preventivas || "").toString().slice(0, 500)}\n` +
+                  `- mudancas_implementadas: ${(incident.mudancas_implementadas || "").toString().slice(0, 500)}`
+              );
+            }
+            if (aiIncident) {
+              const aprendizados = Array.isArray(aiIncident.aprendizados) ? aiIncident.aprendizados.slice(0, 8) : [];
+              const cuidados = Array.isArray(aiIncident.cuidados) ? aiIncident.cuidados.slice(0, 8) : [];
+              const mudancas = Array.isArray(aiIncident.mudancas) ? aiIncident.mudancas.slice(0, 8) : [];
+              const aiLines: string[] = [];
+              if (aprendizados.length) aiLines.push(`Aprendizados (IA): ${aprendizados.join(" | ")}`);
+              if (cuidados.length) aiLines.push(`Cuidados/Barreiras (IA): ${cuidados.join(" | ")}`);
+              if (mudancas.length) aiLines.push(`Mudanças (IA): ${mudancas.join(" | ")}`);
+              if (aiLines.length) metaParts.push(aiLines.join("\n"));
+            }
+
+            joinedContext = `### Fonte: ${sourceRow.title}\n${baseText}${metaParts.length ? `\n\n### Metadados\n${metaParts.join("\n\n")}` : ""}`;
           }
         }
       }
@@ -131,6 +162,58 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       try {
         const model = chooseModel(true);
 
+        const allowedTopics = [
+          "LINHAS",
+          "SUBESTACOES",
+          "PROCEDIMENTOS",
+          "PROTECAO",
+          "AUTOMACAO",
+          "TELECOM",
+          "SEGURANCA_DO_TRABALHO",
+        ];
+
+        const category = (sourceRow?.category || "").toString().trim().toUpperCase();
+        const supportsMetadata = Boolean(sourceRow && Object.prototype.hasOwnProperty.call(sourceRow, "metadata"));
+        const prevMeta = supportsMetadata && sourceRow?.metadata && typeof sourceRow.metadata === "object" ? sourceRow.metadata : null;
+        const incident = prevMeta?.incident && typeof prevMeta.incident === "object" ? prevMeta.incident : null;
+        const isIncident = category === "RELATORIO_OCORRENCIA" || Boolean(incident);
+
+        const incidentContext =
+          isIncident && incident
+            ? `### Respostas do formulário (Relatório de Ocorrência)\n` +
+              `- ocorrido: ${(incident.ocorrido || "").toString().slice(0, 800)}\n` +
+              `- causa_raiz_modo_falha: ${(incident.causa_raiz_modo_falha || "").toString().slice(0, 800)}\n` +
+              `- barreiras_cuidados: ${(incident.barreiras_cuidados || "").toString().slice(0, 800)}\n` +
+              `- acoes_corretivas_preventivas: ${(incident.acoes_corretivas_preventivas || "").toString().slice(0, 800)}\n` +
+              `- mudancas_implementadas: ${(incident.mudancas_implementadas || "").toString().slice(0, 800)}\n\n`
+            : "";
+
+        const baseMaterial = trimmed.slice(0, 6000);
+        const userContent = isIncident
+          ? "Leia o conteúdo abaixo e responda APENAS em JSON válido no formato:\n" +
+            "{\n" +
+            '  "title": "...",\n' +
+            '  "summary": "...",\n' +
+            '  "topic": "LINHAS",\n' +
+            '  "aprendizados": ["..."],\n' +
+            '  "cuidados": ["..."],\n' +
+            '  "mudancas": ["..."]\n' +
+            "}\n\n" +
+            "- title: título curto.\n" +
+            "- summary: 2 a 4 frases, em português.\n" +
+            `- topic: escolha UMA categoria entre: ${allowedTopics.join(", ")}.\n` +
+            "- aprendizados/cuidados/mudancas: 3 a 7 itens cada (use [] se não tiver evidência no texto/formulário).\n" +
+            "- NÃO invente detalhes que não estejam no material ou no formulário.\n\n" +
+            incidentContext +
+            "### Material\n" +
+            baseMaterial
+          : "Leia o material abaixo e responda APENAS em JSON no formato " +
+            "{\"title\": \"...\", \"summary\": \"...\", \"topic\": \"LINHAS\"}.\n" +
+            "- title: título curto, sem siglas de GED.\n" +
+            "- summary: resumo em 2 a 4 frases, em português.\n" +
+            `- topic: escolha UMA categoria entre: ${allowedTopics.join(", ")}.\n\n` +
+            baseMaterial;
+
         const resp = await fetch("https://api.openai.com/v1/chat/completions", {
           method: "POST",
           headers: {
@@ -143,27 +226,35 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               {
                 role: "system",
                 content:
-                  "Você resume e classifica materiais de estudo técnicos (setor elétrico CPFL). Gere um título curto, um resumo objetivo e uma categoria de assunto.",
+                  isIncident
+                    ? "Você resume e extrai aprendizados de Relatórios de Ocorrência no setor elétrico (CPFL). Gere título, resumo, assunto, aprendizados, cuidados e mudanças."
+                    : "Você resume e classifica materiais de estudo técnicos (setor elétrico CPFL). Gere um título curto, um resumo objetivo e uma categoria de assunto.",
               },
               {
                 role: "user",
-                content:
-                  "Leia o material abaixo e responda APENAS em JSON no formato " +
-                  "{\"title\": \"...\", \"summary\": \"...\", \"topic\": \"LINHAS\"|\"SUBESTACOES\"|\"PROCEDIMENTOS\"|\"PROTECAO\"|\"AUTOMACAO\"|\"TELECOM\"|\"SEGURANCA_DO_TRABALHO\"}.\n" +
-                  "- title: título curto, sem siglas de GED.\n" +
-                  "- summary: resumo em 2 a 4 frases, em português.\n" +
-                  "- topic: escolha UMA categoria que melhor representa o assunto principal.\n\n" +
-                  trimmed.slice(0, 6000),
+                content: userContent,
               },
             ],
             temperature: 0.4,
-            max_completion_tokens: 300,
+            max_completion_tokens: isIncident ? 500 : 300,
           }),
         });
 
         if (!resp.ok) {
           const txt = await resp.text().catch(() => `HTTP ${resp.status}`);
           console.warn("Study ingest OpenAI error", txt);
+          try {
+            await admin
+              .from("study_sources")
+              .update({
+                full_text: trimmed,
+                ingest_status: "failed",
+                ingest_error: `OpenAI error: ${txt}`.slice(0, 900),
+                ingested_at: new Date().toISOString(),
+              })
+              .eq("id", source_id);
+          } catch {}
+          return res.status(200).json({ success: false, error: `OpenAI error: ${txt}` });
         } else {
           const data = await resp.json().catch(() => null);
           const content = data?.choices?.[0]?.message?.content || "";
@@ -177,19 +268,55 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             }
           }
 
+          if (!parsed || typeof parsed !== "object") {
+            try {
+              await admin
+                .from("study_sources")
+                .update({
+                  full_text: trimmed,
+                  ingest_status: "failed",
+                  ingest_error: "Resposta inválida da IA (JSON não parseável).",
+                })
+                .eq("id", source_id);
+            } catch {}
+            return res.status(200).json({ success: false, error: "Resposta inválida da IA (JSON não parseável)." });
+          }
+
           const newTitle = typeof parsed?.title === "string" ? parsed.title.trim() : null;
           const newSummary = typeof parsed?.summary === "string" ? parsed.summary.trim() : null;
           const topicRaw = typeof parsed?.topic === "string" ? parsed.topic.toUpperCase().trim() : null;
-          const allowedTopics = [
-            "LINHAS",
-            "SUBESTACOES",
-            "PROCEDIMENTOS",
-            "PROTECAO",
-            "AUTOMACAO",
-            "TELECOM",
-            "SEGURANCA_DO_TRABALHO",
-          ];
           const topic = topicRaw && allowedTopics.includes(topicRaw) ? topicRaw : null;
+
+          const aprendizados = Array.isArray(parsed?.aprendizados)
+            ? parsed.aprendizados.map((x: any) => String(x || "").trim()).filter(Boolean).slice(0, 12)
+            : [];
+          const cuidados = Array.isArray(parsed?.cuidados)
+            ? parsed.cuidados.map((x: any) => String(x || "").trim()).filter(Boolean).slice(0, 12)
+            : [];
+          const mudancas = Array.isArray(parsed?.mudancas)
+            ? parsed.mudancas.map((x: any) => String(x || "").trim()).filter(Boolean).slice(0, 12)
+            : [];
+
+          const nextMeta = supportsMetadata
+            ? {
+                ...(prevMeta && typeof prevMeta === "object" ? prevMeta : {}),
+                ai: {
+                  ...((prevMeta && typeof prevMeta === "object" ? prevMeta.ai : null) || {}),
+                  ingested_at: new Date().toISOString(),
+                  ...(topic ? { topic } : {}),
+                  ...(isIncident
+                    ? {
+                        incident: {
+                          ...(prevMeta?.ai?.incident || {}),
+                          ...(aprendizados.length ? { aprendizados } : {}),
+                          ...(cuidados.length ? { cuidados } : {}),
+                          ...(mudancas.length ? { mudancas } : {}),
+                        },
+                      }
+                    : {}),
+                },
+              }
+            : null;
 
           await admin
             .from("study_sources")
@@ -201,6 +328,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               ...(newTitle ? { title: newTitle } : {}),
               ...(newSummary ? { summary: newSummary } : {}),
               ...(topic ? { topic } : {}),
+              ...(nextMeta ? { metadata: nextMeta } : {}),
             })
             .eq("id", source_id);
 
@@ -210,6 +338,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             title: newTitle,
             summary: newSummary,
             topic,
+            ...(isIncident ? { aprendizados, cuidados, mudancas } : {}),
           });
         }
       } catch (e: any) {

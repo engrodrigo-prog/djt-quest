@@ -13,7 +13,7 @@ export default function Study() {
             Envie materiais, catalogue para consulta e converse com a IA sobre os conteúdos para aprofundar seus conhecimentos.
           </p>
         </div>
-        <StudyLab />
+        <StudyLab showOrgCatalog />
       </main>
       <Navigation />
     </div>
