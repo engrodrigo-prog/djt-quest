@@ -39,6 +39,9 @@ interface DivisionRanking {
   teamCount: number;
 }
 
+const GUEST_TEAM_ID = 'CONVIDADOS';
+const isGuestTeamId = (id: string | null | undefined) => String(id || '').toUpperCase() === GUEST_TEAM_ID;
+
 function Rankings() {
   const { orgScope } = useAuth();
   const [individualRankings, setIndividualRankings] = useState<IndividualRanking[]>([]);
@@ -132,13 +135,13 @@ function Rankings() {
 
       // Process team rankings
       if (teamsResult.data && coordsResult.data && challengesResult.data && eventsResult.data) {
-        const teams = teamsResult.data as Array<{ id: string; name: string; coord_id: string | null }>;
+        const teams = (teamsResult.data as Array<{ id: string; name: string; coord_id: string | null }>).filter((t) => !isGuestTeamId(t.id));
         const coordToDiv = (coordsResult.data as Array<{ id: string; division_id: string | null }>).
           reduce<Record<string, string | null>>((acc, c) => { acc[c.id] = c.division_id; return acc; }, {});
 
         // Build team members map (exclude leaders)
         const teamMembers = profilesData.reduce<Record<string, string[]>>((acc, p: any) => {
-          if (!p.team_id) return acc;
+          if (!p.team_id || isGuestTeamId(p.team_id)) return acc;
           if (!acc[p.team_id]) acc[p.team_id] = [];
           acc[p.team_id].push(p.id);
           return acc;
@@ -209,7 +212,7 @@ function Rankings() {
       // Process division rankings
       if (divisionsResult.data && teamsResult.data && coordsResult.data && challengesResult.data && eventsResult.data) {
         const divisions = divisionsResult.data as Array<{ id: string; name: string }>;
-        const teams = teamsResult.data as Array<{ id: string; name: string; coord_id: string | null }>;
+        const teams = (teamsResult.data as Array<{ id: string; name: string; coord_id: string | null }>).filter((t) => !isGuestTeamId(t.id));
         const coordToDiv = (coordsResult.data as Array<{ id: string; division_id: string | null }>).
           reduce<Record<string, string | null>>((acc, c) => { acc[c.id] = c.division_id; return acc; }, {});
 
@@ -240,7 +243,7 @@ function Rankings() {
 
         // Team members and member->team map
         const teamMembers = profilesData.reduce<Record<string, string[]>>((acc, p: any) => {
-          if (!p.team_id) return acc;
+          if (!p.team_id || isGuestTeamId(p.team_id)) return acc;
           if (!acc[p.team_id]) acc[p.team_id] = [];
           acc[p.team_id].push(p.id);
           return acc;

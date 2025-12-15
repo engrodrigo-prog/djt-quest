@@ -10,6 +10,8 @@ interface ApprovalRequest {
   notes?: string;
 }
 
+const GUEST_TEAM_ID = 'CONVIDADOS'
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -190,15 +192,51 @@ Deno.serve(async (req) => {
 
     console.log('Profile created');
 
-    // Attach org hierarchy if possible
-    const org = await deriveOrgUnits(registration.sigla_area || registration.operational_base)
-    if (org) {
-      const { error: orgErr } = await supabaseAdmin
+    const regSigla = String(registration.sigla_area || '').trim().toUpperCase()
+    const isGuest = regSigla === 'EXTERNO' || regSigla === GUEST_TEAM_ID
+
+    const ensureTeamExists = async (teamId: string, name: string) => {
+      if (!teamId) return
+      try {
+        const { data: existing } = await supabaseAdmin.from('teams').select('id').eq('id', teamId).maybeSingle()
+        if (existing?.id) return
+        await supabaseAdmin.from('teams').insert({ id: teamId, name } as any)
+      } catch (e) {
+        console.warn('Could not ensure team exists:', teamId, e)
+      }
+    }
+
+    if (isGuest) {
+      // Garantia: convidado entra como colaborador comum e fica sob "CONVIDADOS",
+      // sem compor hierarquia (sem divisão/coord) e sem exigir base específica.
+      await ensureTeamExists(GUEST_TEAM_ID, 'Convidados (externo)')
+      await supabaseAdmin
         .from('profiles')
-        .update({ division_id: org.divisionId, coord_id: org.coordinationId, team_id: org.teamId })
+        .update({
+          sigla_area: GUEST_TEAM_ID,
+          operational_base: GUEST_TEAM_ID,
+          team_id: GUEST_TEAM_ID,
+          coord_id: null,
+          division_id: null,
+        } as any)
         .eq('id', newUser.user.id)
-      if (orgErr) {
-        console.warn('Could not attach org hierarchy:', orgErr.message)
+    } else {
+      // Garantia: o valor do cadastro (sigla_area) também existe como teams.id,
+      // para que perfis possam referenciar team_id sem falhar FK.
+      if (regSigla) await ensureTeamExists(regSigla, regSigla)
+
+      // Attach org hierarchy if possible
+      const org = await deriveOrgUnits(registration.sigla_area || registration.operational_base)
+      if (org) {
+        const { error: orgErr } = await supabaseAdmin
+          .from('profiles')
+          .update({ division_id: org.divisionId, coord_id: org.coordinationId, team_id: org.teamId })
+          .eq('id', newUser.user.id)
+        if (orgErr) {
+          console.warn('Could not attach org hierarchy:', orgErr.message)
+        }
+      } else if (regSigla) {
+        await supabaseAdmin.from('profiles').update({ team_id: regSigla } as any).eq('id', newUser.user.id)
       }
     }
 

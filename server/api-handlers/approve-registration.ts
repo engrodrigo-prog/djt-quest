@@ -8,6 +8,15 @@ const SUPABASE_URL = process.env.SUPABASE_URL as string
 const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY) as string
 const GUEST_TEAM_ID = 'CONVIDADOS'
 
+const normTeamCode = (raw?: string | null) =>
+  String(raw || '')
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9-]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 32)
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === 'OPTIONS') return res.status(204).send('')
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
@@ -98,6 +107,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         .eq('id', newUserId)
       // pula deriveOrg
     } else {
+    const desiredTeamId = normTeamCode(reg.sigla_area)
+    if (desiredTeamId) {
+      // Garantia: o valor do cadastro (sigla_area) também existe como teams.id,
+      // para que perfis possam referenciar team_id sem falhar FK.
+      try {
+        const { data: existing } = await admin.from('teams').select('id').eq('id', desiredTeamId).maybeSingle()
+        if (!existing?.id) {
+          await admin.from('teams').insert({ id: desiredTeamId, name: desiredTeamId } as any)
+        }
+      } catch {}
+    }
+
     // Derive org from DB
     const deriveOrg = async (raw?: string | null) => {
       const s = (String(raw || '').toUpperCase().replace(/[^A-Z0-9-]/g,'-').replace(/-+/g,'-').replace(/^-|-$/g,''))
@@ -133,6 +154,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const org = await deriveOrg(reg.sigla_area || reg.operational_base)
     if (org) {
       await admin.from('profiles').update({ division_id: org.divisionId, coord_id: org.coordId, team_id: org.teamId }).eq('id', newUserId)
+    } else if (desiredTeamId) {
+      await admin.from('profiles').update({ team_id: desiredTeamId } as any).eq('id', newUserId)
     }
     }
 

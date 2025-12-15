@@ -6,6 +6,19 @@ const SUPABASE_URL = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL)
 const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY) as string;
 
 const GUEST_TEAM_ID = 'CONVIDADOS';
+const REGISTRATION_TEAM_IDS = [
+  'DJT',
+  'DJT-PLAN',
+  'DJTV',
+  'DJTV-VOR',
+  'DJTV-JUN',
+  'DJTV-PJU',
+  'DJTV-ITA',
+  'DJTB',
+  'DJTB-CUB',
+  'DJTB-STO',
+  GUEST_TEAM_ID,
+] as const;
 
 const normText = (s: any) =>
   String(s ?? '')
@@ -21,6 +34,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+
     if (!SUPABASE_URL || !SERVICE_KEY) return res.status(500).json({ error: 'Missing Supabase config' });
     const admin = createClient(SUPABASE_URL, SERVICE_KEY, {
       auth: { autoRefreshToken: false, persistSession: false },
@@ -30,18 +47,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       (typeof req.query.team === 'string' ? req.query.team : Array.isArray(req.query.team) ? req.query.team[0] : '') || '';
     const teamId = normText(team).toUpperCase();
 
-    // Teams list (from DB when possible)
-    let teams: Array<{ id: string; name: string | null }> = [];
+    // Teams list (restricted to allowed registration teams; names from DB when possible)
+    const allowed = new Set(REGISTRATION_TEAM_IDS.map((id) => id.toUpperCase()));
+    let teamsFromDb: Array<{ id: string; name: string | null }> = [];
     try {
       const { data } = await admin.from('teams').select('id,name').order('name').limit(500);
-      teams = (data || []).map((t: any) => ({ id: normText(t.id), name: t.name ? normText(t.name) : null })).filter((t) => t.id);
+      teamsFromDb = (data || [])
+        .map((t: any) => ({ id: normText(t.id), name: t.name ? normText(t.name) : null }))
+        .filter((t) => t.id)
+        .filter((t) => allowed.has(t.id.toUpperCase()));
     } catch {
-      teams = [];
+      teamsFromDb = [];
     }
 
-    // Ensure guest option always present
-    const hasGuest = teams.some((t) => t.id.toUpperCase() === GUEST_TEAM_ID);
-    if (!hasGuest) teams = [{ id: GUEST_TEAM_ID, name: 'Convidados (externo)' }, ...teams];
+    const nameById = new Map<string, string | null>();
+    for (const t of teamsFromDb) nameById.set(t.id.toUpperCase(), t.name ?? null);
+    const teams = REGISTRATION_TEAM_IDS.map((id) => ({
+      id,
+      name: id === GUEST_TEAM_ID ? 'Convidados (externo)' : nameById.get(id) ?? null,
+    }));
 
     // Bases for selected team, derived from real usage (profiles + pending registrations)
     let bases: string[] = [];
@@ -62,6 +86,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(200).json({
       success: true,
       guest_team_id: GUEST_TEAM_ID,
+      options_version: '2025-12-15-restricted-teams',
       teams,
       bases,
     });
@@ -71,4 +96,3 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 }
 
 export const config = { api: { bodyParser: false } };
-

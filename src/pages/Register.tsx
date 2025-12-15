@@ -12,6 +12,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Command, CommandEmpty, CommandGroup, CommandItem, CommandList, CommandInput } from "@/components/ui/command";
 import { cn } from "@/lib/utils";
 import { Check, ChevronsUpDown } from "lucide-react";
+import registerBg from "@/assets/backgrounds/BG.png";
 
 const registerSchema = z.object({
   name: z.string()
@@ -42,11 +43,47 @@ const registerSchema = z.object({
 });
 
 const GUEST_TEAM_ID = "CONVIDADOS";
+const REGISTRATION_TEAM_IDS = [
+  "DJT",
+  "DJT-PLAN",
+  "DJTV",
+  "DJTV-VOR",
+  "DJTV-JUN",
+  "DJTV-PJU",
+  "DJTV-ITA",
+  "DJTB",
+  "DJTB-CUB",
+  "DJTB-STO",
+  GUEST_TEAM_ID,
+] as const;
+
+const REGISTRATION_TEAM_ORDER = new Map(REGISTRATION_TEAM_IDS.map((id, idx) => [id, idx]));
+
+const normalizeTeamId = (id: unknown) => String(id ?? "").trim().toUpperCase();
+
+const filterAndOrderRegistrationTeams = (raw: Array<{ id: string; name?: string | null }>) => {
+  const byId = new Map<string, { id: string; name: string }>();
+  for (const t of raw) {
+    const id = normalizeTeamId(t.id);
+    if (!REGISTRATION_TEAM_ORDER.has(id)) continue;
+    const name = String(t.name ?? "").trim();
+    byId.set(id, { id, name: name || id });
+  }
+
+  // Guarantee every allowed id exists (even if DB is missing rows)
+  for (const id of REGISTRATION_TEAM_IDS) {
+    if (!byId.has(id)) {
+      byId.set(id, { id, name: id === GUEST_TEAM_ID ? "Convidados (externo)" : id });
+    }
+  }
+
+  return REGISTRATION_TEAM_IDS.map((id) => byId.get(id)!).filter(Boolean);
+};
 
 export default function Register() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
-  const [teams, setTeams] = useState<Array<{ id: string; name: string }>>([]);
+  const [teams, setTeams] = useState<Array<{ id: string; name: string }>>(() => filterAndOrderRegistrationTeams([]));
   const [bases, setBases] = useState<string[]>([]);
   const [teamsOpen, setTeamsOpen] = useState(false);
   const [basesOpen, setBasesOpen] = useState(false);
@@ -68,17 +105,17 @@ export default function Register() {
     let active = true;
     (async () => {
       try {
-        const resp = await fetch("/api/registration-options");
+        const resp = await fetch("/api/registration-options", { cache: "no-store" });
         const json = await resp.json().catch(() => ({}));
         const list = Array.isArray(json?.teams) ? json.teams : [];
         const mapped = list
           .map((t: any) => ({ id: String(t?.id || "").trim(), name: String(t?.name || "").trim() }))
           .filter((t: any) => t.id)
           .map((t: any) => ({ id: t.id, name: t.name || t.id }));
-        if (active && mapped.length) setTeams(mapped);
+        if (active) setTeams(filterAndOrderRegistrationTeams(mapped));
       } catch {
         const { data } = await supabase.from("teams").select("id, name").order("name");
-        if (active && data) setTeams(data as any);
+        if (active && data) setTeams(filterAndOrderRegistrationTeams(data as any));
       }
     })();
     return () => { active = false };
@@ -93,7 +130,7 @@ export default function Register() {
         return;
       }
       try {
-        const resp = await fetch(`/api/registration-options?team=${encodeURIComponent(sigla)}`);
+        const resp = await fetch(`/api/registration-options?team=${encodeURIComponent(sigla)}`, { cache: "no-store" });
         const json = await resp.json().catch(() => ({}));
         const fromApi = Array.isArray(json?.bases) ? json.bases.map((x: any) => String(x || "").trim()).filter(Boolean) : [];
         const fromStatic = getOperationalBaseOptions(sigla) || [];
@@ -118,11 +155,7 @@ export default function Register() {
 
   const teamOptions = useMemo(() => {
     const q = teamQuery.trim().toLowerCase();
-    const list = teams.slice();
-    // ensure guest always visible
-    if (!list.some((t) => String(t.id).toUpperCase() === GUEST_TEAM_ID)) {
-      list.unshift({ id: GUEST_TEAM_ID, name: "Convidados (externo)" });
-    }
+    const list = filterAndOrderRegistrationTeams(teams).slice();
     if (!q) return list;
     return list.filter((t) => `${t.id} ${t.name}`.toLowerCase().includes(q));
   }, [teams, teamQuery]);
@@ -201,7 +234,7 @@ export default function Register() {
       {/* Background */}
       <div 
         className="absolute inset-0 bg-cover bg-center"
-        style={{ backgroundImage: "url('/src/assets/backgrounds/splash-bg.png')" }}
+        style={{ backgroundImage: `url(${registerBg})` }}
       >
         <div className="absolute inset-0 bg-background/80" />
       </div>
@@ -281,7 +314,7 @@ export default function Register() {
                       {sigla
                         ? (() => {
                             const t = teams.find((x) => String(x.id).toUpperCase() === sigla);
-                            const label = t?.name ? `${t.id} — ${t.name}` : sigla;
+                            const label = t?.name && t.name !== t.id ? `${t.id} — ${t.name}` : sigla;
                             return label;
                           })()
                         : "Selecione sua equipe (sigla – nome)"}
@@ -303,7 +336,7 @@ export default function Register() {
                         {teamOptions.map((t) => {
                           const id = String(t.id).toUpperCase();
                           const selected = id === sigla;
-                          const display = t.name ? `${t.id} — ${t.name}` : t.id;
+                          const display = t.name && t.name !== t.id ? `${t.id} — ${t.name}` : t.id;
                           return (
                             <CommandItem
                               key={t.id}
