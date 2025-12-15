@@ -6,6 +6,7 @@ const SUPABASE_URL = process.env.SUPABASE_URL as string;
 const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY) as string;
 
 const GUEST_TEAM_ID = 'CONVIDADOS';
+const DEFAULT_PASSWORD = '123456';
 
 const normTeamCode = (raw?: string | null) =>
   String(raw || '')
@@ -15,6 +16,11 @@ const normTeamCode = (raw?: string | null) =>
     .replace(/-+/g, '-')
     .replace(/^-|-$/g, '')
     .slice(0, 32);
+
+const normMatricula = (raw?: string | null) => {
+  const digits = String(raw || '').replace(/\D/g, '').slice(0, 32);
+  return digits || null;
+};
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === 'OPTIONS') return res.status(204).send('');
@@ -47,14 +53,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const body = (req.body || {}) as any;
     const email = String(body.email || '').trim().toLowerCase();
-    const password = String(body.password || '');
+    const password = DEFAULT_PASSWORD;
     const name = String(body.name || '').trim();
     const role = String(body.role || '').trim();
     const requestedTeam = typeof body.team_id === 'string' ? body.team_id : body.team_id ?? null;
     const teamId = requestedTeam ? normTeamCode(requestedTeam) : null;
+    const matricula = normMatricula(body.matricula);
 
     if (!email || !email.includes('@')) return res.status(400).json({ error: 'email inválido' });
-    if (!password || password.length < 6) return res.status(400).json({ error: 'password deve ter no mínimo 6 caracteres' });
     if (!name) return res.status(400).json({ error: 'name é obrigatório' });
     if (!role) return res.status(400).json({ error: 'role é obrigatório' });
 
@@ -105,6 +111,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       id: newUserId,
       email,
       name,
+      matricula,
       xp: 0,
       tier: 'EX-1',
       must_change_password: true,
@@ -138,4 +145,3 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 }
 
 export const config = { api: { bodyParser: true } };
-

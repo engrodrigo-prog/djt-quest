@@ -57,8 +57,8 @@ export const UserCreationForm = () => {
   const [teams, setTeams] = useState<Team[]>(() => filterAndOrderRegistrationTeams([]));
   const [formData, setFormData] = useState({
     email: '',
-    password: '',
     name: '',
+    matricula: '',
     team_id: '',
     role: 'colaborador' as 'gerente_djt' | 'gerente_divisao_djtx' | 'coordenador_djtx' | 'colaborador'
   });
@@ -95,8 +95,9 @@ export const UserCreationForm = () => {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             email: formData.email,
-            password: formData.password,
+            password: '123456',
             name: formData.name,
+            matricula: formData.matricula || null,
             team_id: formData.team_id || null,
             role: formData.role,
           }),
@@ -108,8 +109,9 @@ export const UserCreationForm = () => {
         const { data, error } = await supabase.functions.invoke('studio-create-user', {
           body: {
             email: formData.email,
-            password: formData.password,
+            password: '123456',
             name: formData.name,
+            matricula: formData.matricula || null,
             team_id: formData.team_id || null,
             role: formData.role,
           },
@@ -120,14 +122,14 @@ export const UserCreationForm = () => {
 
       toast({
         title: 'Usuário criado com sucesso!',
-        description: `Conta criada para ${formData.name} com role ${formData.role}`
+        description: `Conta criada para ${formData.name} (senha inicial 123456) • role ${formData.role}`
       });
 
       // Reset form
       setFormData({
         email: '',
-        password: '',
         name: '',
+        matricula: '',
         team_id: '',
         role: 'colaborador'
       });
@@ -179,18 +181,17 @@ export const UserCreationForm = () => {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="password">Senha Temporária *</Label>
-            <input type="text" name="username" autoComplete="username" hidden readOnly />
+            <Label htmlFor="matricula">Matrícula (opcional)</Label>
             <Input
-              id="password"
-              type="password"
-              required
-              minLength={6}
-              value={formData.password}
-              onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-              placeholder="Mínimo 6 caracteres"
-              autoComplete="new-password"
+              id="matricula"
+              value={formData.matricula}
+              onChange={(e) => setFormData({ ...formData, matricula: e.target.value.replace(/\D/g, '') })}
+              placeholder="486146"
+              inputMode="numeric"
             />
+            <p className="text-xs text-muted-foreground">
+              Senha inicial padrão: <span className="font-semibold">123456</span> (o usuário será orientado a trocar no primeiro acesso)
+            </p>
           </div>
 
           <div className="space-y-2">

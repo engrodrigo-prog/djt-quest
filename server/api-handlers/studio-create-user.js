@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY);
 const GUEST_TEAM_ID = 'CONVIDADOS';
+const DEFAULT_PASSWORD = '123456';
 const normTeamCode = (raw) => String(raw || '')
     .trim()
     .toUpperCase()
@@ -9,6 +10,10 @@ const normTeamCode = (raw) => String(raw || '')
     .replace(/-+/g, '-')
     .replace(/^-|-$/g, '')
     .slice(0, 32);
+const normMatricula = (raw) => {
+    const digits = String(raw || '').replace(/\\D/g, '').slice(0, 32);
+    return digits || null;
+};
 export default async function handler(req, res) {
     if (req.method === 'OPTIONS')
         return res.status(204).send('');
@@ -41,15 +46,14 @@ export default async function handler(req, res) {
             return res.status(403).json({ error: 'Insufficient permissions' });
         const body = req.body || {};
         const email = String(body.email || '').trim().toLowerCase();
-        const password = String(body.password || '');
+        const password = DEFAULT_PASSWORD;
         const name = String(body.name || '').trim();
         const role = String(body.role || '').trim();
         const requestedTeam = typeof body.team_id === 'string' ? body.team_id : body.team_id ?? null;
         const teamId = requestedTeam ? normTeamCode(requestedTeam) : null;
+        const matricula = normMatricula(body.matricula);
         if (!email || !email.includes('@'))
             return res.status(400).json({ error: 'email inválido' });
-        if (!password || password.length < 6)
-            return res.status(400).json({ error: 'password deve ter no mínimo 6 caracteres' });
         if (!name)
             return res.status(400).json({ error: 'name é obrigatório' });
         if (!role)
@@ -103,6 +107,7 @@ export default async function handler(req, res) {
             id: newUserId,
             email,
             name,
+            matricula,
             xp: 0,
             tier: 'EX-1',
             must_change_password: true,
@@ -133,4 +138,3 @@ export default async function handler(req, res) {
     }
 }
 export const config = { api: { bodyParser: true } };
-

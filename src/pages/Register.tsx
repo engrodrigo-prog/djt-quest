@@ -181,10 +181,39 @@ export default function Register() {
       // Validar dados com zod
       const validatedData = registerSchema.parse(payload);
 
-      // Inserir na tabela pending_registrations
-      const { error: insertError } = await supabase
-        .from("pending_registrations")
-        .insert({
+      // Prefer API route (evita duplicidades e trata caso já exista conta), fallback para insert direto
+      try {
+        const resp = await fetch("/api/register", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: validatedData.name,
+            email: validatedData.email,
+            telefone: validatedData.telefone || null,
+            matricula: validatedData.matricula || null,
+            operational_base: validatedData.operational_base,
+            sigla_area: validatedData.sigla_area.toUpperCase(),
+          }),
+        });
+        const json = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(json?.error || "Erro ao enviar solicitação");
+
+        if (json?.already_has_account) {
+          toast.error("Este e-mail já possui uma conta ativa.", {
+            description: "Volte ao login e use “Esqueci minha senha” se necessário.",
+          });
+          navigate("/auth");
+          return;
+        }
+
+        if (json?.already_pending) {
+          toast.success("Solicitação já estava pendente.", {
+            description: "Aguarde a aprovação do coordenador para acessar o sistema.",
+          });
+        }
+      } catch (apiErr) {
+        // Inserir na tabela pending_registrations (fallback)
+        const { error: insertError } = await supabase.from("pending_registrations").insert({
           name: validatedData.name,
           email: validatedData.email,
           telefone: validatedData.telefone || null,
@@ -194,16 +223,17 @@ export default function Register() {
           status: "pending",
         });
 
-      if (insertError) {
-        console.error("Erro ao criar solicitação:", insertError);
-        
-        // Verificar se é erro de email duplicado
-        if (insertError.code === "23505") {
-          toast.error("Este email já possui uma solicitação pendente.");
-          return;
+        if (insertError) {
+          console.error("Erro ao criar solicitação:", insertError);
+
+          // Verificar se é erro de email duplicado
+          if (insertError.code === "23505") {
+            toast.error("Este email já possui uma solicitação pendente.");
+            return;
+          }
+
+          throw insertError;
         }
-        
-        throw insertError;
       }
 
       toast.success("Solicitação enviada com sucesso!", {
