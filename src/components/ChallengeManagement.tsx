@@ -14,6 +14,8 @@ interface Challenge {
   type: string;
   status?: string | null;
   xp_reward: number;
+  reward_mode?: string | null;
+  reward_tier_steps?: number | null;
   created_at?: string | null;
 }
 
@@ -270,7 +272,9 @@ export const ChallengeManagement = ({ onlyQuizzes }: ChallengeManagementProps) =
                   </div>
                   <div className="flex flex-col gap-1 items-end">
                     <span className="text-xs font-semibold text-accent">
-                      +{c.xp_reward} XP
+                      {c.reward_mode === 'tier_steps'
+                        ? `+${c.reward_tier_steps || 1} patamar(es)`
+                        : `+${c.xp_reward} XP`}
                     </span>
                     <div className="flex gap-1 mt-1">
                       {isEditing ? (

@@ -71,6 +71,8 @@ export const ChallengeForm = () => {
     resolver: zodResolver(challengeSchema),
     defaultValues: {
       xp_reward: 50,
+      reward_mode: "fixed_xp",
+      reward_tier_steps: 1 as any,
       type: "quiz",
       require_two_leader_eval: false,
       evidence_required: false,
@@ -80,6 +82,7 @@ export const ChallengeForm = () => {
   });
 
   const challengeType = watch("type");
+  const rewardMode = watch("reward_mode") || "fixed_xp";
   const requireTwoLeaderEval = watch("require_two_leader_eval");
   const evidenceRequired = watch("evidence_required");
 
@@ -131,13 +134,18 @@ export const ChallengeForm = () => {
     setSubmitting(true);
 
     try {
+      const isQuiz = data.type === "quiz";
+      const isTierSteps = !isQuiz && data.reward_mode === "tier_steps";
+
       const challengeData = {
         ...data,
         target_div_ids: selectedDivisions.length > 0 ? selectedDivisions : null,
         target_coord_ids: selectedCoordinations.length > 0 ? selectedCoordinations : null,
         target_team_ids: selectedTeams.length > 0 ? selectedTeams : null,
         campaign_id: data.campaign_id || null,
-        xp_reward: data.type === 'quiz' ? 0 : data.xp_reward, // XP will be sum of questions for quiz
+        xp_reward: isQuiz ? 0 : isTierSteps ? 0 : data.xp_reward,
+        reward_mode: isQuiz ? null : isTierSteps ? "tier_steps" : "fixed_xp",
+        reward_tier_steps: isQuiz ? null : isTierSteps ? (data.reward_tier_steps || 1) : null,
       };
 
       let challenge, error;
@@ -425,24 +433,63 @@ export const ChallengeForm = () => {
 
               {challengeType !== 'quiz' && (
                 <div>
-                  <Label htmlFor="xp">Nível de Dificuldade *</Label>
-                  <Select
-                    value={watch("xp_reward")?.toString()}
-                    onValueChange={(val) => setValue("xp_reward", parseInt(val))}
-                  >
-                    <SelectTrigger id="xp">
-                      <SelectValue placeholder="Selecione o nível" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="10">Básico - 10 XP</SelectItem>
-                      <SelectItem value="20">Intermediário - 20 XP</SelectItem>
-                      <SelectItem value="30">Avançado - 30 XP</SelectItem>
-                      <SelectItem value="50">Especialista - 50 XP</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  {errors.xp_reward && (
-                    <p className="text-sm text-destructive mt-1">{errors.xp_reward.message}</p>
-                  )}
+                  <div className="space-y-2">
+                    <Label>Premiação *</Label>
+                    <Select
+                      value={rewardMode}
+                      onValueChange={(val) => setValue("reward_mode", val as any, { shouldValidate: true })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Selecione" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="fixed_xp">XP fixo</SelectItem>
+                        <SelectItem value="tier_steps">Avançar patamares (badge)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {rewardMode === "fixed_xp" ? (
+                      <>
+                        <Label htmlFor="xp">Nível de Dificuldade (XP) *</Label>
+                        <Select
+                          value={watch("xp_reward")?.toString()}
+                          onValueChange={(val) => setValue("xp_reward", parseInt(val), { shouldValidate: true })}
+                        >
+                          <SelectTrigger id="xp">
+                            <SelectValue placeholder="Selecione o nível" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="10">Básico - 10 XP</SelectItem>
+                            <SelectItem value="20">Intermediário - 20 XP</SelectItem>
+                            <SelectItem value="30">Avançado - 30 XP</SelectItem>
+                            <SelectItem value="50">Especialista - 50 XP</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        {errors.xp_reward && (
+                          <p className="text-sm text-destructive mt-1">{errors.xp_reward.message}</p>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <Label htmlFor="reward_tier_steps">Patamares a avançar *</Label>
+                        <Input
+                          id="reward_tier_steps"
+                          type="number"
+                          min={1}
+                          max={5}
+                          value={(watch("reward_tier_steps") as any) || 1}
+                          onChange={(e) =>
+                            setValue("reward_tier_steps", Number(e.target.value) || 1, { shouldValidate: true })
+                          }
+                        />
+                        {errors.reward_tier_steps && (
+                          <p className="text-sm text-destructive mt-1">{String(errors.reward_tier_steps.message)}</p>
+                        )}
+                        <p className="text-[11px] text-muted-foreground">
+                          O XP é calculado automaticamente para avançar N patamares com base no tier atual do colaborador no momento da aprovação.
+                        </p>
+                      </>
+                    )}
+                  </div>
                 </div>
               )}
               {challengeType === 'quiz' && (

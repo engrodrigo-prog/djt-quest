@@ -15,7 +15,7 @@ const STAFF_ROLES = new Set([
   'coordenador',
   'lider_equipe',
 ]);
-const MILHAO_PRIZE_XP = [100, 200, 300, 400, 500, 1000, 2000, 3000, 5000, 10000] as const;
+const DEFAULT_MILHAO_TOTAL_XP = 1000;
 
 function levelToDifficulty(level: number): string {
   // OBS: precisa respeitar o CHECK do banco (basico/intermediario/avancado/especialista)
@@ -58,10 +58,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const isStaff = roles.some((r) => STAFF_ROLES.has(r));
     if (!isStaff) return res.status(403).json({ error: 'Apenas líderes podem publicar Quiz do Milhão' });
 
-    const { topic, quiz } = req.body || {};
+    const { topic, quiz, reward } = req.body || {};
     if (!quiz || !Array.isArray(quiz.questoes) || quiz.questoes.length === 0) {
       return res.status(400).json({ error: 'Quiz inválido' });
     }
+
+    const rewardModeRaw = String(reward?.mode || 'fixed_xp').trim();
+    const rewardMode = rewardModeRaw === 'tier_steps' ? 'tier_steps' : 'fixed_xp';
+    const rewardTotalXpRaw = Number(reward?.total_xp ?? DEFAULT_MILHAO_TOTAL_XP);
+    const rewardTierStepsRaw = Number(reward?.tier_steps ?? 1);
+    const rewardTotalXp =
+      Number.isFinite(rewardTotalXpRaw) ? Math.max(100, Math.min(5000, Math.floor(rewardTotalXpRaw))) : DEFAULT_MILHAO_TOTAL_XP;
+    const rewardTierSteps =
+      Number.isFinite(rewardTierStepsRaw) ? Math.max(1, Math.min(5, Math.floor(rewardTierStepsRaw))) : 1;
 
     const title = `Quiz do Milhão: ${String(topic || quiz.title || '').trim() || 'Desafio'}`;
     const description =
@@ -74,7 +83,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         title,
         description,
         type: 'quiz',
-        xp_reward: 0,
+        xp_reward: rewardMode === 'fixed_xp' ? rewardTotalXp : 0,
+        reward_mode: rewardMode,
+        reward_tier_steps: rewardMode === 'tier_steps' ? rewardTierSteps : null,
         evidence_required: false,
         require_two_leader_eval: false,
         quiz_specialties: quiz.specialties || null,
@@ -104,15 +115,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     };
 
-    // xp_reward do desafio (soma da "premiação" do formato 10 níveis)
-    let totalXp = 0;
     try {
       for (let idx = 0; idx < quiz.questoes.length; idx++) {
         const q = quiz.questoes[idx];
         const level = Number(q.nivel || idx + 1);
         const difficulty_level = levelToDifficulty(level);
         const xp_value = levelToXp(level);
-        totalXp += MILHAO_PRIZE_XP[idx] ?? xp_value;
 
         // Validar alternativas (4 e exatamente 1 correta) antes de inserir
         const alternativas = q.alternativas || {};
@@ -155,11 +163,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       await cleanup();
       return res.status(400).json({ error: e?.message || 'Falha ao publicar Quiz do Milhão' });
     }
-
-    // Atualizar xp_reward resumido do desafio
-    try {
-      await admin.from('challenges').update({ xp_reward: totalXp }).eq('id', challenge.id);
-    } catch {/* ignore */}
 
     return res.status(200).json({ success: true, challengeId: challenge.id, title: challenge.title });
   } catch (err: any) {

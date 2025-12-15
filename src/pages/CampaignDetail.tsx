@@ -24,6 +24,8 @@ interface ChallengeRow {
   description: string | null;
   type: string;
   xp_reward: number;
+  reward_mode?: string | null;
+  reward_tier_steps?: number | null;
 }
 
 interface ForumTopicRow {
@@ -267,7 +269,11 @@ export default function CampaignDetail() {
                   </p>
                   <div className="flex items-center justify-between mt-1 text-[11px] text-muted-foreground">
                     <span>{ch.type}</span>
-                    <span>+{ch.xp_reward} XP</span>
+                    <span>
+                      {ch.reward_mode === 'tier_steps'
+                        ? `+${ch.reward_tier_steps || 1} patamar(es)`
+                        : `+${ch.xp_reward} XP`}
+                    </span>
                   </div>
                 </div>
               ))}

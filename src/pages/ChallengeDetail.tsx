@@ -21,6 +21,8 @@ interface Challenge {
   description: string;
   type: string;
   xp_reward: number;
+  reward_mode?: string | null;
+  reward_tier_steps?: number | null;
   require_two_leader_eval: boolean;
   campaign_id: string;
   evidence_required: boolean;
@@ -336,9 +338,11 @@ const ChallengeDetail = () => {
           <CardHeader>
             <div className="flex items-center justify-between mb-2">
               <Badge>{challenge.type}</Badge>
-              {challenge.xp_reward > 0 && (
+              {challenge.reward_mode === 'tier_steps' ? (
+                <span className="text-sm font-semibold text-accent">+{challenge.reward_tier_steps || 1} patamar(es)</span>
+              ) : challenge.xp_reward > 0 ? (
                 <span className="text-sm font-semibold text-accent">+{challenge.xp_reward} XP</span>
-              )}
+              ) : null}
             </div>
             <CardTitle className="text-2xl">{challenge.title}</CardTitle>
             <CardDescription>{challenge.description}</CardDescription>

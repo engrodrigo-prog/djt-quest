@@ -6,6 +6,47 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+const MILHAO_XP_TABLE = [100, 200, 300, 400, 500, 1000, 2000, 3000, 5000, 10000];
+const MILHAO_XP_TOTAL_BASE = MILHAO_XP_TABLE.reduce((sum, n) => sum + n, 0);
+const DEFAULT_MILHAO_TOTAL_XP = 1000;
+const MIN_MILHAO_TOTAL_XP = 100;
+const MAX_MILHAO_TOTAL_XP = 5000;
+
+type TierPrefix = 'EX' | 'FO' | 'GU';
+const TIER_THRESHOLDS: Record<TierPrefix, number[]> = {
+  EX: [0, 300, 700, 1200, 1800],
+  FO: [0, 400, 900, 1500, 2200],
+  GU: [0, 500, 1100, 1800, 2600],
+};
+
+const parseTier = (tierRaw: unknown): { prefix: TierPrefix; level: number } | null => {
+  const tier = (tierRaw ?? '').toString().trim().toUpperCase();
+  const match = tier.match(/^(EX|FO|GU)\s*-\s*([1-5])$/);
+  if (!match) return null;
+  const prefix = match[1] as TierPrefix;
+  const level = Number(match[2]);
+  if (!Number.isFinite(level) || level < 1 || level > 5) return null;
+  return { prefix, level };
+};
+
+const clampInt = (n: number, min: number, max: number) => {
+  if (!Number.isFinite(n)) return min;
+  return Math.max(min, Math.min(max, Math.floor(n)));
+};
+
+const xpNeededToAdvanceTierSteps = (params: { currentXp: number; currentTier: unknown; steps: number }) => {
+  const { currentXp, currentTier, steps } = params;
+  const parsed = parseTier(currentTier);
+  if (!parsed) return 0;
+
+  const { prefix, level } = parsed;
+  const thresholds = TIER_THRESHOLDS[prefix];
+  const targetLevel = clampInt(level + steps, 1, 5);
+  const targetThreshold = thresholds[targetLevel - 1] ?? thresholds[thresholds.length - 1] ?? 0;
+  const needed = Math.max(0, targetThreshold - (Number(currentXp) || 0));
+  return Math.floor(needed);
+};
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -68,14 +109,24 @@ serve(async (req) => {
     const challengeId = option.quiz_questions.challenge_id;
     const questionOrderIndex = Number(option.quiz_questions.order_index ?? 0);
 
-    // XP ladder (10 degraus) inspirada no formato clássico de 10 níveis (sem citar nomes).
-    const MILHAO_XP_TABLE = [100, 200, 300, 400, 500, 1000, 2000, 3000, 5000, 10000];
-
     let isMilhao = false;
+    let milhaoRewardMode: 'fixed_xp' | 'tier_steps' = 'fixed_xp';
+    let milhaoTierSteps: number | null = null;
+    let milhaoConfiguredTotalXp: number | null = null;
     try {
-      const { data: ch } = await supabase.from('challenges').select('title').eq('id', challengeId).maybeSingle();
+      const { data: ch } = await supabase
+        .from('challenges')
+        .select('title, xp_reward, reward_mode, reward_tier_steps')
+        .eq('id', challengeId)
+        .maybeSingle();
       const title = String(ch?.title || '');
       isMilhao = /milh(ã|a)o/i.test(title);
+
+      const modeRaw = String((ch as any)?.reward_mode || '').trim();
+      milhaoRewardMode = modeRaw === 'tier_steps' ? 'tier_steps' : 'fixed_xp';
+      milhaoTierSteps = typeof (ch as any)?.reward_tier_steps === 'number' ? Number((ch as any).reward_tier_steps) : null;
+      milhaoConfiguredTotalXp =
+        typeof (ch as any)?.xp_reward === 'number' ? Number((ch as any).xp_reward) : Number((ch as any)?.xp_reward ?? NaN);
     } catch {
       isMilhao = false;
     }
@@ -87,7 +138,7 @@ serve(async (req) => {
 
     const { data: attempt } = await supabase
       .from('quiz_attempts')
-      .select('submitted_at')
+      .select('submitted_at, reward_total_xp_target')
       .eq('user_id', user.id)
       .eq('challenge_id', challengeId)
       .maybeSingle();
@@ -104,9 +155,42 @@ serve(async (req) => {
       .eq('id', user.id)
       .maybeSingle();
 
-    const xpEarned = isCorrect
-      ? (isMilhao ? (MILHAO_XP_TABLE[questionOrderIndex] ?? option.quiz_questions.xp_value) : option.quiz_questions.xp_value)
-      : 0;
+    let xpEarned = 0;
+    if (isCorrect) {
+      if (isMilhao) {
+        let targetTotalXp: number | null = null;
+        if (milhaoRewardMode === 'tier_steps') {
+          const steps = clampInt(Number(milhaoTierSteps ?? 1), 1, 5);
+          if (attempt?.reward_total_xp_target != null) {
+            targetTotalXp = Math.max(0, Number(attempt.reward_total_xp_target) || 0);
+          } else {
+            const computed = xpNeededToAdvanceTierSteps({
+              currentXp: Number(profile?.xp) || 0,
+              currentTier: profile?.tier,
+              steps,
+            });
+            targetTotalXp = computed;
+            await supabase
+              .from('quiz_attempts')
+              .update({ reward_total_xp_target: computed })
+              .eq('user_id', user.id)
+              .eq('challenge_id', challengeId);
+          }
+        } else {
+          const configured = Number(milhaoConfiguredTotalXp || 0);
+          targetTotalXp = configured > 0 ? configured : DEFAULT_MILHAO_TOTAL_XP;
+        }
+
+        const clampedTarget = clampInt(Number(targetTotalXp || 0), 0, MAX_MILHAO_TOTAL_XP);
+        const safeTarget = clampedTarget > 0 ? Math.max(MIN_MILHAO_TOTAL_XP, clampedTarget) : 0;
+        const scale = safeTarget > 0 ? safeTarget / MILHAO_XP_TOTAL_BASE : 0;
+        const base = MILHAO_XP_TABLE[questionOrderIndex] ?? option.quiz_questions.xp_value;
+        const scaled = Math.round(Number(base) * scale);
+        xpEarned = safeTarget > 0 ? Math.max(1, scaled) : 0;
+      } else {
+        xpEarned = option.quiz_questions.xp_value;
+      }
+    }
     // Regra de jogo: líderes normalmente não competem, mas para testes isso pode ser habilitado/alterado no futuro.
     const xpBlockedForLeader = false;
 

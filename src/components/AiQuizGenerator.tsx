@@ -34,6 +34,9 @@ export const AiQuizGenerator = ({ defaultChallengeId }: { defaultChallengeId?: s
   const [mode] = useState<'especial' | 'milzao'>('milzao')
   const [specialties, setSpecialties] = useState<string[]>([])
   const [context, setContext] = useState<string>('')
+  const [rewardMode, setRewardMode] = useState<'fixed_xp' | 'tier_steps'>('fixed_xp')
+  const [rewardTotalXp, setRewardTotalXp] = useState<number>(1000)
+  const [rewardTierSteps, setRewardTierSteps] = useState<number>(1)
   const [challenges, setChallenges] = useState<Challenge[]>([])
   const [challengeId, setChallengeId] = useState('')
   const [loading, setLoading] = useState(false)
@@ -417,12 +420,34 @@ export const AiQuizGenerator = ({ defaultChallengeId }: { defaultChallengeId?: s
       toast('Preencha as 10 posições do Quiz do Milhão antes de publicar.')
       return
     }
+    if (rewardMode === 'fixed_xp') {
+      const xp = Number(rewardTotalXp || 0)
+      if (!Number.isFinite(xp) || xp < 100 || xp > 5000) {
+        toast('Defina uma premiação total (XP) entre 100 e 5000.')
+        return
+      }
+    }
+    if (rewardMode === 'tier_steps') {
+      const steps = Number(rewardTierSteps || 0)
+      if (!Number.isFinite(steps) || steps < 1 || steps > 5) {
+        toast('Defina a quantidade de patamares (1 a 5).')
+        return
+      }
+    }
     try {
       setLoading(true)
       const resp = await apiFetch('/api/admin?handler=studio-publish-quiz-milhao', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ topic, quiz: fullQuiz }),
+        body: JSON.stringify({
+          topic,
+          quiz: fullQuiz,
+          reward: {
+            mode: rewardMode,
+            total_xp: rewardMode === 'fixed_xp' ? Number(rewardTotalXp || 0) : undefined,
+            tier_steps: rewardMode === 'tier_steps' ? Number(rewardTierSteps || 0) : undefined,
+          },
+        }),
       })
       const json = await resp.json().catch(() => ({}))
       if (!resp.ok) throw new Error(json?.error || 'Falha ao publicar Quiz do Milhão')
@@ -452,6 +477,54 @@ export const AiQuizGenerator = ({ defaultChallengeId }: { defaultChallengeId?: s
                 <span>{isGeneratingQuiz ? `${generationProgress}%` : `${milhaoProgress}%`}</span>
               </div>
               <Progress value={isGeneratingQuiz ? generationProgress : milhaoProgress} className="h-2" />
+            </div>
+          )}
+
+          {mode === 'milzao' && (
+            <div className="rounded-lg border border-border bg-muted/20 p-3">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+                <div className="space-y-2">
+                  <Label>Premiação do Quiz do Milhão</Label>
+                  <Select value={rewardMode} onValueChange={(v) => setRewardMode(v as any)}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecione" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="fixed_xp">XP total (recomendado)</SelectItem>
+                      <SelectItem value="tier_steps">Avançar patamares (badge)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {rewardMode === 'fixed_xp' ? (
+                  <div className="space-y-2">
+                    <Label>Total de XP (10 níveis)</Label>
+                    <Input
+                      type="number"
+                      min={100}
+                      max={5000}
+                      value={rewardTotalXp}
+                      onChange={(e) => setRewardTotalXp(Number(e.target.value) || 0)}
+                    />
+                    <p className="text-[11px] text-muted-foreground">
+                      O XP é distribuído proporcionalmente pelo avanço (níveis 1→10) e encerra ao errar.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <Label>Patamares a avançar</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={5}
+                      value={rewardTierSteps}
+                      onChange={(e) => setRewardTierSteps(Number(e.target.value) || 1)}
+                    />
+                    <p className="text-[11px] text-muted-foreground">
+                      O sistema calcula o XP necessário para avançar {rewardTierSteps} patamar(es) com base no tier atual do jogador no início da tentativa.
+                    </p>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 

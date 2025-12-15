@@ -12,12 +12,12 @@ export const challengeSchema = z.object({
     .max(1000, "A descrição deve ter no máximo 1000 caracteres")
     .optional(),
   type: z.enum(["quiz", "forum", "mentoria", "inspecao", "atitude"]),
-  xp_reward: z
+  reward_mode: z.enum(["fixed_xp", "tier_steps"]).optional().default("fixed_xp"),
+  reward_tier_steps: z.coerce.number().int().min(1).max(5).optional().nullable(),
+  xp_reward: z.coerce
     .number()
     .int("XP deve ser um número inteiro")
-    .refine((val) => [10, 20, 30, 50].includes(val), {
-      message: "XP deve ser 10 (Básico), 20 (Intermediário), 30 (Avançado) ou 50 (Especialista)",
-    }),
+    .min(0, "XP inválido"),
   campaign_id: z.string().uuid().optional().nullable(),
   require_two_leader_eval: z.boolean().default(false),
   evidence_required: z.boolean().default(false),
@@ -34,6 +34,28 @@ export const challengeSchema = z.object({
   // Para tipos diferentes de 'quiz', campanha é obrigatória
   if (data.type !== 'quiz' && !data.campaign_id) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['campaign_id'], message: 'Selecione uma campanha' });
+  }
+
+  if (data.type !== 'quiz') {
+    const mode = data.reward_mode || 'fixed_xp';
+    if (mode === 'tier_steps') {
+      if (!data.reward_tier_steps || data.reward_tier_steps < 1 || data.reward_tier_steps > 5) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['reward_tier_steps'],
+          message: 'Informe quantos patamares (1 a 5)',
+        });
+      }
+    } else {
+      const allowed = [10, 20, 30, 50];
+      if (!allowed.includes(Number(data.xp_reward))) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['xp_reward'],
+          message: 'XP deve ser 10 (Básico), 20 (Intermediário), 30 (Avançado) ou 50 (Especialista)',
+        });
+      }
+    }
   }
 });
 

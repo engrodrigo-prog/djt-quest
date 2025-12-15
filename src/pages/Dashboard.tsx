@@ -30,6 +30,8 @@ interface Challenge {
   description: string;
   type: string;
   xp_reward: number;
+  reward_mode?: string | null;
+  reward_tier_steps?: number | null;
   require_two_leader_eval: boolean;
    campaign_id?: string | null;
   created_at?: string;
@@ -357,7 +359,7 @@ const Dashboard = () => {
       if (!c) return false;
       if ((c.type || '').toLowerCase() !== 'quiz') return false;
       if (!isMilhao(String(c.title || ''))) return false;
-      if ((c.xp_reward || 0) <= 0) return false;
+      if ((c.reward_mode || '') !== 'tier_steps' && (c.xp_reward || 0) <= 0) return false;
       // Evita mostrar tentativas antigas que falharam e ficaram sem perguntas
       const total = quizQuestionCounts[c.id] || 0;
       return total >= 10;
@@ -612,7 +614,9 @@ const Dashboard = () => {
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between gap-2">
                   <Badge variant="outline" className="w-fit text-[11px] uppercase tracking-wide border-white/50 text-white">
-                    10 níveis • {featuredMilhao.xp_reward} XP total
+                    {featuredMilhao.reward_mode === 'tier_steps'
+                      ? `10 níveis • +${featuredMilhao.reward_tier_steps || 1} patamar(es)`
+                      : `10 níveis • ${featuredMilhao.xp_reward} XP total`}
                   </Badge>
                   {completedChallengeIds.has(featuredMilhao.id) && (
                     <Badge variant="secondary" className="text-[11px]">
@@ -711,7 +715,11 @@ const Dashboard = () => {
                       <Badge className="text-[10px]" variant="secondary">{typeDomain(challenge.type)}</Badge>
                     </div>
                     <div className="flex items-center gap-2">
-                      <span className="text-xs font-semibold text-accent">+{challenge.xp_reward} XP</span>
+                      <span className="text-xs font-semibold text-accent">
+                        {challenge.reward_mode === 'tier_steps'
+                          ? `+${challenge.reward_tier_steps || 1} patamar(es)`
+                          : `+${challenge.xp_reward} XP`}
+                      </span>
                       {canDeleteContent && (
                         <button
                           type="button"

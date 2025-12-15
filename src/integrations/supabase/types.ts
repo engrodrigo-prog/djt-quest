@@ -142,6 +142,8 @@ export type Database = {
           evidence_required: boolean | null
           id: string
           require_two_leader_eval: boolean | null
+          reward_mode: string | null
+          reward_tier_steps: number | null
           target_coord_ids: string[] | null
           target_dept_ids: string[] | null
           target_div_ids: string[] | null
@@ -158,6 +160,8 @@ export type Database = {
           evidence_required?: boolean | null
           id?: string
           require_two_leader_eval?: boolean | null
+          reward_mode?: string | null
+          reward_tier_steps?: number | null
           target_coord_ids?: string[] | null
           target_dept_ids?: string[] | null
           target_div_ids?: string[] | null
@@ -174,6 +178,8 @@ export type Database = {
           evidence_required?: boolean | null
           id?: string
           require_two_leader_eval?: boolean | null
+          reward_mode?: string | null
+          reward_tier_steps?: number | null
           target_coord_ids?: string[] | null
           target_dept_ids?: string[] | null
           target_div_ids?: string[] | null

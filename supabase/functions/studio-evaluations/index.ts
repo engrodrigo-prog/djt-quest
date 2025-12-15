@@ -5,6 +5,41 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+type TierPrefix = 'EX' | 'FO' | 'GU';
+const TIER_THRESHOLDS: Record<TierPrefix, number[]> = {
+  EX: [0, 300, 700, 1200, 1800],
+  FO: [0, 400, 900, 1500, 2200],
+  GU: [0, 500, 1100, 1800, 2600],
+};
+
+const parseTier = (tierRaw: unknown): { prefix: TierPrefix; level: number } | null => {
+  const tier = (tierRaw ?? '').toString().trim().toUpperCase();
+  const match = tier.match(/^(EX|FO|GU)\s*-\s*([1-5])$/);
+  if (!match) return null;
+  const prefix = match[1] as TierPrefix;
+  const level = Number(match[2]);
+  if (!Number.isFinite(level) || level < 1 || level > 5) return null;
+  return { prefix, level };
+};
+
+const clampInt = (n: number, min: number, max: number) => {
+  if (!Number.isFinite(n)) return min;
+  return Math.max(min, Math.min(max, Math.floor(n)));
+};
+
+const xpNeededToAdvanceTierSteps = (params: { currentXp: number; currentTier: unknown; steps: number }) => {
+  const { currentXp, currentTier, steps } = params;
+  const parsed = parseTier(currentTier);
+  if (!parsed) return 0;
+
+  const { prefix, level } = parsed;
+  const thresholds = TIER_THRESHOLDS[prefix];
+  const targetLevel = clampInt(level + steps, 1, 5);
+  const targetThreshold = thresholds[targetLevel - 1] ?? thresholds[thresholds.length - 1] ?? 0;
+  const needed = Math.max(0, targetThreshold - (Number(currentXp) || 0));
+  return Math.floor(needed);
+};
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -47,8 +82,8 @@ Deno.serve(async (req) => {
       .from('events')
       .select(`
         *,
-        user:profiles!events_user_id_fkey(id, name, coord_id, team_id),
-        challenge:challenges(id, title, xp_reward, require_two_leader_eval, type)
+        user:profiles!events_user_id_fkey(id, name, coord_id, team_id, xp, tier),
+        challenge:challenges(id, title, xp_reward, reward_mode, reward_tier_steps, require_two_leader_eval, type)
       `)
       .eq('id', eventId)
       .single();
@@ -175,8 +210,18 @@ Deno.serve(async (req) => {
                                event.retry_count === 2 ? 0.6 : 0.4;
 
           const teamModifier = event.team_modifier_applied || 1.0;
+          const rewardMode = String((challenge as any)?.reward_mode || '').trim();
+          let baseRewardXp = Number((challenge as any)?.xp_reward || 0);
+          if (rewardMode === 'tier_steps') {
+            const steps = clampInt(Number((challenge as any)?.reward_tier_steps || 1), 1, 5);
+            baseRewardXp = xpNeededToAdvanceTierSteps({
+              currentXp: Number((collaborator as any)?.xp) || 0,
+              currentTier: (collaborator as any)?.tier,
+              steps,
+            });
+          }
           const finalXP = Math.floor(
-            challenge.xp_reward * qualityScore * retryPenalty * teamModifier
+            baseRewardXp * qualityScore * retryPenalty * teamModifier
           );
 
           // Inserir 2ª avaliação
@@ -256,8 +301,18 @@ Deno.serve(async (req) => {
                              event.retry_count === 1 ? 0.8 :
                              event.retry_count === 2 ? 0.6 : 0.4;
         const teamModifier = event.team_modifier_applied || 1.0;
+        const rewardMode = String((challenge as any)?.reward_mode || '').trim();
+        let baseRewardXp = Number((challenge as any)?.xp_reward || 0);
+        if (rewardMode === 'tier_steps') {
+          const steps = clampInt(Number((challenge as any)?.reward_tier_steps || 1), 1, 5);
+          baseRewardXp = xpNeededToAdvanceTierSteps({
+            currentXp: Number((collaborator as any)?.xp) || 0,
+            currentTier: (collaborator as any)?.tier,
+            steps,
+          });
+        }
         const finalXP = Math.floor(
-          challenge.xp_reward * qualityScore * retryPenalty * teamModifier
+          baseRewardXp * qualityScore * retryPenalty * teamModifier
         );
 
         await supabase
