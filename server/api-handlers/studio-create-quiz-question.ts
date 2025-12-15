@@ -1,6 +1,7 @@
 // @ts-nocheck
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { createClient } from '@supabase/supabase-js'
+import { proofreadPtBrStrings } from '../lib/ai-proofread-ptbr'
 
 const SUPABASE_URL = process.env.SUPABASE_URL as string
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY as string
@@ -38,6 +39,30 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ error: 'Campos obrigatórios: challengeId, question_text, difficulty_level, options[]' })
     }
 
+    // Revisão ortográfica (IA) - apenas escrita/acentos; preserva o conteúdo.
+    let revisedQuestionText = String(question_text || '')
+    let revisedOptions = options
+    try {
+      const strings: string[] = [String(question_text || '')]
+      for (const opt of options) {
+        strings.push(String(opt?.option_text || ''))
+        if (opt?.explanation) strings.push(String(opt.explanation || ''))
+      }
+      const { output } = await proofreadPtBrStrings({ strings })
+      let cursor = 0
+      revisedQuestionText = output[cursor++] ?? revisedQuestionText
+      revisedOptions = options.map((opt: any) => {
+        const option_text = output[cursor++] ?? String(opt?.option_text || '')
+        let explanation = opt?.explanation
+        if (opt?.explanation) {
+          explanation = output[cursor++] ?? String(opt.explanation || '')
+        }
+        return { ...opt, option_text, explanation }
+      })
+    } catch {
+      // ignore
+    }
+
     const dl = String(difficulty_level) as keyof typeof XP_BY_LEVEL
     const xp = XP_BY_LEVEL[dl]
     if (!xp) return res.status(400).json({ error: 'difficulty_level inválido' })
@@ -46,7 +71,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .from('quiz_questions')
       .insert({
         challenge_id: challengeId,
-        question_text,
+        question_text: revisedQuestionText,
         // OBS: precisa respeitar o CHECK do banco (basico/intermediario/avancado/especialista)
         difficulty_level: dl,
         xp_value: xp,
@@ -57,7 +82,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (qErr) return res.status(400).json({ error: qErr.message })
 
-    const toInsert = options.map((opt: any) => ({
+    const toInsert = revisedOptions.map((opt: any) => ({
       question_id: question!.id,
       option_text: String(opt?.option_text || '').trim(),
       is_correct: !!opt?.is_correct,

@@ -1,6 +1,7 @@
 // @ts-nocheck
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
+import { proofreadPtBrStrings } from '../lib/ai-proofread-ptbr';
 
 const SUPABASE_URL = process.env.SUPABASE_URL as string;
 const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY) as string;
@@ -77,11 +78,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       String(quiz.description || '').trim() ||
       'Quiz do Milhão com 10 perguntas progressivas de conhecimento técnico DJT/CPFL.';
 
+    // Revisão ortográfica (IA) - não altera conteúdo, apenas corrige escrita/acentos.
+    let revisedTitle = title;
+    let revisedDescription = description;
+    try {
+      const { output } = await proofreadPtBrStrings({ strings: [title, description] });
+      revisedTitle = output[0] || title;
+      revisedDescription = output[1] || description;
+    } catch {
+      // ignore, publish as-is
+    }
+
     const { data: challenge, error: chErr } = await admin
       .from('challenges')
       .insert({
-        title,
-        description,
+        title: revisedTitle,
+        description: revisedDescription,
         type: 'quiz',
         xp_reward: rewardMode === 'fixed_xp' ? rewardTotalXp : 0,
         reward_mode: rewardMode,
@@ -115,9 +127,36 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     };
 
+    // Revisão ortográfica (IA) do conteúdo do quiz: enunciados e alternativas.
+    // Mantém sentido; apenas corrige acentuação/ortografia e pequenos erros de digitação.
+    let revisedQuiz = quiz;
     try {
-      for (let idx = 0; idx < quiz.questoes.length; idx++) {
-        const q = quiz.questoes[idx];
+      const texts: string[] = [];
+      for (const q of quiz.questoes || []) {
+        texts.push(String(q?.enunciado || ''));
+        const alternativas = q?.alternativas || {};
+        for (const k of ['A', 'B', 'C', 'D']) {
+          texts.push(String(alternativas?.[k] || ''));
+        }
+      }
+      const { output } = await proofreadPtBrStrings({ strings: texts });
+      let cursor = 0;
+      revisedQuiz = { ...quiz, questoes: (quiz.questoes || []).map((q: any) => {
+        const enunciado = output[cursor++] ?? q.enunciado;
+        const alternativasIn = q?.alternativas || {};
+        const alternativasOut: any = { ...alternativasIn };
+        for (const k of ['A','B','C','D']) {
+          alternativasOut[k] = output[cursor++] ?? alternativasIn[k];
+        }
+        return { ...q, enunciado, alternativas: alternativasOut };
+      })};
+    } catch {
+      // ignore
+    }
+
+    try {
+      for (let idx = 0; idx < revisedQuiz.questoes.length; idx++) {
+        const q = revisedQuiz.questoes[idx];
         const level = Number(q.nivel || idx + 1);
         const difficulty_level = levelToDifficulty(level);
         const xp_value = levelToXp(level);
