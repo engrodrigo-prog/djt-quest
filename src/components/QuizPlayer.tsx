@@ -11,6 +11,8 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { apiFetch } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
+import buriniImg from "@/assets/backgrounds/burini.png";
 
 interface QuizPlayerProps {
   challengeId: string;
@@ -39,6 +41,14 @@ interface AnswerResult {
   endedReason?: "completed" | "wrong";
   totalXpEarned?: number;
   xpBlockedForLeader?: boolean;
+  xpApplied?: boolean;
+  profileXpAfter?: number | null;
+}
+
+interface PostWrongHelpState {
+  loading: boolean;
+  text: string;
+  source: "ai" | "fallback";
 }
 
 const MILHAO_LEVELS = [
@@ -77,6 +87,7 @@ const inferDomain = (questionText: string, challengeTitle: string, quizSpecialti
 
 export function QuizPlayer({ challengeId }: QuizPlayerProps) {
   const navigate = useNavigate();
+  const { refreshUserSession } = useAuth();
   const [questions, setQuestions] = useState<Question[]>([]);
   const [challengeTitle, setChallengeTitle] = useState<string>('');
   const [challengeSpecialties, setChallengeSpecialties] = useState<string[] | null>(null);
@@ -93,7 +104,62 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
   const [helpUsedThisQuestion, setHelpUsedThisQuestion] = useState(false);
   const [monitorDialogOpen, setMonitorDialogOpen] = useState(false);
   const [monitorLoading, setMonitorLoading] = useState(false);
+  const [postWrongHelp, setPostWrongHelp] = useState<PostWrongHelpState | null>(null);
+  const postWrongHelpKeyRef = useRef<string | null>(null);
+  const [isSpeaking, setIsSpeaking] = useState(false);
   const progressSyncForChallengeRef = useRef<string | null>(null);
+
+  const stopSpeech = useCallback(() => {
+    try {
+      if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+      }
+    } catch {
+      // ignore
+    } finally {
+      setIsSpeaking(false);
+    }
+  }, []);
+
+  const speakPtBr = useCallback(
+    (rawText: string) => {
+      const text = String(rawText || "").trim();
+      if (!text) return;
+      if (typeof window === "undefined" || !("speechSynthesis" in window) || typeof SpeechSynthesisUtterance === "undefined") {
+        toast.error("Leitura em voz não disponível neste navegador.");
+        return;
+      }
+
+      const synth = window.speechSynthesis;
+      synth.cancel();
+
+      const utter = new SpeechSynthesisUtterance(text);
+      utter.lang = "pt-BR";
+      utter.rate = 1;
+      utter.pitch = 1;
+
+      const voices = typeof synth.getVoices === "function" ? synth.getVoices() : [];
+      const lc = (s: string) => String(s || "").toLowerCase();
+      const candidates = voices.filter((v) => lc(v.lang).startsWith("pt"));
+      const maleHint = /male|masc|mascul|daniel|ricardo|paulo|carlos|joa?o/i;
+      const chosen =
+        candidates.find((v) => lc(v.lang).startsWith("pt-br") && maleHint.test(lc(v.name))) ||
+        candidates.find((v) => lc(v.lang).startsWith("pt-br") && v.default) ||
+        candidates.find((v) => lc(v.lang).startsWith("pt-br")) ||
+        candidates.find((v) => v.default) ||
+        candidates[0];
+      if (chosen) utter.voice = chosen;
+
+      utter.onend = () => setIsSpeaking(false);
+      utter.onerror = () => setIsSpeaking(false);
+
+      setIsSpeaking(true);
+      synth.speak(utter);
+    },
+    []
+  );
+
+  useEffect(() => () => stopSpeech(), [stopSpeech]);
 
   const syncProgressFromDb = useCallback(async (opts?: { silent?: boolean }) => {
     if (!challengeId) return;
@@ -234,12 +300,76 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
       loadOptions(questions[currentQuestionIndex].id);
       setMonitorHelp(null);
       setHelpUsedThisQuestion(false);
+      setPostWrongHelp(null);
+      postWrongHelpKeyRef.current = null;
+      stopSpeech();
     }
-  }, [currentQuestionIndex, loadOptions, questions]);
+  }, [currentQuestionIndex, loadOptions, questions, stopSpeech]);
 
   const isMilhao =
     questions.length === 10 &&
     /milh(ã|a)o/i.test(challengeTitle || '');
+
+  useEffect(() => {
+    if (!answerResult || answerResult.isCorrect) return;
+    if (!isMilhao) return;
+    const q = questions[currentQuestionIndex];
+    if (!q) return;
+    if (!options.length) return;
+    if (!answerResult.correctOptionId) return;
+
+    const correctIdx = options.findIndex((o) => o.id === answerResult.correctOptionId);
+    const selectedIdx = options.findIndex((o) => o.id === selectedOption);
+    const correctLabel = correctIdx >= 0 ? String.fromCharCode(65 + correctIdx) : null;
+    const selectedLabel = selectedIdx >= 0 ? String.fromCharCode(65 + selectedIdx) : null;
+    const correctOpt = correctIdx >= 0 ? options[correctIdx] : null;
+    const selectedOpt = selectedIdx >= 0 ? options[selectedIdx] : null;
+
+    const key = `${q.id}:${answerResult.correctOptionId}:${selectedOption || "none"}`;
+    if (postWrongHelpKeyRef.current === key) return;
+    postWrongHelpKeyRef.current = key;
+
+    const fallbackParts: string[] = ["Vamos revisar rapidinho:"];
+    if (correctLabel && correctOpt) {
+      fallbackParts.push(`A correta era ${correctLabel}. ${correctOpt.option_text}`);
+      if (correctOpt.explanation) fallbackParts.push(correctOpt.explanation);
+    }
+    if (selectedLabel && selectedOpt) {
+      fallbackParts.push(`Você marcou ${selectedLabel}. ${selectedOpt.option_text}`);
+    }
+    fallbackParts.push("Dica: procure a palavra‑chave e o critério (ANSI, seletividade, tempo/corrente) antes de escolher.");
+
+    setPostWrongHelp({ loading: true, text: fallbackParts.filter(Boolean).join("\n\n"), source: "fallback" });
+
+    (async () => {
+      try {
+        const payload = {
+          mode: "post_wrong",
+          question_id: q.id,
+          question: q.question_text,
+          options,
+          nivel: currentQuestionIndex + 1,
+          domain: "subestacoes",
+          selected_label: selectedLabel,
+          correct_label: correctLabel,
+        };
+        const resp = await apiFetch("/api/ai?handler=quiz-burini", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const json = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(json?.error || "Falha ao consultar o monitor");
+        const help = json?.help || json;
+        const text = String(help?.analysis || "").trim();
+        if (!text) throw new Error("Resposta vazia do monitor");
+        setPostWrongHelp({ loading: false, text, source: "ai" });
+      } catch (e) {
+        console.error("Monitor pós-erro:", e);
+        setPostWrongHelp((prev) => (prev ? { ...prev, loading: false } : prev));
+      }
+    })();
+  }, [answerResult, currentQuestionIndex, isMilhao, options, questions, selectedOption]);
 
   const handleSubmitAnswer = async () => {
     if (!selectedOption) {
@@ -291,6 +421,12 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
         if (result.xpBlockedForLeader) {
           toast.info('Líderes não acumulam XP nos quizzes.');
         }
+        if (!result.xpBlockedForLeader && result.xpEarned > 0) {
+          if (result.xpApplied === false) {
+            toast.error("Resposta correta, mas houve falha ao aplicar o XP. Atualize a página e tente novamente.");
+          }
+          refreshUserSession().catch((e) => console.warn("QuizPlayer: refreshUserSession failed", e));
+        }
       } else {
         if (isMilhao && result.isCompleted && result.endedReason === "wrong") {
           toast.error(`Resposta incorreta. Fim de jogo! Total: ${result.totalXpEarned ?? 0} XP`);
@@ -319,6 +455,7 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
     // Clear UI state early for smoother transitions
     setSelectedOption("");
     if (answerResult?.isCompleted) {
+      refreshUserSession().catch((e) => console.warn("QuizPlayer: refreshUserSession failed", e));
       const total = answerResult?.totalXpEarned ?? 0;
       if (isMilhao && answerResult.endedReason === "wrong") {
         toast.error(`Fim de jogo! Total acumulado: ${total} XP`);
@@ -331,6 +468,7 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
     setAnswerResult(null);
     if (isMilhao && answerResult && !answerResult.isCorrect) {
       // Regra do Quiz do Milhão: errou, encerra (fallback UI)
+      refreshUserSession().catch((e) => console.warn("QuizPlayer: refreshUserSession failed", e));
       navigate("/dashboard");
       return;
     }
@@ -374,6 +512,21 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
     answerResult?.correctOptionId ? options.find((o) => o.id === answerResult.correctOptionId) || null : null;
   const correctOptionIndex = correctOptionObj ? options.findIndex((o) => o.id === correctOptionObj.id) : -1;
   const correctOptionLabel = correctOptionIndex >= 0 ? String.fromCharCode(65 + correctOptionIndex) : null;
+
+  const monitorReviewFallbackText = (() => {
+    if (!answerResult || answerResult.isCorrect) return "";
+    const parts: string[] = ["Vamos revisar rapidinho:"];
+    if (correctOptionLabel && correctOptionObj) {
+      parts.push(`A correta era ${correctOptionLabel}. ${correctOptionObj.option_text}`);
+      if (correctOptionObj.explanation) parts.push(correctOptionObj.explanation);
+    }
+    if (selectedOptionLabel && selectedOptionObj) {
+      parts.push(`Você marcou ${selectedOptionLabel}. ${selectedOptionObj.option_text}`);
+    }
+    parts.push("Dica: procure a palavra‑chave e o critério (ANSI, seletividade, tempo/corrente) antes de escolher.");
+    return parts.filter(Boolean).join("\n\n");
+  })();
+  const monitorReviewText = String(postWrongHelp?.text || monitorReviewFallbackText || "").trim();
 
   const difficultyLabelMap: Record<string, string> = {
     basico: "Básico",
@@ -628,6 +781,47 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
                   Líderes não acumulam XP nos quizzes, mas o acerto foi registrado no histórico.
                 </p>
               )}
+            </div>
+          )}
+
+          {answerResult && !answerResult.isCorrect && isMilhao && monitorReviewText && (
+            <div className="rounded-lg border bg-background/40 p-4">
+              <div className="flex items-start gap-3">
+                <img
+                  src={buriniImg}
+                  alt="Monitor de Subestações"
+                  className="h-14 w-14 rounded-full object-cover border border-border"
+                />
+                <div className="relative flex-1 rounded-xl border bg-background p-3 shadow-sm">
+                  <div
+                    aria-hidden
+                    className="absolute -left-2 top-5 h-0 w-0 border-y-8 border-y-transparent border-r-8 border-r-border"
+                  />
+                  <div
+                    aria-hidden
+                    className="absolute -left-[7px] top-5 h-0 w-0 border-y-7 border-y-transparent border-r-7 border-r-background"
+                  />
+                  <p className="text-xs text-muted-foreground mb-1">Monitor de Subestações • Revisão</p>
+                  <p className="whitespace-pre-line text-sm text-foreground">{monitorReviewText}</p>
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => speakPtBr(monitorReviewText)}
+                      disabled={isSpeaking}
+                    >
+                      Ouvir
+                    </Button>
+                    <Button type="button" size="sm" variant="outline" onClick={stopSpeech} disabled={!isSpeaking}>
+                      Parar
+                    </Button>
+                    {postWrongHelp?.loading && (
+                      <span className="text-xs text-muted-foreground">Analisando com o monitor…</span>
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 

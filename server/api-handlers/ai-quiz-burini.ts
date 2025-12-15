@@ -60,16 +60,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { data: userData, error: userErr } = await admin.auth.getUser(token);
     if (userErr || !userData?.user) return res.status(401).json({ error: 'Unauthorized' });
 
-    const { question, options, nivel, question_id, domain } = req.body || {};
+    const { question, options, nivel, question_id, domain, mode, selected_label, correct_label } = req.body || {};
     if (!question || !Array.isArray(options) || options.length < 2) {
       return res.status(400).json({ error: 'Campos obrigatórios: question, options[]' });
     }
+
+    const normalizedMode = String(mode || '').toLowerCase().trim();
+    const isPostWrong =
+      normalizedMode === 'post_wrong' ||
+      normalizedMode === 'post-wrong' ||
+      normalizedMode === 'post' ||
+      normalizedMode === 'review';
 
     const monitor = MONITORS[normalizeDomain(domain)];
 
     // Se possível, elimina 2 alternativas erradas (por ID) sem expor a correta.
     let eliminate_option_ids: string[] = [];
-    if (question_id) {
+    if (!isPostWrong && question_id) {
       try {
         const { data: rows } = await admin
           .from('quiz_options')
@@ -86,15 +93,44 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 Seu estilo:
 - Linguagem técnica, direta, profissional, em pt-BR.
 - Explica o raciocínio, compara alternativas, destaca riscos e normas.
-- NUNCA entrega diretamente "a letra correta".
+- ${
+      isPostWrong
+        ? 'Modo revisão: o usuário já respondeu e errou; você PODE dizer qual alternativa era a correta (letra) e explicar o porquê, e por que a escolhida estava errada.'
+        : 'NUNCA entrega diretamente "a letra correta".'
+    }
 - Pode indicar 1 ou 2 alternativas mais improváveis e explicar o porquê.
-- Se necessário, sugira duas alternativas que podem ser eliminadas (sem garantir a correta).`;
+- ${isPostWrong ? 'Trate com respeito e foco didático.' : 'Se necessário, sugira duas alternativas que podem ser eliminadas (sem garantir a correta).'}`;
     const safety = `Regras de segurança/conteúdo:
 - Proibido mencionar SmartLine/Smartline/Smart Line (outro projeto).
 - Não cite/compare com nomes de programas de TV/marcas.
 - Não invente procedimentos internos inexistentes; se faltar contexto, explique a incerteza e foque em princípios.`;
 
-    const user = `Pergunta de quiz (nível: ${nivel || 'progressivo'}):
+    const user = isPostWrong
+      ? `Pergunta de quiz (nível: ${nivel || 'progressivo'}):
+${question}
+
+Alternativas:
+${options
+  .map(
+    (opt: any, idx: number) =>
+      `${String.fromCharCode(65 + idx)}) ${String(opt?.option_text || opt?.text || '').trim()}`
+  )
+  .join('\n')}
+
+Usuário respondeu: ${String(selected_label || '').toUpperCase() || 'N/D'}.
+Correta: ${String(correct_label || '').toUpperCase() || 'N/D'}.
+
+Tarefa (revisão pós-erro):
+- Explique em linguagem técnica e didática por que a correta é a correta.
+- Explique o erro conceitual típico por trás da resposta escolhida (sem humilhar).
+- Traga 1 dica prática para acertar perguntas assim no futuro.
+
+Retorne JSON estrito:
+{
+  "analysis": "texto curto estilo balão (6-10 linhas), pode citar a letra correta",
+  "hint": "dica final curta"
+}`
+      : `Pergunta de quiz (nível: ${nivel || 'progressivo'}):
 ${question}
 
 Alternativas:

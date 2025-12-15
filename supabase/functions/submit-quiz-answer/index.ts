@@ -19,6 +19,19 @@ const TIER_THRESHOLDS: Record<TierPrefix, number[]> = {
   GU: [0, 500, 1100, 1800, 2600],
 };
 
+const safeErrMsg = (err: unknown) => {
+  if (!err) return '';
+  if (typeof err === 'string') return err;
+  if (err instanceof Error) return err.message;
+  const msg = (err as any)?.message;
+  if (typeof msg === 'string') return msg;
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return String(err);
+  }
+};
+
 const parseTier = (tierRaw: unknown): { prefix: TierPrefix; level: number } | null => {
   const tier = (tierRaw ?? '').toString().trim().toUpperCase();
   const match = tier.match(/^(EX|FO|GU)\s*-\s*([1-5])$/);
@@ -32,6 +45,19 @@ const parseTier = (tierRaw: unknown): { prefix: TierPrefix; level: number } | nu
 const clampInt = (n: number, min: number, max: number) => {
   if (!Number.isFinite(n)) return min;
   return Math.max(min, Math.min(max, Math.floor(n)));
+};
+
+const computeTierFromXpLocal = (params: { currentTier: unknown; xp: number }) => {
+  const parsed = parseTier(params.currentTier);
+  if (!parsed) return null;
+  const { prefix } = parsed;
+  const thresholds = TIER_THRESHOLDS[prefix];
+  const xp = Number(params.xp) || 0;
+  if (xp >= (thresholds[4] ?? Infinity)) return `${prefix}-5`;
+  if (xp >= (thresholds[3] ?? Infinity)) return `${prefix}-4`;
+  if (xp >= (thresholds[2] ?? Infinity)) return `${prefix}-3`;
+  if (xp >= (thresholds[1] ?? Infinity)) return `${prefix}-2`;
+  return `${prefix}-1`;
 };
 
 const xpNeededToAdvanceTierSteps = (params: { currentXp: number; currentTier: unknown; steps: number }) => {
@@ -212,16 +238,47 @@ serve(async (req) => {
     }
 
     // Update XP + tier if correct (usa RPC para manter tier sincronizado)
-    if (xpEarned > 0) {
-      try {
-        await supabase.rpc('increment_user_xp', { _user_id: user.id, _xp_to_add: xpEarned });
-      } catch (e) {
+    let xpApplied = false;
+    let profileXpAfter: number | null = null;
+    if (xpEarned > 0 && !xpBlockedForLeader) {
+      const { error: incErr } = await supabase.rpc('increment_user_xp', { _user_id: user.id, _xp_to_add: xpEarned });
+      if (incErr) {
+        console.error('increment_user_xp failed:', incErr.message || incErr);
         // fallback: mantém comportamento anterior (pode não atualizar tier)
-        if (profile) {
-          await supabase
-            .from('profiles')
-            .update({ xp: (profile.xp || 0) + xpEarned })
-            .eq('id', user.id);
+        let baseXp = Number(profile?.xp);
+        let baseTier = (profile as any)?.tier;
+        if (!Number.isFinite(baseXp)) {
+          const { data: p2 } = await supabase.from('profiles').select('xp, tier').eq('id', user.id).maybeSingle();
+          baseXp = Number((p2 as any)?.xp);
+          baseTier = (p2 as any)?.tier;
+        }
+        if (!Number.isFinite(baseXp)) baseXp = 0;
+
+        const targetXp = baseXp + xpEarned;
+        const nextTier = computeTierFromXpLocal({ currentTier: baseTier, xp: targetXp });
+        const { error: updErr } = await supabase
+          .from('profiles')
+          .update({ xp: targetXp, ...(nextTier ? { tier: nextTier } : {}) })
+          .eq('id', user.id);
+        if (updErr) {
+          console.error('profiles xp update fallback failed:', updErr.message || updErr);
+        } else {
+          xpApplied = true;
+        }
+      } else {
+        xpApplied = true;
+      }
+
+      if (xpApplied) {
+        const { data: fresh, error: freshErr } = await supabase
+          .from('profiles')
+          .select('xp')
+          .eq('id', user.id)
+          .maybeSingle();
+        if (freshErr) {
+          console.warn('Could not fetch profile xp after awarding:', freshErr.message || freshErr);
+        } else if (fresh && typeof (fresh as any).xp === 'number') {
+          profileXpAfter = (fresh as any).xp;
         }
       }
     }
@@ -326,14 +383,16 @@ serve(async (req) => {
         isCompleted: Boolean(endedReason),
         endedReason: endedReason || undefined,
         totalXpEarned: endedReason ? totalXpEarned : undefined,
-        xpBlockedForLeader
+        xpBlockedForLeader,
+        xpApplied,
+        profileXpAfter,
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 
   } catch (error) {
     console.error('Error in submit-quiz-answer:', error);
-    const message = error instanceof Error ? error.message : 'Unknown error';
+    const message = safeErrMsg(error) || 'Unknown error';
     return new Response(
       JSON.stringify({ error: message }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
