@@ -4,12 +4,14 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { assertDjtQuestServerEnv } from '../server/env-guard.js';
 
 import approveRegistration from '../server/api-handlers/approve-registration.js';
+import rejectRegistration from '../server/api-handlers/reject-registration.js';
 import requestPasswordReset from '../server/api-handlers/request-password-reset.js';
 import reviewPasswordReset from '../server/api-handlers/review-password-reset.js';
 import challengesDelete from '../server/api-handlers/challenges-delete.js';
 import challengesUpdateStatus from '../server/api-handlers/challenges-update-status.js';
 import studioCreateQuizQuestion from '../server/api-handlers/studio-create-quiz-question.js';
 import studioPendingCounts from '../server/api-handlers/studio-pending-counts.js';
+import studioListPendingRegistrations from '../server/api-handlers/studio-list-pending-registrations.js';
 import studioCreateUser from '../server/api-handlers/studio-create-user.js';
 import studioUpdateUser from '../server/api-handlers/studio-update-user.js';
 import uploadAvatar from '../server/api-handlers/upload-avatar.js';
@@ -26,12 +28,14 @@ type Handler = (req: VercelRequest, res: VercelResponse) => any | Promise<any>;
 
 const handlers: Record<string, Handler> = {
   'approve-registration': approveRegistration,
+  'reject-registration': rejectRegistration,
   'request-password-reset': requestPasswordReset,
   'review-password-reset': reviewPasswordReset,
   'challenges-delete': challengesDelete,
   'challenges-update-status': challengesUpdateStatus,
   'studio-create-quiz-question': studioCreateQuizQuestion,
   'studio-pending-counts': studioPendingCounts,
+  'studio-list-pending-registrations': studioListPendingRegistrations,
   'studio-create-user': studioCreateUser,
   'studio-update-user': studioUpdateUser,
   'upload-avatar': uploadAvatar,

@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { CheckCircle, XCircle, Clock, Mail, Phone, MapPin, Hash } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import { apiFetch } from "@/lib/api";
 
 interface PendingRegistration {
   id: string;
@@ -28,7 +29,7 @@ interface PendingRegistration {
 
 export function PendingRegistrationsManager() {
   const { toast } = useToast();
-  const { orgScope, userRole } = useAuth() as any;
+  const { orgScope, userRole, isLeader } = useAuth() as any;
   const [registrations, setRegistrations] = useState<PendingRegistration[]>([]);
   const [loading, setLoading] = useState(true);
   const [processingId, setProcessingId] = useState<string | null>(null);
@@ -47,13 +48,26 @@ export function PendingRegistrationsManager() {
 
   const fetchRegistrations = useCallback(async () => {
     try {
-      const { data, error } = await supabase
-        .from("pending_registrations")
-        .select("*")
-        .order("created_at", { ascending: false });
+      // Prefer Vercel API (bypass RLS; necessário para líderes), fallback para select direto
+      try {
+        const resp = await apiFetch("/api/admin?handler=studio-list-pending-registrations", {
+          method: "GET",
+          cache: "no-store",
+        });
+        const json = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(json?.error || "Falha ao carregar solicitações");
+        const list = Array.isArray(json?.registrations) ? json.registrations : [];
+        setRegistrations(list);
+        return;
+      } catch (apiErr) {
+        const { data, error } = await supabase
+          .from("pending_registrations")
+          .select("*")
+          .order("created_at", { ascending: false });
 
-      if (error) throw error;
-      setRegistrations(data || []);
+        if (error) throw error;
+        setRegistrations(data || []);
+      }
     } catch (error: any) {
       console.error("Error fetching registrations:", error);
       toast({
@@ -136,16 +150,30 @@ export function PendingRegistrationsManager() {
     setProcessingId(registration.id);
 
     try {
-      const { error } = await supabase
-        .from("pending_registrations")
-        .update({
-          status: "rejected",
-          review_notes: reviewNotes[registration.id],
-          reviewed_at: new Date().toISOString(),
-        })
-        .eq("id", registration.id);
+      // Prefer Vercel API (bypass RLS), fallback para update direto
+      try {
+        const resp = await apiFetch("/api/admin?handler=reject-registration", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            registrationId: registration.id,
+            notes: reviewNotes[registration.id],
+          }),
+        });
+        const j = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(j?.error || "Falha ao rejeitar");
+      } catch (apiErr) {
+        const { error } = await supabase
+          .from("pending_registrations")
+          .update({
+            status: "rejected",
+            review_notes: reviewNotes[registration.id],
+            reviewed_at: new Date().toISOString(),
+          })
+          .eq("id", registration.id);
 
-      if (error) throw error;
+        if (error) throw error;
+      }
 
       toast({
         title: "Cadastro rejeitado",
@@ -173,6 +201,7 @@ export function PendingRegistrationsManager() {
     if (userRole === 'admin' || userRole === 'gerente_djt') return true;
     if (userRole === 'gerente_divisao_djtx') return !!div && sigla.startsWith(div);
     if (userRole === 'coordenador_djtx') return (!!div && sigla.startsWith(div)) || (!!coord && sigla.startsWith(coord)) || (!!team && sigla === team);
+    if (userRole === 'lider_equipe' || isLeader) return sigla === "CONVIDADOS" || (!!team && sigla === team);
     return false;
   };
 

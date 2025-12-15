@@ -1,6 +1,73 @@
 import { createClient } from '@supabase/supabase-js';
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY);
+const GUEST_TEAM_ID = 'CONVIDADOS';
+const STAFF_ROLES = new Set(['admin', 'gerente_djt', 'gerente_divisao_djtx', 'coordenador_djtx']);
+const normTeamCode = (raw) => String(raw || '')
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9-]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 32);
+const computeScope = async (admin, userId) => {
+    const [{ data: rolesData }, { data: profile }] = await Promise.all([
+        admin.from('user_roles').select('role').eq('user_id', userId),
+        admin.from('profiles').select('team_id, coord_id, division_id, is_leader, studio_access').eq('id', userId).maybeSingle(),
+    ]);
+    const roles = (rolesData || []).map((r) => String(r.role || ''));
+    const roleSet = new Set(roles);
+    const isLeader = Boolean(profile?.is_leader);
+    let effectiveRole = null;
+    if (roleSet.has('admin'))
+        effectiveRole = 'admin';
+    else if (roleSet.has('gerente_djt'))
+        effectiveRole = 'gerente_djt';
+    else if (roleSet.has('gerente_divisao_djtx'))
+        effectiveRole = 'gerente_divisao_djtx';
+    else if (roleSet.has('coordenador_djtx'))
+        effectiveRole = 'coordenador_djtx';
+    else if (roleSet.has('lider_equipe') || isLeader)
+        effectiveRole = 'lider_equipe';
+    const studioAccess = Boolean(profile?.studio_access) || roles.some((r) => STAFF_ROLES.has(r)) || roleSet.has('lider_equipe') || isLeader;
+    let teamId = profile?.team_id || null;
+    let coordId = profile?.coord_id || null;
+    let divisionId = profile?.division_id || null;
+    if (teamId && !coordId) {
+        try {
+            const { data } = await admin.from('teams').select('coord_id').eq('id', teamId).maybeSingle();
+            coordId = data?.coord_id || null;
+        }
+        catch { }
+    }
+    if (coordId && !divisionId) {
+        try {
+            const { data } = await admin.from('coordinations').select('division_id').eq('id', coordId).maybeSingle();
+            divisionId = data?.division_id || null;
+        }
+        catch { }
+    }
+    return { roles, roleSet, studioAccess, effectiveRole, teamId, coordId, divisionId };
+};
+const inScope = (regSiglaRaw, scope) => {
+    const sigla = String(regSiglaRaw || '').trim().toUpperCase();
+    if (!sigla)
+        return false;
+    if (sigla === 'EXTERNO' || sigla === GUEST_TEAM_ID)
+        return true;
+    const div = String(scope.divisionId || '').toUpperCase();
+    const coord = String(scope.coordId || '').toUpperCase();
+    const team = String(scope.teamId || '').toUpperCase();
+    if (scope.effectiveRole === 'admin' || scope.effectiveRole === 'gerente_djt')
+        return true;
+    if (scope.effectiveRole === 'gerente_divisao_djtx')
+        return !!div && sigla.startsWith(div);
+    if (scope.effectiveRole === 'coordenador_djtx')
+        return (!!div && sigla.startsWith(div)) || (!!coord && sigla.startsWith(coord)) || (!!team && sigla === team);
+    if (scope.effectiveRole === 'lider_equipe')
+        return !!team && sigla === team;
+    return false;
+};
 export default async function handler(req, res) {
     if (req.method === 'OPTIONS')
         return res.status(204).send('');
@@ -22,9 +89,8 @@ export default async function handler(req, res) {
         // Verify permissions
         if (!requesterId)
             return res.status(401).json({ error: 'Unauthorized' });
-        const { data: roles } = await admin.from('user_roles').select('role').eq('user_id', requesterId);
-        const allowed = (roles || []).some(r => ['admin', 'coordenador_djtx', 'gerente_divisao_djtx', 'gerente_djt'].includes(r.role));
-        if (!allowed)
+        const scope = await computeScope(admin, requesterId);
+        if (!scope.studioAccess || !scope.effectiveRole)
             return res.status(403).json({ error: 'Insufficient permissions' });
         const body = req.body;
         if (!body?.registrationId)
@@ -37,6 +103,8 @@ export default async function handler(req, res) {
             .single();
         if (regErr || !reg)
             return res.status(404).json({ error: 'Registration not found or processed' });
+        if (!inScope(reg.sigla_area, scope))
+            return res.status(403).json({ error: 'Fora do escopo' });
         // Prevent duplicate approvals
         const { data: existingProfile } = await admin
             .from('profiles')
@@ -71,45 +139,80 @@ export default async function handler(req, res) {
             await admin.auth.admin.deleteUser(newUserId);
             return res.status(400).json({ error: profErr.message });
         }
-        // Derive org from DB
-        const deriveOrg = async (raw) => {
-            const s = (String(raw || '').toUpperCase().replace(/[^A-Z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, ''));
-            if (!s)
-                return null;
-            let teamId = null;
-            let coordId = null;
-            let divisionId = null;
-            // Try direct team id
-            const { data: team } = await admin.from('teams').select('id, coord_id').eq('id', s).maybeSingle();
-            if (team?.id) {
-                teamId = team.id;
-                coordId = team.coord_id;
-                if (coordId) {
+        const regSigla = String(reg.sigla_area || '').trim().toUpperCase();
+        const isGuest = regSigla === 'EXTERNO' || regSigla === GUEST_TEAM_ID;
+        if (isGuest) {
+            try {
+                await admin.from('teams').upsert({ id: GUEST_TEAM_ID, name: 'Convidados (externo)' }, { onConflict: 'id' });
+            }
+            catch { }
+            await admin
+                .from('profiles')
+                .update({
+                sigla_area: GUEST_TEAM_ID,
+                operational_base: GUEST_TEAM_ID,
+                team_id: GUEST_TEAM_ID,
+                coord_id: null,
+                division_id: null,
+            })
+                .eq('id', newUserId);
+        }
+        else {
+            const desiredTeamId = normTeamCode(reg.sigla_area);
+            if (desiredTeamId) {
+                try {
+                    const { data: existing } = await admin.from('teams').select('id').eq('id', desiredTeamId).maybeSingle();
+                    if (!existing?.id) {
+                        await admin.from('teams').insert({ id: desiredTeamId, name: desiredTeamId });
+                    }
+                }
+                catch { }
+            }
+            const deriveOrg = async (raw) => {
+                const s = String(raw || '')
+                    .toUpperCase()
+                    .replace(/[^A-Z0-9-]/g, '-')
+                    .replace(/-+/g, '-')
+                    .replace(/^-|-$/g, '');
+                if (!s)
+                    return null;
+                let teamId = null;
+                let coordId = null;
+                let divisionId = null;
+                const { data: team } = await admin.from('teams').select('id, coord_id').eq('id', s).maybeSingle();
+                if (team?.id) {
+                    teamId = team.id;
+                    coordId = team.coord_id;
+                    if (coordId) {
+                        const { data: coord } = await admin.from('coordinations').select('division_id').eq('id', coordId).maybeSingle();
+                        divisionId = coord?.division_id || null;
+                    }
+                }
+                else if (s.includes('-')) {
+                    const [div, tag] = s.split('-', 2);
+                    divisionId = div || null;
+                    coordId = div && tag ? `${div}-${tag}` : null;
+                    if (tag) {
+                        const { data: t2 } = await admin.from('teams').select('id').eq('id', tag).maybeSingle();
+                        if (t2?.id)
+                            teamId = t2.id;
+                    }
+                }
+                if (!divisionId && coordId) {
                     const { data: coord } = await admin.from('coordinations').select('division_id').eq('id', coordId).maybeSingle();
                     divisionId = coord?.division_id || null;
                 }
+                if (!divisionId && !coordId && !teamId)
+                    return null;
+                return { divisionId, coordId, teamId };
+            };
+            const org = await deriveOrg(reg.sigla_area || reg.operational_base);
+            if (org) {
+                await admin.from('profiles').update({ division_id: org.divisionId, coord_id: org.coordId, team_id: org.teamId }).eq('id', newUserId);
             }
-            else if (s.includes('-')) {
-                const [div, tag] = s.split('-', 2);
-                divisionId = div || null;
-                coordId = div && tag ? `${div}-${tag}` : null;
-                if (tag) {
-                    const { data: t2 } = await admin.from('teams').select('id').eq('id', tag).maybeSingle();
-                    if (t2?.id)
-                        teamId = t2.id;
-                }
+            else if (desiredTeamId) {
+                await admin.from('profiles').update({ team_id: desiredTeamId }).eq('id', newUserId);
             }
-            if (!divisionId && coordId) {
-                const { data: coord } = await admin.from('coordinations').select('division_id').eq('id', coordId).maybeSingle();
-                divisionId = coord?.division_id || null;
-            }
-            if (!divisionId && !coordId && !teamId)
-                return null;
-            return { divisionId, coordId, teamId };
-        };
-        const org = await deriveOrg(reg.sigla_area || reg.operational_base);
-        if (org) {
-            await admin.from('profiles').update({ division_id: org.divisionId, coord_id: org.coordId, team_id: org.teamId }).eq('id', newUserId);
         }
         // Assign default role
         const { error: roleErr } = await admin.from('user_roles').insert({ user_id: newUserId, role: 'colaborador' });
