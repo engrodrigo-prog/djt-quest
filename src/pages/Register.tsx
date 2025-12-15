@@ -50,6 +50,7 @@ export default function Register() {
     operational_base: "",
     sigla_area: "",
   });
+  const isExternal = String(formData.sigla_area || "").toUpperCase() === "EXTERNO";
 
   // Carregar equipes (bases operacionais) para as listas suspensas
   useEffect(() => {
@@ -195,8 +196,18 @@ export default function Register() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="operational_base">Base Operacional (Equipe) *</Label>
+              <Label htmlFor="operational_base">Base Operacional (Equipe) {isExternal ? "" : "*"}</Label>
               {(() => {
+                if (isExternal) {
+                  return (
+                    <Input
+                      id="operational_base"
+                      value="EXTERNO"
+                      disabled
+                      className="opacity-90"
+                    />
+                  );
+                }
                 const options = getOperationalBaseOptions(formData.sigla_area);
                 if (options.length === 0) {
                   return (
@@ -225,7 +236,9 @@ export default function Register() {
                 );
               })()}
               <p className="text-xs text-muted-foreground">
-                Sua base deve respeitar a lista de cidades associadas à equipe. Líderes revisarão e aprovarão esse vínculo.
+                {isExternal
+                  ? "Convidado externo: você não ficará vinculado a uma base operacional agora."
+                  : "Sua base deve respeitar a lista de cidades associadas à equipe. Líderes revisarão e aprovarão esse vínculo."}
               </p>
             </div>
 
@@ -233,11 +246,14 @@ export default function Register() {
               <Label htmlFor="sigla_area">Equipe/Sigla *</Label>
               <Select
                 onValueChange={(val) => {
-                  handleChange('sigla_area', val.toUpperCase());
-                  const baseOptions = getOperationalBaseOptions(val);
-                  if (baseOptions.length && !baseOptions.includes(formData.operational_base)) {
-                    handleChange('operational_base', baseOptions[0]);
+                  const nextSigla = String(val || "").toUpperCase();
+                  handleChange('sigla_area', nextSigla);
+                  if (nextSigla === "EXTERNO") {
+                    handleChange("operational_base", "EXTERNO");
+                    return;
                   }
+                  const baseOptions = getOperationalBaseOptions(nextSigla);
+                  if (baseOptions.length && !baseOptions.includes(formData.operational_base)) handleChange('operational_base', baseOptions[0]);
                 }}
                 value={formData.sigla_area || undefined}
               >
@@ -245,6 +261,12 @@ export default function Register() {
                   <SelectValue placeholder="Selecione sua equipe (sigla – nome)" />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="EXTERNO">
+                    <span className="font-mono font-semibold">EXTERNO</span>
+                    <span className="ml-1 text-xs text-muted-foreground">
+                      — Convidado (sem vínculo com base/equipe)
+                    </span>
+                  </SelectItem>
                   {teams.map((t) => (
                     <SelectItem key={t.id} value={t.id}>
                       <span className="font-mono font-semibold">{t.id}</span>

@@ -18,6 +18,9 @@ export function CompleteProfile({ profile }: CompleteProfileProps) {
   const navigate = useNavigate();
   const { refreshUserSession } = useAuth();
   const [loading, setLoading] = useState(false);
+  const isExternal =
+    String(profile?.sigla_area || "").toUpperCase() === "EXTERNO" ||
+    String(profile?.operational_base || "").toUpperCase() === "EXTERNO";
   const [formData, setFormData] = useState({
     newPassword: "",
     confirmPassword: "",
@@ -166,7 +169,7 @@ export function CompleteProfile({ profile }: CompleteProfileProps) {
               </>
             )}
 
-            {!formData.matricula && (
+            {!formData.matricula && !isExternal && (
               <div className="space-y-2">
                 <Label htmlFor="matricula">Matrícula *</Label>
                 <Input
