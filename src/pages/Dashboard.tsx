@@ -82,7 +82,7 @@ const Dashboard = () => {
 
       try {
         // Parallelize all queries for faster loading
-        const [profileResult, campaignsResult, challengesResult, eventsResult, userAnswersResult, forumsResult] = await Promise.all([
+        const [profileResult, campaignsResult, challengesResult, eventsResult, userAnswersResult, quizAttemptsResult, forumsResult] = await Promise.all([
           supabase
             .from("profiles")
             .select("name, xp, tier, avatar_url, team_id")
@@ -113,6 +113,12 @@ const Dashboard = () => {
             .select('challenge_id')
             .eq('user_id', user.id)
           ,
+          // Tentativas finalizadas (ex.: Quiz do Milhão encerra ao errar)
+          supabase
+            .from('quiz_attempts')
+            .select('challenge_id, submitted_at')
+            .eq('user_id', user.id)
+            .not('submitted_at', 'is', null),
           supabase
             .from('forum_topics')
             .select('id,title,description,posts_count,last_post_at,created_at,is_locked,is_active')
@@ -192,13 +198,24 @@ const Dashboard = () => {
           setQuizQuestionCounts(countsObj);
         }
 
-        // Calcular quizzes concluídos: respostas >= total de perguntas
+        // Calcular quizzes concluídos: respostas >= total de perguntas OU tentativa finalizada
         if (userAnswersResult.error) {
           console.warn('Dashboard: respostas de quiz indisponíveis', userAnswersResult.error.message);
         } else if (userAnswersResult.data && challengesResult.data) {
           const quizChallenges = (challengesResult.data as Challenge[]).filter((c) =>
             (c.type || '').toLowerCase().includes('quiz'),
           );
+
+          const attemptCompleted = new Set<string>();
+          if (quizAttemptsResult?.error) {
+            console.warn('Dashboard: quiz_attempts indisponível', quizAttemptsResult.error.message);
+          } else if (quizAttemptsResult?.data) {
+            (quizAttemptsResult.data as any[]).forEach((row: any) => {
+              const cid = String(row?.challenge_id || '');
+              if (!cid) return;
+              if (row?.submitted_at) attemptCompleted.add(cid);
+            });
+          }
 
           const answeredCounts = new Map<string, number>();
           (userAnswersResult.data as { challenge_id: string }[]).forEach((row) => {
@@ -211,6 +228,7 @@ const Dashboard = () => {
             const answered = answeredCounts.get(q.id) || 0;
             if (total > 0 && answered >= total) completed.add(q.id);
           });
+          attemptCompleted.forEach((cid) => completed.add(cid));
           setCompletedQuizIds(completed);
         }
         
@@ -360,12 +378,14 @@ const Dashboard = () => {
       if (!c) return false;
       if ((c.type || '').toLowerCase() !== 'quiz') return false;
       if (!isMilhao(String(c.title || ''))) return false;
+      // Não mostrar na home depois que a tentativa já foi finalizada (fica disponível no Perfil > Histórico de Quizzes)
+      if (completedChallengeIds.has(c.id)) return false;
       if ((c.reward_mode || '') !== 'tier_steps' && (c.xp_reward || 0) <= 0) return false;
       // Evita mostrar tentativas antigas que falharam e ficaram sem perguntas
       const total = quizQuestionCounts[c.id] || 0;
       return total >= 10;
     }) || null;
-  }, [allChallenges, quizQuestionCounts]);
+  }, [allChallenges, quizQuestionCounts, completedChallengeIds]);
 
   const handleDeleteChallenge = async (challenge: Challenge) => {
     if (!user) return;
