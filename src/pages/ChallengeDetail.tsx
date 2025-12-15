@@ -116,23 +116,20 @@ const ChallengeDetail = () => {
 
       // Se for quiz, verificar se já foi concluído
       if (data?.type?.toLowerCase?.().includes('quiz') && user) {
-        const hasAttempts = (import.meta as any).env?.VITE_HAS_QUIZ_ATTEMPTS === '1';
-        if (hasAttempts) {
-          try {
-            const { data: attempt } = await supabase
-              .from('quiz_attempts')
-              .select('submitted_at')
-              .eq('user_id', user.id)
-              .eq('challenge_id', data.id)
-              .maybeSingle();
-            if (attempt?.submitted_at) {
-              setQuizCompleted(true);
-              setLoading(false);
-              return;
-            }
-          } catch {
-            // ignore if table not present
+        try {
+          const { data: attempt } = await supabase
+            .from('quiz_attempts')
+            .select('submitted_at')
+            .eq('user_id', user.id)
+            .eq('challenge_id', data.id)
+            .maybeSingle();
+          if (attempt?.submitted_at) {
+            setQuizCompleted(true);
+            setLoading(false);
+            return;
           }
+        } catch {
+          // ignore if table not present
         }
         const { count: totalQuestions } = await supabase
           .from('quiz_questions')

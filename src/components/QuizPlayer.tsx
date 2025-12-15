@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { CheckCircle2, XCircle, ArrowRight, Trophy, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -93,6 +93,59 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
   const [helpUsedThisQuestion, setHelpUsedThisQuestion] = useState(false);
   const [monitorDialogOpen, setMonitorDialogOpen] = useState(false);
   const [monitorLoading, setMonitorLoading] = useState(false);
+  const progressSyncForChallengeRef = useRef<string | null>(null);
+
+  const syncProgressFromDb = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!challengeId) return;
+    if (!questions.length) return;
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const uid = session?.user?.id;
+      if (!uid) return;
+
+      // Se a tentativa já foi finalizada (ex.: errou no Milhão), não deve permitir responder.
+      try {
+        const { data: attempt } = await supabase
+          .from('quiz_attempts')
+          .select('submitted_at, score')
+          .eq('user_id', uid)
+          .eq('challenge_id', challengeId)
+          .maybeSingle();
+        if (attempt?.submitted_at) {
+          if (!opts?.silent) toast("Sua tentativa já foi finalizada. Consulte o histórico em Perfil.");
+          setQuestions([]);
+          setLoading(false);
+          return;
+        }
+      } catch {
+        // ignore if table not present
+      }
+
+      const { data: answers } = await supabase
+        .from('user_quiz_answers')
+        .select('question_id, xp_earned')
+        .eq('user_id', uid)
+        .eq('challenge_id', challengeId);
+
+      const answeredIds = new Set((answers || []).map((a: any) => String(a.question_id)));
+      const nextIndex = questions.findIndex((q) => !answeredIds.has(String(q.id)));
+      if (nextIndex === -1) {
+        if (!opts?.silent) toast("Quiz já concluído. Consulte o histórico em Perfil.");
+        setQuestions([]);
+        setLoading(false);
+        return;
+      }
+
+      if (nextIndex !== currentQuestionIndex) {
+        setCurrentQuestionIndex(nextIndex);
+        if (!opts?.silent && nextIndex > 0) {
+          toast.message("Retomando sua tentativa", { description: `Voltando na pergunta ${nextIndex + 1}.` });
+        }
+      }
+    } catch {
+      // silencioso
+    }
+  }, [challengeId, currentQuestionIndex, questions]);
 
   const loadQuestions = useCallback(async () => {
     try {
@@ -106,27 +159,24 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
         if (challenge?.title) setChallengeTitle(challenge.title);
         if (Array.isArray((challenge as any)?.quiz_specialties)) setChallengeSpecialties((challenge as any).quiz_specialties);
       } catch {/* ignore */}
-      // If attempt already submitted, don't show questions (only when attempts table is available)
-      const hasAttempts = (import.meta as any).env?.VITE_HAS_QUIZ_ATTEMPTS === '1';
-      if (hasAttempts) {
-        const { data: session } = await supabase.auth.getSession();
-        const uid = session.session?.user?.id;
-        if (uid) {
-          try {
-            const { data: attempt } = await supabase
-              .from('quiz_attempts')
-              .select('submitted_at')
-              .eq('user_id', uid)
-              .eq('challenge_id', challengeId)
-              .maybeSingle();
-            if (attempt?.submitted_at) {
-              setQuestions([]);
-              setLoading(false);
-              toast("Quiz já concluído. Consulte o histórico em Perfil.");
-              return;
-            }
-          } catch {/* ignore if table not present */}
-        }
+      // If attempt already submitted, don't show questions
+      const { data: session } = await supabase.auth.getSession();
+      const uid = session.session?.user?.id;
+      if (uid) {
+        try {
+          const { data: attempt } = await supabase
+            .from('quiz_attempts')
+            .select('submitted_at')
+            .eq('user_id', uid)
+            .eq('challenge_id', challengeId)
+            .maybeSingle();
+          if (attempt?.submitted_at) {
+            setQuestions([]);
+            setLoading(false);
+            toast("Quiz já concluído. Consulte o histórico em Perfil.");
+            return;
+          }
+        } catch {/* ignore if table not present */}
       }
       const { data, error } = await supabase
         .from("quiz_questions")
@@ -171,6 +221,14 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
     loadQuestions();
   }, [loadQuestions]);
 
+  // Retomar progresso automaticamente (evita erro 400 em caso de recarregar a página no meio do quiz)
+  useEffect(() => {
+    if (questions.length === 0) return;
+    if (progressSyncForChallengeRef.current === challengeId) return;
+    progressSyncForChallengeRef.current = challengeId;
+    syncProgressFromDb({ silent: true });
+  }, [challengeId, questions.length, syncProgressFromDb]);
+
   useEffect(() => {
     if (questions.length > 0) {
       loadOptions(questions[currentQuestionIndex].id);
@@ -202,7 +260,27 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
         },
       });
 
-      if (response.error) throw response.error;
+      if (response.error) {
+        let serverMsg = '';
+        try {
+          const resp = (response as any)?.response as Response | undefined;
+          if (resp) {
+            const ct = resp.headers.get('content-type') || '';
+            if (ct.includes('application/json')) {
+              const j = await resp.json().catch(() => ({}));
+              serverMsg = String((j as any)?.error || '');
+            } else {
+              serverMsg = String(await resp.text()).trim();
+            }
+          }
+        } catch {
+          // ignore
+        }
+        const msg = (serverMsg || (response.error as any)?.message || '').trim();
+        const e: any = new Error(msg || 'Erro ao enviar resposta');
+        e._raw = response.error;
+        throw e;
+      }
 
       const result = response.data as AnswerResult;
       setAnswerResult(result);
@@ -222,12 +300,15 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
       }
     } catch (error) {
       console.error("Error submitting answer:", error);
-      const msg = (error as any)?.message || '';
-      if (typeof msg === 'string' && msg.toLowerCase().includes('tentativa já finalizada')) {
-        toast("Quiz já concluído. Consulte o histórico em Perfil.");
+      const msg = String((error as any)?.message || '').trim();
+      if (msg.toLowerCase().includes('tentativa já finalizada')) {
+        toast("Sua tentativa já foi finalizada. Consulte o histórico em Perfil.");
         setAnswerResult({ isCorrect: true, xpEarned: 0, explanation: null as any, correctOptionId: null, isCompleted: true });
+      } else if (msg.toLowerCase().includes('já respondeu')) {
+        toast.message("Esta pergunta já foi respondida. Retomando…");
+        await syncProgressFromDb({ silent: true });
       } else {
-        toast.error("Erro ao enviar resposta");
+        toast.error(msg || "Erro ao enviar resposta");
       }
     } finally {
       setIsSubmitting(false);
