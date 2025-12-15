@@ -10,6 +10,7 @@ import challengesDelete from '../server/api-handlers/challenges-delete.js';
 import challengesUpdateStatus from '../server/api-handlers/challenges-update-status.js';
 import studioCreateQuizQuestion from '../server/api-handlers/studio-create-quiz-question.js';
 import studioPendingCounts from '../server/api-handlers/studio-pending-counts.js';
+import studioCreateUser from '../server/api-handlers/studio-create-user.js';
 import studioUpdateUser from '../server/api-handlers/studio-update-user.js';
 import uploadAvatar from '../server/api-handlers/upload-avatar.js';
 import adminUpdateProfile from '../server/api-handlers/admin-update-profile.js';
@@ -31,6 +32,7 @@ const handlers: Record<string, Handler> = {
   'challenges-update-status': challengesUpdateStatus,
   'studio-create-quiz-question': studioCreateQuizQuestion,
   'studio-pending-counts': studioPendingCounts,
+  'studio-create-user': studioCreateUser,
   'studio-update-user': studioUpdateUser,
   'upload-avatar': uploadAvatar,
   'admin-update-profile': adminUpdateProfile,

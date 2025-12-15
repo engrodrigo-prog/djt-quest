@@ -7,16 +7,54 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import { UserPlus } from 'lucide-react';
+import { apiFetch } from '@/lib/api';
 
 interface Team {
   id: string;
   name: string;
 }
 
+const GUEST_TEAM_ID = 'CONVIDADOS';
+const REGISTRATION_TEAM_IDS = [
+  'DJT',
+  'DJT-PLAN',
+  'DJTV',
+  'DJTV-VOR',
+  'DJTV-JUN',
+  'DJTV-PJU',
+  'DJTV-ITA',
+  'DJTB',
+  'DJTB-CUB',
+  'DJTB-STO',
+  GUEST_TEAM_ID,
+] as const;
+
+const REGISTRATION_TEAM_ORDER = new Map(REGISTRATION_TEAM_IDS.map((id, idx) => [id, idx]));
+
+const normalizeTeamId = (id: unknown) => String(id ?? '').trim().toUpperCase();
+
+const filterAndOrderRegistrationTeams = (raw: Array<{ id: string; name?: string | null }>) => {
+  const byId = new Map<string, Team>();
+  for (const t of raw) {
+    const id = normalizeTeamId(t.id);
+    if (!REGISTRATION_TEAM_ORDER.has(id)) continue;
+    const name = String(t.name ?? '').trim();
+    byId.set(id, { id, name: name || id });
+  }
+
+  for (const id of REGISTRATION_TEAM_IDS) {
+    if (!byId.has(id)) {
+      byId.set(id, { id, name: id === GUEST_TEAM_ID ? 'Convidados (externo)' : id });
+    }
+  }
+
+  return REGISTRATION_TEAM_IDS.map((id) => byId.get(id)!).filter(Boolean);
+};
+
 export const UserCreationForm = () => {
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
-  const [teams, setTeams] = useState<Team[]>([]);
+  const [teams, setTeams] = useState<Team[]>(() => filterAndOrderRegistrationTeams([]));
   const [formData, setFormData] = useState({
     email: '',
     password: '',
@@ -30,12 +68,19 @@ export const UserCreationForm = () => {
   }, []);
 
   const loadTeams = async () => {
-    const { data } = await supabase
-      .from('teams')
-      .select('id, name')
-      .order('name');
-    
-    if (data) setTeams(data);
+    try {
+      const resp = await fetch('/api/registration-options', { cache: 'no-store' });
+      const json = await resp.json().catch(() => ({}));
+      const list = Array.isArray(json?.teams) ? json.teams : [];
+      const mapped = list
+        .map((t: any) => ({ id: String(t?.id || '').trim(), name: String(t?.name || '').trim() }))
+        .filter((t: any) => t.id)
+        .map((t: any) => ({ id: t.id, name: t.name || t.id }));
+      setTeams(filterAndOrderRegistrationTeams(mapped));
+    } catch {
+      const { data } = await supabase.from('teams').select('id, name').order('name');
+      if (data) setTeams(filterAndOrderRegistrationTeams(data as any));
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -43,20 +88,34 @@ export const UserCreationForm = () => {
     setLoading(true);
 
     try {
-      const { data, error } = await supabase.functions.invoke('studio-create-user', {
-        body: {
-          email: formData.email,
-          password: formData.password,
-          name: formData.name,
-          team_id: formData.team_id || null,
-          role: formData.role
-        }
-      });
-
-      if (error) throw error;
-
-      if (!data.success) {
-        throw new Error(data.error || 'Erro ao criar usuário');
+      // Prefer Vercel API route (deploys with git push); fallback to Edge Function
+      try {
+        const resp = await apiFetch('/api/admin?handler=studio-create-user', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: formData.email,
+            password: formData.password,
+            name: formData.name,
+            team_id: formData.team_id || null,
+            role: formData.role,
+          }),
+        });
+        const json = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(json?.error || 'Erro ao criar usuário');
+        if (!json?.success) throw new Error(json?.error || 'Erro ao criar usuário');
+      } catch (apiErr: any) {
+        const { data, error } = await supabase.functions.invoke('studio-create-user', {
+          body: {
+            email: formData.email,
+            password: formData.password,
+            name: formData.name,
+            team_id: formData.team_id || null,
+            role: formData.role,
+          },
+        });
+        if (error) throw error;
+        if (!data?.success) throw new Error(data?.error || apiErr?.message || 'Erro ao criar usuário');
       }
 
       toast({
