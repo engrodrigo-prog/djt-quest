@@ -14,6 +14,7 @@ const ALLOWED_EMAILS = new Set([
 const ALLOWED_MATRICULAS = new Set(['601555', '3005597', '866776', '2011902']);
 
 const asIso = () => new Date().toISOString();
+const safeErrMsg = (e) => String(e?.message || e?.error_description || e?.details || e || '').trim() || 'Unknown error';
 
 export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(204).send('');
@@ -64,6 +65,7 @@ export default async function handler(req, res) {
     if (!challengeIds.length) return res.status(404).json({ error: 'Nenhum Quiz do Milhão encontrado para reabrir.' });
 
     const results = [];
+    const warnings = [];
     for (const challengeId of challengeIds) {
       const { data: answers } = await admin
         .from('user_quiz_answers')
@@ -72,13 +74,35 @@ export default async function handler(req, res) {
         .eq('challenge_id', challengeId);
       const xpSum = (answers || []).reduce((acc, r) => acc + (Number(r?.xp_earned) || 0), 0);
 
-      if (xpSum) {
-        const { error: xpErr } = await admin.rpc('increment_user_xp', { _user_id: targetUserId, _xp_to_add: -xpSum });
-        if (xpErr) return res.status(400).json({ error: xpErr.message });
+      if (xpSum && !Boolean((req.body || {})?.skip_xp_revert)) {
+        try {
+          const { error: xpErr } = await admin.rpc('increment_user_xp', { _user_id: targetUserId, _xp_to_add: -xpSum });
+          if (xpErr) throw xpErr;
+        } catch (e) {
+          try {
+            const { data: prof, error: profErr } = await admin.from('profiles').select('xp,tier').eq('id', targetUserId).maybeSingle();
+            if (profErr) throw profErr;
+            const curXp = Number(prof?.xp ?? 0);
+            const nextXp = Math.max(0, curXp - xpSum);
+            let nextTier = prof?.tier ?? null;
+            try {
+              const { data: tierData, error: tierErr } = await admin.rpc('calculate_tier_from_xp', { _xp: nextXp, _current_tier: nextTier });
+              if (!tierErr && tierData) nextTier = tierData;
+            } catch {}
+            const { error: upErr } = await admin
+              .from('profiles')
+              .update({ xp: nextXp, ...(nextTier ? { tier: nextTier } : {}), updated_at: asIso() })
+              .eq('id', targetUserId);
+            if (upErr) throw upErr;
+            warnings.push(`XP revertido via fallback no quiz ${challengeId}.`);
+          } catch (e2) {
+            warnings.push(`Falha ao reverter XP no quiz ${challengeId}: ${safeErrMsg(e)} / ${safeErrMsg(e2)}.`);
+          }
+        }
       }
 
       const { error: delErr } = await admin.from('user_quiz_answers').delete().eq('user_id', targetUserId).eq('challenge_id', challengeId);
-      if (delErr) return res.status(400).json({ error: delErr.message });
+      if (delErr) return res.status(400).json({ error: delErr.message, stage: 'delete_answers', challenge_id: challengeId });
 
       const attemptBase = {
         user_id: targetUserId,
@@ -103,17 +127,16 @@ export default async function handler(req, res) {
           },
           { onConflict: 'user_id,challenge_id' },
         );
-        if (upErr2) return res.status(400).json({ error: upErr2.message });
+        if (upErr2) return res.status(400).json({ error: upErr2.message, stage: 'reset_attempt', challenge_id: challengeId });
       }
 
       results.push({ challenge_id: challengeId, xp_reverted: xpSum });
     }
 
-    return res.status(200).json({ success: true, user_id: targetUserId, reopened: results });
+    return res.status(200).json({ success: true, user_id: targetUserId, reopened: results, warnings });
   } catch (err) {
     return res.status(500).json({ error: err?.message || 'Unknown error' });
   }
 }
 
 export const config = { api: { bodyParser: true } };
-

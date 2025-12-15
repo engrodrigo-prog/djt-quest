@@ -16,6 +16,8 @@ const ALLOWED_MATRICULAS = new Set(['601555', '3005597', '866776', '2011902']);
 
 const asIso = () => new Date().toISOString();
 
+const safeErrMsg = (e: any) => String(e?.message || e?.error_description || e?.details || e || '').trim() || 'Unknown error';
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === 'OPTIONS') return res.status(204).send('');
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
@@ -75,6 +77,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!challengeIds.length) return res.status(404).json({ error: 'Nenhum Quiz do Milhão encontrado para reabrir.' });
 
     const results: any[] = [];
+    const warnings: string[] = [];
     for (const challengeId of challengeIds) {
       // somar XP ganho nesse quiz (máximo ~10 linhas)
       const { data: answers } = await admin
@@ -84,10 +87,42 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         .eq('challenge_id', challengeId);
       const xpSum = (answers || []).reduce((acc: number, r: any) => acc + (Number(r?.xp_earned) || 0), 0);
 
-      // reverter XP antes de apagar as evidências
-      if (xpSum) {
-        const { error: xpErr } = await admin.rpc('increment_user_xp', { _user_id: targetUserId, _xp_to_add: -xpSum });
-        if (xpErr) return res.status(400).json({ error: xpErr.message });
+      // reverter XP antes de apagar as evidências (best-effort)
+      if (xpSum && !Boolean((req.body || {})?.skip_xp_revert)) {
+        try {
+          const { error: xpErr } = await admin.rpc('increment_user_xp', { _user_id: targetUserId, _xp_to_add: -xpSum });
+          if (xpErr) throw xpErr;
+        } catch (e) {
+          // fallback: ajuste direto (sem quebrar reabertura)
+          try {
+            const { data: prof, error: profErr } = await admin
+              .from('profiles')
+              .select('xp,tier')
+              .eq('id', targetUserId)
+              .maybeSingle();
+            if (profErr) throw profErr;
+            const curXp = Number(prof?.xp ?? 0);
+            const nextXp = Math.max(0, curXp - xpSum);
+            let nextTier = prof?.tier ?? null;
+            try {
+              const { data: tierData, error: tierErr } = await admin.rpc('calculate_tier_from_xp', {
+                _xp: nextXp,
+                _current_tier: nextTier,
+              });
+              if (!tierErr && tierData) nextTier = tierData;
+            } catch {
+              // ignore
+            }
+            const { error: upErr } = await admin
+              .from('profiles')
+              .update({ xp: nextXp, ...(nextTier ? { tier: nextTier } : {}), updated_at: asIso() } as any)
+              .eq('id', targetUserId);
+            if (upErr) throw upErr;
+            warnings.push(`XP revertido via fallback no quiz ${challengeId}.`);
+          } catch (e2) {
+            warnings.push(`Falha ao reverter XP no quiz ${challengeId}: ${safeErrMsg(e)} / ${safeErrMsg(e2)}.`);
+          }
+        }
       }
 
       const { error: delErr } = await admin
@@ -95,7 +130,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         .delete()
         .eq('user_id', targetUserId)
         .eq('challenge_id', challengeId);
-      if (delErr) return res.status(400).json({ error: delErr.message });
+      if (delErr) return res.status(400).json({ error: delErr.message, stage: 'delete_answers', challenge_id: challengeId });
 
       // reset attempt (inclui colunas opcionais se existirem)
       const attemptBase: any = {
@@ -126,17 +161,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             } as any,
             { onConflict: 'user_id,challenge_id' } as any,
           );
-        if (upErr2) return res.status(400).json({ error: upErr2.message });
+        if (upErr2) return res.status(400).json({ error: upErr2.message, stage: 'reset_attempt', challenge_id: challengeId });
       }
 
       results.push({ challenge_id: challengeId, xp_reverted: xpSum });
     }
 
-    return res.status(200).json({ success: true, user_id: targetUserId, reopened: results });
+    return res.status(200).json({ success: true, user_id: targetUserId, reopened: results, warnings });
   } catch (err: any) {
     return res.status(500).json({ error: err?.message || 'Unknown error' });
   }
 }
 
 export const config = { api: { bodyParser: true } };
-
