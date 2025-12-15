@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Mic, Square, Loader2, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 
 interface VoiceRecorderButtonProps {
   onText: (text: string) => void;
@@ -12,6 +14,7 @@ interface VoiceRecorderButtonProps {
   maxSeconds?: number;
   className?: string;
   label?: string;
+  confirmBeforeInsert?: boolean;
 }
 
 const pickSupportedMime = () => {
@@ -44,16 +47,26 @@ export function VoiceRecorderButton({
   maxSeconds = 45,
   className,
   label = "Falar",
+  confirmBeforeInsert = true,
 }: VoiceRecorderButtonProps) {
   const { toast } = useToast();
   const [recording, setRecording] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
   const [seconds, setSeconds] = useState(0);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [reviewAudioUrl, setReviewAudioUrl] = useState<string | null>(null);
+  const [reviewAudioFile, setReviewAudioFile] = useState<File | null>(null);
+  const [reviewText, setReviewText] = useState("");
+  const [reviewError, setReviewError] = useState<string | null>(null);
+  const [suggestingTags, setSuggestingTags] = useState(false);
+  const transcribeRunIdRef = useRef(0);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const timerRef = useRef<number | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
   const discardOnStopRef = useRef(false);
+
+  const canStartNewRecording = useMemo(() => !recording && !transcribing && !reviewOpen, [recording, transcribing, reviewOpen]);
 
   useEffect(() => {
     return () => {
@@ -61,6 +74,16 @@ export function VoiceRecorderButton({
       streamRef.current?.getTracks().forEach((t) => t.stop());
     };
   }, []);
+
+  useEffect(() => {
+    return () => {
+      try {
+        if (reviewAudioUrl) URL.revokeObjectURL(reviewAudioUrl);
+      } catch {
+        // ignore
+      }
+    };
+  }, [reviewAudioUrl]);
 
   const cleanupStream = () => {
     try {
@@ -70,6 +93,70 @@ export function VoiceRecorderButton({
     }
     streamRef.current = null;
   };
+
+  const resetReview = useCallback(() => {
+    transcribeRunIdRef.current += 1;
+    setReviewOpen(false);
+    setReviewText("");
+    setReviewError(null);
+    setSuggestingTags(false);
+    setReviewAudioFile(null);
+    setSeconds(0);
+    setTranscribing(false);
+    try {
+      if (reviewAudioUrl) URL.revokeObjectURL(reviewAudioUrl);
+    } catch {
+      // ignore
+    }
+    setReviewAudioUrl(null);
+  }, [reviewAudioUrl]);
+
+  const transcribeFile = useCallback(
+    async (file: File) => {
+      const runId = (transcribeRunIdRef.current += 1);
+      try {
+        setReviewError(null);
+        setTranscribing(true);
+        if (file.size > 12 * 1024 * 1024) {
+          throw new Error("Áudio muito grande para transcrever. Grave um trecho menor.");
+        }
+        const toBase64 = (f: File) =>
+          new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(String(reader.result));
+            reader.onerror = reject;
+            reader.readAsDataURL(f);
+          });
+        const b64 = await toBase64(file);
+        const resp = await fetch("/api/ai?handler=transcribe-audio", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ audioBase64: b64, mode, language }),
+        });
+        const json = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(json?.error || "Falha na transcrição");
+        if (runId !== transcribeRunIdRef.current) return;
+        const text = String(json.text || json.transcript || "").trim();
+        setReviewText(text);
+        if (!confirmBeforeInsert && text && typeof onText === "function") {
+          onText(text);
+          toast({ title: "Áudio transcrito", description: "Texto inserido no campo." });
+          resetReview();
+        }
+      } catch (e: any) {
+        setReviewError(e?.message || "Falha na transcrição");
+        toast({
+          title: "Falha ao transcrever áudio",
+          description: e?.message || "Tente novamente",
+          variant: "destructive",
+        });
+      } finally {
+        if (runId !== transcribeRunIdRef.current) return;
+        setTranscribing(false);
+      }
+    },
+    [confirmBeforeInsert, language, mode, onText, resetReview, toast],
+  );
 
   const stopRecording = (opts?: { discard?: boolean }) => {
     discardOnStopRef.current = Boolean(opts?.discard);
@@ -85,6 +172,7 @@ export function VoiceRecorderButton({
 
   const startRecording = async () => {
     try {
+      if (!canStartNewRecording) return;
       if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
         toast({
           title: "Áudio não suportado neste navegador",
@@ -118,8 +206,11 @@ export function VoiceRecorderButton({
       };
       rec.onstop = async () => {
         try {
-          if (discardOnStopRef.current) return;
-          setTranscribing(true);
+          if (discardOnStopRef.current) {
+            discardOnStopRef.current = false;
+            setSeconds(0);
+            return;
+          }
           const blob = new Blob(chunksRef.current, { type: rec.mimeType || "audio/webm" });
           if (blob.size > 12 * 1024 * 1024) {
             throw new Error("Áudio muito grande para transcrever. Grave um trecho menor.");
@@ -127,36 +218,25 @@ export function VoiceRecorderButton({
           const ext =
             blob.type.includes("ogg") ? "ogg" : blob.type.includes("mp4") ? "m4a" : blob.type.includes("webm") ? "webm" : "mp3";
           const file = new File([blob], `voz-${Date.now()}.${ext}`, { type: blob.type });
-          // Convert to base64 data URL
-          const toBase64 = (f: File) =>
-            new Promise<string>((resolve, reject) => {
-              const reader = new FileReader();
-              reader.onload = () => resolve(String(reader.result));
-              reader.onerror = reject;
-              reader.readAsDataURL(f);
-            });
-          const b64 = await toBase64(file);
-          const resp = await fetch("/api/ai?handler=transcribe-audio", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ audioBase64: b64, mode, language }),
-          });
-          const json = await resp.json().catch(() => ({}));
-          if (!resp.ok) throw new Error(json?.error || "Falha na transcrição");
-          const text = json.text || json.transcript || "";
-          if (text && typeof onText === "function") {
-            onText(String(text));
+          setReviewAudioFile(file);
+          setReviewError(null);
+          setReviewText("");
+          try {
+            const url = URL.createObjectURL(file);
+            setReviewAudioUrl(url);
+          } catch {
+            setReviewAudioUrl(null);
           }
-          toast({ title: "Áudio transcrito", description: "Texto inserido no campo." });
+          setReviewOpen(true);
+          await transcribeFile(file);
         } catch (e: any) {
           toast({
-            title: "Falha ao transcrever áudio",
+            title: "Falha ao processar áudio",
             description: e?.message || "Tente novamente",
             variant: "destructive",
           });
         } finally {
           setSeconds(0);
-          setTranscribing(false);
           discardOnStopRef.current = false;
         }
       };
@@ -196,14 +276,16 @@ export function VoiceRecorderButton({
         size={size}
         variant={recording ? "destructive" : "outline"}
         onClick={toggle}
-        disabled={transcribing}
+        disabled={transcribing || reviewOpen}
         className="flex items-center gap-2"
         title={
           transcribing
             ? "Transcrevendo áudio..."
             : recording
             ? "Parar gravação"
-            : "Gravar áudio e transcrever"
+            : confirmBeforeInsert
+              ? "Gravar áudio, transcrever e revisar antes de inserir"
+              : "Gravar áudio e transcrever"
         }
       >
         {transcribing ? <Loader2 className="h-4 w-4 animate-spin" /> : recording ? <Square className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
@@ -222,6 +304,141 @@ export function VoiceRecorderButton({
           Cancelar
         </Button>
       )}
+
+      <Dialog
+        open={reviewOpen}
+        onOpenChange={(open) => {
+          if (!open) resetReview();
+          else setReviewOpen(true);
+        }}
+      >
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Revisar transcrição</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            {reviewAudioUrl && (
+              <div className="rounded-md border p-2 bg-muted">
+                <audio controls className="w-full">
+                  <source src={reviewAudioUrl} />
+                  Seu navegador não suporta áudio.
+                </audio>
+              </div>
+            )}
+
+            <div className="space-y-1">
+              <p className="text-xs text-muted-foreground">
+                {transcribing
+                  ? "Transcrevendo… você pode aguardar ou regravar."
+                  : reviewError
+                    ? "Não foi possível transcrever agora. Você pode tentar novamente ou regravar."
+                    : "Confirme e ajuste o texto antes de inserir."}
+              </p>
+              <Textarea
+                rows={6}
+                value={reviewText}
+                onChange={(e) => setReviewText(e.target.value)}
+                placeholder={transcribing ? "Aguardando transcrição…" : "Texto transcrito aparecerá aqui…"}
+                disabled={transcribing}
+              />
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={transcribing || suggestingTags || (reviewText || "").trim().length < 10}
+                onClick={async () => {
+                  const base = (reviewText || "").trim();
+                  if (base.length < 10) return;
+                  try {
+                    setSuggestingTags(true);
+                    const resp = await fetch("/api/ai?handler=suggest-hashtags", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ text: base }),
+                    });
+                    const json = await resp.json().catch(() => ({}));
+                    if (!resp.ok) throw new Error(json?.error || "Falha ao sugerir hashtags");
+                    const tags = Array.isArray(json.hashtags) ? json.hashtags : [];
+                    const cleanTags = tags
+                      .map((t: any) => String(t || "").trim())
+                      .filter((t: string) => t.startsWith("#") && t.length >= 2)
+                      .slice(0, 5);
+                    if (cleanTags.length === 0) return;
+                    setReviewText((prev) => {
+                      const cur = prev || "";
+                      const toAdd = cleanTags.filter((t: string) => !cur.includes(t));
+                      if (toAdd.length === 0) return cur;
+                      return [cur.trim(), toAdd.join(" ")].filter(Boolean).join("\n");
+                    });
+                  } catch (e: any) {
+                    toast({
+                      title: "Não foi possível sugerir temas agora",
+                      description: e?.message || "Tente novamente",
+                      variant: "destructive",
+                    });
+                  } finally {
+                    setSuggestingTags(false);
+                  }
+                }}
+              >
+                {suggestingTags ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                Sugerir #tags
+              </Button>
+            </div>
+          </div>
+
+          <DialogFooter className="flex flex-col-reverse sm:flex-row sm:justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={async () => {
+                  const file = reviewAudioFile;
+                  if (!file) return;
+                  await transcribeFile(file);
+                }}
+                disabled={transcribing || !reviewAudioFile}
+              >
+                Tentar novamente
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  resetReview();
+                  setTimeout(() => startRecording(), 80);
+                }}
+                disabled={transcribing || recording}
+              >
+                Regravar
+              </Button>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Button type="button" variant="ghost" onClick={resetReview}>
+                Descartar
+              </Button>
+              <Button
+                type="button"
+                onClick={() => {
+                  const text = (reviewText || "").trim();
+                  if (!text) return;
+                  if (typeof onText === "function") onText(text);
+                  toast({ title: "Texto inserido", description: "Você pode ajustar antes de publicar." });
+                  resetReview();
+                }}
+                disabled={transcribing || (reviewText || "").trim().length === 0}
+              >
+                Inserir texto
+              </Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
