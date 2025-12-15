@@ -118,8 +118,8 @@ Deno.serve(async (req) => {
 
     if (rolesError) throw rolesError;
 
-    const hasPermission = roles?.some(r => 
-      ['coordenador_djtx', 'gerente_divisao_djtx', 'gerente_djt'].includes(r.role)
+    const hasPermission = roles?.some((r) =>
+      ['admin', 'coordenador_djtx', 'gerente_divisao_djtx', 'gerente_djt'].includes(r.role)
     );
 
     if (!hasPermission) {

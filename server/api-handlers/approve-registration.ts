@@ -37,7 +37,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Verify permissions
     if (!requesterId) return res.status(401).json({ error: 'Unauthorized' })
     const { data: roles } = await admin.from('user_roles').select('role').eq('user_id', requesterId)
-    const allowed = (roles || []).some(r => ['coordenador_djtx','gerente_divisao_djtx','gerente_djt'].includes((r as any).role))
+    const allowed = (roles || []).some(r =>
+      ['admin', 'coordenador_djtx', 'gerente_divisao_djtx', 'gerente_djt'].includes((r as any).role)
+    )
     if (!allowed) return res.status(403).json({ error: 'Insufficient permissions' })
 
     const body = req.body as ApprovalRequest

@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { CheckCircle, XCircle, Clock, Mail, Phone, MapPin, Hash } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -31,6 +33,17 @@ export function PendingRegistrationsManager() {
   const [loading, setLoading] = useState(true);
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [reviewNotes, setReviewNotes] = useState<{ [key: string]: string }>({});
+  const [search, setSearch] = useState("");
+  const [showAll, setShowAll] = useState(false);
+  const [bulkApproving, setBulkApproving] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number } | null>(null);
+
+  useEffect(() => {
+    // Default: gerência/admin veem tudo
+    if (userRole === "admin" || userRole === "gerente_djt") {
+      setShowAll(true);
+    }
+  }, [userRole]);
 
   const fetchRegistrations = useCallback(async () => {
     try {
@@ -57,45 +70,46 @@ export function PendingRegistrationsManager() {
     fetchRegistrations();
   }, [fetchRegistrations]);
 
+  const approveRegistration = async (registrationId: string, notes: string) => {
+    // Prefer Vercel API route (robust upsert), fallback to Edge Function
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+    try {
+      const resp = await fetch('/api/admin?handler=approve-registration', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          registrationId,
+          notes: notes || '',
+        }),
+      });
+      if (!resp.ok) {
+        const j = await resp.json().catch(() => ({}));
+        throw new Error(j?.error || 'Falha na aprovação');
+      }
+      return;
+    } catch (apiErr) {
+      const { error } = await supabase.functions.invoke("approve-registration", {
+        body: {
+          registrationId,
+          notes: notes || "",
+        },
+      });
+      if (error) throw error;
+    }
+  };
+
   const handleApprove = async (registration: PendingRegistration) => {
     setProcessingId(registration.id);
-
     try {
-      // Prefer Vercel API route (robust upsert), fallback to Edge Function
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData.session?.access_token;
-      try {
-        const resp = await fetch('/api/admin?handler=approve-registration', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-          body: JSON.stringify({
-            registrationId: registration.id,
-            notes: reviewNotes[registration.id] || '',
-          }),
-        });
-        if (!resp.ok) {
-          const j = await resp.json().catch(() => ({}));
-          throw new Error(j?.error || 'Falha na aprovação');
-        }
-      } catch (apiErr) {
-        // Fallback to Edge Function if API route is unavailable
-        const { error } = await supabase.functions.invoke("approve-registration", {
-          body: {
-            registrationId: registration.id,
-            notes: reviewNotes[registration.id] || "",
-          },
-        });
-        if (error) throw error;
-      }
-
+      await approveRegistration(registration.id, reviewNotes[registration.id] || "");
       toast({
         title: "Cadastro aprovado!",
         description: `Usuário ${registration.name} criado com sucesso.`,
       });
-
       fetchRegistrations();
     } catch (error: any) {
       console.error("Error approving registration:", error);
@@ -162,8 +176,76 @@ export function PendingRegistrationsManager() {
     return false;
   };
 
-  const pendingRegistrations = registrations.filter((r) => r.status === "pending").filter(inScope);
-  const processedRegistrations = registrations.filter((r) => r.status !== "pending");
+  const canManageAny = userRole === "admin" || userRole === "gerente_djt";
+
+  const matchesSearch = (r: PendingRegistration, q: string) => {
+    const hay = [
+      r.name,
+      r.email,
+      r.telefone || "",
+      r.matricula || "",
+      r.operational_base,
+      r.sigla_area,
+      r.status,
+    ]
+      .join(" ")
+      .toLowerCase();
+    return hay.includes(q);
+  };
+
+  const q = search.trim().toLowerCase();
+  const allPending = registrations.filter((r) => r.status === "pending");
+  const pendingBase = (showAll || canManageAny) ? allPending : allPending.filter(inScope);
+  const pendingRegistrations = q ? pendingBase.filter((r) => matchesSearch(r, q)) : pendingBase;
+
+  const processedBase = registrations.filter((r) => r.status !== "pending");
+  const processedRegistrations = q ? processedBase.filter((r) => matchesSearch(r, q)) : processedBase;
+
+  const approveAllPending = async () => {
+    const list = (showAll || canManageAny) ? allPending : allPending.filter(inScope);
+    const actionable = canManageAny ? list : list.filter(inScope);
+    if (!actionable.length) {
+      toast({ title: "Nenhum cadastro pendente para aprovar." });
+      return;
+    }
+
+    const ok = window.confirm(
+      `Aprovar ${actionable.length} cadastro(s) pendente(s)?\\n\\nIsso criará usuários (senha inicial 123456) e marcará as solicitações como aprovadas.`
+    );
+    if (!ok) return;
+
+    setBulkApproving(true);
+    setBulkProgress({ done: 0, total: actionable.length });
+
+    const errors: string[] = [];
+    for (let i = 0; i < actionable.length; i++) {
+      const r = actionable[i];
+      setProcessingId(r.id);
+      try {
+        await approveRegistration(r.id, reviewNotes[r.id] || "");
+      } catch (e: any) {
+        errors.push(`${r.name}: ${e?.message || "falha"}`);
+      } finally {
+        setBulkProgress({ done: i + 1, total: actionable.length });
+      }
+    }
+
+    setProcessingId(null);
+    setBulkApproving(false);
+    setBulkProgress(null);
+    await fetchRegistrations();
+
+    if (errors.length) {
+      toast({
+        title: "Aprovação em massa concluída com erros",
+        description: errors.slice(0, 3).join(" • ") + (errors.length > 3 ? ` • +${errors.length - 3}` : ""),
+        variant: "destructive",
+      });
+      return;
+    }
+
+    toast({ title: "Todos os cadastros pendentes foram aprovados!" });
+  };
 
   if (loading) {
     return (
@@ -186,10 +268,40 @@ export function PendingRegistrationsManager() {
 
       {/* Pending Registrations */}
       <div className="space-y-4">
-        <h3 className="text-lg font-semibold flex items-center gap-2">
-          <Clock className="h-5 w-5 text-yellow-500" />
-          Pendentes ({pendingRegistrations.length})
-        </h3>
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <h3 className="text-lg font-semibold flex items-center gap-2">
+            <Clock className="h-5 w-5 text-yellow-500" />
+            Pendentes ({pendingRegistrations.length})
+          </h3>
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-end">
+            <div className="flex items-center gap-2">
+              <Switch
+                id="show-all-reg"
+                checked={showAll || canManageAny}
+                onCheckedChange={setShowAll}
+                disabled={canManageAny}
+              />
+              <Label htmlFor="show-all-reg" className="text-sm text-muted-foreground">
+                Mostrar todos
+              </Label>
+            </div>
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Buscar (nome, email, sigla...)"
+              className="md:w-[260px]"
+            />
+            <Button
+              type="button"
+              onClick={approveAllPending}
+              disabled={bulkApproving || processingId !== null || allPending.length === 0}
+              variant="default"
+            >
+              <CheckCircle className="mr-2 h-4 w-4" />
+              {bulkProgress ? `Aprovando ${bulkProgress.done}/${bulkProgress.total}` : "Aprovar todos"}
+            </Button>
+          </div>
+        </div>
 
         {pendingRegistrations.length === 0 ? (
           <Card>
@@ -211,9 +323,16 @@ export function PendingRegistrationsManager() {
                       {registration.email}
                     </CardDescription>
                   </div>
-                  <Badge variant="outline" className="text-yellow-600 border-yellow-600">
-                    Pendente
-                  </Badge>
+                  <div className="flex items-center gap-2">
+                    {!canManageAny && showAll && !inScope(registration) && (
+                      <Badge variant="outline" className="text-slate-500 border-slate-400">
+                        Fora do escopo
+                      </Badge>
+                    )}
+                    <Badge variant="outline" className="text-yellow-600 border-yellow-600">
+                      Pendente
+                    </Badge>
+                  </div>
                 </div>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -260,7 +379,11 @@ export function PendingRegistrationsManager() {
                 <div className="flex gap-3">
                   <Button
                     onClick={() => handleApprove(registration)}
-                    disabled={processingId === registration.id}
+                    disabled={
+                      bulkApproving ||
+                      processingId === registration.id ||
+                      (!canManageAny && showAll && !inScope(registration))
+                    }
                     className="flex-1"
                   >
                     <CheckCircle className="mr-2 h-4 w-4" />
@@ -269,7 +392,11 @@ export function PendingRegistrationsManager() {
                   <Button
                     variant="destructive"
                     onClick={() => handleReject(registration)}
-                    disabled={processingId === registration.id}
+                    disabled={
+                      bulkApproving ||
+                      processingId === registration.id ||
+                      (!canManageAny && showAll && !inScope(registration))
+                    }
                     className="flex-1"
                   >
                     <XCircle className="mr-2 h-4 w-4" />
