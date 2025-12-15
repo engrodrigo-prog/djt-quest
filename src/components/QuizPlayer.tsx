@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { CheckCircle2, XCircle, ArrowRight, Trophy, AlertCircle } from "lucide-react";
+import { CheckCircle2, XCircle, ArrowRight, Trophy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -790,16 +790,16 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
                 <img
                   src={buriniImg}
                   alt="Monitor de Subestações"
-                  className="h-14 w-14 rounded-full object-cover border border-border"
+                  className="h-24 w-24 rounded-2xl object-cover border border-border shadow-sm"
                 />
-                <div className="relative flex-1 rounded-xl border bg-background p-3 shadow-sm">
+                <div className="relative flex-1 rounded-xl border bg-background p-4 shadow-sm">
                   <div
                     aria-hidden
-                    className="absolute -left-2 top-5 h-0 w-0 border-y-8 border-y-transparent border-r-8 border-r-border"
+                    className="absolute -left-[12px] top-10 h-0 w-0 border-y-[12px] border-y-transparent border-r-[12px] border-r-border"
                   />
                   <div
                     aria-hidden
-                    className="absolute -left-[7px] top-5 h-0 w-0 border-y-7 border-y-transparent border-r-7 border-r-background"
+                    className="absolute -left-[11px] top-10 h-0 w-0 border-y-[11px] border-y-transparent border-r-[11px] border-r-background"
                   />
                   <p className="text-xs text-muted-foreground mb-1">Monitor de Subestações • Revisão</p>
                   <p className="whitespace-pre-line text-sm text-foreground">{monitorReviewText}</p>
@@ -839,14 +839,15 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
               </DialogHeader>
               <div className="flex items-start gap-4">
                 <div
-                  aria-hidden
-                  className={`h-14 w-14 rounded-full border flex items-center justify-center ${
-                    monitorLoading
-                      ? "bg-primary/15 border-primary/30 animate-pulse"
-                      : "bg-primary/10 border-border"
+                  className={`h-24 w-24 rounded-2xl border overflow-hidden flex items-center justify-center ${
+                    monitorLoading ? "border-primary/30 animate-pulse" : "border-border"
                   }`}
                 >
-                  <AlertCircle className={`h-6 w-6 ${monitorLoading ? "text-primary" : "text-muted-foreground"}`} />
+                  <img
+                    src={buriniImg}
+                    alt={monitorHelp?.monitor?.name || monitor.name}
+                    className="h-full w-full object-cover"
+                  />
                 </div>
                 <div className="flex-1 space-y-3">
                   {monitorLoading ? (

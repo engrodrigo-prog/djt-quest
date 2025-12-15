@@ -39,8 +39,19 @@ interface DivisionRanking {
   teamCount: number;
 }
 
+interface LeaderRanking {
+  rank: number;
+  userId: string;
+  name: string;
+  avatarUrl: string | null;
+  completed: number;
+  quizXp: number;
+  score: number;
+}
+
 const GUEST_TEAM_ID = 'CONVIDADOS';
 const isGuestTeamId = (id: string | null | undefined) => String(id || '').toUpperCase() === GUEST_TEAM_ID;
+const LEADER_EVAL_POINTS = 100;
 
 function Rankings() {
   const { orgScope } = useAuth();
@@ -48,7 +59,7 @@ function Rankings() {
   const [myTeamRankings, setMyTeamRankings] = useState<IndividualRanking[]>([]);
   const [teamRankings, setTeamRankings] = useState<TeamRanking[]>([]);
   const [divisionRankings, setDivisionRankings] = useState<DivisionRanking[]>([]);
-  const [leaderRankings, setLeaderRankings] = useState<Array<{ rank: number; userId: string; name: string; avatarUrl: string | null; completed: number }>>([]);
+  const [leaderRankings, setLeaderRankings] = useState<LeaderRanking[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'individual' | 'myteam' | 'teams' | 'divisions' | 'leaders'>('individual');
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
@@ -324,14 +335,41 @@ function Rankings() {
         : {};
 
       const leaders = allProfiles.filter((p: any) => isLeaderProfile(p));
+      const leaderIds = leaders.map((l: any) => l.id).filter(Boolean);
+
+      // Quiz points for leaders (sum xp_earned)
+      let quizXpByLeader: Record<string, number> = {};
+      if (leaderIds.length) {
+        try {
+          const { data: quizRows, error: quizErr } = await supabase
+            .from('user_quiz_answers')
+            .select('user_id, xp_earned')
+            .in('user_id', leaderIds)
+            .limit(50000);
+          if (!quizErr && Array.isArray(quizRows)) {
+            quizXpByLeader = quizRows.reduce<Record<string, number>>((acc, r: any) => {
+              const uid = String(r?.user_id || '');
+              if (!uid) return acc;
+              acc[uid] = (acc[uid] || 0) + (Number(r?.xp_earned) || 0);
+              return acc;
+            }, {});
+          }
+        } catch (e) {
+          console.warn('Rankings: erro ao carregar quiz points dos líderes', e);
+          quizXpByLeader = {};
+        }
+      }
+
       const sorted = leaders
         .map((p: any) => ({
           userId: p.id,
           name: p.name,
           avatarUrl: p.avatar_url,
           completed: completedByReviewer[p.id] || 0,
+          quizXp: quizXpByLeader[p.id] || 0,
+          score: (completedByReviewer[p.id] || 0) * LEADER_EVAL_POINTS + (quizXpByLeader[p.id] || 0),
         }))
-        .sort((a, b) => b.completed - a.completed)
+        .sort((a, b) => b.score - a.score || b.completed - a.completed || b.quizXp - a.quizXp || String(a.name).localeCompare(String(b.name), 'pt-BR'))
         .map((p, i) => ({ ...p, rank: i + 1 }));
       setLeaderRankings(sorted);
     } catch (error) {
@@ -576,8 +614,11 @@ function Rankings() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Shield className="h-5 w-5 text-blue-500" />
-                  Ranking de Líderes (avaliações concluídas)
+                  Ranking de Líderes (avaliações + quizzes)
                 </CardTitle>
+                <p className="text-xs text-muted-foreground">
+                  Pontos = (avaliações concluídas × {LEADER_EVAL_POINTS}) + XP em quizzes
+                </p>
               </CardHeader>
               <CardContent>
                 {loading ? (
@@ -598,10 +639,13 @@ function Rankings() {
                         </Avatar>
                         <div className="flex-1">
                           <p className="font-semibold">{r.name}</p>
-                          <p className="text-xs text-muted-foreground">Avaliações concluídas</p>
+                          <p className="text-xs text-muted-foreground">
+                            Avaliações: {r.completed} • Quizzes: {r.quizXp.toLocaleString()} XP
+                          </p>
                         </div>
                         <div className="text-right">
-                          <p className="text-lg font-bold">{r.completed}</p>
+                          <p className="text-lg font-bold">{r.score.toLocaleString()}</p>
+                          <p className="text-xs text-muted-foreground">Pontos</p>
                         </div>
                       </div>
                     ))}
