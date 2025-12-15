@@ -19,8 +19,8 @@ export function CompleteProfile({ profile }: CompleteProfileProps) {
   const { refreshUserSession } = useAuth();
   const [loading, setLoading] = useState(false);
   const isExternal =
-    String(profile?.sigla_area || "").toUpperCase() === "EXTERNO" ||
-    String(profile?.operational_base || "").toUpperCase() === "EXTERNO";
+    ["EXTERNO", "CONVIDADOS"].includes(String(profile?.sigla_area || "").toUpperCase()) ||
+    ["EXTERNO", "CONVIDADOS"].includes(String(profile?.operational_base || "").toUpperCase());
   const [formData, setFormData] = useState({
     newPassword: "",
     confirmPassword: "",

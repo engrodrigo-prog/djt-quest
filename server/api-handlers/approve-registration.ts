@@ -6,6 +6,7 @@ type ApprovalRequest = { registrationId: string; notes?: string }
 
 const SUPABASE_URL = process.env.SUPABASE_URL as string
 const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY) as string
+const GUEST_TEAM_ID = 'CONVIDADOS'
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === 'OPTIONS') return res.status(204).send('')
@@ -77,6 +78,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ error: profErr.message })
     }
 
+    const regSigla = String(reg.sigla_area || '').trim().toUpperCase()
+    const isGuest = regSigla === 'EXTERNO' || regSigla === GUEST_TEAM_ID
+    if (isGuest) {
+      // Garantia: convidado entra como colaborador comum e fica sob "CONVIDADOS",
+      // sem compor hierarquia (sem divisão/coord) e sem exigir base específica.
+      try {
+        await admin.from('teams').upsert({ id: GUEST_TEAM_ID, name: 'Convidados (externo)' } as any, { onConflict: 'id' } as any)
+      } catch {}
+      await admin
+        .from('profiles')
+        .update({
+          sigla_area: GUEST_TEAM_ID,
+          operational_base: GUEST_TEAM_ID,
+          team_id: GUEST_TEAM_ID,
+          coord_id: null,
+          division_id: null,
+        } as any)
+        .eq('id', newUserId)
+      // pula deriveOrg
+    } else {
     // Derive org from DB
     const deriveOrg = async (raw?: string | null) => {
       const s = (String(raw || '').toUpperCase().replace(/[^A-Z0-9-]/g,'-').replace(/-+/g,'-').replace(/^-|-$/g,''))
@@ -112,6 +133,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const org = await deriveOrg(reg.sigla_area || reg.operational_base)
     if (org) {
       await admin.from('profiles').update({ division_id: org.divisionId, coord_id: org.coordId, team_id: org.teamId }).eq('id', newUserId)
+    }
     }
 
     // Assign default role
