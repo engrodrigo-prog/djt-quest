@@ -59,6 +59,48 @@ const ChallengeDetail = () => {
   const [selectedParticipants, setSelectedParticipants] = useState<Set<string>>(new Set());
   const [myTeamId, setMyTeamId] = useState<string | null>(null);
   const [showAnalytics, setShowAnalytics] = useState(false);
+  const [reopening, setReopening] = useState(false);
+
+  const reopenMyMilhaoAttempts = async (mode: 'current' | 'latest2') => {
+    if (!challenge || !user) return;
+    const isMilhao = /milh(ã|a)o/i.test(challenge.title || '');
+    if (!isMilhao) {
+      toast({ title: 'Ação indisponível', description: 'Este botão é apenas para Quiz do Milhão.', variant: 'destructive' });
+      return;
+    }
+
+    const ok = window.confirm(
+      mode === 'current'
+        ? 'Reabrir sua tentativa deste Quiz do Milhão? Isso zera respostas, zera tentativa e reverte o XP ganho neste quiz.'
+        : 'Reabrir suas tentativas dos 2 quizzes mais recentes do Milhão? Isso zera respostas, zera tentativa e reverte o XP ganho nesses quizzes.',
+    );
+    if (!ok) return;
+
+    setReopening(true);
+    try {
+      const { data: session } = await supabase.auth.getSession();
+      const token = session.session?.access_token;
+      const resp = await fetch('/api/admin?handler=admin-reset-milhao-attempts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({
+          challenge_ids: mode === 'current' ? [challenge.id] : undefined,
+        }),
+      });
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(json?.error || 'Falha ao reabrir tentativas');
+      const reopened = Array.isArray(json?.reopened) ? json.reopened : [];
+      const reopenedIds = new Set(reopened.map((r: any) => String(r?.challenge_id || '').trim()).filter(Boolean));
+      const xpTotal = reopened.reduce((acc: number, r: any) => acc + (Number(r?.xp_reverted) || 0), 0);
+
+      if (reopenedIds.has(challenge.id)) setQuizCompleted(false);
+      toast({ title: 'Pronto', description: `Quizzes reabertos: ${reopened.length} • XP revertido: ${xpTotal}` });
+    } catch (e: any) {
+      toast({ title: 'Falha ao reabrir', description: e?.message || 'Tente novamente', variant: 'destructive' });
+    } finally {
+      setReopening(false);
+    }
+  };
 
   useEffect(() => {
     if (!audioFile) {
@@ -659,6 +701,28 @@ const ChallengeDetail = () => {
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-wrap gap-2">
+              {/milh(ã|a)o/i.test(challenge.title || '') && (
+                <>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={reopening}
+                    onClick={() => reopenMyMilhaoAttempts('current')}
+                    title="Reabre sua tentativa (para re-teste das regras novas)"
+                  >
+                    {reopening ? 'Reabrindo...' : 'Reabrir minha tentativa'}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={reopening}
+                    onClick={() => reopenMyMilhaoAttempts('latest2')}
+                    title="Reabre as tentativas dos 2 quizzes mais recentes do Milhão"
+                  >
+                    {reopening ? 'Reabrindo...' : 'Reabrir 2 últimos do Milhão'}
+                  </Button>
+                </>
+              )}
               <Button type="button" variant="outline" onClick={async () => {
                 try {
                   // Try API route first, fallback to direct update
