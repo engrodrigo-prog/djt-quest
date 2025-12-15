@@ -1,13 +1,13 @@
 // @ts-nocheck
-import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
 import { proofreadPtBrStrings } from '../lib/ai-proofread-ptbr.js';
 
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY as string;
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
 const BANNED_TERMS_RE = /smart\s*line|smartline|smarline/i;
 
-const SUPABASE_URL = process.env.SUPABASE_URL as string;
-const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY) as string;
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
+
 const STAFF_ROLES = new Set([
   'admin',
   'gerente_djt',
@@ -19,23 +19,24 @@ const STAFF_ROLES = new Set([
   'coordenador',
   'lider_equipe',
 ]);
+
 const DEFAULT_MILHAO_TOTAL_XP = 1000;
 
-const stripDiacritics = (s: string) =>
+const stripDiacritics = (s) =>
   String(s ?? '')
     .normalize('NFD')
     // eslint-disable-next-line no-control-regex
     .replace(/[\u0300-\u036f]/g, '');
 
-const baseNormalize = (s: string) =>
+const baseNormalize = (s) =>
   stripDiacritics(String(s ?? ''))
     .replace(/[^\p{L}\p{N}]+/gu, ' ')
     .replace(/\s+/g, ' ')
     .trim()
     .toLowerCase();
 
-const tokenSet = (s: string) => new Set(baseNormalize(s).split(' ').filter(Boolean));
-const jaccard = (a: string, b: string) => {
+const tokenSet = (s) => new Set(baseNormalize(s).split(' ').filter(Boolean));
+const jaccard = (a, b) => {
   const A = tokenSet(a);
   const B = tokenSet(b);
   if (!A.size && !B.size) return 1;
@@ -45,7 +46,7 @@ const jaccard = (a: string, b: string) => {
   return union ? inter / union : 0;
 };
 
-const isSafeDisambiguation = (original: any, candidate: any) => {
+const isSafeDisambiguation = (original, candidate) => {
   const o = String(original || '').trim();
   const c = String(candidate || '').trim();
   if (!o || !c) return false;
@@ -55,16 +56,12 @@ const isSafeDisambiguation = (original: any, candidate: any) => {
   return jaccard(o, c) >= 0.55;
 };
 
-async function generateExplanationsAndDisambiguations(params: {
-  model: string;
-  language: string;
-  questions: Array<{ enunciado: string; alternativas: any; correta: string }>;
-}) {
+async function generateExplanationsAndDisambiguations(params) {
   const { model, language, questions } = params;
   if (!OPENAI_API_KEY) return null;
-  if (!questions?.length) return null;
+  if (!Array.isArray(questions) || questions.length === 0) return null;
 
-  const payload = questions.map((q: any, idx: number) => ({
+  const payload = questions.map((q, idx) => ({
     index: idx + 1,
     question_text: String(q?.enunciado || ''),
     options: q?.alternativas || {},
@@ -97,7 +94,7 @@ Saída: responda APENAS JSON válido, no formato:
   ]
 }`;
 
-  const body: any = {
+  const body = {
     model,
     temperature: 0.2,
     messages: [
@@ -116,13 +113,13 @@ Saída: responda APENAS JSON válido, no formato:
     },
     body: JSON.stringify(body),
   });
-
   if (!resp.ok) return null;
+
   const data = await resp.json().catch(() => null);
   const content = data?.choices?.[0]?.message?.content || '';
   if (!content) return null;
 
-  let parsed: any = null;
+  let parsed = null;
   try {
     parsed = JSON.parse(content);
   } catch {
@@ -131,12 +128,12 @@ Saída: responda APENAS JSON válido, no formato:
   }
   if (!parsed || !Array.isArray(parsed.items)) return null;
 
-  const byIndex = new Map<number, any>();
+  const byIndex = new Map();
   for (const it of parsed.items) {
     const index = Number(it?.index);
     if (!Number.isFinite(index) || index < 1) continue;
     const explanations = it?.explanations || {};
-    const out: any = {};
+    const out = {};
     for (const k of ['A', 'B', 'C', 'D']) {
       const v = String(explanations?.[k] || '').trim();
       if (!v) continue;
@@ -150,7 +147,7 @@ Saída: responda APENAS JSON válido, no formato:
   return byIndex;
 }
 
-function levelToDifficulty(level: number): string {
+function levelToDifficulty(level) {
   // OBS: precisa respeitar o CHECK do banco (basico/intermediario/avancado/especialista)
   if (level <= 3) return 'basico';
   if (level <= 6) return 'intermediario';
@@ -158,7 +155,7 @@ function levelToDifficulty(level: number): string {
   return 'especialista';
 }
 
-function levelToXp(level: number): number {
+function levelToXp(level) {
   // OBS: precisa respeitar o CHECK do banco (5,10,20,40)
   if (level <= 3) return 5;
   if (level <= 6) return 10;
@@ -166,7 +163,7 @@ function levelToXp(level: number): number {
   return 40;
 }
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(204).send('');
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
@@ -174,11 +171,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!SUPABASE_URL || !SERVICE_KEY) {
       return res.status(500).json({ error: 'Missing Supabase config' });
     }
+
     const admin = createClient(SUPABASE_URL, SERVICE_KEY, {
       auth: { autoRefreshToken: false, persistSession: false },
     });
 
-    const authHeader = req.headers['authorization'] as string | undefined;
+    const authHeader = req.headers['authorization'];
     const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : undefined;
     if (!token) return res.status(401).json({ error: 'Unauthorized' });
 
@@ -187,7 +185,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const uid = userData.user.id;
 
     const { data: rolesRows } = await admin.from('user_roles').select('role').eq('user_id', uid);
-    const roles = (rolesRows || []).map((r: any) => r.role as string);
+    const roles = (rolesRows || []).map((r) => r.role);
     const isStaff = roles.some((r) => STAFF_ROLES.has(r));
     if (!isStaff) return res.status(403).json({ error: 'Apenas líderes podem publicar Quiz do Milhão' });
 
@@ -200,10 +198,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const rewardMode = rewardModeRaw === 'tier_steps' ? 'tier_steps' : 'fixed_xp';
     const rewardTotalXpRaw = Number(reward?.total_xp ?? DEFAULT_MILHAO_TOTAL_XP);
     const rewardTierStepsRaw = Number(reward?.tier_steps ?? 1);
-    const rewardTotalXp =
-      Number.isFinite(rewardTotalXpRaw) ? Math.max(100, Math.min(5000, Math.floor(rewardTotalXpRaw))) : DEFAULT_MILHAO_TOTAL_XP;
-    const rewardTierSteps =
-      Number.isFinite(rewardTierStepsRaw) ? Math.max(1, Math.min(5, Math.floor(rewardTierStepsRaw))) : 1;
+    const rewardTotalXp = Number.isFinite(rewardTotalXpRaw)
+      ? Math.max(100, Math.min(5000, Math.floor(rewardTotalXpRaw)))
+      : DEFAULT_MILHAO_TOTAL_XP;
+    const rewardTierSteps = Number.isFinite(rewardTierStepsRaw) ? Math.max(1, Math.min(5, Math.floor(rewardTierStepsRaw))) : 1;
 
     const title = `Quiz do Milhão: ${String(topic || quiz.title || '').trim() || 'Desafio'}`;
     const description =
@@ -234,13 +232,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         require_two_leader_eval: false,
         quiz_specialties: quiz.specialties || null,
         chas_dimension: quiz.chas || 'C',
-      } as any)
+      })
       .select()
       .single();
 
     if (chErr) return res.status(400).json({ error: chErr.message });
 
-    const createdQuestionIds: string[] = [];
+    const createdQuestionIds = [];
     const cleanup = async () => {
       try {
         if (createdQuestionIds.length) {
@@ -263,37 +261,33 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Mantém sentido; apenas corrige acentuação/ortografia e pequenos erros de digitação.
     let revisedQuiz = quiz;
     try {
-      const texts: string[] = [];
+      const texts = [];
       for (const q of quiz.questoes || []) {
         texts.push(String(q?.enunciado || ''));
         const alternativas = q?.alternativas || {};
-        for (const k of ['A', 'B', 'C', 'D']) {
-          texts.push(String(alternativas?.[k] || ''));
-        }
+        for (const k of ['A', 'B', 'C', 'D']) texts.push(String(alternativas?.[k] || ''));
       }
       const { output } = await proofreadPtBrStrings({ strings: texts });
       let cursor = 0;
-      revisedQuiz = { ...quiz, questoes: (quiz.questoes || []).map((q: any) => {
-        const enunciado = output[cursor++] ?? q.enunciado;
-        const alternativasIn = q?.alternativas || {};
-        const alternativasOut: any = { ...alternativasIn };
-        for (const k of ['A','B','C','D']) {
-          alternativasOut[k] = output[cursor++] ?? alternativasIn[k];
-        }
-        return { ...q, enunciado, alternativas: alternativasOut };
-      })};
+      revisedQuiz = {
+        ...quiz,
+        questoes: (quiz.questoes || []).map((q) => {
+          const enunciado = output[cursor++] ?? q.enunciado;
+          const alternativasIn = q?.alternativas || {};
+          const alternativasOut = { ...alternativasIn };
+          for (const k of ['A', 'B', 'C', 'D']) alternativasOut[k] = output[cursor++] ?? alternativasIn[k];
+          return { ...q, enunciado, alternativas: alternativasOut };
+        }),
+      };
     } catch {
       // ignore
     }
 
     // Explicações (IA) e desambiguação mínima do enunciado (quando necessário).
     // NÃO altera alternativas; apenas adiciona explicações e, se detectada ambiguidade, ajusta o enunciado.
-    let explanationsByIndex: Map<number, any> | null = null;
+    let explanationsByIndex = null;
     try {
-      const explainModel =
-        (process.env.OPENAI_MODEL_PREMIUM as string) ||
-        (process.env.OPENAI_MODEL_FAST as string) ||
-        'gpt-5.2-thinking';
+      const explainModel = process.env.OPENAI_MODEL_PREMIUM || process.env.OPENAI_MODEL_FAST || 'gpt-5.2-thinking';
       explanationsByIndex = await generateExplanationsAndDisambiguations({
         model: explainModel,
         language: 'pt-BR',
@@ -302,8 +296,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (explanationsByIndex) {
         revisedQuiz = {
           ...revisedQuiz,
-          questoes: (revisedQuiz.questoes || []).map((q: any, idx: number) => {
-            const it = explanationsByIndex?.get(idx + 1);
+          questoes: (revisedQuiz.questoes || []).map((q, idx) => {
+            const it = explanationsByIndex.get(idx + 1);
             const suggestion = it?.suggested_question_text;
             if (it?.ambiguous && suggestion && isSafeDisambiguation(q?.enunciado, suggestion)) {
               return { ...q, enunciado: suggestion };
@@ -313,7 +307,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         };
       }
     } catch {
-      // ignore
+      // ignore (publish without explanations)
     }
 
     try {
@@ -323,9 +317,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const difficulty_level = levelToDifficulty(level);
         const xp_value = levelToXp(level);
 
-        // Validar alternativas (4 e exatamente 1 correta) antes de inserir
         const alternativas = q.alternativas || {};
-        const correctKey = String(q.correta || 'A').trim().toUpperCase();
+        const correctKey = String(q.correta || 'A')
+          .trim()
+          .toUpperCase();
         const letters = ['A', 'B', 'C', 'D'];
         const presentLetters = letters.filter((k) => String(alternativas[k] || '').trim().length > 0);
         if (presentLetters.length !== 4) {
@@ -344,7 +339,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             xp_value,
             order_index: idx,
             created_by: uid,
-          } as any)
+          })
           .select()
           .single();
         if (qErr) throw new Error(qErr.message);
@@ -358,16 +353,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           explanation: explain?.[k] || null,
         }));
 
-        const { error: optErr } = await admin.from('quiz_options').insert(rows as any);
+        const { error: optErr } = await admin.from('quiz_options').insert(rows);
         if (optErr) throw new Error(optErr.message);
       }
-    } catch (e: any) {
+    } catch (e) {
       await cleanup();
       return res.status(400).json({ error: e?.message || 'Falha ao publicar Quiz do Milhão' });
     }
 
     return res.status(200).json({ success: true, challengeId: challenge.id, title: challenge.title });
-  } catch (err: any) {
+  } catch (err) {
     return res.status(500).json({ error: err?.message || 'Unknown error' });
   }
 }

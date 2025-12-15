@@ -57,7 +57,7 @@ function Rankings() {
       const [profilesResult, teamsResult, divisionsResult, coordsResult, eventsResult, challengesResult, evalQueueResult] = await Promise.all([
         supabase
           .from('profiles')
-          .select('id, name, xp, avatar_url, tier, team_id, coord_id, division_id, is_leader')
+          .select('id, name, xp, avatar_url, tier, team_id, coord_id, division_id, is_leader, studio_access')
           .limit(1000),
         supabase
           .from('teams')
@@ -91,7 +91,8 @@ function Rankings() {
       }
 
       const allProfiles = profilesResult.data || [];
-      const profilesData = allProfiles.filter((profile) => !profile.is_leader);
+      const isLeaderProfile = (p: any) => Boolean(p?.is_leader || p?.studio_access);
+      const profilesData = allProfiles.filter((profile: any) => !isLeaderProfile(profile));
 
       if (profilesData.length) {
         const teamMap = (teamsResult.data || []).reduce<Record<string, string>>((acc, team) => {
@@ -309,21 +310,27 @@ function Rankings() {
       }
 
       // Leader-only ranking (by completed evaluations)
-      if (!evalQueueResult.error) {
-        const completedByReviewer = (evalQueueResult.data || []).reduce<Record<string, number>>((acc: any, row: any) => {
-          const reviewer = row.assigned_to as string;
-          if (!reviewer) return acc;
-          const inc = row.completed_at ? 1 : 0;
-          acc[reviewer] = (acc[reviewer] || 0) + inc;
-          return acc;
-        }, {});
-        const leaders = allProfiles.filter((p: any) => p.is_leader);
-        const sorted = leaders
-          .map((p: any) => ({ userId: p.id, name: p.name, avatarUrl: p.avatar_url, completed: completedByReviewer[p.id] || 0 }))
-          .sort((a, b) => b.completed - a.completed)
-          .map((p, i) => ({ ...p, rank: i + 1 }));
-        setLeaderRankings(sorted);
-      }
+      const completedByReviewer = !evalQueueResult.error
+        ? (evalQueueResult.data || []).reduce<Record<string, number>>((acc: any, row: any) => {
+            const reviewer = row.assigned_to as string;
+            if (!reviewer) return acc;
+            const inc = row.completed_at ? 1 : 0;
+            acc[reviewer] = (acc[reviewer] || 0) + inc;
+            return acc;
+          }, {})
+        : {};
+
+      const leaders = allProfiles.filter((p: any) => isLeaderProfile(p));
+      const sorted = leaders
+        .map((p: any) => ({
+          userId: p.id,
+          name: p.name,
+          avatarUrl: p.avatar_url,
+          completed: completedByReviewer[p.id] || 0,
+        }))
+        .sort((a, b) => b.completed - a.completed)
+        .map((p, i) => ({ ...p, rank: i + 1 }));
+      setLeaderRankings(sorted);
     } catch (error) {
       console.error('Error fetching rankings:', error);
     } finally {
@@ -574,6 +581,11 @@ function Rankings() {
                   <p className="text-center py-8 text-muted-foreground">Carregando...</p>
                 ) : (
                   <div className="space-y-6">
+                    {leaderRankings.length === 0 && (
+                      <p className="text-center py-8 text-muted-foreground">
+                        Nenhum líder encontrado (ou você não tem permissão para ler avaliações).
+                      </p>
+                    )}
                     {leaderRankings.map((r) => (
                       <div key={r.userId} className="flex items-center gap-4 p-4 rounded-lg border bg-transparent hover:bg-white/5 transition-colors">
                         <span className="text-2xl font-bold text-muted-foreground min-w-[3rem]">{getMedalEmoji(r.rank)}</span>

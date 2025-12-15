@@ -129,6 +129,7 @@ Regras obrigatórias:
 - NÃO altere o enunciado nem a alternativa correta (correct_text). Reescreva somente wrong_texts.
 - Para cada questão, retorne exatamente 3 alternativas erradas.
 - Distratores devem ser "near-miss": bem próximos da correta, mudando 1 detalhe-chave (parâmetro, passo, condição, sigla/termo, responsabilidade, sequência).
+- Garanta que cada alternativa errada seja definitivamente INCORRETA no contexto do enunciado. Se algum wrong_text estiver correto ou parcialmente correto, reescreva para torná-lo errado (mudando 1 detalhe-chave), sem criar uma “segunda correta”.
 - Evite alternativas absurdas, vagas, genéricas ou placeholders.
 - Evite "todas/nenhuma", "A e B", e respostas autoevidentes.
 - Proibido mencionar SmartLine/Smartline/Smart Line (outro projeto).
@@ -633,7 +634,7 @@ ${joinedContext}`,
         const refineModel =
           (process.env.OPENAI_MODEL_PREMIUM as string) ||
           (process.env.OPENAI_MODEL_OVERRIDE as string) ||
-          "gpt-5.2";
+          "gpt-5.2-thinking";
         normalizedQuestions = await refineMilhaoDistractors({
           openaiKey: OPENAI_API_KEY,
           model: refineModel,

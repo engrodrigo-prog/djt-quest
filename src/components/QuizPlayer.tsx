@@ -286,6 +286,13 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
   const currentMilhaoMeta = isMilhao ? MILHAO_LEVELS[currentQuestionIndex] : null;
   const domain = inferDomain(currentQuestion.question_text, challengeTitle, challengeSpecialties);
   const monitor = MONITORS[domain];
+  const selectedOptionObj = options.find((o) => o.id === selectedOption) || null;
+  const selectedOptionIndex = selectedOptionObj ? options.findIndex((o) => o.id === selectedOptionObj.id) : -1;
+  const selectedOptionLabel = selectedOptionIndex >= 0 ? String.fromCharCode(65 + selectedOptionIndex) : null;
+  const correctOptionObj =
+    answerResult?.correctOptionId ? options.find((o) => o.id === answerResult.correctOptionId) || null : null;
+  const correctOptionIndex = correctOptionObj ? options.findIndex((o) => o.id === correctOptionObj.id) : -1;
+  const correctOptionLabel = correctOptionIndex >= 0 ? String.fromCharCode(65 + correctOptionIndex) : null;
 
   const difficultyLabelMap: Record<string, string> = {
     basico: "Básico",
@@ -507,6 +514,34 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
                   </>
                 )}
               </div>
+              {!answerResult.isCorrect && (
+                <div className="space-y-2 text-sm">
+                  <p className="text-foreground">
+                    <span className="font-semibold">Resposta correta:</span>{" "}
+                    {correctOptionObj ? (
+                      <>
+                        {correctOptionLabel ? `${correctOptionLabel}. ` : ""}
+                        {correctOptionObj.option_text}
+                      </>
+                    ) : (
+                      "Veja a alternativa destacada em verde."
+                    )}
+                  </p>
+                  {correctOptionObj?.explanation && (
+                    <p className="text-muted-foreground">
+                      <span className="font-semibold text-foreground">Por quê:</span> {correctOptionObj.explanation}
+                    </p>
+                  )}
+                  {selectedOptionObj && (
+                    <p className="text-muted-foreground">
+                      <span className="font-semibold text-foreground">Sua resposta:</span>{" "}
+                      {selectedOptionLabel ? `${selectedOptionLabel}. ` : ""}
+                      {selectedOptionObj.option_text}
+                      {selectedOptionObj.explanation ? ` — ${selectedOptionObj.explanation}` : ""}
+                    </p>
+                  )}
+                </div>
+              )}
               {answerResult.xpBlockedForLeader && (
                 <p className="text-xs text-muted-foreground">
                   Líderes não acumulam XP nos quizzes, mas o acerto foi registrado no histórico.

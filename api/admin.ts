@@ -15,6 +15,7 @@ import uploadAvatar from '../server/api-handlers/upload-avatar.js';
 import adminUpdateProfile from '../server/api-handlers/admin-update-profile.js';
 import adminFixChallengeTargets from '../server/api-handlers/admin-fix-challenge-targets.js';
 import adminStudySources from '../server/api-handlers/admin-study-sources.js';
+import adminAdjustXp from '../server/api-handlers/admin-adjust-xp.js';
 import leadershipChallenges from '../server/api-handlers/leadership-challenges.js';
 import coordRankingBonus from '../server/api-handlers/coord-ranking-bonus.js';
 import studioPublishQuizMilhao from '../server/api-handlers/studio-publish-quiz-milhao.js';
@@ -34,6 +35,7 @@ const handlers: Record<string, Handler> = {
   'admin-update-profile': adminUpdateProfile,
   'admin-fix-challenge-targets': adminFixChallengeTargets,
   'admin-study-sources': adminStudySources,
+  'admin-adjust-xp': adminAdjustXp,
   'leadership-challenges': leadershipChallenges,
   'coord-ranking-bonus': coordRankingBonus,
   'studio-publish-quiz-milhao': studioPublishQuizMilhao,
