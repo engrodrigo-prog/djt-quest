@@ -12,6 +12,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { HelpInfo } from '@/components/HelpInfo'
 import { AttachmentUploader } from '@/components/AttachmentUploader'
 import { AttachmentViewer } from '@/components/AttachmentViewer'
+import { VoiceRecorderButton } from '@/components/VoiceRecorderButton'
 import Navigation from '@/components/Navigation'
 import { Wand2, Share2 } from 'lucide-react'
 
@@ -41,6 +42,7 @@ export default function ForumTopic() {
   const [compendium, setCompendium] = useState<any | null>(null)
   const [content, setContent] = useState('')
   const [audioFile, setAudioFile] = useState<File | null>(null)
+  const [audioPreviewUrl, setAudioPreviewUrl] = useState<string | null>(null)
   const [transcribing, setTranscribing] = useState(false)
   const [cleaning, setCleaning] = useState(false)
   const [attachmentUrls, setAttachmentUrls] = useState<string[]>([])
@@ -74,6 +76,18 @@ export default function ForumTopic() {
   }, [id])
 
   useEffect(() => { load() }, [load])
+
+  useEffect(() => {
+    if (!audioFile) {
+      setAudioPreviewUrl(null)
+      return
+    }
+    const url = URL.createObjectURL(audioFile)
+    setAudioPreviewUrl(url)
+    return () => {
+      try { URL.revokeObjectURL(url) } catch { /* ignore */ }
+    }
+  }, [audioFile])
 
   useEffect(() => {
     if (!posts.length) return
@@ -120,6 +134,9 @@ export default function ForumTopic() {
     if (!audioFile) return
     try {
       setTranscribing(true)
+      if (audioFile.size > 12 * 1024 * 1024) {
+        throw new Error('Arquivo muito grande. Envie um áudio menor (até 12MB).')
+      }
       const toBase64 = (f: File) => new Promise<string>((resolve, reject) => { const r = new FileReader(); r.onload = () => resolve(String(r.result)); r.onerror = reject; r.readAsDataURL(f) })
       const b64 = await toBase64(audioFile)
       const resp = await fetch('/api/ai?handler=transcribe-audio', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ audioBase64: b64, mode:'organize', language:'pt' }) })
@@ -971,9 +988,29 @@ export default function ForumTopic() {
                 </div>
                 <div className="space-y-2">
                   <p className="text-sm text-muted-foreground">Áudio para organizar com IA (opcional)</p>
-                  <div className="flex items-center gap-3">
-                    <Input type="file" accept="audio/*" onChange={(e)=>setAudioFile(e.target.files?.[0] || null)} />
-                    <Button variant="outline" disabled={!audioFile || transcribing} onClick={handleTranscribe}>{transcribing ? 'Transcrevendo...' : 'Organizar áudio'}</Button>
+                  <div className="flex flex-col gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <VoiceRecorderButton
+                        size="sm"
+                        label="Gravar áudio"
+                        onText={(text) => setContent(prev => [prev, text].filter(Boolean).join('\n\n'))}
+                      />
+                      <Input type="file" accept="audio/*" onChange={(e)=>setAudioFile(e.target.files?.[0] || null)} className="sm:max-w-[360px]" />
+                      {audioFile && (
+                        <Button type="button" variant="ghost" size="sm" onClick={() => setAudioFile(null)}>
+                          Remover áudio
+                        </Button>
+                      )}
+                      <Button variant="outline" disabled={!audioFile || transcribing} onClick={handleTranscribe}>
+                        {transcribing ? 'Transcrevendo...' : 'Organizar áudio'}
+                      </Button>
+                    </div>
+                    {audioPreviewUrl && (
+                      <audio controls src={audioPreviewUrl} className="w-full" />
+                    )}
+                    <p className="text-[11px] text-muted-foreground">
+                      Dica: prefira gravações curtas para transcrição rápida e com menos ruído.
+                    </p>
                   </div>
                 </div>
               </div>

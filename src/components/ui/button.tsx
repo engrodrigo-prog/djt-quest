@@ -21,8 +21,9 @@ const buttonVariants = cva(
         gameGhost: "relative bg-foreground/5 text-foreground border border-white/10 hover:border-primary/60 hover:bg-foreground/10 transition-all duration-300",
       },
       size: {
-        default: "h-10 px-4 py-2",
-        sm: "h-9 rounded-md px-3",
+        // Slightly more breathing room for text buttons (UX)
+        default: "h-10 px-5 py-2",
+        sm: "h-9 rounded-md px-4",
         lg: "h-11 rounded-md px-8",
         icon: "h-10 w-10",
       },

@@ -14,6 +14,7 @@ import { ThemedBackground, domainFromType } from '@/components/ThemedBackground'
 import { useToast } from '@/hooks/use-toast';
 import { QuizPlayer } from '@/components/QuizPlayer';
 import { HelpInfo } from '@/components/HelpInfo';
+import { VoiceRecorderButton } from '@/components/VoiceRecorderButton';
 
 interface Challenge {
   id: string;
@@ -44,13 +45,8 @@ const ChallengeDetail = () => {
   const [evidenceUrls, setEvidenceUrls] = useState<string[]>([]);
   const [imageUploads, setImageUploads] = useState<File[]>([]);
   const [audioFile, setAudioFile] = useState<File | null>(null);
+  const [audioPreviewUrl, setAudioPreviewUrl] = useState<string | null>(null);
   const [transcribing, setTranscribing] = useState(false);
-  // Mic recording state
-  const [recording, setRecording] = useState(false);
-  const [recordSeconds, setRecordSeconds] = useState(0);
-  const [recordedUrl, setRecordedUrl] = useState<string | null>(null);
-  const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
-  const [mediaStream, setMediaStream] = useState<MediaStream | null>(null);
   const [previousFeedback, setPreviousFeedback] = useState<{ positive: string | null; constructive: string | null } | null>(null);
   const [quizCompleted, setQuizCompleted] = useState(false);
   const [actionDate, setActionDate] = useState<string>('');
@@ -62,6 +58,18 @@ const ChallengeDetail = () => {
   const [selectedParticipants, setSelectedParticipants] = useState<Set<string>>(new Set());
   const [myTeamId, setMyTeamId] = useState<string | null>(null);
   const [showAnalytics, setShowAnalytics] = useState(false);
+
+  useEffect(() => {
+    if (!audioFile) {
+      setAudioPreviewUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(audioFile);
+    setAudioPreviewUrl(url);
+    return () => {
+      try { URL.revokeObjectURL(url); } catch { /* ignore */ }
+    };
+  }, [audioFile]);
 
   useEffect(() => {
     const loadChallenge = async () => {
@@ -539,118 +547,68 @@ const ChallengeDetail = () => {
                 {/* Áudio integrado à descrição: gravar/anexar e transcrever para preencher o texto */}
                 <div className="mt-3 space-y-2">
                   <Label className="text-xs">Preferir falar? Grave ou anexe um áudio e nós transcrevemos e organizamos com IA.</Label>
-                  {/* Upload de arquivo de áudio existente */}
-                  <Input type="file" accept="audio/*" onChange={(e) => setAudioFile(e.target.files?.[0] || null)} />
-
-                  {/* Gravação pelo microfone */}
-                  <div className="flex items-center gap-2">
-                    <Button type="button" variant={recording ? 'destructive' : 'outline'} onClick={async () => {
-                      try {
-                        if (!recording) {
-                          // start
-                          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                          const rec = new MediaRecorder(stream);
-                          const chunks: BlobPart[] = [];
-                          rec.ondataavailable = (ev) => { if (ev.data.size > 0) chunks.push(ev.data); };
-                          rec.onstop = () => {
-                            const blob = new Blob(chunks, { type: rec.mimeType || 'audio/webm' });
-                            const file = new File([blob], `gravacao-${Date.now()}.webm`, { type: blob.type });
-                            setAudioFile(file);
-                            if (recordedUrl) URL.revokeObjectURL(recordedUrl);
-                            setRecordedUrl(URL.createObjectURL(blob));
-                          };
-                          setMediaStream(stream);
-                          setMediaRecorder(rec);
-                          setRecordSeconds(0);
-                          setRecording(true);
-                          rec.start();
-                          // timer
-                          const startedAt = Date.now();
-                          const t = setInterval(() => {
-                            if (!rec.recording) { clearInterval(t); return; }
-                            setRecordSeconds(Math.floor((Date.now() - startedAt) / 1000));
-                          }, 1000);
-                        } else {
-                          // stop
-                          mediaRecorder?.stop();
-                          mediaStream?.getTracks().forEach((tr) => tr.stop());
-                          setRecording(false);
-                        }
-                      } catch (e) {
-                        toast({ title: 'Permita acesso ao microfone', variant: 'destructive' });
-                      }
-                    }}>{recording ? 'Parar gravação' : 'Gravar áudio'}</Button>
-                    {recording && (
-                      <span className="text-xs text-red-600">● Gravando {recordSeconds}s</span>
-                    )}
-                  </div>
-
-                  {recordedUrl && (
-                    <div className="space-y-2">
-                      <audio controls src={recordedUrl} className="w-full" />
-                      <div className="flex gap-2">
-                        <Button type="button" variant="secondary" onClick={() => {
-                          if (recordedUrl) URL.revokeObjectURL(recordedUrl);
-                          setRecordedUrl(null);
-                          setAudioFile(null);
-                        }}>Descartar</Button>
-                        <Button type="button" onClick={async () => {
-                          if (!audioFile) return;
-                          try {
-                            setTranscribing(true);
-                            // Send as base64 directly
-                            const toBase64 = (f: File) => new Promise<string>((resolve, reject) => {
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <VoiceRecorderButton
+                        size="sm"
+                        label="Gravar áudio"
+                        onText={(text) => {
+                          const merged = [description, text].filter(Boolean).join('\n\n');
+                          setDescription(merged);
+                        }}
+                      />
+                      <Input type="file" accept="audio/*" onChange={(e) => setAudioFile(e.target.files?.[0] || null)} className="sm:max-w-[360px]" />
+                      {audioFile && (
+                        <Button type="button" variant="ghost" size="sm" onClick={() => setAudioFile(null)}>
+                          Remover áudio
+                        </Button>
+                      )}
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={!audioFile || transcribing}
+                      onClick={async () => {
+                        if (!audioFile) return;
+                        try {
+                          setTranscribing(true);
+                          if (audioFile.size > 12 * 1024 * 1024) {
+                            throw new Error('Arquivo muito grande. Envie um áudio menor (até 12MB).');
+                          }
+                          const toBase64 = (f: File) =>
+                            new Promise<string>((resolve, reject) => {
                               const reader = new FileReader();
                               reader.onload = () => resolve(String(reader.result));
                               reader.onerror = reject;
                               reader.readAsDataURL(f);
                             });
-                            const b64 = await toBase64(audioFile);
-                            const resp = await fetch('/api/ai?handler=transcribe-audio', {
-                              method: 'POST', headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({ audioBase64: b64, mode: 'organize', language: 'pt' })
-                            });
-                            const json = await resp.json();
-                            if (!resp.ok) throw new Error(json?.error || 'Falha na transcrição');
-                            const merged = [description, json.text || json.summary || json.transcript].filter(Boolean).join('\n\n');
-                            setDescription(merged);
-                            toast({ title: 'Áudio organizado', description: 'Texto inserido na descrição' })
-                          } catch (e: any) {
-                            toast({ title: 'Falha ao transcrever', description: e?.message || 'Tente novamente', variant: 'destructive' })
-                          } finally {
-                            setTranscribing(false);
-                          }
-                        }}>{transcribing ? 'Transcrevendo...' : 'Transcrever e organizar'}</Button>
-                      </div>
-                    </div>
+                          const b64 = await toBase64(audioFile);
+                          const resp = await fetch('/api/ai?handler=transcribe-audio', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ audioBase64: b64, mode: 'organize', language: 'pt' })
+                          });
+                          const json = await resp.json().catch(() => ({}));
+                          if (!resp.ok) throw new Error(json?.error || 'Falha na transcrição');
+                          const merged = [description, json.text || json.summary || json.transcript].filter(Boolean).join('\n\n');
+                          setDescription(merged);
+                          toast({ title: 'Áudio organizado', description: 'Texto inserido na descrição' })
+                        } catch (e: any) {
+                          toast({ title: 'Falha ao transcrever', description: e?.message || 'Tente novamente', variant: 'destructive' })
+                        } finally {
+                          setTranscribing(false);
+                        }
+                      }}
+                    >
+                      {transcribing ? 'Transcrevendo...' : 'Organizar áudio'}
+                    </Button>
+                  </div>
+                  {audioPreviewUrl && (
+                    <audio controls src={audioPreviewUrl} className="w-full" />
                   )}
-
-                  {/* Transcrever arquivo de áudio anexado (sem gravação) */}
-                  <Button type="button" variant="outline" disabled={!audioFile || transcribing} onClick={async () => {
-                    if (!audioFile) return;
-                    try {
-                      setTranscribing(true);
-                      // Upload audio to evidence and then ask API to transcribe
-                      const path = `${user?.id}/${Date.now()}-audio-${audioFile.name}`;
-                      const { error: upErr } = await supabase.storage.from('evidence').upload(path, audioFile, { upsert: true, contentType: audioFile.type });
-                      if (upErr) throw upErr;
-                      const { data } = supabase.storage.from('evidence').getPublicUrl(path);
-                      const resp = await fetch('/api/ai?handler=transcribe-audio', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ fileUrl: data.publicUrl, mode: 'organize', language: 'pt' })
-                      });
-                      const json = await resp.json();
-                      if (!resp.ok) throw new Error(json?.error || 'Falha na transcrição');
-                      const merged = [description, json.text || json.summary || json.transcript].filter(Boolean).join('\n\n');
-                      setDescription(merged);
-                      toast({ title: 'Áudio organizado', description: 'Texto inserido na descrição' })
-                    } catch (e: any) {
-                      toast({ title: 'Falha ao transcrever', description: e?.message || 'Tente novamente', variant: 'destructive' })
-                    } finally {
-                      setTranscribing(false);
-                    }
-                  }}>{transcribing ? 'Transcrevendo...' : 'Transcrever e organizar'}</Button>
+                  <p className="text-[11px] text-muted-foreground">
+                    Dica: prefira gravações curtas (20–45s) para melhor qualidade e rapidez na transcrição.
+                  </p>
                 </div>
               </div>
 
