@@ -85,6 +85,119 @@ const remapOptionsToTargetCorrect = (
   return { options: out, correct_letter: targetCorrectLetter };
 };
 
+const safeTrim = (s: any) => (s ?? "").toString().trim();
+
+const sanitizeOptionText = (s: string) => {
+  // remove bullets/labels that models sometimes add
+  return s
+    .replace(/^\s*[A-D]\)\s*/i, "")
+    .replace(/^\s*[A-D]\.\s*/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+};
+
+async function refineMilhaoDistractors(params: {
+  openaiKey: string;
+  model: string;
+  language: string;
+  forbidTermsRe: RegExp;
+  questions: Array<{
+    level: number;
+    question_text: string;
+    correct_letter: Letter;
+    options: Record<Letter, string>;
+  }>;
+}) {
+  const { openaiKey, model, language, forbidTermsRe, questions } = params;
+  if (!openaiKey) return questions;
+  if (!questions.length) return questions;
+
+  const payload = questions.map((q) => {
+    const wrongs = LETTERS.filter((l) => l !== q.correct_letter).map((l) => q.options[l]);
+    return {
+      level: q.level,
+      question_text: q.question_text,
+      correct_text: q.options[q.correct_letter],
+      wrong_texts: wrongs,
+    };
+  });
+
+  const system = `Você é um especialista em elaboração de alternativas (distratores) para quizzes técnicos no setor elétrico (CPFL/SEP/subtransmissão), em ${language}.
+Sua tarefa: reescrever APENAS as 3 alternativas ERRADAS de cada questão para ficarem menos óbvias e mais verossímeis, respeitando a progressão de dificuldade do nível (1→10).
+
+Regras obrigatórias:
+- NÃO altere o enunciado nem a alternativa correta (correct_text). Reescreva somente wrong_texts.
+- Para cada questão, retorne exatamente 3 alternativas erradas.
+- Distratores devem ser "near-miss": bem próximos da correta, mudando 1 detalhe-chave (parâmetro, passo, condição, sigla/termo, responsabilidade, sequência).
+- Evite alternativas absurdas, vagas, genéricas ou placeholders.
+- Evite "todas/nenhuma", "A e B", e respostas autoevidentes.
+- Proibido mencionar SmartLine/Smartline/Smart Line (outro projeto).
+- Não cite marcas/programas de TV.
+
+Formato de saída: JSON estrito (sem markdown):
+{ "items": [ { "level": 1, "wrong_texts": ["...","...","..."] } ] }`;
+
+  const user = `Reescreva os distratores mantendo o mesmo tema e vocabulário do enunciado/correct_text.
+Entrada JSON:
+${JSON.stringify({ items: payload })}`;
+
+  const body: any = {
+    model,
+    messages: [
+      { role: "system", content: system },
+      { role: "user", content: user },
+    ],
+    temperature: 0.35,
+  };
+  if (/^gpt-5/i.test(String(model))) body.max_completion_tokens = 2200;
+  else body.max_tokens = 2200;
+
+  const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${openaiKey}`,
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!resp.ok) return questions;
+  const data = await resp.json().catch(() => null);
+  const content = data?.choices?.[0]?.message?.content || "";
+  if (!content) return questions;
+
+  let parsed: any = null;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    const m = content.match(/\{[\s\S]*\}/);
+    if (m) parsed = JSON.parse(m[0]);
+  }
+
+  const items = parsed?.items;
+  if (!Array.isArray(items)) return questions;
+  const byLevel = new Map<number, string[]>();
+  for (const it of items) {
+    const level = Number(it?.level);
+    const wrongs = Array.isArray(it?.wrong_texts) ? it.wrong_texts : [];
+    const cleaned = wrongs.map((w: any) => sanitizeOptionText(safeTrim(w))).filter(Boolean);
+    if (!Number.isFinite(level) || cleaned.length < 3) continue;
+    if (cleaned.some((w) => forbidTermsRe.test(w))) continue;
+    byLevel.set(level, cleaned.slice(0, 3));
+  }
+
+  return questions.map((q) => {
+    const wrongs = byLevel.get(q.level);
+    if (!wrongs || wrongs.length < 3) return q;
+    const out: Record<Letter, string> = { ...q.options };
+    const wrongLetters = LETTERS.filter((l) => l !== q.correct_letter);
+    for (let i = 0; i < wrongLetters.length; i++) {
+      out[wrongLetters[i]] = wrongs[i] ?? out[wrongLetters[i]];
+    }
+    return { ...q, options: out };
+  });
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === "OPTIONS") return res.status(204).send("");
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
@@ -497,7 +610,7 @@ ${joinedContext}`,
 
         const level = idx + 1;
         const difficulty =
-          level <= 3 ? "basica" : level <= 6 ? "intermediaria" : level <= 8 ? "avancada" : "especialista";
+          level <= 3 ? "basico" : level <= 6 ? "intermediario" : level <= 8 ? "avancado" : "especialista";
 
         return {
           question_text: (q.question_text ?? "").toString().trim(),
@@ -511,6 +624,24 @@ ${joinedContext}`,
       });
     } catch (e: any) {
       return res.status(400).json({ error: e?.message || "Falha ao normalizar perguntas da IA", raw: content });
+    }
+
+    if (isMilhao) {
+      try {
+        const refineModel =
+          (process.env.OPENAI_MODEL_PREMIUM as string) ||
+          (process.env.OPENAI_MODEL_OVERRIDE as string) ||
+          "gpt-5.2";
+        normalizedQuestions = await refineMilhaoDistractors({
+          openaiKey: OPENAI_API_KEY,
+          model: refineModel,
+          language,
+          forbidTermsRe: BANNED_TERMS_RE,
+          questions: normalizedQuestions,
+        });
+      } catch {
+        // keep original options if refinement fails
+      }
     }
 
     json.mode = isMilhao ? "milhao" : "standard";

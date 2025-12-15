@@ -83,8 +83,8 @@ export default async function handler(req, res) {
             return res.status(400).json({ error: awErr.message });
         for (const a of awards) {
             if (a.bonus_xp > 0) {
-                await admin.rpc('increment_profile_xp', { _user_id: a.user_id, _delta: a.bonus_xp }).catch(async () => {
-                    // Fallback if RPC missing: update directly
+                await admin.rpc('increment_user_xp', { _user_id: a.user_id, _xp_to_add: a.bonus_xp }).catch(async () => {
+                    // Fallback: update directly (não atualiza tier)
                     const { data: prof } = await admin.from('profiles').select('xp').eq('id', a.user_id).maybeSingle();
                     const cur = Number(prof?.xp || 0);
                     await admin.from('profiles').update({ xp: cur + a.bonus_xp }).eq('id', a.user_id);

@@ -134,20 +134,18 @@ Deno.serve(async (req) => {
     
     const updates = await Promise.all(
       collaborators.map(async (collab) => {
-        const newXp = collab.xp + pointsDelta;
-        
         if (pointsDelta > 0) {
-          const { error: updateError } = await supabase
-            .from('profiles')
-            .update({ xp: newXp })
-            .eq('id', collab.id);
-
-          if (updateError) {
+          try {
+            await supabase.rpc('increment_user_xp', { _user_id: collab.id, _xp_to_add: pointsDelta });
+          } catch (updateError) {
             console.error('Error updating XP for user:', collab.id, updateError);
+            // fallback antigo (não atualiza tier)
+            const newXp = (collab.xp || 0) + pointsDelta;
+            await supabase.from('profiles').update({ xp: newXp }).eq('id', collab.id);
           }
         }
 
-        return { userId: collab.id, oldXp: collab.xp, newXp };
+        return { userId: collab.id, oldXp: collab.xp, newXp: (collab.xp || 0) + pointsDelta };
       })
     );
 

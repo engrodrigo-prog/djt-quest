@@ -100,13 +100,14 @@ serve(async (req) => {
 
     const { data: profile } = await supabase
       .from('profiles')
-      .select('xp')
+      .select('xp, tier, is_leader')
       .eq('id', user.id)
       .maybeSingle();
 
     const xpEarned = isCorrect
       ? (isMilhao ? (MILHAO_XP_TABLE[questionOrderIndex] ?? option.quiz_questions.xp_value) : option.quiz_questions.xp_value)
       : 0;
+    // Regra de jogo: líderes normalmente não competem, mas para testes isso pode ser habilitado/alterado no futuro.
     const xpBlockedForLeader = false;
 
     // Insert user answer
@@ -126,12 +127,19 @@ serve(async (req) => {
       throw insertError;
     }
 
-    // Update user XP if correct
-    if (xpEarned > 0 && profile) {
-      await supabase
-        .from('profiles')
-        .update({ xp: profile.xp + xpEarned })
-        .eq('id', user.id);
+    // Update XP + tier if correct (usa RPC para manter tier sincronizado)
+    if (xpEarned > 0) {
+      try {
+        await supabase.rpc('increment_user_xp', { _user_id: user.id, _xp_to_add: xpEarned });
+      } catch (e) {
+        // fallback: mantém comportamento anterior (pode não atualizar tier)
+        if (profile) {
+          await supabase
+            .from('profiles')
+            .update({ xp: (profile.xp || 0) + xpEarned })
+            .eq('id', user.id);
+        }
+      }
     }
 
     // Check if quiz is completed
@@ -148,6 +156,14 @@ serve(async (req) => {
 
     const isCompleted = totalQuestions === answeredQuestions;
 
+    // Total XP earned so far in this quiz
+    const { data: allAnswersForTotal } = await supabase
+      .from('user_quiz_answers')
+      .select('xp_earned')
+      .eq('user_id', user.id)
+      .eq('challenge_id', challengeId);
+    const totalXpSoFar = allAnswersForTotal?.reduce((sum, a) => sum + (a.xp_earned || 0), 0) || 0;
+
     // Get correct option ID if user was wrong
     let correctOptionId = null;
     if (!isCorrect) {
@@ -163,19 +179,19 @@ serve(async (req) => {
 
     // Calculate total XP earned in this quiz
     let totalXpEarned = 0;
-    if (isCompleted) {
-      const { data: allAnswers } = await supabase
-        .from('user_quiz_answers')
-        .select('xp_earned')
-        .eq('user_id', user.id)
-        .eq('challenge_id', challengeId);
+    let endedReason: 'completed' | 'wrong' | null = null;
 
-      totalXpEarned = allAnswers?.reduce((sum, a) => sum + a.xp_earned, 0) || 0;
+    if (isCompleted) {
+      totalXpEarned = totalXpSoFar;
+      endedReason = 'completed';
 
       // finalize attempt (best-effort)
       await supabase
         .from('quiz_attempts')
-        .upsert({ user_id: user.id, challenge_id: challengeId, submitted_at: new Date().toISOString(), score: totalXpEarned, max_score: totalQuestions ?? 0 }, { onConflict: 'user_id,challenge_id' } as any)
+        .upsert(
+          { user_id: user.id, challenge_id: challengeId, submitted_at: new Date().toISOString(), score: totalXpEarned, max_score: totalQuestions ?? 0 },
+          { onConflict: 'user_id,challenge_id' } as any
+        );
 
       // Create completion notification
       await supabase.rpc('create_notification', {
@@ -185,6 +201,30 @@ serve(async (req) => {
         _message: `Você completou o quiz e ganhou ${totalXpEarned} XP total!`,
         _metadata: {
           challenge_id: challengeId,
+          total_xp: totalXpEarned
+        }
+      });
+    } else if (isMilhao && !isCorrect) {
+      // Regra do "Quiz do Milhão": errou, encerra o jogo e soma pontos até onde chegou.
+      totalXpEarned = totalXpSoFar;
+      endedReason = 'wrong';
+
+      await supabase
+        .from('quiz_attempts')
+        .upsert(
+          { user_id: user.id, challenge_id: challengeId, submitted_at: new Date().toISOString(), score: totalXpEarned, max_score: totalQuestions ?? 0 },
+          { onConflict: 'user_id,challenge_id' } as any
+        );
+
+      await supabase.rpc('create_notification', {
+        _user_id: user.id,
+        _type: 'quiz_finished',
+        _title: '🏁 Quiz finalizado',
+        _message: `Você encerrou o Quiz do Milhão no nível ${questionOrderIndex + 1}. Total acumulado: ${totalXpEarned} XP.`,
+        _metadata: {
+          challenge_id: challengeId,
+          ended_reason: 'wrong',
+          reached_level: questionOrderIndex + 1,
           total_xp: totalXpEarned
         }
       });
@@ -199,8 +239,9 @@ serve(async (req) => {
         xpEarned,
         explanation: option.explanation,
         correctOptionId,
-        isCompleted,
-        totalXpEarned: isCompleted ? totalXpEarned : undefined,
+        isCompleted: Boolean(endedReason),
+        endedReason: endedReason || undefined,
+        totalXpEarned: endedReason ? totalXpEarned : undefined,
         xpBlockedForLeader
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

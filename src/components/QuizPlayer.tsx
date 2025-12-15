@@ -7,6 +7,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { apiFetch } from "@/lib/api";
@@ -35,6 +36,7 @@ interface AnswerResult {
   explanation: string | null;
   correctOptionId: string | null;
   isCompleted: boolean;
+  endedReason?: "completed" | "wrong";
   totalXpEarned?: number;
   xpBlockedForLeader?: boolean;
 }
@@ -89,6 +91,8 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
   const [skipUsed, setSkipUsed] = useState(false);
   const [eliminatedOptionIds, setEliminatedOptionIds] = useState<Record<string, true>>({});
   const [helpUsedThisQuestion, setHelpUsedThisQuestion] = useState(false);
+  const [monitorDialogOpen, setMonitorDialogOpen] = useState(false);
+  const [monitorLoading, setMonitorLoading] = useState(false);
 
   const loadQuestions = useCallback(async () => {
     try {
@@ -210,7 +214,11 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
           toast.info('Líderes não acumulam XP nos quizzes.');
         }
       } else {
-        toast.error("Resposta incorreta");
+        if (isMilhao && result.isCompleted && result.endedReason === "wrong") {
+          toast.error(`Resposta incorreta. Fim de jogo! Total: ${result.totalXpEarned ?? 0} XP`);
+        } else {
+          toast.error("Resposta incorreta");
+        }
       }
     } catch (error) {
       console.error("Error submitting answer:", error);
@@ -229,11 +237,23 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
   const handleNextQuestion = () => {
     // Clear UI state early for smoother transitions
     setSelectedOption("");
-    setAnswerResult(null);
     if (answerResult?.isCompleted) {
-      toast.success(`Quiz concluído! Total: ${answerResult.totalXpEarned} XP`);
+      const total = answerResult?.totalXpEarned ?? 0;
+      if (isMilhao && answerResult.endedReason === "wrong") {
+        toast.error(`Fim de jogo! Total acumulado: ${total} XP`);
+      } else {
+        toast.success(`Quiz concluído! Total: ${total} XP`);
+      }
       navigate("/dashboard");
-    } else if (currentQuestionIndex < questions.length - 1) {
+      return;
+    }
+    setAnswerResult(null);
+    if (isMilhao && answerResult && !answerResult.isCorrect) {
+      // Regra do Quiz do Milhão: errou, encerra (fallback UI)
+      navigate("/dashboard");
+      return;
+    }
+    if (currentQuestionIndex < questions.length - 1) {
       setCurrentQuestionIndex(currentQuestionIndex + 1);
     }
   };
@@ -368,6 +388,8 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
                     variant="outline"
                     onClick={async () => {
                       try {
+                        setMonitorDialogOpen(true);
+                        setMonitorLoading(true);
                         const payload = {
                           question_id: currentQuestion.id,
                           question: currentQuestion.question_text,
@@ -387,6 +409,7 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
                           setMonitorHelp(help);
                           setMonitorUsed(true);
                           setHelpUsedThisQuestion(true);
+                          setMonitorLoading(false);
                           const ids = Array.isArray(help?.eliminate_option_ids) ? help.eliminate_option_ids : [];
                           if (ids.length) {
                             const map: Record<string, true> = {};
@@ -398,10 +421,13 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
                           }
                           toast.success(`${(help?.monitor?.name || monitor.name)} eliminou 2 alternativas.`);
                         } else {
+                          setMonitorLoading(false);
                           toast.error("Não foi possível obter ajuda agora.");
                         }
                       } catch (e: any) {
                         console.error("Erro ao acionar especialista:", e);
+                        setMonitorLoading(false);
+                        setMonitorDialogOpen(false);
                         toast.error("Erro ao acionar o especialista.");
                       }
                     }}
@@ -489,26 +515,57 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
             </div>
           )}
 
-          {monitorHelp && (
-            <Alert className="border border-primary/25 bg-primary/5 text-sm space-y-1">
-              <AlertCircle className="h-4 w-4 text-primary" />
-              <AlertDescription>
-                <p className="font-semibold mb-1 text-foreground">
-                  Análise do {monitorHelp?.monitor?.name || monitor.name}
-                </p>
-                <p className="mb-1 whitespace-pre-line text-foreground">{monitorHelp.analysis}</p>
-                {Array.isArray(monitorHelp.weak_options) && monitorHelp.weak_options.length > 0 && (
-                  <p className="mb-1">
-                    <span className="font-semibold">Alternativas menos prováveis:</span>{" "}
-                    {monitorHelp.weak_options.map((w: any) => w?.label).filter(Boolean).join(", ")}
-                  </p>
-                )}
-                {monitorHelp.hint && (
-                  <p className="italic text-muted-foreground">{monitorHelp.hint}</p>
-                )}
-              </AlertDescription>
-            </Alert>
-          )}
+          <Dialog open={monitorDialogOpen} onOpenChange={setMonitorDialogOpen}>
+            <DialogContent className="max-w-xl">
+              <DialogHeader>
+                <DialogTitle>
+                  {monitorLoading ? "Chamando especialista..." : `Consulta • ${monitorHelp?.monitor?.name || monitor.name}`}
+                </DialogTitle>
+                <DialogDescription>
+                  {monitorLoading
+                    ? "O Monitor está analisando a pergunta e vai eliminar 2 alternativas."
+                    : "Ajuda usada: 1 vez. As alternativas eliminadas ficam riscadas."}
+                </DialogDescription>
+              </DialogHeader>
+              <div className="flex items-start gap-4">
+                <div
+                  aria-hidden
+                  className={`h-14 w-14 rounded-full border flex items-center justify-center ${
+                    monitorLoading
+                      ? "bg-primary/15 border-primary/30 animate-pulse"
+                      : "bg-primary/10 border-border"
+                  }`}
+                >
+                  <AlertCircle className={`h-6 w-6 ${monitorLoading ? "text-primary" : "text-muted-foreground"}`} />
+                </div>
+                <div className="flex-1 space-y-3">
+                  {monitorLoading ? (
+                    <div className="space-y-2">
+                      <div className="h-3 w-2/3 rounded bg-muted animate-pulse" />
+                      <div className="h-3 w-full rounded bg-muted animate-pulse" />
+                      <div className="h-3 w-5/6 rounded bg-muted animate-pulse" />
+                    </div>
+                  ) : monitorHelp ? (
+                    <>
+                      <p className="whitespace-pre-line text-sm text-foreground">{monitorHelp.analysis}</p>
+                      {Array.isArray(monitorHelp.weak_options) && monitorHelp.weak_options.length > 0 && (
+                        <p className="text-sm">
+                          <span className="font-semibold">Alternativas menos prováveis:</span>{" "}
+                          {monitorHelp.weak_options.map((w: any) => w?.label).filter(Boolean).join(", ")}
+                        </p>
+                      )}
+                      {monitorHelp.hint && <p className="text-sm italic text-muted-foreground">{monitorHelp.hint}</p>}
+                      <Button type="button" variant="secondary" onClick={() => setMonitorDialogOpen(false)}>
+                        Entendi
+                      </Button>
+                    </>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">Nenhuma resposta disponível.</p>
+                  )}
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
 
           {/* Actions */}
           <div className="flex gap-3">
@@ -521,7 +578,7 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
                 {answerResult.isCompleted ? (
                   <>
                     <Trophy className="h-4 w-4 mr-2" />
-                    Ver Resultado Final
+                    {isMilhao && answerResult.endedReason === "wrong" ? "Finalizar partida" : "Ver Resultado Final"}
                   </>
                 ) : (
                   <>

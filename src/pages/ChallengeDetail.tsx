@@ -381,9 +381,11 @@ const ChallengeDetail = () => {
           quizCompleted ? (
             <Card>
               <CardHeader>
-                <CardTitle>Quiz já concluído</CardTitle>
+                <CardTitle>{/milh(ã|a)o/i.test(challenge.title || '') ? 'Quiz finalizado' : 'Quiz já concluído'}</CardTitle>
                 <CardDescription>
-                  Você já respondeu este quiz. Consulte o histórico no seu perfil.
+                  {/milh(ã|a)o/i.test(challenge.title || '')
+                    ? 'Sua tentativa do Quiz do Milhão já foi finalizada. Consulte o histórico no seu perfil.'
+                    : 'Você já respondeu este quiz. Consulte o histórico no seu perfil.'}
                 </CardDescription>
               </CardHeader>
               <CardContent>
