@@ -3,11 +3,11 @@ import type { VercelRequest, VercelResponse } from '@vercel/node'
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || ''
 const OPENAI_TEXT_MODEL =
-  process.env.OPENAI_TEXT_MODEL ||
   process.env.OPENAI_MODEL_FAST ||
+  process.env.OPENAI_TEXT_MODEL ||
   process.env.OPENAI_MODEL_OVERRIDE ||
   process.env.OPENAI_MODEL_PREMIUM ||
-  'gpt-5.2'
+  'gpt-5.2-fast'
 
 const BANNED_TERMS_RE = /smart\s*line|smartline|smarline/i;
 

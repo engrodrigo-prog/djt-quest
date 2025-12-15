@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '@/integrations/supabase/client'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
@@ -11,8 +11,7 @@ import { ThemedBackground } from '@/components/ThemedBackground'
 import { useAuth } from '@/contexts/AuthContext'
 import { HelpInfo } from '@/components/HelpInfo'
 import { AttachmentUploader } from '@/components/AttachmentUploader'
-import { AttachmentMetadataModal } from '@/components/AttachmentMetadataModal'
-import { Dialog, DialogContent } from '@/components/ui/dialog'
+import { AttachmentViewer } from '@/components/AttachmentViewer'
 import Navigation from '@/components/Navigation'
 import { Wand2, Share2 } from 'lucide-react'
 
@@ -39,13 +38,13 @@ export default function ForumTopic() {
   const { isLeader, studioAccess, user, userRole } = useAuth() as any
   const [topic, setTopic] = useState<Topic | null>(null)
   const [posts, setPosts] = useState<Post[]>([])
+  const [compendium, setCompendium] = useState<any | null>(null)
   const [content, setContent] = useState('')
   const [audioFile, setAudioFile] = useState<File | null>(null)
   const [transcribing, setTranscribing] = useState(false)
   const [cleaning, setCleaning] = useState(false)
-  const [imageUrls, setImageUrls] = useState<string[]>([])
-  const [metaUrl, setMetaUrl] = useState<string | null>(null)
-  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
+  const [attachmentUrls, setAttachmentUrls] = useState<string[]>([])
+  const [attachmentsUploading, setAttachmentsUploading] = useState(false)
   const [editing, setEditing] = useState(false)
   const [editTitle, setEditTitle] = useState('')
   const [editDesc, setEditDesc] = useState('')
@@ -56,22 +55,43 @@ export default function ForumTopic() {
   const [cleaningPostId, setCleaningPostId] = useState<string | null>(null)
   const [replyToPostId, setReplyToPostId] = useState<string | null>(null)
   const [replyToExcerpt, setReplyToExcerpt] = useState<string>('')
+  const didScrollToHashRef = useRef(false)
 
   const load = useCallback(async () => {
     if (!id) return
-    const [{ data: t }, { data: p }] = await Promise.all([
+    const [{ data: t }, { data: p }, { data: c }] = await Promise.all([
       supabase.from('forum_topics').select('*').eq('id', id).maybeSingle(),
       supabase
         .from('forum_posts')
         .select('id,user_id,content_md,payload,created_at,ai_assessment,parent_post_id,reply_to_user_id,author:profiles!forum_posts_author_id_fkey(name,sigla_area)')
         .eq('topic_id', id)
         .order('created_at', { ascending: true }),
+      supabase.from('forum_compendia').select('*').eq('topic_id', id).maybeSingle(),
     ])
     setTopic(t as any)
     setPosts((p || []) as any)
+    setCompendium((c as any) || null)
   }, [id])
 
   useEffect(() => { load() }, [load])
+
+  useEffect(() => {
+    if (!posts.length) return
+    if (didScrollToHashRef.current) return
+    try {
+      const hash = (window.location.hash || '').trim()
+      if (!hash.startsWith('#')) return
+      const targetId = hash.slice(1)
+      if (!targetId) return
+      const el = document.getElementById(targetId)
+      if (el) {
+        didScrollToHashRef.current = true
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }
+    } catch {
+      // ignore
+    }
+  }, [posts.length])
 
   useEffect(() => {
     let cancelled = false
@@ -191,8 +211,8 @@ export default function ForumTopic() {
           body: JSON.stringify({
             topic_id: id,
             content_md: text,
-            payload: { images: imageUrls },
-            attachment_urls: imageUrls,
+            payload: { images: attachmentUrls },
+            attachment_urls: attachmentUrls,
             parent_post_id: replyToPostId || null,
             ...(parent?.user_id ? { reply_to_user_id: parent.user_id } : {}),
           })
@@ -200,6 +220,7 @@ export default function ForumTopic() {
         const j = await resp.json().catch(()=>({}))
         if (!resp.ok) throw new Error(j?.error || 'Falha ao publicar')
         setContent('')
+        setAttachmentUrls([])
         setReplyToPostId(null)
         setReplyToExcerpt('')
         load()
@@ -220,12 +241,13 @@ export default function ForumTopic() {
               author_id: uid, // legacy column
               content_md: text,
               content: text, // legacy CHECK enforces length
-              payload: { images: imageUrls },
+              payload: { images: attachmentUrls },
               parent_post_id: replyToPostId || null,
               ...(parent?.user_id ? { reply_to_user_id: parent.user_id } : {}),
             })
           if (insErr) throw new Error(insErr.message)
           setContent('')
+          setAttachmentUrls([])
           setReplyToPostId(null)
           setReplyToExcerpt('')
           load()
@@ -264,6 +286,22 @@ export default function ForumTopic() {
     : isLeaderMod
       ? 'Permissão: Moderador — editar e limpar tópico'
       : 'Permissão: Colaborador — leitura e comentários'
+
+  const sendCompendiumToStudio = (kind: 'quiz' | 'desafio' | 'campanha') => {
+    if (!topic) return
+    const summary = String(compendium?.summary_md || '')
+    const draft = {
+      kind,
+      title: topic.title,
+      summary,
+      actions: [],
+      chas: topic.chas_dimension || 'C',
+      specialties: topic.quiz_specialties || [],
+      topic_id: topic.id,
+    }
+    localStorage.setItem('studio_compendium_draft', JSON.stringify(draft))
+    window.location.href = '/studio'
+  }
 
   const handleDeletePost = async (postId: string) => {
     if (!confirm('Excluir este post definitivamente?')) return
@@ -505,7 +543,7 @@ export default function ForumTopic() {
                       onClick={() => {
                         try {
                           const base = window.location.origin;
-                          const url = `${base}/forums/${encodeURIComponent(id)}`;
+                          const url = `${base}/forum/${encodeURIComponent(id)}`;
                           const text = `Veja este fórum no DJT Quest:\n${topic.title}\n${url}`;
                           const waUrl = `https://wa.me/?text=${encodeURIComponent(text)}`;
                           window.open(waUrl, '_blank', 'noopener,noreferrer');
@@ -569,6 +607,69 @@ export default function ForumTopic() {
           </CardHeader>
         </Card>
 
+        {(compendium?.summary_md || compendium?.key_learnings || compendium?.suggested_quizzes || compendium?.suggested_challenges) && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-xl">Compêndio do Tema</CardTitle>
+              <CardDescription>
+                Resumo e aprendizados curados para reuso em quizzes, desafios e campanhas.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {compendium?.summary_md && (
+                <div className="text-sm whitespace-pre-wrap">{String(compendium.summary_md)}</div>
+              )}
+
+              {Array.isArray(compendium?.key_learnings) && compendium.key_learnings.length > 0 && (
+                <div className="space-y-1">
+                  <p className="text-sm font-semibold">Aprendizados-chave</p>
+                  <ul className="list-disc pl-5 text-sm text-muted-foreground space-y-1">
+                    {compendium.key_learnings.slice(0, 12).map((k: any, idx: number) => (
+                      <li key={idx}>{String(k)}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {(() => {
+                const urls = new Set<string>()
+                for (const p of posts || []) {
+                  const list =
+                    ((p as any)?.payload?.attachments ||
+                      (p as any)?.payload?.images ||
+                      (p as any)?.attachment_urls) as string[] | undefined
+                  if (!Array.isArray(list)) continue
+                  for (const u of list) {
+                    if (u) urls.add(String(u))
+                  }
+                }
+                const all = Array.from(urls)
+                if (!all.length) return null
+                return (
+                  <div>
+                    <p className="text-sm font-semibold">Anexos do tema</p>
+                    <AttachmentViewer urls={all} />
+                  </div>
+                )
+              })()}
+
+              {isLeaderMod && (
+                <div className="flex flex-wrap gap-2 pt-1">
+                  <Button size="sm" variant="outline" onClick={() => sendCompendiumToStudio('quiz')}>
+                    Criar Quiz (Studio)
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => sendCompendiumToStudio('desafio')}>
+                    Criar Desafio (Studio)
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => sendCompendiumToStudio('campanha')}>
+                    Criar Campanha (Studio)
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
         <div className="space-y-3">
           {posts
             .filter((p) => !p.parent_post_id)
@@ -582,7 +683,7 @@ export default function ForumTopic() {
                 return name || 'Colaborador'
               })()
               return (
-            <Card key={p.id}>
+            <Card key={p.id} id={`post-${p.id}`}>
               <CardContent className="p-4 space-y-2">
                 {editingPostId === p.id ? (
                   <div className="space-y-2">
@@ -636,6 +737,25 @@ export default function ForumTopic() {
                         size="xs"
                         variant="ghost"
                         onClick={() => {
+                          try {
+                            const base = window.location.origin
+                            const url = `${base}/forum/${encodeURIComponent(id || '')}#post-${encodeURIComponent(p.id)}`
+                            const preview = (p.content_md || '').trim().replace(/\s+/g, ' ').slice(0, 160)
+                            const text = `Comentário no fórum:\n${topic?.title || ''}\n"${preview}${preview.length >= 160 ? '…' : ''}"\n${url}`
+                            const waUrl = `https://wa.me/?text=${encodeURIComponent(text)}`
+                            window.open(waUrl, '_blank', 'noopener,noreferrer')
+                          } catch {
+                            // ignore
+                          }
+                        }}
+                        title="Compartilhar este comentário no WhatsApp"
+                      >
+                        <Share2 className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        size="xs"
+                        variant="ghost"
+                        onClick={() => {
                           setReplyToPostId(p.id)
                           setReplyToExcerpt(p.content_md.slice(0, 140))
                         }}
@@ -662,44 +782,14 @@ export default function ForumTopic() {
                     </div>
                   </div>
                 )}
-                {/* Render image attachments if present */}
-                    {((p as any)?.payload?.images?.length || (p as any)?.attachment_urls?.length) && (
-                      <div className="mt-3 grid grid-cols-3 gap-3">
-                        {(((p as any)?.payload?.images || (p as any)?.attachment_urls) as string[]).map((url, idx) => (
-                          <div key={idx} className="space-y-2">
-                            <img
-                              src={url}
-                              alt="anexo"
-                              className="w-full h-28 object-cover rounded cursor-pointer hover:opacity-90"
-                              onClick={()=>setLightboxUrl(url)}
-                            />
-                            <div className="flex gap-2 text-[11px] text-muted-foreground">
-                              <button
-                                type="button"
-                                className="px-2 py-1 rounded-lg border border-white/10 hover:bg-white/5"
-                                onClick={()=>setLightboxUrl(url)}
-                              >
-                                Ver
-                              </button>
-                              <button
-                                type="button"
-                                className="px-2 py-1 rounded-lg border border-white/10 hover:bg-white/5"
-                                onClick={()=>window.open(url, '_blank')}
-                              >
-                                Baixar
-                              </button>
-                              <button
-                                type="button"
-                                className="px-2 py-1 rounded-lg border border-white/10 hover:bg-white/5"
-                                onClick={()=>setMetaUrl(url)}
-                              >
-                                Metadados
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
+                {(() => {
+                  const urls =
+                    ((p as any)?.payload?.attachments ||
+                      (p as any)?.payload?.images ||
+                      (p as any)?.attachment_urls) as string[] | undefined;
+                  if (!Array.isArray(urls) || urls.length === 0) return null;
+                  return <AttachmentViewer urls={urls} postId={p.id} />;
+                })()}
                 {p.ai_assessment && (
                   <div className="mt-2 text-xs text-muted-foreground">
                     Qualidade: {(p.ai_assessment.helpfulness ?? 0).toFixed(2)} / {(p.ai_assessment.clarity ?? 0).toFixed(2)} / {(p.ai_assessment.novelty ?? 0).toFixed(2)}
@@ -716,15 +806,42 @@ export default function ForumTopic() {
                         return name || 'Colaborador'
                       })()
                       return (
-                      <div key={r.id} className="flex items-start justify-between gap-2 text-sm text-muted-foreground">
+                      <div key={r.id} id={`post-${r.id}`} className="flex items-start justify-between gap-2 text-sm text-muted-foreground">
                         <div className="whitespace-pre-wrap flex-1 space-y-1">
                           <p className="text-[11px] font-semibold text-muted-foreground flex items-center gap-1">
                             <span className="text-xs">↳ resposta</span>
                             <span>{rAuthorLabel}</span>
                           </p>
                           <div>{r.content_md}</div>
+                          {(() => {
+                            const urls =
+                              ((r as any)?.payload?.attachments ||
+                                (r as any)?.payload?.images ||
+                                (r as any)?.attachment_urls) as string[] | undefined;
+                            if (!Array.isArray(urls) || urls.length === 0) return null;
+                            return <AttachmentViewer urls={urls} postId={r.id} />;
+                          })()}
                         </div>
                         <div className="flex flex-col gap-1 items-end">
+                          <Button
+                            size="xs"
+                            variant="ghost"
+                            onClick={() => {
+                              try {
+                                const base = window.location.origin
+                                const url = `${base}/forum/${encodeURIComponent(id || '')}#post-${encodeURIComponent(r.id)}`
+                                const preview = (r.content_md || '').trim().replace(/\s+/g, ' ').slice(0, 160)
+                                const text = `Comentário no fórum:\n${topic?.title || ''}\n"${preview}${preview.length >= 160 ? '…' : ''}"\n${url}`
+                                const waUrl = `https://wa.me/?text=${encodeURIComponent(text)}`
+                                window.open(waUrl, '_blank', 'noopener,noreferrer')
+                              } catch {
+                                // ignore
+                              }
+                            }}
+                            title="Compartilhar este comentário no WhatsApp"
+                          >
+                            <Share2 className="h-4 w-4" />
+                          </Button>
                           <Button
                             size="xs"
                             variant="ghost"
@@ -839,14 +956,17 @@ export default function ForumTopic() {
               )}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div className="space-y-2">
-                  <p className="text-sm text-muted-foreground">Evidências visuais (opcional)</p>
-                  <AttachmentUploader onAttachmentsChange={setImageUrls} maxFiles={6} maxSizeMB={20} acceptMimeTypes={[ 'image/jpeg','image/png','image/webp','image/gif' ]} capture="environment" />
-                  {imageUrls.length > 0 && (
-                    <div className="flex flex-wrap gap-2 pt-1">
-                      {imageUrls.map((url) => (
-                        <img key={url} src={url} alt="anexo" onClick={() => setMetaUrl(url)} className="h-16 w-16 object-cover rounded cursor-pointer hover:opacity-90" />
-                      ))}
-                    </div>
+                  <p className="text-sm text-muted-foreground">Anexos (opcional)</p>
+                  <AttachmentUploader
+                    onAttachmentsChange={setAttachmentUrls}
+                    onUploadingChange={setAttachmentsUploading}
+                    maxFiles={6}
+                    maxSizeMB={50}
+                    capture="environment"
+                    maxVideoSeconds={90}
+                  />
+                  {attachmentsUploading && (
+                    <p className="text-[11px] text-muted-foreground">Aguarde: enviando anexos…</p>
                   )}
                 </div>
                 <div className="space-y-2">
@@ -858,22 +978,11 @@ export default function ForumTopic() {
                 </div>
               </div>
               <div className="flex justify-end">
-                <Button onClick={handlePost} disabled={!content.trim()}>Publicar</Button>
+                <Button onClick={handlePost} disabled={!content.trim() || attachmentsUploading}>Publicar</Button>
               </div>
             </CardContent>
           </Card>
         )}
-
-                  {metaUrl && (
-                    <AttachmentMetadataModal url={metaUrl} open={!!metaUrl} onOpenChange={(o)=>!o && setMetaUrl(null)} />
-                  )}
-                  <Dialog open={!!lightboxUrl} onOpenChange={(o)=>{ if(!o) setLightboxUrl(null) }}>
-                    <DialogContent className="max-w-3xl p-0 bg-black">
-                      {lightboxUrl && (
-                        <img src={lightboxUrl} alt="anexo" className="w-full h-full object-contain" />
-                      )}
-                    </DialogContent>
-                  </Dialog>
               </div>
               <Navigation />
             </div>

@@ -353,7 +353,7 @@ const ChallengeDetail = () => {
                 onClick={() => {
                   try {
                     const base = window.location.origin;
-                    const url = `${base}/challenges/${encodeURIComponent(challenge.id)}`;
+                    const url = `${base}/challenge/${encodeURIComponent(challenge.id)}`;
                     const text = challenge.type === 'quiz'
                       ? `Participe deste quiz no DJT Quest:\n${challenge.title}\n${url}`
                       : `Participe deste desafio no DJT Quest:\n${challenge.title}\n${url}`;
