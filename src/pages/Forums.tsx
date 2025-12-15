@@ -8,8 +8,9 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 import { ThemedBackground } from '@/components/ThemedBackground'
 import { HelpInfo } from '@/components/HelpInfo'
-import { Flame } from 'lucide-react'
+import { Flame, Share2 } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
+import { buildAbsoluteAppUrl, openWhatsAppShare } from '@/lib/whatsappShare'
 
 interface Topic { id: string; title: string; description: string | null; status: string; chas_dimension: 'C'|'H'|'A'|'S'; quiz_specialties: string[] | null; tags: string[] | null; created_at: string }
 
@@ -141,11 +142,18 @@ export default function Forums() {
               ) : (
                 <div className="space-y-1">
                   {trendingItems.map((ins, idx) => (
-                    <button
+                    <div
                       key={ins.topic_id}
-                      type="button"
+                      role="button"
+                      tabIndex={0}
                       className="w-full text-left text-xs rounded-md border border-amber-500/30 bg-black/20 px-2 py-1 hover:bg-amber-500/10 flex items-start justify-between gap-2"
                       onClick={() => nav(`/forum/${ins.topic_id}`)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          nav(`/forum/${ins.topic_id}`)
+                        }
+                      }}
                     >
                       <span className="flex-1 min-w-0">
                         <span className="font-semibold mr-1">#{idx+1}</span>
@@ -154,10 +162,28 @@ export default function Forums() {
                           {ins.summary}
                         </span>
                       </span>
-                      <Badge variant="outline" className="ml-2 flex-shrink-0">
-                        {ins.chas === 'C' ? 'Conhecimento' : ins.chas === 'H' ? 'Habilidade' : ins.chas === 'A' ? 'Atitude' : 'Segurança'}
-                      </Badge>
-                    </button>
+                      <div className="ml-2 flex-shrink-0 flex items-center gap-1">
+                        <Badge variant="outline">
+                          {ins.chas === 'C' ? 'Conhecimento' : ins.chas === 'H' ? 'Habilidade' : ins.chas === 'A' ? 'Atitude' : 'Segurança'}
+                        </Badge>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-7 w-7 text-amber-100/90 hover:text-amber-50"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            const url = buildAbsoluteAppUrl(`/forum/${encodeURIComponent(ins.topic_id)}`)
+                            openWhatsAppShare({
+                              message: `Veja este fórum no DJT Quest:\n${ins.title}`,
+                              url,
+                            })
+                          }}
+                          title="Compartilhar este fórum no WhatsApp"
+                        >
+                          <Share2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
                   ))}
                 </div>
               )}
@@ -168,9 +194,27 @@ export default function Forums() {
           {filtered.map(t => (
             <Card key={t.id} className="cursor-pointer hover:-translate-y-1 transition" onClick={()=>nav(`/forum/${t.id}`)}>
               <CardHeader>
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-2">
                   <CardTitle className="truncate">{t.title}</CardTitle>
-                  <Badge variant={t.status === 'closed' ? 'secondary' : 'default'}>{t.status}</Badge>
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    <Badge variant={t.status === 'closed' ? 'secondary' : 'default'}>{t.status}</Badge>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        const url = buildAbsoluteAppUrl(`/forum/${encodeURIComponent(t.id)}`)
+                        openWhatsAppShare({
+                          message: `Veja este fórum no DJT Quest:\n${t.title}`,
+                          url,
+                        })
+                      }}
+                      title="Compartilhar este fórum no WhatsApp"
+                    >
+                      <Share2 className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
                 <CardDescription className="line-clamp-2">{t.description}</CardDescription>
                 <div className="flex flex-wrap gap-2 mt-2">

@@ -7,7 +7,8 @@ import { Badge } from "@/components/ui/badge";
 import { ThemedBackground } from "@/components/ThemedBackground";
 import Navigation from "@/components/Navigation";
 import { useToast } from "@/hooks/use-toast";
-import { Target, Hash, MessageSquare, Zap, ArrowLeft } from "lucide-react";
+import { Target, Hash, MessageSquare, Zap, ArrowLeft, Share2 } from "lucide-react";
+import { buildAbsoluteAppUrl, openWhatsAppShare } from "@/lib/whatsappShare";
 
 interface Campaign {
   id: string;
@@ -225,15 +226,11 @@ export default function CampaignDetail() {
                   variant="outline"
                   className="text-xs"
                   onClick={() => {
-                    try {
-                      const base = window.location.origin;
-                      const url = `${base}/campaign/${encodeURIComponent(campaign.id)}`;
-                      const text = `Conheça a campanha "${campaign.title}" no DJT Quest:\n${url}`;
-                      const waUrl = `https://wa.me/?text=${encodeURIComponent(text)}`;
-                      window.open(waUrl, '_blank', 'noopener,noreferrer');
-                    } catch {
-                      // silencioso
-                    }
+                    const url = buildAbsoluteAppUrl(`/campaign/${encodeURIComponent(campaign.id)}`);
+                    openWhatsAppShare({
+                      message: `Conheça a campanha "${campaign.title}" no DJT Quest:`,
+                      url,
+                    });
                   }}
                 >
                   Compartilhar no WhatsApp
@@ -263,17 +260,39 @@ export default function CampaignDetail() {
                   className="p-2 rounded-md border hover:bg-accent/10 cursor-pointer"
                   onClick={() => navigate(`/challenge/${ch.id}`)}
                 >
-                  <p className="text-sm font-medium truncate">{ch.title}</p>
-                  <p className="text-[11px] text-muted-foreground truncate">
-                    {ch.description}
-                  </p>
-                  <div className="flex items-center justify-between mt-1 text-[11px] text-muted-foreground">
-                    <span>{ch.type}</span>
-                    <span>
-                      {ch.reward_mode === 'tier_steps'
-                        ? `+${ch.reward_tier_steps || 1} patamar(es)`
-                        : `+${ch.xp_reward} XP`}
-                    </span>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium truncate">{ch.title}</p>
+                      <p className="text-[11px] text-muted-foreground truncate">
+                        {ch.description}
+                      </p>
+                      <div className="flex items-center justify-between mt-1 text-[11px] text-muted-foreground">
+                        <span>{ch.type}</span>
+                        <span>
+                          {ch.reward_mode === 'tier_steps'
+                            ? `+${ch.reward_tier_steps || 1} patamar(es)`
+                            : `+${ch.xp_reward} XP`}
+                        </span>
+                      </div>
+                    </div>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        const url = buildAbsoluteAppUrl(`/challenge/${encodeURIComponent(ch.id)}`)
+                        openWhatsAppShare({
+                          message: (ch.type || '').toLowerCase().includes('quiz')
+                            ? `Participe deste quiz no DJT Quest:\n${ch.title}`
+                            : `Participe deste desafio no DJT Quest:\n${ch.title}`,
+                          url,
+                        })
+                      }}
+                      title="Compartilhar no WhatsApp"
+                    >
+                      <Share2 className="h-4 w-4" />
+                    </Button>
                   </div>
                 </div>
               ))}
@@ -299,10 +318,30 @@ export default function CampaignDetail() {
                   className="p-2 rounded-md border hover:bg-accent/10 cursor-pointer"
                   onClick={() => navigate(`/forum/${t.id}`)}
                 >
-                  <p className="text-sm font-medium truncate">{t.title}</p>
-                  <p className="text-[11px] text-muted-foreground truncate">
-                    {t.description}
-                  </p>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium truncate">{t.title}</p>
+                      <p className="text-[11px] text-muted-foreground truncate">
+                        {t.description}
+                      </p>
+                    </div>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        const url = buildAbsoluteAppUrl(`/forum/${encodeURIComponent(t.id)}`)
+                        openWhatsAppShare({
+                          message: `Veja este fórum no DJT Quest:\n${t.title}`,
+                          url,
+                        })
+                      }}
+                      title="Compartilhar no WhatsApp"
+                    >
+                      <Share2 className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
               ))}
             </CardContent>
@@ -335,6 +374,24 @@ export default function CampaignDetail() {
                       <MessageSquare className="h-3 w-3" />
                       {p.comment_count || 0}
                     </span>
+                    <button
+                      type="button"
+                      className="ml-auto inline-flex items-center justify-center h-7 w-7 rounded-full border border-border/50 hover:bg-accent"
+                      onClick={() => {
+                        const url = buildAbsoluteAppUrl(`/sepbook#post-${encodeURIComponent(p.id)}`)
+                        const preview = (p.content_md || '').trim().replace(/\s+/g, ' ').slice(0, 140)
+                        openWhatsAppShare({
+                          message: preview
+                            ? `Veja esta publicação no SEPBook (DJT Quest):\n"${preview}${preview.length >= 140 ? '…' : ''}"`
+                            : "Veja esta publicação no SEPBook (DJT Quest):",
+                          url,
+                        })
+                      }}
+                      title="Compartilhar no WhatsApp"
+                      aria-label="Compartilhar publicação do SEPBook no WhatsApp"
+                    >
+                      <Share2 className="h-3.5 w-3.5" />
+                    </button>
                   </div>
                 </div>
               ))}

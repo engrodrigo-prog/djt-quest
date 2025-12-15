@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useLocation as useRouterLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -11,6 +12,7 @@ import Navigation from "@/components/Navigation";
 import { useToast } from "@/hooks/use-toast";
 import { MessageSquare, Heart, Trash2, MapPin, Wand2, Send, Flame, Plus, Hash, Pencil, Share2 } from "lucide-react";
 import { VoiceRecorderButton } from "@/components/VoiceRecorderButton";
+import { buildAbsoluteAppUrl, openWhatsAppShare } from "@/lib/whatsappShare";
 
 interface SepPost {
   id: string;
@@ -50,6 +52,7 @@ interface CampaignOption {
 export default function SEPBook() {
   const { user, profile, isLeader } = useAuth();
   const { toast } = useToast();
+  const routerLocation = useRouterLocation();
   const [content, setContent] = useState("");
   const [attachments, setAttachments] = useState<string[]>([]);
   const [attachmentsUploading, setAttachmentsUploading] = useState(false);
@@ -73,6 +76,13 @@ export default function SEPBook() {
   const [openComments, setOpenComments] = useState<Record<string, boolean>>({});
   const [loadingComments, setLoadingComments] = useState<Record<string, boolean>>({});
   const [newComment, setNewComment] = useState<Record<string, string>>({});
+  const commentsByPostRef = useRef(commentsByPost);
+  useEffect(() => {
+    commentsByPostRef.current = commentsByPost;
+  }, [commentsByPost]);
+
+  const deepLinkCommentTargetRef = useRef<{ commentId: string; postId: string } | null>(null);
+  const deepLinkCommentHandledRef = useRef<string | null>(null);
   const [trendRange, setTrendRange] = useState<"week" | "month" | "quarter" | "semester" | "year">("week");
   const [trendingLoading, setTrendingLoading] = useState(false);
   const [trendingTags, setTrendingTags] = useState<any[]>([]);
@@ -320,7 +330,7 @@ export default function SEPBook() {
     }
   }, [useLocation, askedLocationOnce]);
 
-  const loadComments = async (postId: string) => {
+  const loadComments = useCallback(async (postId: string) => {
     setLoadingComments((prev) => ({ ...prev, [postId]: true }));
     try {
       const { data: session } = await supabase.auth.getSession();
@@ -336,7 +346,7 @@ export default function SEPBook() {
     } finally {
       setLoadingComments((prev) => ({ ...prev, [postId]: false }));
     }
-  };
+  }, [toast]);
 
   const toggleComments = (postId: string) => {
     setOpenComments((prev) => {
@@ -347,6 +357,73 @@ export default function SEPBook() {
       return { ...prev, [postId]: next };
     });
   };
+
+  useEffect(() => {
+    const hashId = (routerLocation.hash || "").replace(/^#/, "").trim();
+    if (!hashId) return;
+    const t = window.setTimeout(() => {
+      const el = document.getElementById(hashId);
+      if (!el) return;
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 60);
+    return () => window.clearTimeout(t);
+  }, [routerLocation.hash, posts.length]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(routerLocation.search || "");
+    const commentId = (params.get("comment") || "").trim();
+    if (!commentId) {
+      deepLinkCommentHandledRef.current = null;
+      deepLinkCommentTargetRef.current = null;
+      return;
+    }
+    if (deepLinkCommentHandledRef.current === commentId) return;
+    deepLinkCommentHandledRef.current = commentId;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data, error } = await (supabase as any)
+          .from("sepbook_comments")
+          .select("post_id")
+          .eq("id", commentId)
+          .maybeSingle();
+        if (cancelled) return;
+        if (error) throw error;
+        const postId = (data as any)?.post_id as string | undefined;
+        if (!postId) return;
+
+        deepLinkCommentTargetRef.current = { commentId, postId };
+        setOpenComments((prev) => ({ ...prev, [postId]: true }));
+        if (!commentsByPostRef.current?.[postId]) {
+          await loadComments(postId);
+        }
+      } catch {
+        // silencioso
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [routerLocation.search, loadComments]);
+
+  useEffect(() => {
+    const target = deepLinkCommentTargetRef.current;
+    if (!target) return;
+    if (!openComments[target.postId]) return;
+    if (!commentsByPost[target.postId]) return;
+
+    const t = window.setTimeout(() => {
+      const el = document.getElementById(`comment-${target.commentId}`);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        deepLinkCommentTargetRef.current = null;
+      }
+    }, 60);
+
+    return () => window.clearTimeout(t);
+  }, [commentsByPost, openComments]);
 
   const handleAddComment = async (post: SepPost) => {
     const text = (newComment[post.id] || "").trim();
@@ -1134,7 +1211,7 @@ export default function SEPBook() {
             </Card>
           )}
           {posts.map((p) => (
-            <Card key={p.id}>
+            <Card key={p.id} id={`post-${p.id}`}>
               <CardHeader className="pb-2 flex flex-row items-start justify-between gap-2">
                 <div className="flex items-center gap-2">
                   {p.author_avatar && (
@@ -1338,18 +1415,14 @@ export default function SEPBook() {
                     type="button"
                     className="inline-flex items-center justify-center h-7 w-7 rounded-full border border-border/50 hover:bg-accent"
                     onClick={() => {
-                      try {
-                        const base = window.location.origin;
-                        const url = `${base}/sepbook`;
-                        const preview = (p.content_md || '').slice(0, 140).replace(/\s+/g, ' ');
-                        const text = preview
-                          ? `Veja esta publicação no SEPBook (DJT Quest):\n"${preview}..." \n${url}`
-                          : `Veja esta publicação no SEPBook (DJT Quest):\n${url}`;
-                        const waUrl = `https://wa.me/?text=${encodeURIComponent(text)}`;
-                        window.open(waUrl, '_blank', 'noopener,noreferrer');
-                      } catch {
-                        // silencioso
-                      }
+                      const url = buildAbsoluteAppUrl(`/sepbook#post-${encodeURIComponent(p.id)}`);
+                      const preview = (p.content_md || '').trim().replace(/\s+/g, ' ').slice(0, 140);
+                      openWhatsAppShare({
+                        message: preview
+                          ? `Veja esta publicação no SEPBook (DJT Quest):\n"${preview}${preview.length >= 140 ? '…' : ''}"`
+                          : "Veja esta publicação no SEPBook (DJT Quest):",
+                        url,
+                      });
                     }}
                     title="Compartilhar esta publicação no WhatsApp"
                   >
@@ -1365,7 +1438,11 @@ export default function SEPBook() {
                     ) : (
                       <div className="space-y-1">
                         {(commentsByPost[p.id] || []).map((c) => (
-                          <div key={c.id} className="flex items-start gap-1 text-[11px] text-muted-foreground">
+                          <div
+                            key={c.id}
+                            id={`comment-${c.id}`}
+                            className="flex items-start gap-2 text-[11px] text-muted-foreground"
+                          >
                             {c.author_avatar && (
                               <img
                                 src={c.author_avatar}
@@ -1373,7 +1450,7 @@ export default function SEPBook() {
                                 className="h-5 w-5 rounded-full object-cover border border-border/60 mt-0.5"
                               />
                             )}
-                            <div>
+                            <div className="flex-1 min-w-0">
                               <div>
                                 <span className="font-semibold">{formatName(c.author_name)}</span>
                                 {c.author_team && (
@@ -1384,6 +1461,26 @@ export default function SEPBook() {
                               </div>
                               <span className="block">{c.content_md}</span>
                             </div>
+                            <button
+                              type="button"
+                              className="inline-flex items-center justify-center h-7 w-7 rounded-full border border-border/50 hover:bg-accent flex-shrink-0"
+                              onClick={() => {
+                                const url = buildAbsoluteAppUrl(
+                                  `/sepbook?comment=${encodeURIComponent(c.id)}#post-${encodeURIComponent(p.id)}`,
+                                );
+                                const preview = (c.content_md || "").trim().replace(/\s+/g, " ").slice(0, 140);
+                                openWhatsAppShare({
+                                  message: preview
+                                    ? `Comentário no SEPBook (DJT Quest):\n"${preview}${preview.length >= 140 ? "…" : ""}"`
+                                    : "Comentário no SEPBook (DJT Quest):",
+                                  url,
+                                });
+                              }}
+                              title="Compartilhar este comentário no WhatsApp"
+                              aria-label="Compartilhar comentário no WhatsApp"
+                            >
+                              <Share2 className="h-3.5 w-3.5" />
+                            </button>
                           </div>
                         ))}
                       </div>

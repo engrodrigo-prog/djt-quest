@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { Shield, Zap, Trophy, Target, LogOut, Star, Menu, Filter, History, CheckCircle, ListFilter, Trash2 } from "lucide-react";
+import { Shield, Zap, Trophy, Target, LogOut, Star, Menu, Filter, History, CheckCircle, ListFilter, Trash2, Share2 } from "lucide-react";
 import { AIStatus } from "@/components/AIStatus";
 import { useNavigate } from "react-router-dom";
 import Navigation from "@/components/Navigation";
@@ -14,6 +14,7 @@ import { TeamPerformanceCard } from "@/components/TeamPerformanceCard";
 import { ProfileDropdown } from "@/components/ProfileDropdown";
 import { getTierInfo, getNextTierLevel } from "@/lib/constants/tiers";
 import { fetchTeamNames } from "@/lib/teamLookup";
+import { buildAbsoluteAppUrl, openWhatsAppShare } from "@/lib/whatsappShare";
 
 interface Campaign {
   id: string;
@@ -580,6 +581,22 @@ const Dashboard = () => {
                   </div>
                   <div className="flex items-center gap-2">
                     <Badge variant="outline" className="border-white/50 text-white">{t.posts_count || 0} posts</Badge>
+                    <button
+                      type="button"
+                      className="p-1 rounded-full hover:bg-white/10 text-white/90"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const url = buildAbsoluteAppUrl(`/forum/${encodeURIComponent(t.id)}`);
+                        openWhatsAppShare({
+                          message: `Veja este fórum no DJT Quest:\n${t.title}`,
+                          url,
+                        });
+                      }}
+                      aria-label="Compartilhar fórum no WhatsApp"
+                      title="Compartilhar no WhatsApp"
+                    >
+                      <Share2 className="h-4 w-4" />
+                    </button>
                     {canDeleteContent && (
                       <button
                         type="button"
@@ -618,11 +635,28 @@ const Dashboard = () => {
                       ? `10 níveis • +${featuredMilhao.reward_tier_steps || 1} patamar(es)`
                       : `10 níveis • ${featuredMilhao.xp_reward} XP total`}
                   </Badge>
-                  {completedChallengeIds.has(featuredMilhao.id) && (
-                    <Badge variant="secondary" className="text-[11px]">
-                      Concluído
-                    </Badge>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {completedChallengeIds.has(featuredMilhao.id) && (
+                      <Badge variant="secondary" className="text-[11px]">
+                        Concluído
+                      </Badge>
+                    )}
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8 text-white/90 hover:text-white"
+                      onClick={() => {
+                        const url = buildAbsoluteAppUrl(`/challenge/${encodeURIComponent(featuredMilhao.id)}`);
+                        openWhatsAppShare({
+                          message: `Participe deste quiz no DJT Quest:\n${featuredMilhao.title}`,
+                          url,
+                        });
+                      }}
+                      title="Compartilhar no WhatsApp"
+                    >
+                      <Share2 className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
                 <CardTitle className="text-lg leading-tight text-white">{featuredMilhao.title}</CardTitle>
                 <CardDescription className="text-sm text-white/75 line-clamp-2">
@@ -653,9 +687,26 @@ const Dashboard = () => {
                 className="hover:shadow-lg transition-shadow bg-white/5 border border-white/20 text-white backdrop-blur-md"
               >
                 <CardHeader className="pb-3 space-y-2">
-                  <Badge variant="outline" className="w-fit text-[11px] uppercase tracking-wide border-white/50 text-white">
-                    {campaign.narrative_tag}
-                  </Badge>
+                  <div className="flex items-center justify-between gap-2">
+                    <Badge variant="outline" className="w-fit text-[11px] uppercase tracking-wide border-white/50 text-white">
+                      {campaign.narrative_tag}
+                    </Badge>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8 text-white/90 hover:text-white"
+                      onClick={() => {
+                        const url = buildAbsoluteAppUrl(`/campaign/${encodeURIComponent(campaign.id)}`);
+                        openWhatsAppShare({
+                          message: `Conheça a campanha "${campaign.title}" no DJT Quest:`,
+                          url,
+                        });
+                      }}
+                      title="Compartilhar no WhatsApp"
+                    >
+                      <Share2 className="h-4 w-4" />
+                    </Button>
+                  </div>
                   <CardTitle className="text-lg leading-tight text-white">{campaign.title}</CardTitle>
                   <CardDescription className="text-sm text-white/75 line-clamp-2">{campaign.description}</CardDescription>
                 </CardHeader>

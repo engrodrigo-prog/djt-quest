@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate, Link, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -15,6 +15,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Textarea } from "@/components/ui/textarea";
 import djtCover from '@/assets/backgrounds/djt-quest-cover.png';
 import { apiFetch } from "@/lib/api";
+import { buildAbsoluteAppUrl, openWhatsAppShare } from "@/lib/whatsappShare";
 
 interface UserOption {
   id: string;
@@ -46,6 +47,16 @@ const Auth = () => {
   const suggestionsLookupRef = useRef<string | null>(null);
   const { signIn, refreshUserSession } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const redirectParam = searchParams.get('redirect');
+
+  const resolveRedirect = useCallback(() => {
+    const raw = (redirectParam || '').trim();
+    if (!raw) return null;
+    if (!raw.startsWith('/')) return null;
+    if (raw.startsWith('//')) return null;
+    return raw;
+  }, [redirectParam]);
 
   const normalizedQuery = query.trim().toLowerCase();
   const digitsQuery = normalizeMatricula(query);
@@ -96,7 +107,12 @@ const Auth = () => {
           window.dispatchEvent(new CustomEvent('open-password-dialog'));
         }, 300);
       } else {
-        navigate(authData?.isLeader ? '/leader-dashboard' : '/dashboard');
+        const next = resolveRedirect();
+        if (next) {
+          navigate(next);
+        } else {
+          navigate(authData?.isLeader ? '/leader-dashboard' : '/dashboard');
+        }
       }
     } catch (error) {
       console.error("Login error:", error);
@@ -106,7 +122,7 @@ const Auth = () => {
     } finally {
       setLoading(false);
     }
-  }, [navigate, password, refreshUserSession, signIn]);
+  }, [navigate, password, refreshUserSession, signIn, resolveRedirect]);
 
   const selectUser = useCallback((user: UserOption) => {
     setSelectedUserId(user.id);
@@ -508,14 +524,10 @@ const Auth = () => {
               variant="outline"
               className="w-full mt-1 text-sm bg-white text-slate-900 border-slate-300 hover:bg-slate-50"
               onClick={() => {
-                try {
-                  const url = `${window.location.origin}/auth`;
-                  const text = `Acesse o DJT Quest pelo link:\n${url}`;
-                  const waUrl = `https://wa.me/?text=${encodeURIComponent(text)}`;
-                  window.open(waUrl, '_blank', 'noopener,noreferrer');
-                } catch {
-                  // fallback silencioso
-                }
+                openWhatsAppShare({
+                  message: "Acesse o DJT Quest pelo link:",
+                  url: buildAbsoluteAppUrl("/auth"),
+                });
               }}
             >
               Compartilhar acesso pelo WhatsApp

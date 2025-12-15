@@ -1,5 +1,5 @@
 import { ReactNode, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { CompleteProfile } from '@/components/CompleteProfile';
 
@@ -18,6 +18,7 @@ export function ProtectedRoute({
 }: ProtectedRouteProps) {
   const { user, loading, studioAccess, isLeader, userRole, profile } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const allowedRolesKey = allowedRoles?.join(',') ?? '';
   const needsProfileCompletion = Boolean(
@@ -34,7 +35,8 @@ export function ProtectedRoute({
       requiresSpecificRole && (!userRole || !allowedRolesList.includes(userRole));
 
     if (!loading && !user) {
-      navigate('/auth');
+      const next = `${location.pathname}${location.search}${location.hash}`;
+      navigate(`/auth?redirect=${encodeURIComponent(next)}`);
     } else if (!loading && user) {
       if (needsProfileCompletion) return;
 

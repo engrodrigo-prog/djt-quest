@@ -15,6 +15,7 @@ import { AttachmentViewer } from '@/components/AttachmentViewer'
 import { VoiceRecorderButton } from '@/components/VoiceRecorderButton'
 import Navigation from '@/components/Navigation'
 import { Wand2, Share2 } from 'lucide-react'
+import { buildAbsoluteAppUrl, openWhatsAppShare } from '@/lib/whatsappShare'
 
 interface Topic { id: string; title: string; description: string | null; status: string; chas_dimension: 'C'|'H'|'A'|'S'; quiz_specialties: string[] | null; tags: string[] | null }
 interface Post {
@@ -558,15 +559,11 @@ export default function ForumTopic() {
                       variant="ghost"
                       className="h-8 w-8"
                       onClick={() => {
-                        try {
-                          const base = window.location.origin;
-                          const url = `${base}/forum/${encodeURIComponent(id)}`;
-                          const text = `Veja este fórum no DJT Quest:\n${topic.title}\n${url}`;
-                          const waUrl = `https://wa.me/?text=${encodeURIComponent(text)}`;
-                          window.open(waUrl, '_blank', 'noopener,noreferrer');
-                        } catch {
-                          // silencioso
-                        }
+                        const url = buildAbsoluteAppUrl(`/forum/${encodeURIComponent(id)}`)
+                        openWhatsAppShare({
+                          message: `Veja este fórum no DJT Quest:\n${topic.title}`,
+                          url,
+                        })
                       }}
                       title="Compartilhar este fórum no WhatsApp"
                     >
@@ -754,16 +751,14 @@ export default function ForumTopic() {
                         size="xs"
                         variant="ghost"
                         onClick={() => {
-                          try {
-                            const base = window.location.origin
-                            const url = `${base}/forum/${encodeURIComponent(id || '')}#post-${encodeURIComponent(p.id)}`
-                            const preview = (p.content_md || '').trim().replace(/\s+/g, ' ').slice(0, 160)
-                            const text = `Comentário no fórum:\n${topic?.title || ''}\n"${preview}${preview.length >= 160 ? '…' : ''}"\n${url}`
-                            const waUrl = `https://wa.me/?text=${encodeURIComponent(text)}`
-                            window.open(waUrl, '_blank', 'noopener,noreferrer')
-                          } catch {
-                            // ignore
-                          }
+                          const url = buildAbsoluteAppUrl(
+                            `/forum/${encodeURIComponent(id || '')}#post-${encodeURIComponent(p.id)}`,
+                          )
+                          const preview = (p.content_md || '').trim().replace(/\s+/g, ' ').slice(0, 160)
+                          openWhatsAppShare({
+                            message: `Comentário no fórum:\n${topic?.title || ''}\n"${preview}${preview.length >= 160 ? '…' : ''}"`,
+                            url,
+                          })
                         }}
                         title="Compartilhar este comentário no WhatsApp"
                       >
@@ -844,16 +839,14 @@ export default function ForumTopic() {
                             size="xs"
                             variant="ghost"
                             onClick={() => {
-                              try {
-                                const base = window.location.origin
-                                const url = `${base}/forum/${encodeURIComponent(id || '')}#post-${encodeURIComponent(r.id)}`
-                                const preview = (r.content_md || '').trim().replace(/\s+/g, ' ').slice(0, 160)
-                                const text = `Comentário no fórum:\n${topic?.title || ''}\n"${preview}${preview.length >= 160 ? '…' : ''}"\n${url}`
-                                const waUrl = `https://wa.me/?text=${encodeURIComponent(text)}`
-                                window.open(waUrl, '_blank', 'noopener,noreferrer')
-                              } catch {
-                                // ignore
-                              }
+                              const url = buildAbsoluteAppUrl(
+                                `/forum/${encodeURIComponent(id || '')}#post-${encodeURIComponent(r.id)}`,
+                              )
+                              const preview = (r.content_md || '').trim().replace(/\s+/g, ' ').slice(0, 160)
+                              openWhatsAppShare({
+                                message: `Comentário no fórum:\n${topic?.title || ''}\n"${preview}${preview.length >= 160 ? '…' : ''}"`,
+                                url,
+                              })
                             }}
                             title="Compartilhar este comentário no WhatsApp"
                           >

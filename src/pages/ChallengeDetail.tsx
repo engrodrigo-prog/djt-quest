@@ -15,6 +15,7 @@ import { useToast } from '@/hooks/use-toast';
 import { QuizPlayer } from '@/components/QuizPlayer';
 import { HelpInfo } from '@/components/HelpInfo';
 import { VoiceRecorderButton } from '@/components/VoiceRecorderButton';
+import { buildAbsoluteAppUrl, openWhatsAppShare } from '@/lib/whatsappShare';
 
 interface Challenge {
   id: string;
@@ -359,17 +360,13 @@ const ChallengeDetail = () => {
                 size="xs"
                 variant="outline"
                 onClick={() => {
-                  try {
-                    const base = window.location.origin;
-                    const url = `${base}/challenge/${encodeURIComponent(challenge.id)}`;
-                    const text = challenge.type === 'quiz'
-                      ? `Participe deste quiz no DJT Quest:\n${challenge.title}\n${url}`
-                      : `Participe deste desafio no DJT Quest:\n${challenge.title}\n${url}`;
-                    const waUrl = `https://wa.me/?text=${encodeURIComponent(text)}`;
-                    window.open(waUrl, '_blank', 'noopener,noreferrer');
-                  } catch {
-                    // silencioso
-                  }
+                  const url = buildAbsoluteAppUrl(`/challenge/${encodeURIComponent(challenge.id)}`);
+                  openWhatsAppShare({
+                    message: challenge.type === 'quiz'
+                      ? `Participe deste quiz no DJT Quest:\n${challenge.title}`
+                      : `Participe deste desafio no DJT Quest:\n${challenge.title}`,
+                    url,
+                  });
                 }}
               >
                 Compartilhar no WhatsApp
