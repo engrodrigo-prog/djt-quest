@@ -16,21 +16,69 @@ async function fetchBytesFromUrl(url) {
     const resp = await fetch(url);
     if (!resp.ok)
         throw new Error(`fetch failed ${resp.status}`);
+    const mime = resp.headers?.get?.('content-type') || '';
     const ab = await resp.arrayBuffer();
-    return new Uint8Array(ab);
+    return { bytes: new Uint8Array(ab), mime };
 }
 function parseDataUrl(input) {
     let mime = 'audio/mpeg';
-    let b64 = input;
-    if (input.startsWith('data:')) {
-        const [, header, data] = input.match(/^data:([^;]+);base64,(.*)$/) || [];
-        if (header)
-            mime = header;
-        if (data)
-            b64 = data;
+    if (!input || typeof input !== 'string') {
+        return { bytes: new Uint8Array(), mime };
     }
-    const binary = Buffer.from(b64, 'base64');
+    // Raw base64 (sem prefixo data:)
+    if (!input.startsWith('data:')) {
+        const binary = Buffer.from(input, 'base64');
+        return { bytes: new Uint8Array(binary), mime };
+    }
+    // Data URL (pode vir como `data:audio/webm;codecs=opus;base64,...`)
+    const comma = input.indexOf(',');
+    if (comma < 0) {
+        throw new Error('Invalid data URL: missing comma');
+    }
+    const meta = input.slice(5, comma); // remove "data:"
+    const data = input.slice(comma + 1);
+    const parts = meta
+        .split(';')
+        .map((p) => String(p || '').trim())
+        .filter(Boolean);
+    const maybeMime = parts[0];
+    if (maybeMime && maybeMime.includes('/')) {
+        mime = maybeMime;
+    }
+    const isBase64 = parts.some((p) => p.toLowerCase() === 'base64');
+    if (!isBase64) {
+        // fallback raro: dados URL-encoded
+        try {
+            const decoded = decodeURIComponent(data);
+            const binary = Buffer.from(decoded);
+            return { bytes: new Uint8Array(binary), mime };
+        }
+        catch {
+            const binary = Buffer.from(data);
+            return { bytes: new Uint8Array(binary), mime };
+        }
+    }
+    const binary = Buffer.from(data, 'base64');
     return { bytes: new Uint8Array(binary), mime };
+}
+function extFromMime(input) {
+    const mime = String(input || '').split(';')[0].trim().toLowerCase();
+    if (!mime)
+        return 'mp3';
+    if (mime === 'audio/mpeg')
+        return 'mp3';
+    if (mime === 'audio/mp4' || mime === 'audio/x-m4a')
+        return 'm4a';
+    if (mime === 'audio/aac')
+        return 'aac';
+    if (mime === 'audio/wav')
+        return 'wav';
+    if (mime === 'audio/ogg')
+        return 'ogg';
+    if (mime === 'audio/webm')
+        return 'webm';
+    const p = mime.split('/')[1] || 'mp3';
+    return p.toLowerCase();
 }
 export default async function handler(req, res) {
     if (req.method === 'OPTIONS')
@@ -50,25 +98,41 @@ export default async function handler(req, res) {
         let bytes;
         let mime = 'audio/mpeg';
         if (fileUrl) {
-            bytes = await fetchBytesFromUrl(fileUrl);
-            const urlLower = String(fileUrl).toLowerCase();
-            if (urlLower.endsWith('.wav'))
-                mime = 'audio/wav';
-            else if (urlLower.endsWith('.ogg'))
-                mime = 'audio/ogg';
-            else if (urlLower.endsWith('.webm'))
-                mime = 'audio/webm';
+            const fetched = await fetchBytesFromUrl(fileUrl);
+            bytes = fetched.bytes;
+            const headerMime = String(fetched.mime || '').split(';')[0].trim();
+            if (headerMime && headerMime.includes('/')) {
+                mime = headerMime;
+            }
+            else {
+                const urlLower = String(fileUrl).toLowerCase();
+                if (urlLower.endsWith('.wav'))
+                    mime = 'audio/wav';
+                else if (urlLower.endsWith('.ogg') || urlLower.endsWith('.oga'))
+                    mime = 'audio/ogg';
+                else if (urlLower.endsWith('.webm'))
+                    mime = 'audio/webm';
+                else if (urlLower.endsWith('.m4a') || urlLower.endsWith('.mp4'))
+                    mime = 'audio/mp4';
+                else if (urlLower.endsWith('.mp3'))
+                    mime = 'audio/mpeg';
+                else if (urlLower.endsWith('.aac'))
+                    mime = 'audio/aac';
+            }
         }
         else {
             const parsed = parseDataUrl(audioBase64);
             bytes = parsed.bytes;
-            mime = parsed.mime;
+            mime = String(parsed.mime || '').split(';')[0].trim() || mime;
+        }
+        if (!bytes || bytes.length === 0) {
+            return res.status(400).json({ error: 'empty audio payload' });
         }
         // Whisper transcription
         const blob = new Blob([bytes], { type: mime });
         const form = new FormData();
         form.append('model', 'whisper-1');
-        form.append('file', blob, `audio.${mime.split('/')[1] || 'mp3'}`);
+        form.append('file', blob, `audio.${extFromMime(mime)}`);
         if (typeof language === 'string' && language.trim()) {
             form.append('language', language.trim());
         }

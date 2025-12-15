@@ -5,6 +5,7 @@ import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
+import { supabase } from "@/integrations/supabase/client";
 
 interface VoiceRecorderButtonProps {
   onText: (text: string) => void;
@@ -37,6 +38,26 @@ const formatTime = (s: number) => {
   const mm = String(Math.floor(s / 60)).padStart(2, "0");
   const ss = String(s % 60).padStart(2, "0");
   return `${mm}:${ss}`;
+};
+
+const readApiError = async (resp: Response) => {
+  try {
+    const ct = resp.headers.get("content-type") || "";
+    if (ct.includes("application/json")) {
+      const json = await resp.json().catch(() => ({} as any));
+      const msg = (json as any)?.error;
+      if (msg) return String(msg);
+    }
+  } catch {
+    // ignore
+  }
+  try {
+    const text = await resp.text();
+    const trimmed = String(text || "").trim();
+    return trimmed ? trimmed.slice(0, 280) : "";
+  } catch {
+    return "";
+  }
 };
 
 export function VoiceRecorderButton({
@@ -120,23 +141,81 @@ export function VoiceRecorderButton({
         if (file.size > 12 * 1024 * 1024) {
           throw new Error("Áudio muito grande para transcrever. Grave um trecho menor.");
         }
-        const toBase64 = (f: File) =>
-          new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(String(reader.result));
-            reader.onerror = reject;
-            reader.readAsDataURL(f);
+        let text = "";
+        try {
+          const { data: userData } = await supabase.auth.getUser();
+          const userId = userData.user?.id;
+          if (!userId) throw new Error("Não autenticado");
+
+          const name = String(file.name || "").trim();
+          const ext = (() => {
+            const m = String(file.type || "").split(";")[0].trim().toLowerCase();
+            if (name.includes(".")) return name.split(".").pop() || "webm";
+            if (m === "audio/mp4" || m === "audio/x-m4a") return "m4a";
+            if (m === "audio/mpeg") return "mp3";
+            if (m === "audio/wav") return "wav";
+            if (m === "audio/ogg") return "ogg";
+            if (m === "audio/webm") return "webm";
+            return "webm";
+          })();
+
+          const bucket = "forum-attachments";
+          const filePath = `voice-transcribe/${userId}/voice-${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+
+          const { error: uploadError } = await supabase.storage.from(bucket).upload(filePath, file, {
+            upsert: false,
+            cacheControl: "3600",
+            contentType: file.type || undefined,
+          } as any);
+          if (uploadError) throw uploadError;
+
+          const { data: publicData } = supabase.storage.from(bucket).getPublicUrl(filePath);
+          const publicUrl = publicData?.publicUrl;
+          if (!publicUrl) throw new Error("Falha ao obter URL do áudio");
+
+          const resp = await fetch("/api/ai?handler=transcribe-audio", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ fileUrl: publicUrl, mode, language }),
           });
-        const b64 = await toBase64(file);
-        const resp = await fetch("/api/ai?handler=transcribe-audio", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ audioBase64: b64, mode, language }),
-        });
-        const json = await resp.json().catch(() => ({}));
-        if (!resp.ok) throw new Error(json?.error || "Falha na transcrição");
-        if (runId !== transcribeRunIdRef.current) return;
-        const text = String(json.text || json.transcript || "").trim();
+          if (!resp.ok) {
+            const msg = await readApiError(resp);
+            throw new Error(msg || "Falha na transcrição");
+          }
+          const json = await resp.json().catch(() => ({} as any));
+          if (runId !== transcribeRunIdRef.current) return;
+          text = String((json as any)?.text || (json as any)?.transcript || "").trim();
+
+          // best-effort cleanup do arquivo temporário
+          try {
+            await supabase.storage.from(bucket).remove([filePath]);
+          } catch {
+            // ignore
+          }
+        } catch (primaryErr: any) {
+          // Fallback: base64 (caso upload falhe / sem sessão / sem permissão)
+          const toBase64 = (f: File) =>
+            new Promise<string>((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = () => resolve(String(reader.result));
+              reader.onerror = reject;
+              reader.readAsDataURL(f);
+            });
+          const b64 = await toBase64(file);
+          const resp = await fetch("/api/ai?handler=transcribe-audio", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ audioBase64: b64, mode, language }),
+          });
+          if (!resp.ok) {
+            const msg = await readApiError(resp);
+            throw new Error(msg || primaryErr?.message || "Falha na transcrição");
+          }
+          const json = await resp.json().catch(() => ({} as any));
+          if (runId !== transcribeRunIdRef.current) return;
+          text = String((json as any)?.text || (json as any)?.transcript || "").trim();
+        }
+
         setReviewText(text);
         if (!confirmBeforeInsert && text && typeof onText === "function") {
           onText(text);
