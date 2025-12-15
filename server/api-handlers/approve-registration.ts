@@ -21,7 +21,11 @@ const normTeamCode = (raw?: string | null) =>
 const computeScope = async (admin: any, userId: string) => {
   const [{ data: rolesData }, { data: profile }] = await Promise.all([
     admin.from('user_roles').select('role').eq('user_id', userId),
-    admin.from('profiles').select('team_id, coord_id, division_id, is_leader, studio_access').eq('id', userId).maybeSingle(),
+    admin
+      .from('profiles')
+      .select('team_id, coord_id, division_id, is_leader, studio_access, sigla_area, operational_base')
+      .eq('id', userId)
+      .maybeSingle(),
   ])
 
   const roles = (rolesData || []).map((r: any) => String(r.role || ''))
@@ -42,6 +46,10 @@ const computeScope = async (admin: any, userId: string) => {
     isLeader
 
   let teamId: string | null = (profile as any)?.team_id || null
+  if (!teamId) {
+    const fallback = normTeamCode((profile as any)?.sigla_area || (profile as any)?.operational_base)
+    teamId = fallback || null
+  }
   let coordId: string | null = (profile as any)?.coord_id || null
   let divisionId: string | null = (profile as any)?.division_id || null
 

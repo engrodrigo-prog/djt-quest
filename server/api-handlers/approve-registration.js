@@ -13,7 +13,7 @@ const normTeamCode = (raw) => String(raw || '')
 const computeScope = async (admin, userId) => {
     const [{ data: rolesData }, { data: profile }] = await Promise.all([
         admin.from('user_roles').select('role').eq('user_id', userId),
-        admin.from('profiles').select('team_id, coord_id, division_id, is_leader, studio_access').eq('id', userId).maybeSingle(),
+        admin.from('profiles').select('team_id, coord_id, division_id, is_leader, studio_access, sigla_area, operational_base').eq('id', userId).maybeSingle(),
     ]);
     const roles = (rolesData || []).map((r) => String(r.role || ''));
     const roleSet = new Set(roles);
@@ -31,6 +31,10 @@ const computeScope = async (admin, userId) => {
         effectiveRole = 'lider_equipe';
     const studioAccess = Boolean(profile?.studio_access) || roles.some((r) => STAFF_ROLES.has(r)) || roleSet.has('lider_equipe') || isLeader;
     let teamId = profile?.team_id || null;
+    if (!teamId) {
+        const fallback = normTeamCode(profile?.sigla_area || profile?.operational_base);
+        teamId = fallback || null;
+    }
     let coordId = profile?.coord_id || null;
     let divisionId = profile?.division_id || null;
     if (teamId && !coordId) {

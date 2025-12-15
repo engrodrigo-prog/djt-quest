@@ -3,6 +3,13 @@ const SUPABASE_URL = process.env.SUPABASE_URL;
 const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY);
 const GUEST_TEAM_ID = 'CONVIDADOS';
 const STAFF_ROLES = new Set(['admin', 'gerente_djt', 'gerente_divisao_djtx', 'coordenador_djtx']);
+const normTeamCode = (raw) => String(raw || '')
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9-]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 32);
 const getEffectiveRole = (roles, isLeader) => {
     const set = new Set(roles);
     if (set.has('admin'))
@@ -41,7 +48,7 @@ export default async function handler(req, res) {
             admin.from('user_roles').select('role').eq('user_id', requesterId),
             admin
                 .from('profiles')
-                .select('team_id, coord_id, division_id, is_leader, studio_access')
+                .select('team_id, coord_id, division_id, is_leader, studio_access, sigla_area, operational_base')
                 .eq('id', requesterId)
                 .maybeSingle(),
         ]);
@@ -54,6 +61,10 @@ export default async function handler(req, res) {
         if (!role)
             return res.status(200).json({ success: true, registrations: [] });
         let teamId = profile?.team_id || null;
+        if (!teamId) {
+            const fallback = normTeamCode(profile?.sigla_area || profile?.operational_base);
+            teamId = fallback || null;
+        }
         let coordId = profile?.coord_id || null;
         let divisionId = profile?.division_id || null;
         if (teamId && !coordId) {
@@ -107,4 +118,3 @@ export default async function handler(req, res) {
     }
 }
 export const config = { api: { bodyParser: false } };
-

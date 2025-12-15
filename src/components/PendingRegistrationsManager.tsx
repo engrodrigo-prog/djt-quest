@@ -29,7 +29,7 @@ interface PendingRegistration {
 
 export function PendingRegistrationsManager() {
   const { toast } = useToast();
-  const { orgScope, userRole, isLeader } = useAuth() as any;
+  const { orgScope, userRole, isLeader, profile } = useAuth() as any;
   const [registrations, setRegistrations] = useState<PendingRegistration[]>([]);
   const [loading, setLoading] = useState(true);
   const [processingId, setProcessingId] = useState<string | null>(null);
@@ -197,7 +197,7 @@ export function PendingRegistrationsManager() {
     const sigla = (r.sigla_area || '').toUpperCase();
     const div = (orgScope?.divisionId || '').toUpperCase();
     const coord = (orgScope?.coordId || '').toUpperCase();
-    const team = (orgScope?.teamId || '').toUpperCase();
+    const team = (orgScope?.teamId || profile?.team_id || profile?.sigla_area || profile?.operational_base || '').toUpperCase();
     if (userRole === 'admin' || userRole === 'gerente_djt') return true;
     if (userRole === 'gerente_divisao_djtx') return !!div && sigla.startsWith(div);
     if (userRole === 'coordenador_djtx') return (!!div && sigla.startsWith(div)) || (!!coord && sigla.startsWith(coord)) || (!!team && sigla === team);

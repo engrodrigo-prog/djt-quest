@@ -8,6 +8,15 @@ const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABA
 const GUEST_TEAM_ID = 'CONVIDADOS';
 const STAFF_ROLES = new Set(['admin', 'gerente_djt', 'gerente_divisao_djtx', 'coordenador_djtx']);
 
+const normTeamCode = (raw?: string | null) =>
+  String(raw || '')
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9-]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 32);
+
 const getEffectiveRole = (roles: string[], isLeader: boolean) => {
   const set = new Set(roles);
   if (set.has('admin')) return 'admin';
@@ -40,7 +49,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       admin.from('user_roles').select('role').eq('user_id', requesterId),
       admin
         .from('profiles')
-        .select('team_id, coord_id, division_id, is_leader, studio_access')
+        .select('team_id, coord_id, division_id, is_leader, studio_access, sigla_area, operational_base')
         .eq('id', requesterId)
         .maybeSingle(),
     ]);
@@ -54,6 +63,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!role) return res.status(200).json({ success: true, registrations: [] });
 
     let teamId: string | null = (profile as any)?.team_id || null;
+    if (!teamId) {
+      const fallback = normTeamCode((profile as any)?.sigla_area || (profile as any)?.operational_base);
+      teamId = fallback || null;
+    }
     let coordId: string | null = (profile as any)?.coord_id || null;
     let divisionId: string | null = (profile as any)?.division_id || null;
 
@@ -101,4 +114,3 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 }
 
 export const config = { api: { bodyParser: false } };
-
