@@ -26,13 +26,45 @@ async function fetchBytesFromUrl(url: string): Promise<Uint8Array> {
 
 function parseDataUrl(input: string): { bytes: Uint8Array; mime: string } {
   let mime = 'audio/mpeg';
-  let b64 = input;
-  if (input.startsWith('data:')) {
-    const [, header, data] = input.match(/^data:([^;]+);base64,(.*)$/) || [];
-    if (header) mime = header;
-    if (data) b64 = data;
+
+  if (!input || typeof input !== 'string') {
+    return { bytes: new Uint8Array(), mime };
   }
-  const binary = Buffer.from(b64, 'base64');
+
+  // Raw base64 (sem prefixo data:)
+  if (!input.startsWith('data:')) {
+    const binary = Buffer.from(input, 'base64');
+    return { bytes: new Uint8Array(binary), mime };
+  }
+
+  // Data URL (pode vir como `data:audio/webm;codecs=opus;base64,...`)
+  const comma = input.indexOf(',');
+  if (comma < 0) {
+    throw new Error('Invalid data URL: missing comma');
+  }
+
+  const meta = input.slice(5, comma); // remove "data:"
+  const data = input.slice(comma + 1);
+  const parts = meta.split(';').map((p) => String(p || '').trim()).filter(Boolean);
+  const maybeMime = parts[0];
+  if (maybeMime && maybeMime.includes('/')) {
+    mime = maybeMime;
+  }
+
+  const isBase64 = parts.some((p) => p.toLowerCase() === 'base64');
+  if (!isBase64) {
+    // fallback raro: dados URL-encoded
+    try {
+      const decoded = decodeURIComponent(data);
+      const binary = Buffer.from(decoded);
+      return { bytes: new Uint8Array(binary), mime };
+    } catch {
+      const binary = Buffer.from(data);
+      return { bytes: new Uint8Array(binary), mime };
+    }
+  }
+
+  const binary = Buffer.from(data, 'base64');
   return { bytes: new Uint8Array(binary), mime };
 }
 
