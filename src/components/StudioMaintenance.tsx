@@ -73,6 +73,7 @@ export const StudioMaintenance = () => {
   const [userResults, setUserResults] = useState<Array<{ id: string; name: string; email: string | null; matricula: string | null; xp: number; tier: string }>>([]);
   const [selectedUser, setSelectedUser] = useState<{ id: string; name: string; email: string | null; matricula: string | null; xp: number; tier: string } | null>(null);
   const [xpToSet, setXpToSet] = useState<number>(0);
+  const [reopenLoading, setReopenLoading] = useState(false);
 
   const selectedIds = useMemo(() => Object.keys(selected).filter((k) => selected[k]), [selected]);
   const allSelected = selectedIds.length > 0 && selectedIds.length === items.length;
@@ -260,6 +261,53 @@ export const StudioMaintenance = () => {
     }
   };
 
+  const reopenMilhaoQuizzes = async (opts?: { forSelectedUser?: boolean }) => {
+    if (!canAdjustXp) {
+      toast.error("Sem permissão para reabrir tentativas.");
+      return;
+    }
+
+    const forSelectedUser = Boolean(opts?.forSelectedUser);
+    const target = forSelectedUser ? selectedUser : null;
+    if (forSelectedUser && !target) {
+      toast("Selecione um usuário para reabrir os quizzes.");
+      return;
+    }
+
+    const label = target
+      ? `${target.name || "Usuário"} (${target.matricula || target.email || target.id})`
+      : "minha conta";
+    const ok = window.confirm(
+      `Reabrir os 2 quizzes mais recentes do Milhão para ${label}?\n\nIsso zera respostas, zera tentativa e reverte o XP ganho nesses quizzes.`,
+    );
+    if (!ok) return;
+
+    setReopenLoading(true);
+    try {
+      const { data: session } = await supabase.auth.getSession();
+      const token = session.session?.access_token;
+      const resp = await apiFetch("/api/admin?handler=admin-reset-milhao-attempts", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          user_id: target?.id || undefined,
+        }),
+      });
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(json?.error || "Falha ao reabrir quizzes");
+      const reopened = Array.isArray(json?.reopened) ? json.reopened : [];
+      const xpTotal = reopened.reduce((acc: number, r: any) => acc + (Number(r?.xp_reverted) || 0), 0);
+      toast.success(`Quizzes reabertos: ${reopened.length} • XP revertido: ${xpTotal}`);
+    } catch (e: any) {
+      toast.error(e?.message || "Falha ao reabrir quizzes");
+    } finally {
+      setReopenLoading(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <Card className="bg-white/5 border border-white/20 text-white shadow-lg backdrop-blur-md">
@@ -381,6 +429,47 @@ export const StudioMaintenance = () => {
                 </div>
               </div>
             )}
+          </CardContent>
+        </Card>
+      )}
+
+      {canAdjustXp && (
+        <Card className="bg-white/5 border border-white/20 text-white shadow-lg backdrop-blur-md">
+          <CardHeader>
+            <CardTitle className="text-white">Manutenção • Quiz do Milhão</CardTitle>
+            <CardDescription className="text-white/80">
+              Reabre os 2 quizzes mais recentes do Milhão (zera tentativa, remove respostas e reverte o XP ganho no quiz).
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {selectedUser ? (
+              <p className="text-xs text-white/70">
+                Usuário selecionado: <span className="text-white/90">{selectedUser.name}</span>{" "}
+                <span className="text-white/60">({selectedUser.matricula || selectedUser.email || selectedUser.id})</span>
+              </p>
+            ) : (
+              <p className="text-xs text-white/70">
+                Para reabrir para outra pessoa, selecione um usuário na seção de XP acima.
+              </p>
+            )}
+            <div className="flex flex-col sm:flex-row gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="border-white/30 text-white"
+                disabled={reopenLoading}
+                onClick={() => reopenMilhaoQuizzes({ forSelectedUser: false })}
+              >
+                {reopenLoading ? "Reabrindo..." : "Reabrir para mim"}
+              </Button>
+              <Button
+                type="button"
+                disabled={reopenLoading || !selectedUser}
+                onClick={() => reopenMilhaoQuizzes({ forSelectedUser: true })}
+              >
+                {reopenLoading ? "Reabrindo..." : "Reabrir para usuário selecionado"}
+              </Button>
+            </div>
           </CardContent>
         </Card>
       )}

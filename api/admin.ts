@@ -19,6 +19,7 @@ import adminAdjustXp from '../server/api-handlers/admin-adjust-xp.js';
 import leadershipChallenges from '../server/api-handlers/leadership-challenges.js';
 import coordRankingBonus from '../server/api-handlers/coord-ranking-bonus.js';
 import studioPublishQuizMilhao from '../server/api-handlers/studio-publish-quiz-milhao.js';
+import adminResetMilhaoAttempts from '../server/api-handlers/admin-reset-milhao-attempts.js';
 
 type Handler = (req: VercelRequest, res: VercelResponse) => any | Promise<any>;
 
@@ -39,6 +40,7 @@ const handlers: Record<string, Handler> = {
   'leadership-challenges': leadershipChallenges,
   'coord-ranking-bonus': coordRankingBonus,
   'studio-publish-quiz-milhao': studioPublishQuizMilhao,
+  'admin-reset-milhao-attempts': adminResetMilhaoAttempts,
 };
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
