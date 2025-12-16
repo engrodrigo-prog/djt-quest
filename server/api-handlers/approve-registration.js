@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY);
+const SUPABASE_URL = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL);
+const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const GUEST_TEAM_ID = 'CONVIDADOS';
 const STAFF_ROLES = new Set(['admin', 'gerente_djt', 'gerente_divisao_djtx', 'coordenador_djtx']);
 const normTeamCode = (raw) => String(raw || '')
@@ -78,9 +78,11 @@ export default async function handler(req, res) {
     if (req.method !== 'POST')
         return res.status(405).json({ error: 'Method not allowed' });
     try {
-        if (!SUPABASE_URL || !SERVICE_KEY)
-            return res.status(500).json({ error: 'Missing Supabase config' });
-        const admin = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { autoRefreshToken: false, persistSession: false } });
+        if (!SUPABASE_URL)
+            return res.status(500).json({ error: 'Missing SUPABASE_URL' });
+        if (!SERVICE_ROLE_KEY)
+            return res.status(500).json({ error: 'Missing SUPABASE_SERVICE_ROLE_KEY' });
+        const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { autoRefreshToken: false, persistSession: false } });
         const authHeader = req.headers['authorization'] || '';
         let requesterId = null;
         if (authHeader) {

@@ -2,8 +2,12 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
 
-const SUPABASE_URL = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL) as string;
-const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY) as string;
+const SUPABASE_URL = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL) as string;
+const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY as string | undefined;
+const PUBLIC_KEY = (process.env.SUPABASE_ANON_KEY ||
+  process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+  process.env.VITE_SUPABASE_ANON_KEY ||
+  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY) as string | undefined;
 
 const GUEST_TEAM_ID = 'CONVIDADOS';
 const REGISTRATION_TEAM_IDS = [
@@ -53,8 +57,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     res.setHeader('Cache-Control', 'no-store');
 
-    if (!SUPABASE_URL || !SERVICE_KEY) return res.status(500).json({ error: 'Missing Supabase config' });
-    const admin = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { autoRefreshToken: false, persistSession: false } });
+    const key = SERVICE_ROLE_KEY || PUBLIC_KEY;
+    if (!SUPABASE_URL || !key) return res.status(500).json({ error: 'Missing Supabase config' });
+    const admin = createClient(SUPABASE_URL, key, { auth: { autoRefreshToken: false, persistSession: false } });
 
     const body = (req.body && typeof req.body === 'string' ? JSON.parse(req.body) : req.body) || {};
 
@@ -138,4 +143,3 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 }
 
 export const config = { api: { bodyParser: true } };
-

@@ -55,6 +55,18 @@ export function PendingRegistrationsManager() {
         const json = await resp.json().catch(() => ({}));
         if (!resp.ok) throw new Error(json?.error || "Falha ao carregar solicitações");
         const list = Array.isArray(json?.registrations) ? json.registrations : [];
+        // Se o backend responder 200 porém vazio (comum quando cai em anon/RLS),
+        // faz uma segunda tentativa via select direto (respeitando RLS do usuário logado).
+        if (list.length === 0) {
+          const { data, error } = await supabase
+            .from("pending_registrations")
+            .select("*")
+            .order("created_at", { ascending: false });
+          if (!error && (data?.length || 0) > 0) {
+            setRegistrations(data || []);
+            return;
+          }
+        }
         setRegistrations(list);
         return;
       } catch (apiErr) {

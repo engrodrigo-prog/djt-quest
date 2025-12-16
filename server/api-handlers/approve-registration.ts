@@ -4,8 +4,8 @@ import { createClient } from '@supabase/supabase-js'
 
 type ApprovalRequest = { registrationId: string; notes?: string }
 
-const SUPABASE_URL = process.env.SUPABASE_URL as string
-const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY) as string
+const SUPABASE_URL = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL) as string
+const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY as string | undefined
 const GUEST_TEAM_ID = 'CONVIDADOS'
 const STAFF_ROLES = new Set(['admin', 'gerente_djt', 'gerente_divisao_djtx', 'coordenador_djtx'])
 
@@ -91,9 +91,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
 
   try {
-    if (!SUPABASE_URL || !SERVICE_KEY) return res.status(500).json({ error: 'Missing Supabase config' })
+    if (!SUPABASE_URL) return res.status(500).json({ error: 'Missing SUPABASE_URL' })
+    if (!SERVICE_ROLE_KEY) return res.status(500).json({ error: 'Missing SUPABASE_SERVICE_ROLE_KEY' })
 
-    const admin = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { autoRefreshToken: false, persistSession: false } })
+    const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { autoRefreshToken: false, persistSession: false } })
     const authHeader = (req.headers['authorization'] as string | undefined) || ''
     let requesterId: string | null = null
     if (authHeader) {

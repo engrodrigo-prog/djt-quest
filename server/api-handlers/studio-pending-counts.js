@@ -16,9 +16,12 @@ try {
     }
 }
 catch { }
-const SUPABASE_URL = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL);
-// Prefer service role so backend não dependa de VITE_* em produção
-const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY);
+const SUPABASE_URL = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL);
+const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const PUBLIC_KEY = (process.env.SUPABASE_ANON_KEY ||
+    process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+    process.env.VITE_SUPABASE_ANON_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY);
 const STAFF_ROLES = new Set(['admin', 'gerente_djt', 'gerente_divisao_djtx', 'coordenador_djtx']);
 export default async function handler(req, res) {
     if (req.method === 'OPTIONS')
@@ -26,19 +29,25 @@ export default async function handler(req, res) {
     if (req.method !== 'GET')
         return res.status(405).json({ error: 'Method not allowed' });
     try {
-    if (!SUPABASE_URL || !SERVICE_KEY) {
-        return res.status(200).json({ approvals: 0, passwordResets: 0, evaluations: 0, leadershipAssignments: 0, forumMentions: 0, registrations: 0 });
-    }
-    const authHeader = req.headers['authorization'] || '';
-    const admin = createClient(SUPABASE_URL, SERVICE_KEY, {
-        auth: { autoRefreshToken: false, persistSession: false },
-        global: {},
-    });
+        const emptyPayload = { approvals: 0, passwordResets: 0, evaluations: 0, leadershipAssignments: 0, forumMentions: 0, registrations: 0 };
+        if (!SUPABASE_URL || (!SERVICE_ROLE_KEY && !PUBLIC_KEY)) {
+            return res.status(200).json(emptyPayload);
+        }
+        const authHeader = req.headers['authorization'] || '';
+        const useServiceRole = Boolean(SERVICE_ROLE_KEY);
+        const admin = useServiceRole
+            ? createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
+                auth: { autoRefreshToken: false, persistSession: false },
+            })
+            : createClient(SUPABASE_URL, PUBLIC_KEY, {
+                auth: { autoRefreshToken: false, persistSession: false },
+                global: authHeader ? { headers: { Authorization: authHeader } } : {},
+            });
     let userId = null;
     try {
         const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
         if (!token) {
-            return res.status(200).json({ approvals: 0, passwordResets: 0, evaluations: 0, leadershipAssignments: 0, forumMentions: 0, registrations: 0 });
+            return res.status(200).json(emptyPayload);
         }
         const { data: userData } = await admin.auth.getUser(token);
         userId = userData?.user?.id || null;
@@ -56,13 +65,19 @@ export default async function handler(req, res) {
             }
         };
         if (!userId) {
-            return res.status(200).json({ approvals: 0, passwordResets: 0, evaluations: 0, leadershipAssignments: 0, forumMentions: 0, registrations: 0 });
+            return res.status(200).json(emptyPayload);
         }
         // Check roles to know if user is staff (leaders / managers / admin)
         let isStaff = false;
         try {
-            const { data: roles } = await admin.from('user_roles').select('role').eq('user_id', userId);
-            isStaff = (roles || []).some((r) => STAFF_ROLES.has(r.role));
+            const { data: staffFlag, error: staffErr } = await admin.rpc('is_staff', { u: userId });
+            if (!staffErr) {
+                isStaff = Boolean(staffFlag);
+            }
+            else {
+                const { data: roles } = await admin.from('user_roles').select('role').eq('user_id', userId);
+                isStaff = (roles || []).some((r) => STAFF_ROLES.has(r.role));
+            }
         }
         catch { }
         const approvals = isStaff ? await safeCount(admin.from('profile_change_requests').eq('status', 'pending')) : 0;

@@ -2,8 +2,12 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
 
-const SUPABASE_URL = process.env.SUPABASE_URL as string;
-const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY) as string;
+const SUPABASE_URL = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL) as string;
+const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY as string | undefined;
+const PUBLIC_KEY = (process.env.SUPABASE_ANON_KEY ||
+  process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+  process.env.VITE_SUPABASE_ANON_KEY ||
+  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY) as string | undefined;
 
 const GUEST_TEAM_ID = 'CONVIDADOS';
 const STAFF_ROLES = new Set(['admin', 'gerente_djt', 'gerente_divisao_djtx', 'coordenador_djtx']);
@@ -32,11 +36,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
-    if (!SUPABASE_URL || !SERVICE_KEY) return res.status(500).json({ error: 'Missing Supabase config' });
-    const admin = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { autoRefreshToken: false, persistSession: false } });
-
     const authHeader = (req.headers['authorization'] as string | undefined) || '';
     if (!authHeader) return res.status(401).json({ error: 'Unauthorized' });
+
+    if (!SUPABASE_URL) return res.status(500).json({ error: 'Missing SUPABASE_URL' });
+    if (!SERVICE_ROLE_KEY && !PUBLIC_KEY) return res.status(500).json({ error: 'Missing Supabase key' });
+
+    const useServiceRole = Boolean(SERVICE_ROLE_KEY);
+    const admin = useServiceRole
+      ? createClient(SUPABASE_URL, SERVICE_ROLE_KEY as string, {
+          auth: { autoRefreshToken: false, persistSession: false },
+        })
+      : createClient(SUPABASE_URL, PUBLIC_KEY as string, {
+          auth: { autoRefreshToken: false, persistSession: false },
+          global: { headers: { Authorization: authHeader } },
+        });
 
     let requesterId: string | null = null;
     try {
@@ -59,7 +73,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const studioAccess = Boolean((profile as any)?.studio_access) || roles.some((r) => STAFF_ROLES.has(r)) || roles.includes('lider_equipe') || isLeader;
     if (!studioAccess) return res.status(403).json({ error: 'Insufficient permissions' });
 
-    const role = getEffectiveRole(roles, isLeader);
+    // Se estamos sem service role, pode faltar permissão para ler user_roles (RLS) e roles vir vazio.
+    // Nessa situação, é melhor devolver "tudo que o próprio usuário consegue ver via RLS" do que
+    // aplicar um filtro de escopo baseado em papel incompleto.
+    const role = !useServiceRole && roles.length === 0 ? null : getEffectiveRole(roles, isLeader);
     // Se não identificamos um papel, mas o usuário tem studioAccess, devolve tudo (melhor visibilidade do que vazio).
     if (!role) {
       const { data, error } = await admin

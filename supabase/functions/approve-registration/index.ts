@@ -245,17 +245,15 @@ Deno.serve(async (req) => {
     const { error: roleError } = await supabaseAdmin
       .from('user_roles')
       .insert({ user_id: newUser.user.id, role: 'colaborador' });
-    if (roleError && !String(roleError.message || '').toLowerCase().includes('duplicate')) {
-      console.error('Error assigning role:', roleError)
-      await supabaseAdmin.auth.admin.deleteUser(newUser.user.id);
-      throw roleError;
-    }
-
     if (roleError) {
-      console.error('Error assigning role:', roleError);
-      // Cleanup
-      await supabaseAdmin.auth.admin.deleteUser(newUser.user.id);
-      throw roleError;
+      const msg = String((roleError as any).message || '').toLowerCase()
+      const code = String((roleError as any).code || '')
+      const isDup = code === '23505' || msg.includes('duplicate')
+      if (!isDup) {
+        console.error('Error assigning role:', roleError)
+        await supabaseAdmin.auth.admin.deleteUser(newUser.user.id)
+        throw roleError
+      }
     }
 
     console.log('Role assigned');
