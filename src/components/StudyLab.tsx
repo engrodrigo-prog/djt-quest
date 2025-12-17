@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import { BookOpenCheck, Link as LinkIcon, MessageCircle, AlertCircle, Trash2 } from "lucide-react";
 import { AttachmentUploader } from "@/components/AttachmentUploader";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { TipDialogButton } from "@/components/TipDialogButton";
 
 interface StudySource {
   id: string;
@@ -117,6 +118,7 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
+  const [oracleMode, setOracleMode] = useState(true);
   const [showUploader, setShowUploader] = useState(false);
   const [polling, setPolling] = useState(false);
 
@@ -600,33 +602,35 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
       toast("Faça login para usar o chat de estudos.");
       return;
     }
-    if (!selectedSourceId) {
-      toast.error("Selecione um material da lista para conversar sobre ele.");
-      return;
-    }
-    const sel = sources.find((s) => s.id === selectedSourceId);
-    if (sel && sel.ingest_status === "failed") {
-      toast.error("Curadoria do material falhou. Reprocessando agora...");
-      setIngesting(true);
-      try {
-        const { data: session } = await supabase.auth.getSession();
-        const token = session.session?.access_token;
-        if (token) {
-          await fetch("/api/ai?handler=study-chat", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${token}`,
-            },
-            body: JSON.stringify({ mode: "ingest", source_id: sel.id }),
-          }).catch(() => undefined);
-          await fetchSources();
-        }
-      } finally {
-        setIngesting(false);
+    if (!oracleMode) {
+      if (!selectedSourceId) {
+        toast.error("Selecione um material da lista para conversar sobre ele.");
+        return;
       }
-      toast.error("Tente novamente após a curadoria.");
-      return;
+      const sel = sources.find((s) => s.id === selectedSourceId);
+      if (sel && sel.ingest_status === "failed") {
+        toast.error("Curadoria do material falhou. Reprocessando agora...");
+        setIngesting(true);
+        try {
+          const { data: session } = await supabase.auth.getSession();
+          const token = session.session?.access_token;
+          if (token) {
+            await fetch("/api/ai?handler=study-chat", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${token}`,
+              },
+              body: JSON.stringify({ mode: "ingest", source_id: sel.id }),
+            }).catch(() => undefined);
+            await fetchSources();
+          }
+        } finally {
+          setIngesting(false);
+        }
+        toast.error("Tente novamente após a curadoria.");
+        return;
+      }
     }
 
     const nextMessages = [...chatMessages, { role: "user", content: trimmed } as ChatMessage];
@@ -645,8 +649,8 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
-          mode: "study",
-          source_id: selectedSourceId,
+          mode: oracleMode ? "oracle" : "study",
+          ...(oracleMode ? {} : { source_id: selectedSourceId }),
           messages: nextMessages,
         }),
       });
@@ -664,7 +668,9 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
       setChatMessages((prev) => [...prev, { role: "assistant", content: answer }]);
       // Atualiza último uso para manter ativo
       try {
-        await supabase.from("study_sources").update({ last_used_at: new Date().toISOString() }).eq("id", selectedSourceId);
+        if (!oracleMode && selectedSourceId) {
+          await supabase.from("study_sources").update({ last_used_at: new Date().toISOString() }).eq("id", selectedSourceId);
+        }
       } catch {
         /* silencioso */
       }
@@ -808,7 +814,12 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
         <CardHeader>
           <div className="flex items-center gap-2">
             <MessageCircle className="h-4 w-4 text-primary" />
-            <CardTitle className="text-white">Materiais de estudo</CardTitle>
+            <CardTitle className="text-white">StudyLab • Base de conhecimento</CardTitle>
+            <TipDialogButton
+              tipId="studylab-oracle"
+              ariaLabel="Entenda o StudyLab"
+              className="inline-flex items-center justify-center rounded-full border border-white/20 bg-black/20 p-1 text-blue-100/80 hover:bg-black/30 hover:text-blue-50"
+            />
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -817,7 +828,7 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  <p>Materiais inativos por 30 dias são limpos automaticamente.</p>
+                  <p>Materiais sem uso por 30 dias podem sair do catálogo (para manter a base enxuta).</p>
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
@@ -832,7 +843,7 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
             </Button>
           </div>
           <CardDescription className="text-white/80">
-            Selecione um material para usá-lo como contexto do chat. Materiais inativos por 30 dias são limpos automaticamente.
+            Salve manuais, procedimentos, relatórios e imagens. Depois, pergunte ao Oráculo para transformar isso em aprendizados, fóruns e quizzes.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4 max-h-[520px] overflow-y-auto text-white">
@@ -953,7 +964,7 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
                 </div>
               </div>
               <div className="space-y-2">
-                <Label className="text-white">Ou envie um documento (PDF, Word, Excel)</Label>
+                <Label className="text-white">Ou envie um arquivo (PDF, Word, imagem, TXT, JSON, Excel)</Label>
                 <AttachmentUploader
                   onAttachmentsChange={handleFilesUploaded}
                   maxFiles={newCategory === "RELATORIO_OCORRENCIA" ? 1 : 3}
@@ -962,10 +973,15 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
                   pathPrefix="study"
                   acceptMimeTypes={[
                     "application/pdf",
-                    "application/msword",
                     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                     "application/vnd.ms-excel",
                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    "text/plain",
+                    "application/json",
+                    "text/csv",
+                    "image/jpeg",
+                    "image/png",
+                    "image/webp",
                   ]}
                   maxVideoSeconds={0}
                 />
@@ -1294,19 +1310,34 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
               <BookOpenCheck className="h-6 w-6 text-primary" />
             </div>
             <div>
-              <CardTitle className="text-2xl font-semibold leading-tight text-white">Chat de Estudos</CardTitle>
-              <CardDescription className="text-white/80">Converse com a IA sobre o material selecionado no catálogo.</CardDescription>
+              <CardTitle className="text-2xl font-semibold leading-tight text-white">Oráculo (perguntas e respostas)</CardTitle>
+              <CardDescription className="text-white/80">
+                Pergunte e receba respostas com base nos seus materiais, no catálogo da organização e no Compêndio de Ocorrências.
+              </CardDescription>
             </div>
           </div>
         </CardHeader>
         <CardContent className="space-y-6 text-white">
 
           <div className="space-y-3">
-            <Label className="text-white">Pergunta para a IA</Label>
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <Label className="text-white">Pergunta</Label>
+              <div className="flex items-center gap-2 rounded-md border border-white/20 bg-white/5 px-3 py-2">
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-white">Modo Oráculo</p>
+                  <p className="text-[11px] text-white/70">
+                    {oracleMode ? "Busca em toda a base" : "Somente no material selecionado"}
+                  </p>
+                </div>
+                <Switch checked={oracleMode} onCheckedChange={setOracleMode} />
+              </div>
+            </div>
             <div className="border border-white/20 rounded-md p-3 max-h-72 overflow-y-auto bg-white/5 text-sm">
               {chatMessages.length === 0 && (
                 <p className="text-white/70 text-xs">
-                  Selecione um material no catálogo acima e faça uma pergunta. A IA usa o conteúdo selecionado como contexto.
+                  {oracleMode
+                    ? "Pergunte qualquer coisa sobre os temas da sua área. O Oráculo busca nos materiais e traz um resumo prático (com referências)."
+                    : "Selecione um material no catálogo acima e pergunte sobre ele. A IA usa o conteúdo selecionado como contexto."}
                 </p>
               )}
               {chatMessages.map((m, idx) => (
@@ -1324,7 +1355,11 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
             <div className="flex gap-2">
               <Input
                 placeholder={
-                  selectedSource ? `Pergunte sobre: ${selectedSource.title}` : "Selecione um material para perguntar"
+                  oracleMode
+                    ? "Ex.: qual modo de falha mais comum em telecom? O que devo checar primeiro?"
+                    : selectedSource
+                      ? `Pergunte sobre: ${selectedSource.title}`
+                      : "Selecione um material para perguntar"
                 }
                 value={chatInput}
                 onChange={(e) => setChatInput(e.target.value)}
@@ -1341,7 +1376,9 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
             </div>
             {chatError && <p className="text-sm text-destructive">Erro: {chatError}</p>}
             <p className="text-[11px] text-white/70">
-              A IA prioriza o material selecionado no catálogo e as mensagens desta conversa.
+              {oracleMode
+                ? "O Oráculo busca no catálogo e no compêndio, e também usa o histórico desta conversa."
+                : "A IA prioriza o material selecionado no catálogo e o histórico desta conversa."}
             </p>
           </div>
         </CardContent>

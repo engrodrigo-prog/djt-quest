@@ -98,10 +98,62 @@ export function parseXlsxQuestions(buffer) {
   return { sheet: sheetName, questions: toQuestions(rows) };
 }
 
+export function parseJsonQuestions(buffer) {
+  const text = Buffer.isBuffer(buffer) ? buffer.toString('utf-8') : String(buffer || '');
+  const trimmed = String(text || '').trim();
+  if (!trimmed) return { questions: [] };
+  let parsed;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    return { questions: [] };
+  }
+
+  const rawList = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.questions) ? parsed.questions : [];
+  const questions = [];
+  for (const q of rawList) {
+    if (!q || typeof q !== 'object') continue;
+    const pergunta = String(q.pergunta || q.question || q.prompt || '').trim();
+    if (!pergunta) continue;
+    const corretaRaw = String(q.correta || q.correct || q.answer || '').trim().toUpperCase();
+    const correta = ['A', 'B', 'C', 'D', 'E'].includes(corretaRaw) ? corretaRaw : '';
+    questions.push({
+      pergunta,
+      alt_a: String(q.alt_a || q.a || q.option_a || q.optionA || '').trim(),
+      alt_b: String(q.alt_b || q.b || q.option_b || q.optionB || '').trim(),
+      alt_c: String(q.alt_c || q.c || q.option_c || q.optionC || '').trim(),
+      alt_d: String(q.alt_d || q.d || q.option_d || q.optionD || '').trim(),
+      alt_e: String(q.alt_e || q.e || q.option_e || q.optionE || '').trim(),
+      correta,
+      explicacao: String(q.explicacao || q.explanation || '').trim(),
+    });
+  }
+  return { questions };
+}
+
 export async function extractPdfText(buffer) {
   const pdfParse = require('pdf-parse');
   const data = await pdfParse(buffer);
   return String(data?.text || '').trim();
+}
+
+export async function extractDocxText(buffer) {
+  const mammoth = require('mammoth');
+  const result = await mammoth.extractRawText({ buffer });
+  return String(result?.value || '').trim();
+}
+
+export function extractJsonText(buffer) {
+  const text = Buffer.isBuffer(buffer) ? buffer.toString('utf-8') : String(buffer || '');
+  const trimmed = String(text || '').trim();
+  if (!trimmed) return '';
+  try {
+    const parsed = JSON.parse(trimmed);
+    return JSON.stringify(parsed, null, 2).trim();
+  } catch {
+    // Se não for JSON válido, devolve como texto mesmo (best-effort)
+    return trimmed;
+  }
 }
 
 export function extractPlainText(buffer) {

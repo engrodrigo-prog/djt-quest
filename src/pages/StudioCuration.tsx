@@ -629,12 +629,16 @@ export default function StudioCuration() {
             <Card>
               <CardHeader>
                 <CardTitle>Importar questões</CardTitle>
-                <CardDescription>CSV/XLSX/PDF → extração server-side → (opcional) estruturar com IA</CardDescription>
+                <CardDescription>CSV/XLSX/JSON/PDF/Word/Imagem → extração server-side → (opcional) estruturar com IA</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="space-y-2">
                   <Label>Arquivo</Label>
-                  <Input type="file" accept=".csv,.xlsx,.xls,.pdf" onChange={(e) => setImportFile(e.target.files?.[0] || null)} />
+                  <Input
+                    type="file"
+                    accept=".csv,.xlsx,.xls,.json,.pdf,.docx,.txt,.png,.jpg,.jpeg,.webp,application/pdf,text/plain,application/json,image/png,image/jpeg,image/webp"
+                    onChange={(e) => setImportFile(e.target.files?.[0] || null)}
+                  />
                   <div className="flex items-center gap-2">
                     <Button disabled={!importFile || importLoading} onClick={runImport}>
                       {importLoading ? 'Processando…' : 'Enviar e extrair'}
@@ -654,7 +658,10 @@ export default function StudioCuration() {
                       <Badge variant="outline">{importRow.status}</Badge>
                       <span className="text-xs text-muted-foreground">{importRow.source_path}</span>
                     </div>
-                    {importPreview.kind === 'pdf' && (
+                    {Boolean(importPreview.raw?.warning) && (
+                      <p className="text-xs text-amber-200/90">{String(importPreview.raw?.warning || '')}</p>
+                    )}
+                    {['pdf', 'txt', 'docx', 'image', 'json'].includes(String(importPreview.kind || '')) && (
                       <Textarea readOnly rows={8} value={String(importPreview.raw?.text || '').slice(0, 4000)} />
                     )}
                     {importPreview.questions?.length > 0 && (
@@ -715,17 +722,17 @@ export default function StudioCuration() {
                         <TipDialogButton tipId="studio-compendium" ariaLabel="Entenda o Compêndio de Ocorrências" />
                       </CardTitle>
                       <CardDescription>
-                        Faça upload (PDF/TXT), extraia o texto, cataloge com IA e salve no Compêndio
+                        Faça upload (PDF/Word/Imagem/TXT/JSON), extraia o conteúdo, catalogue com IA e salve no Compêndio
                       </CardDescription>
                     </div>
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="space-y-2">
-                    <Label>Arquivo (PDF/TXT)</Label>
+                    <Label>Arquivo (PDF/Word/Imagem/TXT/JSON)</Label>
                     <Input
                       type="file"
-                      accept=".pdf,.txt,application/pdf,text/plain"
+                      accept=".pdf,.docx,.txt,.json,.png,.jpg,.jpeg,.webp,application/pdf,text/plain,application/json,image/png,image/jpeg,image/webp"
                       onChange={(e) => setOccFile(e.target.files?.[0] || null)}
                     />
                     <div className="flex gap-2 flex-wrap">
@@ -751,6 +758,9 @@ export default function StudioCuration() {
                       <p className="text-xs text-muted-foreground">
                         {String(occRow.raw_extract.text).length > 1200 ? 'Prévia limitada a 1200 caracteres.' : ''}
                       </p>
+                      {Boolean(occRow?.raw_extract?.warning) && (
+                        <p className="text-xs text-amber-200/90">{String(occRow.raw_extract.warning || '')}</p>
+                      )}
                     </div>
                   )}
 

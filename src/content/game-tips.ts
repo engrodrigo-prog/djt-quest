@@ -9,31 +9,34 @@ export const gameTips: Record<string, GameTip> = {
   'studio-curation': {
     title: 'Curadoria de Conteúdo (Quizzes)',
     body: [
-      'Aqui você cria, revisa e publica quizzes com controle de workflow.',
+      'Aqui você cria, revisa e publica quizzes com um fluxo simples (do rascunho até ficar disponível para o time).',
       '',
-      '• Rascunho (DRAFT): você pode editar título/descrição e adicionar perguntas.',
-      '• Submeter (SUBMITTED): entra na fila da Curadoria.',
-      '• Aprovar/Rejeitar: valida conteúdo e qualidade; se rejeitado, volta para ajustes.',
-      '• Publicar: torna o quiz disponível para os jogadores.',
+      'Como funciona:',
+      '• Rascunho: você monta o quiz e ajusta o que quiser.',
+      '• Submeter: o quiz entra na fila para revisão (quando existir curadoria ativa).',
+      '• Aprovar/Rejeitar: garante clareza, coerência e qualidade.',
+      '• Publicar: libera o quiz para os colaboradores responderem.',
       '',
-      'Importar questões:',
-      '• O arquivo é enviado para o Storage (bucket `quiz-imports`).',
-      '• O registro e a extração ficam salvos no banco em `content_imports` (raw_extract / ai_suggested / final_approved).',
-      '• Ao aplicar em um quiz DRAFT, as perguntas são criadas nas tabelas `quiz_questions` e `quiz_options`.'
+      'Importar questões (arquivos):',
+      '• Ao enviar um arquivo, ele fica salvo na plataforma e o conteúdo é extraído automaticamente.',
+      '• Se o arquivo tiver perguntas (CSV/XLSX/JSON) elas podem ser detectadas na hora.',
+      '• Se o arquivo for texto (PDF/Word/Imagem), você pode pedir para a IA transformar em perguntas.',
+      '• Quando você aprova o import, dá para “Aplicar” e criar perguntas dentro de um quiz em rascunho.'
     ].join('\n'),
   },
   'studio-compendium': {
     title: 'Compêndio de Ocorrências (IA)',
     body: [
-      'Use este fluxo para subir relatórios de ocorrências (PDF/TXT) e transformar em conhecimento reutilizável.',
+      'Use este fluxo para subir relatórios de ocorrência e transformar em conhecimento reutilizável (aprendizados, temas de fórum e ideias de quiz).',
       '',
-      'Pipeline:',
-      '• Upload: o arquivo é enviado para o Storage (bucket `quiz-imports`).',
-      '• Extração: o texto é extraído e salvo em `content_imports.raw_extract`.',
-      '• IA: a IA sugere catalogação (tipo de ativo, modo de falha, causa raiz, severidade, tags e aprendizados).',
-      '• Aprovação: ao salvar, fica disponível no Compêndio para buscar e reutilizar ao criar quizzes, fóruns e desafios.',
+      'Passo a passo:',
+      '• Envie o arquivo (PDF, Word, imagem, TXT ou JSON).',
+      '• A plataforma extrai o conteúdo. Se tiver imagem, ela tenta “ler” o texto e descrever o que aparece (OCR).',
+      '• A IA sugere uma catalogação: área, ativo, modo de falha, causa raiz, severidade, palavras‑chave e aprendizados.',
+      '• Você revisa e salva. A partir daí, o item aparece para busca e reutilização ao criar quizzes, fóruns e desafios.',
       '',
-      'Objetivo: acelerar aprendizado organizacional (subestações, telecom e linhas) com material real.'
+      'Dica rápida:',
+      '• Se o PDF for escaneado (sem texto selecionável), envie as páginas como imagens (JPG/PNG) para melhorar a leitura.'
     ].join('\n'),
   },
   'studio-content': {
@@ -118,12 +121,12 @@ export const gameTips: Record<string, GameTip> = {
   'studio-system': {
     title: 'Sistema',
     body: [
-      'Painel técnico para verificar saúde do ambiente, integrações e dados.',
+      'Painel para checar se está tudo funcionando e se os dados estão “batendo”.',
       '',
-      '• Ajuda a identificar falhas de sincronização, problemas de cache e atrasos em cálculos de XP.',
-      '• Não gera XP, mas mantém a gamificação funcionando sem ruídos (contagens de quizzes, fóruns, SEPBook, etc.).',
+      '• Ajuda a identificar atrasos e inconsistências (ex.: contagens, rankings, dados faltando).',
+      '• Não gera XP, mas evita que a experiência do jogo fique confusa.',
       '',
-      'Use esta tela sempre que notar números estranhos de XP, rankings ou faltas de dados em campanhas.'
+      'Use quando notar números estranhos ou comportamento inesperado.'
     ].join('\n'),
   },
   'studio-admin': {
@@ -140,7 +143,7 @@ export const gameTips: Record<string, GameTip> = {
   'studio-reports': {
     title: 'Relatórios (Studio)',
     body: [
-      'Hub para acompanhar métricas do jogo e exportar visões de acompanhamento.',
+      'Hub para acompanhar métricas e exportar relatórios para acompanhamento (por período).',
       '',
       'Primeiros focos:',
       '• Quizzes: aderência (participação), notas médias (%), ranking por período e filtros por escopo (equipe/coord/divisão).',
@@ -148,6 +151,19 @@ export const gameTips: Record<string, GameTip> = {
       '• Acessos: histórico de entradas na plataforma por período (quando o rastreamento estiver habilitado).',
       '',
       'Use os filtros de data para fechar o mês (dia 1 → dia atual) ou comparar períodos.'
+    ].join('\n'),
+  },
+  'studylab-oracle': {
+    title: 'StudyLab (Oráculo)',
+    body: [
+      'Aqui você guarda a “memória” da área (materiais e ocorrências) e conversa com uma IA que busca nesses conteúdos.',
+      '',
+      'O que dá para fazer:',
+      '• Subir manuais, procedimentos, imagens, relatórios e links.',
+      '• Perguntar sobre modos de falha, causa raiz, cuidados e boas práticas.',
+      '• Pedir sugestões de temas para fóruns e perguntas de quiz a partir do material.',
+      '',
+      'Dica: se quiser focar em um documento específico, desligue o “Modo Oráculo” no chat.'
     ].join('\n'),
   },
   // Pontuação XP – visão rápida para jogadores (pode ser usada em tooltips ou onboarding)

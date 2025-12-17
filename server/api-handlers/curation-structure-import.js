@@ -27,8 +27,8 @@ export default async function handler(req, res) {
     const kind = String(raw?.kind || '').trim();
     if (!kind) return res.status(400).json({ error: 'Import not extracted yet' });
 
-    // If already structured (csv/xlsx), we can promote extracted questions to ai_suggested without calling AI.
-    if ((kind === 'csv' || kind === 'xlsx') && Array.isArray(raw?.questions)) {
+    // If already structured (csv/xlsx/json), we can promote extracted questions to ai_suggested without calling AI.
+    if ((kind === 'csv' || kind === 'xlsx' || kind === 'json') && Array.isArray(raw?.questions)) {
       const ai_suggested = { model: 'passthrough', questions: raw.questions };
       const { data: updated, error } = await admin
         .from('content_imports')
@@ -40,7 +40,8 @@ export default async function handler(req, res) {
       return res.status(200).json({ success: true, import: updated, usedModel: 'passthrough' });
     }
 
-    const text = kind === 'pdf' ? String(raw?.text || '') : JSON.stringify(raw);
+    const textishKinds = new Set(['pdf', 'docx', 'txt', 'image', 'json']);
+    const text = textishKinds.has(kind) ? String(raw?.text || '') : JSON.stringify(raw);
     const ai = await structureQuestionsWithAi({ input: text });
     if (!ai.ok) return res.status(400).json({ error: ai.error });
 
@@ -69,4 +70,3 @@ export default async function handler(req, res) {
 }
 
 export const config = { api: { bodyParser: true } };
-

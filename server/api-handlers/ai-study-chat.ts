@@ -1,6 +1,11 @@
 // @ts-nocheck
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { createClient } from "@supabase/supabase-js";
+import { createRequire } from "module";
+import { extractPdfText, extractDocxText, extractJsonText, extractPlainText } from "../lib/import-parsers.js";
+import { extractImageTextWithAi } from "../lib/ai-curation-provider.js";
+
+const require = createRequire(import.meta.url);
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY as string;
 const SUPABASE_URL = process.env.SUPABASE_URL as string;
@@ -58,21 +63,113 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     };
 
-    if (admin && source_id) {
-      // Resolve authenticated user (opcional, para checar permissão)
-      let uid: string | null = null;
-      const authHeader = req.headers["authorization"] as string | undefined;
-      if (authHeader?.startsWith("Bearer ")) {
-        const token = authHeader.slice(7);
+    // Resolve authenticated user (opcional, para checar permissão e escopo)
+    let uid: string | null = null;
+    let isLeaderOrStaff = false;
+    const authHeader = req.headers["authorization"] as string | undefined;
+    if (admin && authHeader?.startsWith("Bearer ")) {
+      const token = authHeader.slice(7);
+      try {
+        const { data: userData } = await admin.auth.getUser(token);
+        uid = userData?.user?.id || null;
+      } catch {
+        uid = null;
+      }
+      if (uid) {
         try {
-          const { data: userData } = await admin.auth.getUser(token);
-          uid = userData?.user?.id || null;
+          const [{ data: profile }, { data: rolesRows }] = await Promise.all([
+            admin.from("profiles").select("studio_access, is_leader").eq("id", uid).maybeSingle(),
+            admin.from("user_roles").select("role").eq("user_id", uid),
+          ]);
+          const roleSet = new Set((rolesRows || []).map((r: any) => String(r?.role || "").trim()).filter(Boolean));
+          const STAFF = new Set(["admin", "gerente_djt", "gerente_divisao_djtx", "coordenador_djtx", "content_curator", "lider_equipe"]);
+          isLeaderOrStaff = Boolean(profile?.studio_access) || Boolean(profile?.is_leader) || Array.from(roleSet).some((r) => STAFF.has(r));
         } catch {
-          uid = null;
+          isLeaderOrStaff = false;
+        }
+      }
+    }
+
+    const inferExt = (rawUrl: string) => {
+      const clean = String(rawUrl || "").split("?")[0].split("#")[0];
+      const i = clean.lastIndexOf(".");
+      if (i === -1) return "";
+      return clean.slice(i + 1).toLowerCase();
+    };
+
+    const fetchBinary = async (rawUrl: string) => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 12000);
+      const resp = await fetch(rawUrl, { signal: controller.signal });
+      clearTimeout(timer);
+      if (!resp.ok) throw new Error(`Falha ao baixar arquivo (${resp.status})`);
+      const ab = await resp.arrayBuffer();
+      const contentType = resp.headers.get("content-type") || "";
+      return { buffer: Buffer.from(ab), contentType };
+    };
+
+    const extractFromFileUrl = async (rawUrl: string, hint = "") => {
+      const { buffer, contentType } = await fetchBinary(rawUrl);
+      const ext = inferExt(rawUrl);
+      const mime = contentType || "";
+
+      if (mime.startsWith("image/") || ["png", "jpg", "jpeg", "webp"].includes(ext)) {
+        const ocr = await extractImageTextWithAi({
+          buffer,
+          mime: mime || `image/${ext || "jpeg"}`,
+          hint,
+          openaiKey: OPENAI_API_KEY,
+        });
+        if (!ocr.ok) throw new Error(ocr.error);
+        return [ocr.description, ocr.text].filter(Boolean).join("\n\n").trim();
+      }
+
+      if (ext === "pdf" || mime.includes("pdf")) {
+        const text = await extractPdfText(buffer);
+        if (text && text.length >= 120) return text.slice(0, 20000);
+        // PDF escaneado: retorna aviso + link
+        return (
+          "Observação: este PDF parece escaneado (sem texto selecionável). " +
+          "Se possível, envie as páginas como imagens (JPG/PNG) para OCR.\n\n" +
+          `Link do arquivo: ${rawUrl}`
+        );
+      }
+
+      if (ext === "docx" || mime.includes("wordprocessingml")) {
+        const text = await extractDocxText(buffer);
+        return text.slice(0, 20000);
+      }
+
+      if (ext === "json" || mime.includes("json")) {
+        const text = extractJsonText(buffer);
+        return text.slice(0, 20000);
+      }
+
+      if (ext === "xlsx" || ext === "xls" || mime.includes("spreadsheet") || mime.includes("excel")) {
+        try {
+          // Best-effort: transforma planilha em texto tabular (primeira aba)
+          // eslint-disable-next-line @typescript-eslint/no-var-requires
+          const xlsx = require("xlsx");
+          const wb = xlsx.read(buffer, { type: "buffer" });
+          const sheetName = wb.SheetNames?.[0];
+          if (!sheetName) return "";
+          const sheet = wb.Sheets[sheetName];
+          const rows = xlsx.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: "" });
+          const lines = (rows || []).slice(0, 200).map((r: any[]) => (r || []).slice(0, 24).join("\t"));
+          return `Planilha: ${sheetName}\n` + lines.join("\n");
+        } catch {
+          return "";
         }
       }
 
-      const selectV2 = "id, user_id, title, summary, full_text, url, topic, category, metadata, ingest_status, ingest_error, ingested_at";
+      // Fallback texto puro (csv, txt, etc.)
+      return extractPlainText(buffer).slice(0, 20000);
+    };
+
+    if (admin && source_id) {
+
+      const selectV2 =
+        "id, user_id, title, summary, full_text, url, kind, topic, category, metadata, scope, published, ingest_status, ingest_error, ingested_at";
       const selectV1 = "id, user_id, title, summary, full_text, url, ingest_status, ingest_error, ingested_at";
 
       let sourceRes = await admin.from("study_sources").select(selectV2).eq("id", source_id).maybeSingle();
@@ -82,13 +179,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       sourceRow = sourceRes.data || null;
 
       if (sourceRow) {
-        if (!uid || !sourceRow.user_id || sourceRow.user_id === uid) {
+        const scope = (sourceRow.scope || "user").toString().toLowerCase();
+        const published = Boolean(sourceRow.published);
+        const canRead =
+          Boolean(uid && sourceRow.user_id && sourceRow.user_id === uid) ||
+          (scope === "org" && (published || isLeaderOrStaff));
+        if (canRead) {
           let baseText = (sourceRow.full_text || sourceRow.summary || sourceRow.url || "").toString();
 
           // Enriquecer contexto garantindo que URLs tenham texto otimizado
           if (!sourceRow.full_text && sourceRow.url && sourceRow.url.startsWith("http")) {
             try {
-              const fetched = await fetchUrlContent(sourceRow.url);
+              const isFile =
+                String(sourceRow.kind || "").toLowerCase() === "file" ||
+                /\.(pdf|docx|xlsx|xls|csv|txt|json|png|jpe?g|webp)(\?|#|$)/i.test(String(sourceRow.url || ""));
+
+              const fetched = isFile ? await extractFromFileUrl(sourceRow.url, sourceRow.title || "") : await fetchUrlContent(sourceRow.url);
               if (fetched?.trim()) {
                 baseText = fetched;
                 // Persistir para próximas consultas
@@ -367,7 +473,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ error: "Mensagens inválidas" });
     }
 
-    const system = `Você é um tutor de estudos no contexto de treinamento técnico CPFL / setor elétrico brasileiro.
+    const system =
+      mode === "oracle"
+        ? `Você é o Oráculo de Conhecimento do DJT Quest.
+Você ajuda colaboradores a encontrar respostas e aprendizados usando toda a base disponível (catálogo publicado da organização, materiais do próprio usuário e compêndio de ocorrências aprovadas).
+
+Regras:
+- Seja claro e prático. Diga o que a pessoa deve fazer, checar ou perguntar em campo (quando fizer sentido).
+- Se a resposta depender de uma informação que NÃO aparece na base enviada, deixe isso explícito e responda de forma geral (sem inventar detalhes).
+- Quando usar a base, cite rapidamente de onde veio: título da fonte/ocorrência.
+- Sugira 1 a 3 próximos passos (ex.: “quer que eu gere perguntas de quiz sobre isso?”).
+
+Formato:
+- Responda em ${language}, em texto livre, com quebras de linha amigáveis.
+- Não responda em JSON.`
+        : `Você é um tutor de estudos no contexto de treinamento técnico CPFL / setor elétrico brasileiro.
 Você recebe materiais de estudo (textos, resumos, transcrições, links) e perguntas de um colaborador.
 
 Seu objetivo:
@@ -382,7 +502,195 @@ Formato da saída:
 - Você pode usar bullets e listas curtas, mas não use nenhum formato de JSON.`;
 
     const openaiMessages: any[] = [{ role: "system", content: system }];
-    if (joinedContext) {
+
+    // Oracle: monta contexto com busca nas fontes + compêndio
+    if (mode === "oracle" && admin) {
+      const normalizedMessagesForQuery = Array.isArray(messages) ? messages : [];
+      const lastUserMsg =
+        (normalizedMessagesForQuery.slice().reverse().find((m: any) => m?.role === "user" && m?.content)?.content ||
+          question ||
+          "") + "";
+
+      const text = lastUserMsg.toString();
+      const stop = new Set([
+        "de",
+        "da",
+        "do",
+        "das",
+        "dos",
+        "a",
+        "o",
+        "as",
+        "os",
+        "e",
+        "ou",
+        "para",
+        "por",
+        "com",
+        "sem",
+        "em",
+        "no",
+        "na",
+        "nos",
+        "nas",
+        "um",
+        "uma",
+        "que",
+        "como",
+        "qual",
+        "quais",
+        "quando",
+        "onde",
+        "porque",
+        "porquê",
+        "isso",
+        "essa",
+        "esse",
+        "esta",
+        "este",
+      ]);
+      const keywords = Array.from(
+        new Set(
+          text
+            .toLowerCase()
+            .replace(/[^\p{L}\p{N}\s]/gu, " ")
+            .split(/\s+/)
+            .map((w) => w.trim())
+            .filter((w) => w.length >= 4 && !stop.has(w))
+            .slice(0, 30)
+        )
+      ).slice(0, 8);
+
+      // 1) Study sources (org + user)
+      let sourcesForOracle: any[] = [];
+      try {
+        const select =
+          "id, user_id, title, summary, full_text, url, topic, category, scope, published, metadata, created_at";
+        const q = admin.from("study_sources").select(select).order("created_at", { ascending: false }).limit(200);
+        if (uid) {
+          if (isLeaderOrStaff) q.or(`user_id.eq.${uid},scope.eq.org`);
+          else q.or(`user_id.eq.${uid},and(scope.eq.org,published.eq.true)`);
+        } else {
+          q.eq("scope", "org").eq("published", true);
+        }
+        const { data } = await q;
+        sourcesForOracle = Array.isArray(data) ? data : [];
+      } catch {
+        sourcesForOracle = [];
+      }
+
+      const scoreText = (s: string, kws: string[]) => {
+        const hay = String(s || "").toLowerCase();
+        let score = 0;
+        for (const k of kws) if (hay.includes(k)) score += 1;
+        return score;
+      };
+
+      const rankedSources = sourcesForOracle
+        .map((s) => {
+          const hay = [s.title, s.summary, s.full_text, s.topic, s.category].filter(Boolean).join(" ");
+          return { s, score: keywords.length ? scoreText(hay, keywords) : 0 };
+        })
+        .filter((x) => (keywords.length ? x.score > 0 : true))
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 5)
+        .map((x) => x.s);
+
+      // 2) Compêndio de ocorrências (aprovadas)
+      let compendium: any[] = [];
+      try {
+        const { data } = await admin
+          .from("content_imports")
+          .select("id, final_approved, created_at")
+          .eq("status", "FINAL_APPROVED")
+          .filter("final_approved->>kind", "eq", "incident_report")
+          .order("created_at", { ascending: false })
+          .limit(200);
+        compendium = Array.isArray(data) ? data : [];
+      } catch {
+        compendium = [];
+      }
+
+      const rankedCompendium = compendium
+        .map((row) => {
+          const cat = row?.final_approved?.catalog || row?.final_approved || {};
+          const hay = [
+            cat?.title,
+            cat?.summary,
+            cat?.asset_area,
+            cat?.asset_type,
+            cat?.asset_subtype,
+            cat?.failure_mode,
+            cat?.root_cause,
+            ...(Array.isArray(cat?.keywords) ? cat.keywords : []),
+            ...(Array.isArray(cat?.learning_points) ? cat.learning_points : []),
+          ]
+            .filter(Boolean)
+            .join(" ");
+          return { row, cat, score: keywords.length ? scoreText(hay, keywords) : 0 };
+        })
+        .filter((x) => (keywords.length ? x.score > 0 : true))
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 5);
+
+      const contextParts: string[] = [];
+      if (rankedSources.length) {
+        contextParts.push(
+          "### Catálogo de Estudos (trechos)\n" +
+            rankedSources
+              .map((s, idx) => {
+                const title = String(s.title || `Fonte ${idx + 1}`);
+                const summary = String(s.summary || "").trim();
+                const text = String(s.full_text || "").trim();
+                const excerpt = text ? text.slice(0, 1800) : "";
+                return (
+                  `- ${title}\n` +
+                  (summary ? `  Resumo: ${summary}\n` : "") +
+                  (excerpt ? `  Trecho: ${excerpt}\n` : "") +
+                  (s.url ? `  Link: ${s.url}\n` : "")
+                );
+              })
+              .join("\n")
+        );
+      }
+
+      if (rankedCompendium.length) {
+        contextParts.push(
+          "### Compêndio de Ocorrências (resumos)\n" +
+            rankedCompendium
+              .map((x, idx) => {
+                const cat = x.cat || {};
+                const title = String(cat.title || `Ocorrência ${idx + 1}`);
+                const summary = String(cat.summary || "").trim();
+                const header = [
+                  cat.asset_area ? `área: ${cat.asset_area}` : "",
+                  cat.asset_type ? `ativo: ${cat.asset_type}` : "",
+                  cat.failure_mode ? `falha: ${cat.failure_mode}` : "",
+                  cat.root_cause ? `causa: ${cat.root_cause}` : "",
+                ]
+                  .filter(Boolean)
+                  .join(" • ");
+                const learn = Array.isArray(cat.learning_points) ? cat.learning_points.slice(0, 6) : [];
+                return (
+                  `- ${title}\n` +
+                  (header ? `  ${header}\n` : "") +
+                  (summary ? `  Resumo: ${summary}\n` : "") +
+                  (learn.length ? `  Aprendizados: ${learn.join(" | ")}\n` : "")
+                );
+              })
+              .join("\n")
+        );
+      }
+
+      if (contextParts.length) {
+        openaiMessages.push({
+          role: "system",
+          content: `A seguir está a base de conhecimento disponível para esta pergunta. Use-a como principal referência:\n\n${contextParts.join(
+            "\n\n"
+          )}`,
+        });
+      }
+    } else if (joinedContext) {
       openaiMessages.push({
         role: "system",
         content: `Abaixo estão os materiais de estudo do usuário. Use-os como base principal:\n\n${joinedContext}`,

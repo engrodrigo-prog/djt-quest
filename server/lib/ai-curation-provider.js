@@ -11,9 +11,42 @@ const extractJson = (content) => {
   }
 };
 
+const pickTextModel = (paramsModel) =>
+  paramsModel || process.env.OPENAI_MODEL_PREMIUM || process.env.OPENAI_MODEL_FAST || process.env.MODEL || 'gpt-5.2';
+
+const pickVisionModel = (paramsModel) =>
+  paramsModel ||
+  process.env.OPENAI_MODEL_VISION ||
+  process.env.OPENAI_MODEL_PREMIUM ||
+  process.env.OPENAI_MODEL_FAST ||
+  'gpt-4.1';
+
+async function callOpenAiChatJson({ openaiKey, model, system, user, maxTokens = 1800, temperature = 0.2 }) {
+  const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${openaiKey}` },
+    body: JSON.stringify({
+      model,
+      temperature,
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: user },
+      ],
+      ...(String(model).startsWith('gpt-5') ? { max_completion_tokens: maxTokens } : { max_tokens: maxTokens }),
+    }),
+  });
+
+  const json = await resp.json().catch(() => null);
+  if (!resp.ok) return { ok: false, error: json?.error?.message || `OpenAI error (${resp.status})` };
+  const content = json?.choices?.[0]?.message?.content || '';
+  const parsed = extractJson(content);
+  if (!parsed || typeof parsed !== 'object') return { ok: false, error: 'Invalid AI response' };
+  return { ok: true, parsed };
+}
+
 export async function structureQuestionsWithAi(params) {
   const openaiKey = params?.openaiKey || process.env.OPENAI_API_KEY || '';
-  const model = params?.model || process.env.MODEL || process.env.OPENAI_MODEL_PREMIUM || 'gpt-5.2';
+  const model = pickTextModel(params?.model);
   const input = params?.input;
   if (!openaiKey) return { ok: false, error: 'OPENAI_API_KEY not configured' };
   if (!input) return { ok: false, error: 'Missing input' };
@@ -37,9 +70,23 @@ Formato de saída obrigatório (JSON puro):
   ]
 }
 
+Regras:
+- NÃO invente normas internas; se faltar informação, marque a pergunta como genérica e use explicação opcional.
+- Alternativas devem ser objetivas e mutuamente exclusivas.
+- Se não houver alt_e, omita ou deixe vazio.
+- Retorne APENAS JSON válido.`;
+
+  const user = typeof input === 'string' ? input : JSON.stringify(input);
+  const out = await callOpenAiChatJson({ openaiKey, model, system, user, maxTokens: 2500, temperature: 0.2 });
+  if (!out.ok) return out;
+  const questions = Array.isArray(out.parsed?.questions) ? out.parsed.questions : null;
+  if (!questions) return { ok: false, error: 'Invalid AI response' };
+  return { ok: true, model, questions };
+}
+
 export async function catalogIncidentReportWithAi(params) {
   const openaiKey = params?.openaiKey || process.env.OPENAI_API_KEY || '';
-  const model = params?.model || process.env.MODEL || process.env.OPENAI_MODEL_PREMIUM || 'gpt-5.2';
+  const model = pickTextModel(params?.model);
   const input = params?.input;
   if (!openaiKey) return { ok: false, error: 'OPENAI_API_KEY not configured' };
   if (!input) return { ok: false, error: 'Missing input' };
@@ -70,6 +117,38 @@ Regras:
 - learning_points: 3 a 8 itens práticos.
 - Retorne APENAS JSON válido.`;
 
+  const user = typeof input === 'string' ? input : JSON.stringify(input);
+  const out = await callOpenAiChatJson({ openaiKey, model, system, user, maxTokens: 1800, temperature: 0.2 });
+  if (!out.ok) return out;
+  return { ok: true, model, catalog: out.parsed };
+}
+
+export async function extractImageTextWithAi(params) {
+  const openaiKey = params?.openaiKey || process.env.OPENAI_API_KEY || '';
+  const model = pickVisionModel(params?.model);
+  const buffer = params?.buffer;
+  const mime = String(params?.mime || 'image/jpeg');
+  const hint = params?.hint != null ? String(params.hint) : '';
+  if (!openaiKey) return { ok: false, error: 'OPENAI_API_KEY not configured' };
+  if (!buffer || !Buffer.isBuffer(buffer)) return { ok: false, error: 'Missing image buffer' };
+  if (!mime.startsWith('image/')) return { ok: false, error: `Unsupported image mime: ${mime}` };
+
+  const MAX_BYTES = 6 * 1024 * 1024; // evita payloads enormes em serverless
+  if (buffer.length > MAX_BYTES) {
+    return { ok: false, error: 'Imagem muito grande para OCR (reduza para até ~6MB ou envie em partes).' };
+  }
+
+  const system = `Você faz OCR e descreve imagens no contexto de treinamento técnico (setor elétrico).
+Extraia todo texto legível (placas, tabelas, prints, diagramas) e descreva o que a imagem mostra, sem inventar.
+
+Responda APENAS em JSON válido no formato:
+{
+  "text": "texto extraído (pode ser vazio)",
+  "description": "descrição curta do que aparece na imagem (1-3 frases)"
+}`;
+
+  const dataUrl = `data:${mime};base64,${buffer.toString('base64')}`;
+
   const resp = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${openaiKey}` },
@@ -78,9 +157,20 @@ Regras:
       temperature: 0.2,
       messages: [
         { role: 'system', content: system },
-        { role: 'user', content: typeof input === 'string' ? input : JSON.stringify(input) },
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text:
+                'Extraia o texto e descreva a imagem.\n' +
+                (hint ? `\nContexto (opcional): ${hint}\n` : ''),
+            },
+            { type: 'image_url', image_url: { url: dataUrl } },
+          ],
+        },
       ],
-      ...(String(model).startsWith('gpt-5') ? { max_completion_tokens: 1800 } : { max_tokens: 1800 }),
+      ...(String(model).startsWith('gpt-5') ? { max_completion_tokens: 900 } : { max_tokens: 900 }),
     }),
   });
 
@@ -90,35 +180,9 @@ Regras:
   const content = json?.choices?.[0]?.message?.content || '';
   const parsed = extractJson(content);
   if (!parsed || typeof parsed !== 'object') return { ok: false, error: 'Invalid AI response' };
-  return { ok: true, model, catalog: parsed };
+
+  const text = typeof parsed?.text === 'string' ? parsed.text.trim() : '';
+  const description = typeof parsed?.description === 'string' ? parsed.description.trim() : '';
+  return { ok: true, model, text, description };
 }
 
-Regras:
-- NÃO invente normas internas; se faltar informação, marque a pergunta como genérica e use explicação opcional.
-- Alternativas devem ser objetivas e mutuamente exclusivas.
-- Se não houver alt_e, omita ou deixe vazio.
-- Retorne APENAS JSON válido.`;
-
-  const resp = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${openaiKey}` },
-    body: JSON.stringify({
-      model,
-      temperature: 0.2,
-      messages: [
-        { role: 'system', content: system },
-        { role: 'user', content: typeof input === 'string' ? input : JSON.stringify(input) },
-      ],
-      ...(String(model).startsWith('gpt-5') ? { max_completion_tokens: 2500 } : { max_tokens: 2500 }),
-    }),
-  });
-
-  const json = await resp.json().catch(() => null);
-  if (!resp.ok) return { ok: false, error: json?.error?.message || `OpenAI error (${resp.status})` };
-
-  const content = json?.choices?.[0]?.message?.content || '';
-  const parsed = extractJson(content);
-  const questions = Array.isArray(parsed?.questions) ? parsed.questions : null;
-  if (!questions) return { ok: false, error: 'Invalid AI response' };
-  return { ok: true, model, questions };
-}

@@ -1,6 +1,15 @@
 import { createSupabaseAdminClient, requireCallerUser } from '../lib/supabase-admin.js';
 import { rolesToSet } from '../lib/rbac.js';
-import { parseCsvQuestions, parseXlsxQuestions, extractPdfText, extractPlainText } from '../lib/import-parsers.js';
+import {
+  parseCsvQuestions,
+  parseXlsxQuestions,
+  parseJsonQuestions,
+  extractPdfText,
+  extractDocxText,
+  extractJsonText,
+  extractPlainText,
+} from '../lib/import-parsers.js';
+import { extractImageTextWithAi } from '../lib/ai-curation-provider.js';
 import { tryInsertAuditLog } from '../lib/audit-log.js';
 
 const STAFF_ROLES = new Set(['admin', 'gerente_djt', 'gerente_divisao_djtx', 'coordenador_djtx', 'content_curator']);
@@ -65,9 +74,36 @@ export default async function handler(req, res) {
     } else if (ext === 'xlsx' || ext === 'xls' || mime.includes('spreadsheet')) {
       const parsed = parseXlsxQuestions(buf);
       raw_extract = { kind: 'xlsx', ...(importPurpose ? { purpose: importPurpose } : {}), ...parsed };
+    } else if (ext === 'json' || mime.includes('json')) {
+      const text = extractJsonText(buf);
+      const parsed = parseJsonQuestions(buf);
+      raw_extract = {
+        kind: 'json',
+        ...(importPurpose ? { purpose: importPurpose } : {}),
+        ...(parsed?.questions?.length ? { questions: parsed.questions } : {}),
+        text,
+      };
     } else if (ext === 'pdf' || mime.includes('pdf')) {
       const text = await extractPdfText(buf);
-      raw_extract = { kind: 'pdf', ...(importPurpose ? { purpose: importPurpose } : {}), text };
+      raw_extract = {
+        kind: 'pdf',
+        ...(importPurpose ? { purpose: importPurpose } : {}),
+        text,
+        ...(text && text.length >= 120 ? {} : { warning: 'PDF parece escaneado ou sem texto selecionável. Se possível, envie as páginas como imagens (JPG/PNG) para OCR.' }),
+      };
+    } else if (ext === 'docx' || mime.includes('wordprocessingml')) {
+      const text = await extractDocxText(buf);
+      raw_extract = { kind: 'docx', ...(importPurpose ? { purpose: importPurpose } : {}), text };
+    } else if (mime.startsWith('image/') || ['png', 'jpg', 'jpeg', 'webp'].includes(ext)) {
+      const ocr = await extractImageTextWithAi({ buffer: buf, mime: mime || `image/${ext || 'jpeg'}`, hint: importPurpose });
+      if (!ocr.ok) return res.status(400).json({ error: ocr.error });
+      const text = [ocr.description, ocr.text].filter(Boolean).join('\n\n').trim();
+      raw_extract = {
+        kind: 'image',
+        ...(importPurpose ? { purpose: importPurpose } : {}),
+        text,
+        ocr: { model: ocr.model, description: ocr.description, text: ocr.text },
+      };
     } else if (ext === 'txt' || mime.includes('text/plain')) {
       const text = extractPlainText(buf);
       raw_extract = { kind: 'txt', ...(importPurpose ? { purpose: importPurpose } : {}), text };
@@ -99,4 +135,3 @@ export default async function handler(req, res) {
 }
 
 export const config = { api: { bodyParser: true } };
-
