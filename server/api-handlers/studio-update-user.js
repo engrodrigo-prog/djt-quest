@@ -1,6 +1,6 @@
-import { createClient } from '@supabase/supabase-js';
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+import { createSupabaseAdminClient, requireCallerUser } from '../lib/supabase-admin.js';
+import { rolesToSet, canManageUsers, sanitizeRoleList, normalizeRole, ROLE } from '../lib/rbac.js';
+import { tryInsertAuditLog } from '../lib/audit-log.js';
 const normalizeSigla = (value) => {
     if (typeof value !== 'string')
         return null;
@@ -15,39 +15,38 @@ export default async function handler(req, res) {
         return res.status(405).json({ error: 'Method not allowed' });
     }
     try {
-        if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-            return res.status(500).json({ error: 'Missing Supabase env configuration' });
-        }
-        const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-            auth: { autoRefreshToken: false, persistSession: false },
-        });
-        const authHeader = req.headers['authorization'];
-        if (!authHeader)
-            return res.status(401).json({ error: 'No authorization header' });
-        const token = authHeader.replace('Bearer ', '');
-        const { data: userData, error: authErr } = await supabaseAdmin.auth.getUser(token);
-        if (authErr || !userData?.user)
-            return res.status(401).json({ error: 'Unauthorized' });
-        // Permission check
-        const callerId = userData.user.id;
-        const { data: roles } = await supabaseAdmin.from('user_roles').select('role').eq('user_id', callerId);
-        const allowed = new Set(['gerente_djt', 'gerente_divisao_djtx', 'coordenador_djtx', 'admin']);
-        let hasPermission = (roles || []).some((r) => allowed.has(r.role));
-        if (!hasPermission) {
-            // Fallback: allow leaders or profiles with studio_access
-            const { data: callerProfile } = await supabaseAdmin
-                .from('profiles')
-                .select('is_leader, studio_access')
-                .eq('id', callerId)
-                .maybeSingle();
-            hasPermission = Boolean(callerProfile?.is_leader) || Boolean(callerProfile?.studio_access);
-        }
-        if (!hasPermission)
-            return res.status(403).json({ error: 'Sem permissão' });
+        const supabaseAdmin = createSupabaseAdminClient();
+        const caller = await requireCallerUser(supabaseAdmin, req);
+        const callerId = caller.id;
+
+        const [{ data: callerRolesRows }, { data: callerProfile }] = await Promise.all([
+            supabaseAdmin.from('user_roles').select('role').eq('user_id', callerId),
+            supabaseAdmin.from('profiles').select('is_leader, studio_access').eq('id', callerId).maybeSingle(),
+        ]);
+        const callerRoleSet = rolesToSet(callerRolesRows);
+
+        // Permission check: user management remains restricted (leaders/managers/admin)
+        // - Admin/gerentes/coordenadores always allowed
+        // - Leaders (profile flag) allowed for limited role assignment only
+        const isManagement = canManageUsers(callerRoleSet);
+        const isLeaderFlag = Boolean(callerProfile?.is_leader);
+        const hasPermission = isManagement || isLeaderFlag;
+        if (!hasPermission) return res.status(403).json({ error: 'Sem permissão' });
+
         const body = req.body || {};
         const { userId } = body;
         if (!userId)
             return res.status(400).json({ error: 'userId é obrigatório' });
+
+        // Proibir auto-atribuição de role pelo próprio usuário
+        const isSelf = String(userId) === String(callerId);
+
+        // Load before state for audit
+        const [{ data: beforeProfile }, { data: beforeRolesRows }] = await Promise.all([
+            supabaseAdmin.from('profiles').select('*').eq('id', userId).maybeSingle(),
+            supabaseAdmin.from('user_roles').select('role').eq('user_id', userId),
+        ]);
+
         const updates = {};
         if (typeof body.name === 'string')
             updates.name = body.name;
@@ -89,17 +88,114 @@ export default async function handler(req, res) {
             if (profErr)
                 return res.status(400).json({ error: `Profile update failed: ${profErr.message}` });
         }
-        if (body.role) {
-            await supabaseAdmin.from('user_roles').delete().eq('user_id', userId);
-            const { error: roleErr } = await supabaseAdmin.from('user_roles').insert({ user_id: userId, role: body.role });
-            if (roleErr)
-                return res.status(400).json({ error: `Role update failed: ${roleErr.message}` });
+
+        // Role changes (optional)
+        const legacyRole = body.role ? normalizeRole(body.role) : '';
+        const addRoles = sanitizeRoleList(body.add_roles);
+        const removeRoles = sanitizeRoleList(body.remove_roles);
+        const replaceRoles = sanitizeRoleList(body.replace_roles);
+
+        const wantsRoleChange = Boolean(legacyRole || addRoles.length || removeRoles.length || replaceRoles.length);
+        if (wantsRoleChange) {
+            if (isSelf) return res.status(403).json({ error: 'Não é permitido alterar o próprio papel' });
+
+            // Leaders can only assign invited/content_curator/lider_equipe/colaborador.
+            // Admin (or management) can assign higher roles, but only Admin can grant admin.
+            const allowedForLeader = new Set([ROLE.COLLAB, ROLE.INVITED, ROLE.TEAM_LEADER, ROLE.CONTENT_CURATOR]);
+            const requested = new Set(
+                [
+                    legacyRole,
+                    ...addRoles,
+                    ...removeRoles,
+                    ...replaceRoles,
+                ].filter(Boolean),
+            );
+
+            const isAdmin = callerRoleSet.has(ROLE.ADMIN);
+
+            if (!isManagement) {
+                // leader flag only
+                for (const r of requested) {
+                    if (!allowedForLeader.has(r)) {
+                        return res.status(403).json({ error: `Sem permissão para atribuir role: ${r}` });
+                    }
+                }
+            } else {
+                // management can manage most roles, but admin role is restricted to ADMIN only
+                if (!isAdmin && requested.has(ROLE.ADMIN)) {
+                    return res.status(403).json({ error: 'Apenas ADMIN pode atribuir role admin' });
+                }
+                // content_curator role is allowed for management and leaders; ok.
+                // No special-casing for others here.
+            }
+
+            const existingSet = rolesToSet(beforeRolesRows);
+            let desiredSet = new Set(Array.from(existingSet));
+
+            const applyReplace = replaceRoles.length > 0;
+            if (applyReplace) {
+                desiredSet = new Set(replaceRoles);
+            }
+
+            if (legacyRole) {
+                // Legacy "single role" semantics: replace only within the known base/staff set.
+                const replaceable = new Set([
+                    ROLE.COLLAB,
+                    ROLE.INVITED,
+                    ROLE.TEAM_LEADER,
+                    ROLE.CONTENT_CURATOR,
+                    ROLE.COORD,
+                    ROLE.DIV_MANAGER,
+                    ROLE.MANAGER,
+                    ROLE.ADMIN,
+                    // compat
+                    'gerente',
+                    'lider_divisao',
+                    'coordenador',
+                ].map(normalizeRole));
+                for (const r of Array.from(desiredSet)) {
+                    if (replaceable.has(normalizeRole(r))) desiredSet.delete(r);
+                }
+                desiredSet.add(legacyRole);
+            }
+
+            for (const r of addRoles) desiredSet.add(r);
+            for (const r of removeRoles) desiredSet.delete(r);
+
+            // Ensure mutual exclusivity: invited vs colaborador (keep explicit selection)
+            if (desiredSet.has(ROLE.INVITED)) desiredSet.delete(ROLE.COLLAB);
+            if (desiredSet.has(ROLE.COLLAB)) desiredSet.delete(ROLE.INVITED);
+
+            // Apply diff
+            const toAdd = Array.from(desiredSet).filter((r) => !existingSet.has(r));
+            const toRemove = Array.from(existingSet).filter((r) => !desiredSet.has(r));
+
+            if (toRemove.length) {
+                const { error: delErr } = await supabaseAdmin.from('user_roles').delete().eq('user_id', userId).in('role', toRemove);
+                if (delErr) return res.status(400).json({ error: `Role update failed: ${delErr.message}` });
+            }
+            if (toAdd.length) {
+                const { error: insErr } = await supabaseAdmin.from('user_roles').insert(toAdd.map((r) => ({ user_id: userId, role: r })));
+                if (insErr) return res.status(400).json({ error: `Role update failed: ${insErr.message}` });
+            }
         }
         const { data: updated } = await supabaseAdmin
             .from('profiles')
             .select('id, email, name, matricula, team_id, operational_base, sigla_area, is_leader, studio_access')
             .eq('id', userId)
             .maybeSingle();
+
+        // Audit (best-effort)
+        const { data: afterRolesRows } = await supabaseAdmin.from('user_roles').select('role').eq('user_id', userId);
+        await tryInsertAuditLog(supabaseAdmin, {
+            actor_id: callerId,
+            action: 'user.update',
+            entity_type: 'profile',
+            entity_id: String(userId),
+            before_json: { profile: beforeProfile, roles: (beforeRolesRows || []).map((r) => r.role) },
+            after_json: { profile: updated, roles: (afterRolesRows || []).map((r) => r.role) },
+        });
+
         return res.status(200).json({ success: true, profile: updated });
     }
     catch (err) {

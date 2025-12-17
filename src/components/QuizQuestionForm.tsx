@@ -72,38 +72,6 @@ export function QuizQuestionForm({ challengeId, onQuestionAdded }: QuizQuestionF
     }
   };
 
-  const createDirect = async (payload: QuizQuestionFormData) => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error('Não autenticado');
-
-    const { data: question, error: questionError } = await supabase
-      .from('quiz_questions')
-      .insert({
-        challenge_id: challengeId,
-        question_text: payload.question_text,
-        difficulty_level: payload.difficulty_level,
-        xp_value: difficultyLevels[payload.difficulty_level].xp,
-        created_by: user.id,
-      })
-      .select()
-      .single();
-
-    if (questionError) throw questionError;
-
-    const optionsToInsert = payload.options.map((opt) => ({
-      question_id: question.id,
-      option_text: opt.option_text,
-      is_correct: opt.is_correct,
-      explanation: opt.explanation || null,
-    }));
-
-    const { error: optionsError } = await supabase
-      .from('quiz_options')
-      .insert(optionsToInsert);
-
-    if (optionsError) throw optionsError;
-  };
-
   const ensureWrongOptions = async (payload: QuizQuestionFormData, token: string) => {
     const sanitized = payload.options
       .map((opt) => ({
@@ -233,12 +201,7 @@ export function QuizQuestionForm({ challengeId, onQuestionAdded }: QuizQuestionF
       // Embaralhar ordem das alternativas para evitar padrão fixo de posição da correta
       const shuffledOptions = [...payload.options].sort(() => Math.random() - 0.5);
       const shuffledPayload = { ...payload, options: shuffledOptions };
-      try {
-        await createViaApi(shuffledPayload, token);
-      } catch (apiError) {
-        console.warn('API quiz creation failed, falling back to direct insert:', apiError);
-        await createDirect(shuffledPayload);
-      }
+      await createViaApi(shuffledPayload, token);
 
       toast.success('Pergunta criada com sucesso!');
       reset({

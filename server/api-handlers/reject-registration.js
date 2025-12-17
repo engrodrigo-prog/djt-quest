@@ -138,6 +138,18 @@ export default async function handler(req, res) {
             .eq('id', body.registrationId);
         if (updErr)
             return res.status(400).json({ error: updErr.message });
+        // Audit (best-effort)
+        try {
+            await admin.from('audit_log').insert({
+                actor_id: requesterId,
+                action: 'registration.reject',
+                entity_type: 'pending_registration',
+                entity_id: String(body.registrationId),
+                before_json: reg,
+                after_json: { status: 'rejected', notes: body.notes },
+            });
+        }
+        catch { }
         return res.status(200).json({ success: true });
     }
     catch (e) {

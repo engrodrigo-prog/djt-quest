@@ -220,8 +220,16 @@ export default async function handler(req, res) {
                 await admin.from('profiles').update({ team_id: desiredTeamId }).eq('id', newUserId);
             }
         }
-        // Assign default role
-        const { error: roleErr } = await admin.from('user_roles').insert({ user_id: newUserId, role: 'colaborador' });
+        // Assign roles (base role depends on invited/guest flag)
+        const requestedRolesRaw = Array.isArray(body?.roles) ? body.roles : [];
+        const requestedRoles = requestedRolesRaw.map((r) => String(r || '').trim()).filter(Boolean);
+        const assignCurator = Boolean(body?.assign_content_curator) || requestedRoles.includes('content_curator');
+        const baseRole = isGuest ? 'invited' : 'colaborador';
+        const rolesToAssign = [baseRole, ...(assignCurator ? ['content_curator'] : [])];
+
+        const { error: roleErr } = await admin
+            .from('user_roles')
+            .insert(rolesToAssign.map((role) => ({ user_id: newUserId, role })));
         if (roleErr && !String(roleErr.message || '').toLowerCase().includes('duplicate')) {
             await admin.auth.admin.deleteUser(newUserId);
             return res.status(400).json({ error: roleErr.message });
@@ -231,6 +239,19 @@ export default async function handler(req, res) {
             .from('pending_registrations')
             .update({ status: 'approved', reviewed_by: requesterId, reviewed_at: new Date().toISOString(), review_notes: body.notes || null })
             .eq('id', body.registrationId);
+
+        // Audit (best-effort)
+        try {
+            await admin.from('audit_log').insert({
+                actor_id: requesterId,
+                action: 'registration.approve',
+                entity_type: 'pending_registration',
+                entity_id: String(body.registrationId),
+                before_json: reg,
+                after_json: { user_id: newUserId, roles: rolesToAssign },
+            });
+        }
+        catch { }
         return res.status(200).json({ success: true, userId: newUserId });
     }
     catch (err) {

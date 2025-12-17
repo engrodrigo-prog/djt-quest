@@ -16,6 +16,7 @@ const NotFound = lazy(() => import("./pages/NotFound"));
 const ChallengeDetail = lazy(() => import("./pages/ChallengeDetail"));
 const Evaluations = lazy(() => import("./pages/Evaluations"));
 const Studio = lazy(() => import("./pages/Studio"));
+const StudioCuration = lazy(() => import("./pages/StudioCuration"));
 const Profile = lazy(() => import("./pages/Profile"));
 const Rankings = lazy(() => import("./pages/Rankings"));
 const Forums = lazy(() => import("./pages/Forums"));
@@ -39,6 +40,8 @@ const LEADER_ALLOWED_ROLES = [
   'gerente',
   'lider_equipe',
 ];
+
+const STUDIO_ALLOWED_ROLES = [...LEADER_ALLOWED_ROLES, 'content_curator'];
 
 const ProfileCheckWrapper = ({ children }: { children: React.ReactNode }) => {
   const { profile, loading } = useAuth();
@@ -97,8 +100,13 @@ const App = () => (
               </ProtectedRoute>
             } />
             <Route path="/studio" element={
-              <ProtectedRoute requireStudio allowedRoles={LEADER_ALLOWED_ROLES}>
+              <ProtectedRoute requireStudio allowedRoles={STUDIO_ALLOWED_ROLES}>
                 <Studio />
+              </ProtectedRoute>
+            } />
+            <Route path="/studio/curadoria" element={
+              <ProtectedRoute requireStudio allowedRoles={STUDIO_ALLOWED_ROLES}>
+                <StudioCuration />
               </ProtectedRoute>
             } />
             <Route path="/leader-dashboard" element={

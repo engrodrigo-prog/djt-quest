@@ -41,6 +41,8 @@ type UpdatePayload = {
   studio_access?: boolean | null
   date_of_birth?: string | null
   role?: string | null
+  add_roles?: string[] | null
+  remove_roles?: string[] | null
 }
 
 Deno.serve(async (req) => {
@@ -88,6 +90,8 @@ Deno.serve(async (req) => {
     if (!userId) {
       return new Response(JSON.stringify({ error: 'userId é obrigatório' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
     }
+
+    const isSelf = userId === caller.id
 
     const updates: Record<string, unknown> = {}
     if (typeof body.name === 'string') updates.name = body.name
@@ -142,14 +146,69 @@ Deno.serve(async (req) => {
       }
     }
 
-    if (body.role) {
-      // Replace user role with the provided one
-      await supabaseAdmin.from('user_roles').delete().eq('user_id', userId)
-      const { error: roleErr } = await supabaseAdmin
-        .from('user_roles')
-        .insert({ user_id: userId, role: body.role })
-      if (roleErr) {
-        return new Response(JSON.stringify({ error: `Role update failed: ${roleErr.message}` }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+    const normalizeRole = (r?: string | null) => String(r || '').trim()
+    const requestedRole = normalizeRole(body.role)
+    const addRoles = Array.isArray(body.add_roles) ? body.add_roles.map(normalizeRole).filter(Boolean) : []
+    const removeRoles = Array.isArray(body.remove_roles) ? body.remove_roles.map(normalizeRole).filter(Boolean) : []
+    const wantsRoleChange = Boolean(requestedRole || addRoles.length || removeRoles.length)
+
+    if (wantsRoleChange) {
+      if (isSelf) {
+        return new Response(JSON.stringify({ error: 'Não é permitido alterar o próprio papel' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+      }
+
+      const callerRoleSet = new Set((roles || []).map((r: any) => String(r?.role || '')))
+      const isAdmin = callerRoleSet.has('admin')
+      const replaceable = new Set(['colaborador','invited','lider_equipe','content_curator','coordenador_djtx','gerente_divisao_djtx','gerente_djt','admin'])
+
+      const { data: beforeRoles } = await supabaseAdmin.from('user_roles').select('role').eq('user_id', userId)
+      let desired = new Set((beforeRoles || []).map((r: any) => String(r?.role || '')))
+
+      if (requestedRole) {
+        if (!isAdmin && requestedRole === 'admin') {
+          return new Response(JSON.stringify({ error: 'Apenas ADMIN pode atribuir role admin' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+        }
+        for (const r of Array.from(desired)) {
+          if (replaceable.has(r)) desired.delete(r)
+        }
+        desired.add(requestedRole)
+      }
+      for (const r of addRoles) desired.add(r)
+      for (const r of removeRoles) desired.delete(r)
+
+      if (desired.has('invited')) desired.delete('colaborador')
+      if (desired.has('colaborador')) desired.delete('invited')
+
+      const existing = new Set((beforeRoles || []).map((r: any) => String(r?.role || '')))
+      const toAdd = Array.from(desired).filter((r) => !existing.has(r))
+      const toRemove = Array.from(existing).filter((r) => !desired.has(r))
+
+      if (toRemove.length) {
+        const { error: delErr } = await supabaseAdmin.from('user_roles').delete().eq('user_id', userId).in('role', toRemove as any)
+        if (delErr) {
+          return new Response(JSON.stringify({ error: `Role update failed: ${delErr.message}` }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+        }
+      }
+      if (toAdd.length) {
+        const { error: insErr } = await supabaseAdmin.from('user_roles').insert(toAdd.map((role) => ({ user_id: userId, role })) as any)
+        if (insErr) {
+          return new Response(JSON.stringify({ error: `Role update failed: ${insErr.message}` }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+        }
+      }
+
+      // best-effort audit
+      try {
+        const { data: afterRoles } = await supabaseAdmin.from('user_roles').select('role').eq('user_id', userId)
+        await supabaseAdmin.from('audit_log').insert({
+          actor_id: caller.id,
+          action: 'user.roles.update',
+          entity_type: 'profile',
+          entity_id: userId,
+          before_json: { roles: (beforeRoles || []).map((r: any) => r.role) },
+          after_json: { roles: (afterRoles || []).map((r: any) => r.role) },
+        } as any)
+      } catch {
+        // ignore
       }
     }
 

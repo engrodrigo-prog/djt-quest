@@ -38,7 +38,9 @@ export const UserManagement = () => {
   const [editOpen, setEditOpen] = useState(false);
   const [savingEdit, setSavingEdit] = useState(false);
   const [editingUser, setEditingUser] = useState<UserProfile | null>(null);
-  const [roleForUser, setRoleForUser] = useState<string>('');
+  const [primaryRoleForUser, setPrimaryRoleForUser] = useState<string>('');
+  const [initialRolesForUser, setInitialRolesForUser] = useState<string[]>([]);
+  const [isContentCuratorRole, setIsContentCuratorRole] = useState(false);
   const [dateOfBirth, setDateOfBirth] = useState<string>('');
   const [form, setForm] = useState({
     name: '',
@@ -116,13 +118,31 @@ export const UserManagement = () => {
         .from('user_roles')
         .select('role')
         .eq('user_id', user.id);
-      if (rolesData && rolesData.length > 0) {
-        setRoleForUser((rolesData[0] as any).role as string);
-      } else {
-        setRoleForUser('');
-      }
+      const roles = Array.isArray(rolesData) ? rolesData.map((r: any) => String(r?.role || '')).filter(Boolean) : [];
+      setInitialRolesForUser(roles);
+      const has = (r: string) => roles.includes(r);
+      const primary =
+        has('admin')
+          ? 'admin'
+          : has('gerente_djt')
+          ? 'gerente_djt'
+          : has('gerente_divisao_djtx')
+          ? 'gerente_divisao_djtx'
+          : has('coordenador_djtx')
+          ? 'coordenador_djtx'
+          : has('lider_equipe')
+          ? 'lider_equipe'
+          : has('invited')
+          ? 'invited'
+          : has('colaborador')
+          ? 'colaborador'
+          : '';
+      setPrimaryRoleForUser(primary);
+      setIsContentCuratorRole(has('content_curator'));
     } catch {
-      setRoleForUser('');
+      setInitialRolesForUser([]);
+      setPrimaryRoleForUser('');
+      setIsContentCuratorRole(false);
     }
 
     setEditOpen(true);
@@ -143,7 +163,12 @@ export const UserManagement = () => {
         studio_access: form.studio_access,
       };
       if (dateOfBirth) payload.date_of_birth = dateOfBirth;
-      if (roleForUser) payload.role = roleForUser;
+      if (primaryRoleForUser) payload.role = primaryRoleForUser;
+
+      // Differential role updates (avoid destructive role replacement)
+      const hadCurator = initialRolesForUser.includes('content_curator');
+      if (!hadCurator && isContentCuratorRole) payload.add_roles = ['content_curator'];
+      if (hadCurator && !isContentCuratorRole) payload.remove_roles = ['content_curator'];
 
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData.session?.access_token;
@@ -543,14 +568,24 @@ export const UserManagement = () => {
               <Input type="date" value={dateOfBirth} onChange={(e) => setDateOfBirth(e.target.value)} />
             </div>
             <div className="grid gap-1">
-              <Label>Papel (opcional)</Label>
-              <select className="border rounded-md h-9 px-2 bg-background" value={roleForUser} onChange={(e) => setRoleForUser(e.target.value)}>
+              <Label>Papel principal (opcional)</Label>
+              <select className="border rounded-md h-9 px-2 bg-background" value={primaryRoleForUser} onChange={(e) => setPrimaryRoleForUser(e.target.value)}>
                 <option value="">Manter</option>
                 <option value="colaborador">Colaborador</option>
+                <option value="invited">Convidado (INVITED)</option>
+                <option value="lider_equipe">Líder de Equipe</option>
                 <option value="coordenador_djtx">Coordenador DJTX</option>
                 <option value="gerente_divisao_djtx">Gerente Divisão DJTX</option>
                 <option value="gerente_djt">Gerente DJT</option>
+                <option value="admin">Admin</option>
               </select>
+              <div className="flex items-center justify-between border rounded-md p-2 mt-2">
+                <div>
+                  <Label>Curador de Conteúdo</Label>
+                  <p className="text-xs text-muted-foreground">Acesso apenas ao HUB de curadoria no Studio.</p>
+                </div>
+                <Switch checked={isContentCuratorRole} onCheckedChange={(v) => setIsContentCuratorRole(Boolean(v))} />
+              </div>
             </div>
           </div>
           <DialogFooter>

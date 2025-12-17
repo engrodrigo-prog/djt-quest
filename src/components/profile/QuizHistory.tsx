@@ -14,7 +14,6 @@ interface QuizHistoryRow {
     question_text: string;
     xp_value: number;
     challenge: { title: string } | null;
-    options: Array<{ id: string; option_text: string; is_correct: boolean; explanation: string | null }>;
   } | null;
   selected_option: {
     option_text: string;
@@ -43,8 +42,7 @@ export function QuizHistory() {
           question:quiz_questions(
             question_text,
             xp_value,
-            challenge:challenges(title),
-            options:quiz_options(id, option_text, is_correct, explanation)
+            challenge:challenges(title)
           ),
           selected_option:quiz_options!user_quiz_answers_selected_option_id_fkey(option_text, explanation)
         `)
@@ -72,11 +70,6 @@ export function QuizHistory() {
     };
     load();
   }, [user]);
-
-  const renderCorrectOption = (row: QuizHistoryRow) => {
-    const correct = row.question?.options?.find((opt) => opt.is_correct);
-    return correct?.option_text || 'N/D';
-  };
 
   return (
     <Card id="quiz-history">
@@ -126,9 +119,6 @@ export function QuizHistory() {
                     </div>
                     <div className="text-xs mt-1">
                       <p><span className="font-medium">Sua resposta:</span> {row.selected_option?.option_text || 'N/D'}</p>
-                      {!row.is_correct && (
-                        <p><span className="font-medium">Resposta correta:</span> {renderCorrectOption(row)}</p>
-                      )}
                       {row.selected_option?.explanation && (
                         <p className="text-muted-foreground">{row.selected_option.explanation}</p>
                       )}

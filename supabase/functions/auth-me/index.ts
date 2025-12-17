@@ -111,7 +111,9 @@ Deno.serve(async (req) => {
       'coordenador_djtx',
       'coordenador',
       'lider_equipe',
+      'content_curator',
       'colaborador',
+      'invited',
     ];
 
     // Get the highest privilege role
@@ -144,8 +146,10 @@ Deno.serve(async (req) => {
     ]);
 
     // Considera flags do perfil como fallback (ambientes onde user_roles não é legível via RLS).
+    const userRoles = (rolesData || []).map((r) => String(r?.role || ''));
+    const hasContentCurator = userRoles.includes('content_curator');
     const isLeader = Boolean(profile?.is_leader) || privilegedRoles.has(role);
-    const studioAccess = Boolean(profile?.studio_access) || privilegedRoles.has(role);
+    const studioAccess = Boolean(profile?.studio_access) || privilegedRoles.has(role) || hasContentCurator;
 
     // Build organizational scope
     const orgScope = {
@@ -173,8 +177,10 @@ Deno.serve(async (req) => {
           name: profile?.name || user.email
         },
         role,
+        roles: userRoles,
         studioAccess,
         isLeader,
+        isContentCurator: hasContentCurator,
         orgScope,
         profile: enrichedProfile
       }),

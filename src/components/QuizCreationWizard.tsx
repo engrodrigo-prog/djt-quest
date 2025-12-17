@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -14,6 +15,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { QuizQuestionForm } from './QuizQuestionForm';
 import { QuizQuestionsList } from './QuizQuestionsList';
 import { AiQuizGenerator } from './AiQuizGenerator';
+import { apiFetch } from '@/lib/api';
 
 const quizSchema = z.object({
   title: z.string().min(3, "Título deve ter no mínimo 3 caracteres"),
@@ -34,7 +36,9 @@ type QuizFormData = z.infer<typeof quizSchema>;
 export function QuizCreationWizard() {
   const [quizId, setQuizId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSubmittingForCuration, setIsSubmittingForCuration] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const navigate = useNavigate();
 
   const { register, handleSubmit, formState: { errors }, setValue } = useForm<QuizFormData>({
     resolver: zodResolver(quizSchema),
@@ -68,42 +72,57 @@ export function QuizCreationWizard() {
   const onSubmit = async (data: QuizFormData) => {
     setIsSubmitting(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Não autenticado");
-      let challenge = null as any;
-      // First try with specialties + CHAS (requires migration applied)
-      let { data: ch1, error: err1 } = await supabase
-        .from('challenges')
-        .insert({
-          title: data.title,
-          description: data.description,
-          type: 'quiz',
-          xp_reward: data.xp_reward,
-          evidence_required: false,
-          require_two_leader_eval: false,
-          quiz_specialties: data.quiz_specialties || null,
-          chas_dimension: data.chas_dimension || 'C',
-        })
-        .select()
-        .single();
-      if (err1) {
-        // Fallback: remote DB missing new columns; reinsert without them
-        const { data: ch2, error: err2 } = await supabase
-          .from('challenges')
-          .insert({
+      // Prefer backend flow (RBAC + owner_id + workflow status)
+      try {
+        const resp = await apiFetch("/api/admin?handler=curation-create-quiz", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
             title: data.title,
             description: data.description,
-            type: 'quiz',
             xp_reward: data.xp_reward,
-            evidence_required: false,
-            require_two_leader_eval: false,
-          })
-          .select()
-          .single();
+            quiz_specialties: data.quiz_specialties || null,
+            chas_dimension: data.chas_dimension || "C",
+          }),
+        });
+        const json = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(String(json?.error || "Erro ao criar quiz"));
+        const created = (json as any)?.quiz;
+        if (!created?.id) throw new Error("Resposta inesperada ao criar quiz");
+        setQuizId(created.id);
+        toast.success("Quiz criado! Agora adicione as perguntas.");
+        return;
+      } catch (e) {
+        console.warn("curation-create-quiz failed; falling back to direct insert", e);
+      }
+
+      // Fallback (compat): create directly via client if backend handler not available
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Não autenticado");
+
+      let challenge = null as any;
+      const baseInsert: any = {
+        title: data.title,
+        description: data.description,
+        type: "quiz",
+        xp_reward: data.xp_reward,
+        evidence_required: false,
+        require_two_leader_eval: false,
+      };
+      const withWorkflow: any = {
+        ...baseInsert,
+        owner_id: user.id,
+        created_by: user.id,
+        quiz_workflow_status: "DRAFT",
+        quiz_specialties: data.quiz_specialties || null,
+        chas_dimension: data.chas_dimension || "C",
+      };
+
+      const { data: ch1, error: err1 } = await supabase.from("challenges").insert(withWorkflow).select().single();
+      if (err1) {
+        const { data: ch2, error: err2 } = await supabase.from("challenges").insert(baseInsert).select().single();
         if (err2) throw err2;
         challenge = ch2;
-      } else if (err1) {
-        throw err1;
       } else {
         challenge = ch1;
       }
@@ -120,6 +139,29 @@ export function QuizCreationWizard() {
 
   const handleQuestionAdded = () => {
     setRefreshKey(prev => prev + 1);
+  };
+
+  const submitForCuration = async () => {
+    if (!quizId) return;
+    setIsSubmittingForCuration(true);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) throw new Error('Não autenticado');
+      const resp = await apiFetch('/api/admin?handler=curation-submit-quiz', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ challengeId: quizId }),
+      });
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(json?.error || 'Falha ao submeter');
+      toast.success('Quiz submetido para curadoria');
+      navigate('/studio/curadoria');
+    } catch (e: any) {
+      toast.error(e?.message || 'Falha ao submeter');
+    } finally {
+      setIsSubmittingForCuration(false);
+    }
   };
 
   if (!quizId) {
@@ -231,6 +273,17 @@ export function QuizCreationWizard() {
             <HelpCircle className="h-6 w-6 text-primary" />
             Adicionar Perguntas ao Quiz
           </CardTitle>
+          <CardDescription className="flex items-center justify-between gap-2 flex-wrap">
+            <span>Quando terminar, submeta para curadoria.</span>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" onClick={() => navigate('/studio/curadoria')}>
+                Abrir Hub de Curadoria
+              </Button>
+              <Button onClick={submitForCuration} disabled={isSubmittingForCuration}>
+                {isSubmittingForCuration ? 'Submetendo…' : 'Submeter'}
+              </Button>
+            </div>
+          </CardDescription>
         </CardHeader>
       </Card>
 

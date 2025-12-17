@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useNavigate } from 'react-router-dom';
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft } from 'lucide-react';
@@ -31,6 +32,14 @@ import { StudioMaintenance } from '@/components/StudioMaintenance';
 const Studio = () => {
   const { user, loading, studioAccess, userRole, roleOverride } = useAuth();
   const [selectedModule, setSelectedModule] = useState<string | null>(null);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    // Curadores: Studio é apenas o HUB de Curadoria
+    if (!loading && studioAccess && userRole === 'content_curator') {
+      navigate('/studio/curadoria', { replace: true });
+    }
+  }, [loading, studioAccess, userRole, navigate]);
 
   if (loading) {
     return (
@@ -58,6 +67,10 @@ const Studio = () => {
         <Navigation />
       </div>
     );
+  }
+
+  if (userRole === 'content_curator') {
+    return null;
   }
 
   // Renderiza conteúdo do Studio (dashboard inicial ou módulo selecionado)

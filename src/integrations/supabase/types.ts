@@ -136,14 +136,22 @@ export type Database = {
       }
       challenges: {
         Row: {
+          approved_at: string | null
+          approved_by: string | null
           campaign_id: string | null
           created_at: string | null
+          created_by: string | null
           description: string | null
           evidence_required: boolean | null
           id: string
+          owner_id: string | null
+          published_at: string | null
+          published_by: string | null
+          quiz_workflow_status: Database["public"]["Enums"]["quiz_workflow_status"] | null
           require_two_leader_eval: boolean | null
           reward_mode: string | null
           reward_tier_steps: number | null
+          submitted_at: string | null
           target_coord_ids: string[] | null
           target_dept_ids: string[] | null
           target_div_ids: string[] | null
@@ -154,14 +162,22 @@ export type Database = {
           xp_reward: number | null
         }
         Insert: {
+          approved_at?: string | null
+          approved_by?: string | null
           campaign_id?: string | null
           created_at?: string | null
+          created_by?: string | null
           description?: string | null
           evidence_required?: boolean | null
           id?: string
+          owner_id?: string | null
+          published_at?: string | null
+          published_by?: string | null
+          quiz_workflow_status?: Database["public"]["Enums"]["quiz_workflow_status"] | null
           require_two_leader_eval?: boolean | null
           reward_mode?: string | null
           reward_tier_steps?: number | null
+          submitted_at?: string | null
           target_coord_ids?: string[] | null
           target_dept_ids?: string[] | null
           target_div_ids?: string[] | null
@@ -172,14 +188,22 @@ export type Database = {
           xp_reward?: number | null
         }
         Update: {
+          approved_at?: string | null
+          approved_by?: string | null
           campaign_id?: string | null
           created_at?: string | null
+          created_by?: string | null
           description?: string | null
           evidence_required?: boolean | null
           id?: string
+          owner_id?: string | null
+          published_at?: string | null
+          published_by?: string | null
+          quiz_workflow_status?: Database["public"]["Enums"]["quiz_workflow_status"] | null
           require_two_leader_eval?: boolean | null
           reward_mode?: string | null
           reward_tier_steps?: number | null
+          submitted_at?: string | null
           target_coord_ids?: string[] | null
           target_dept_ids?: string[] | null
           target_div_ids?: string[] | null
@@ -1377,6 +1401,184 @@ export type Database = {
           },
         ]
       }
+      quiz_curation_comments: {
+        Row: {
+          author_id: string | null
+          challenge_id: string
+          created_at: string
+          id: string
+          kind: string
+          message: string
+        }
+        Insert: {
+          author_id?: string | null
+          challenge_id: string
+          created_at?: string
+          id?: string
+          kind?: string
+          message: string
+        }
+        Update: {
+          author_id?: string | null
+          challenge_id?: string
+          created_at?: string
+          id?: string
+          kind?: string
+          message?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quiz_curation_comments_author_id_fkey"
+            columns: ["author_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quiz_curation_comments_challenge_id_fkey"
+            columns: ["challenge_id"]
+            isOneToOne: false
+            referencedRelation: "challenges"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      quiz_versions: {
+        Row: {
+          challenge_id: string
+          created_at: string
+          created_by: string | null
+          id: string
+          reason: string | null
+          snapshot_json: Json
+          version_number: number
+        }
+        Insert: {
+          challenge_id: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          reason?: string | null
+          snapshot_json: Json
+          version_number: number
+        }
+        Update: {
+          challenge_id?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          reason?: string | null
+          snapshot_json?: Json
+          version_number?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quiz_versions_challenge_id_fkey"
+            columns: ["challenge_id"]
+            isOneToOne: false
+            referencedRelation: "challenges"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quiz_versions_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      content_imports: {
+        Row: {
+          ai_suggested: Json | null
+          created_at: string
+          created_by: string
+          final_approved: Json | null
+          id: string
+          raw_extract: Json | null
+          source_bucket: string
+          source_mime: string | null
+          source_path: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          ai_suggested?: Json | null
+          created_at?: string
+          created_by: string
+          final_approved?: Json | null
+          id?: string
+          raw_extract?: Json | null
+          source_bucket: string
+          source_mime?: string | null
+          source_path: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          ai_suggested?: Json | null
+          created_at?: string
+          created_by?: string
+          final_approved?: Json | null
+          id?: string
+          raw_extract?: Json | null
+          source_bucket?: string
+          source_mime?: string | null
+          source_path?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "content_imports_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      audit_log: {
+        Row: {
+          actor_id: string | null
+          action: string
+          after_json: Json | null
+          before_json: Json | null
+          created_at: string
+          entity_id: string
+          entity_type: string
+          id: string
+        }
+        Insert: {
+          actor_id?: string | null
+          action: string
+          after_json?: Json | null
+          before_json?: Json | null
+          created_at?: string
+          entity_id: string
+          entity_type: string
+          id?: string
+        }
+        Update: {
+          actor_id?: string | null
+          action?: string
+          after_json?: Json | null
+          before_json?: Json | null
+          created_at?: string
+          entity_id?: string
+          entity_type?: string
+          id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "audit_log_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       safety_incidents: {
         Row: {
           caused_demotion: boolean | null
@@ -2018,7 +2220,15 @@ export type Database = {
         | "gerente_divisao_djtx"
         | "gerente_djt"
         | "admin"
+        | "content_curator"
+        | "invited"
       challenge_type: "quiz" | "mentoria" | "atitude" | "inspecao" | "forum"
+      quiz_workflow_status:
+        | "DRAFT"
+        | "SUBMITTED"
+        | "APPROVED"
+        | "REJECTED"
+        | "PUBLISHED"
       event_status:
         | "submitted"
         | "awaiting_evaluation"
@@ -2185,8 +2395,11 @@ export const Constants = {
         "gerente_divisao_djtx",
         "gerente_djt",
         "admin",
+        "content_curator",
+        "invited",
       ],
       challenge_type: ["quiz", "mentoria", "atitude", "inspecao", "forum"],
+      quiz_workflow_status: ["DRAFT", "SUBMITTED", "APPROVED", "REJECTED", "PUBLISHED"],
       event_status: [
         "submitted",
         "awaiting_evaluation",

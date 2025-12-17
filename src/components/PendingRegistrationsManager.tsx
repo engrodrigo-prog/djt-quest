@@ -34,6 +34,7 @@ export function PendingRegistrationsManager() {
   const [loading, setLoading] = useState(true);
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [reviewNotes, setReviewNotes] = useState<{ [key: string]: string }>({});
+  const [assignCurator, setAssignCurator] = useState<Record<string, boolean>>({});
   const [search, setSearch] = useState("");
   const [showAll, setShowAll] = useState(false);
   const [bulkApproving, setBulkApproving] = useState(false);
@@ -108,6 +109,7 @@ export function PendingRegistrationsManager() {
         body: JSON.stringify({
           registrationId,
           notes: notes || '',
+          assign_content_curator: Boolean(assignCurator[registrationId]),
         }),
       });
       if (!resp.ok) {
@@ -120,6 +122,7 @@ export function PendingRegistrationsManager() {
         body: {
           registrationId,
           notes: notes || "",
+          assign_content_curator: Boolean(assignCurator[registrationId]),
         },
       });
       if (error) throw error;
@@ -216,6 +219,16 @@ export function PendingRegistrationsManager() {
   };
 
   const canManageAny = userRole === "admin" || userRole === "gerente_djt";
+  const canAssignCuratorRole =
+    Boolean(isLeader) ||
+    canManageAny ||
+    String(userRole || "").includes("gerente") ||
+    String(userRole || "").includes("coordenador");
+
+  const isGuestRegistration = (r: PendingRegistration) => {
+    const s = String(r.sigla_area || "").trim().toUpperCase();
+    return s === "CONVIDADOS" || s === "EXTERNO";
+  };
 
   const matchesSearch = (r: PendingRegistration, q: string) => {
     const hay = [
@@ -414,6 +427,23 @@ export function PendingRegistrationsManager() {
                     rows={2}
                   />
                 </div>
+
+                {canAssignCuratorRole && isGuestRegistration(registration) && (
+                  <div className="flex items-center justify-between border border-white/10 rounded-md p-3 bg-black/20">
+                    <div>
+                      <Label>Curador de Conteúdo</Label>
+                      <p className="text-xs text-muted-foreground">
+                        Opcional para convidados: acesso apenas ao HUB de curadoria no Studio.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={Boolean(assignCurator[registration.id])}
+                      onCheckedChange={(v) =>
+                        setAssignCurator((prev) => ({ ...prev, [registration.id]: Boolean(v) }))
+                      }
+                    />
+                  </div>
+                )}
 
                 <div className="flex gap-3">
                   <Button

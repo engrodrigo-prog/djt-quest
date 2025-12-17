@@ -18,6 +18,8 @@ interface AuthContextType {
   loading: boolean;
   hasActiveSession: boolean;
   userRole: string | null;
+  roles: string[];
+  isContentCurator: boolean;
   studioAccess: boolean;
   isLeader: boolean;
   orgScope: OrgScope | null;
@@ -29,6 +31,8 @@ interface AuthContextType {
   signOut: () => Promise<void>;
   refreshUserSession: () => Promise<{
     role: string | null;
+    roles: string[];
+    isContentCurator: boolean;
     studioAccess: boolean;
     isLeader: boolean;
     orgScope: OrgScope | null;
@@ -86,6 +90,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [hasActiveSession, setHasActiveSession] = useState(false);
   const [userRole, setUserRole] = useState<string | null>(null);
   const [baseRole, setBaseRole] = useState<string | null>(null);
+  const [roles, setRoles] = useState<string[]>([]);
+  const [isContentCurator, setIsContentCurator] = useState(false);
   const [studioAccess, setStudioAccess] = useState(false);
   const [baseStudioAccess, setBaseStudioAccess] = useState(false);
   const [isLeader, setIsLeader] = useState(false);
@@ -164,6 +170,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         studioAccess: cached.studioAccess,
         isLeader: cached.isLeader,
       });
+      setRoles(Array.isArray(cached.roles) ? cached.roles : []);
+      setIsContentCurator(Boolean(cached.isContentCurator) || (Array.isArray(cached.roles) && cached.roles.includes('content_curator')));
       setOrgScope(cached.orgScope);
       setProfile(cached.profile);
     }
@@ -184,6 +192,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           studioAccess: false,
           isLeader: false,
         });
+        setRoles([]);
+        setIsContentCurator(false);
         setOrgScope(null);
         setProfile(null);
         return null;
@@ -215,6 +225,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             studioAccess: cached.studioAccess,
             isLeader: cached.isLeader,
           });
+          setRoles(Array.isArray(cached.roles) ? cached.roles : []);
+          setIsContentCurator(Boolean(cached.isContentCurator) || (Array.isArray(cached.roles) && cached.roles.includes('content_curator')));
           setOrgScope(cached.orgScope);
           setProfile(cached.profile);
           return cached;
@@ -229,6 +241,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           studioAccess: false,
           isLeader: false,
         });
+        setRoles([]);
+        setIsContentCurator(false);
         setOrgScope(null);
         setProfile(null);
         return null;
@@ -236,6 +250,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       const authData = {
         role: data.role,
+        roles: Array.isArray((data as any).roles) ? (data as any).roles : [],
+        isContentCurator: Boolean((data as any).isContentCurator) || (Array.isArray((data as any).roles) && (data as any).roles.includes('content_curator')),
         studioAccess: data.studioAccess,
         isLeader: data.isLeader,
         orgScope: data.orgScope,
@@ -251,6 +267,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         studioAccess: data.studioAccess,
         isLeader: Boolean(data.isLeader),
       });
+      setRoles(Array.isArray((data as any).roles) ? (data as any).roles : []);
+      setIsContentCurator(Boolean((data as any).isContentCurator) || (Array.isArray((data as any).roles) && (data as any).roles.includes('content_curator')));
       setOrgScope(data.orgScope);
       setProfile(data.profile);
       setUser(currentSession.user ?? null);
@@ -275,6 +293,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           studioAccess: cached.studioAccess,
           isLeader: cached.isLeader,
         });
+        setRoles(Array.isArray(cached.roles) ? cached.roles : []);
+        setIsContentCurator(Boolean(cached.isContentCurator) || (Array.isArray(cached.roles) && cached.roles.includes('content_curator')));
         setOrgScope(cached.orgScope);
         setProfile(cached.profile);
         return cached;
@@ -288,6 +308,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         studioAccess: false,
         isLeader: false,
       });
+      setRoles([]);
+      setIsContentCurator(false);
       setOrgScope(null);
       setProfile(null);
       return null;
@@ -356,6 +378,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setUserRole(null);
           setStudioAccess(false);
           setIsLeader(false);
+          setRoles([]);
+          setIsContentCurator(false);
           setOrgScope(null);
         }
       }
@@ -400,6 +424,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       loading, 
       hasActiveSession,
       userRole, 
+      roles,
+      isContentCurator,
       studioAccess,
       isLeader,
       orgScope,

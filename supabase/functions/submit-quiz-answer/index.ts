@@ -78,6 +78,17 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  const loadRoles = async (supabase: any, userId: string) => {
+    const { data, error } = await supabase.from('user_roles').select('role').eq('user_id', userId);
+    if (error) return new Set<string>();
+    const set = new Set<string>();
+    for (const row of data || []) {
+      const r = String((row as any)?.role || '').trim();
+      if (r) set.add(r);
+    }
+    return set;
+  };
+
   try {
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
@@ -139,14 +150,19 @@ serve(async (req) => {
     let milhaoRewardMode: 'fixed_xp' | 'tier_steps' = 'fixed_xp';
     let milhaoTierSteps: number | null = null;
     let milhaoConfiguredTotalXp: number | null = null;
+    let challengeOwnerId: string | null = null;
+    let challengeCreatedBy: string | null = null;
     try {
       const { data: ch } = await supabase
         .from('challenges')
-        .select('title, xp_reward, reward_mode, reward_tier_steps')
+        .select('title, xp_reward, reward_mode, reward_tier_steps, owner_id, created_by')
         .eq('id', challengeId)
         .maybeSingle();
       const title = String(ch?.title || '');
       isMilhao = /milh(ã|a)o/i.test(title);
+
+      challengeOwnerId = (ch as any)?.owner_id ? String((ch as any).owner_id) : null;
+      challengeCreatedBy = (ch as any)?.created_by ? String((ch as any).created_by) : null;
 
       const modeRaw = String((ch as any)?.reward_mode || '').trim();
       milhaoRewardMode = modeRaw === 'tier_steps' ? 'tier_steps' : 'fixed_xp';
@@ -156,6 +172,12 @@ serve(async (req) => {
     } catch {
       isMilhao = false;
     }
+
+    const roleSet = await loadRoles(supabase, user.id);
+    const isAdmin = roleSet.has('admin');
+    const isContentCurator = roleSet.has('content_curator');
+    const isOwner = Boolean(challengeOwnerId && challengeOwnerId === user.id) || Boolean(challengeCreatedBy && challengeCreatedBy === user.id);
+    const canSeeAnswerKey = isAdmin || isContentCurator || isOwner;
 
     // Ensure attempt exists and not already submitted
     await supabase
@@ -307,7 +329,7 @@ serve(async (req) => {
 
     // Get correct option ID if user was wrong
     let correctOptionId = null;
-    if (!isCorrect) {
+    if (!isCorrect && canSeeAnswerKey) {
       const { data: correctOption } = await supabase
         .from('quiz_options')
         .select('id')
@@ -378,8 +400,9 @@ serve(async (req) => {
         success: true,
         isCorrect,
         xpEarned,
-        explanation: option.explanation,
-        correctOptionId,
+        explanation: canSeeAnswerKey ? option.explanation : null,
+        correctOptionId: canSeeAnswerKey ? correctOptionId : null,
+        answerKeyRestricted: !canSeeAnswerKey,
         isCompleted: Boolean(endedReason),
         endedReason: endedReason || undefined,
         totalXpEarned: endedReason ? totalXpEarned : undefined,

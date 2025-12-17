@@ -8,6 +8,8 @@ const corsHeaders = {
 interface ApprovalRequest {
   registrationId: string;
   notes?: string;
+  roles?: string[];
+  assign_content_curator?: boolean;
 }
 
 const GUEST_TEAM_ID = 'CONVIDADOS'
@@ -126,7 +128,7 @@ Deno.serve(async (req) => {
       throw new Error('Insufficient permissions');
     }
 
-    const { registrationId, notes } = await req.json() as ApprovalRequest;
+    const { registrationId, notes, roles, assign_content_curator } = await req.json() as ApprovalRequest;
 
     // Fetch pending registration
     const { data: registration, error: fetchError } = await supabaseAdmin
@@ -240,11 +242,15 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Assign default role (colaborador)
-    // Assign default role; ignore if already assigned
+    // Assign roles: invited (guest) or colaborador (internal), plus optional content_curator
+    const requestedRoles = Array.isArray(roles) ? roles.map((r) => String(r || '').trim()).filter(Boolean) : []
+    const wantsCurator = Boolean(assign_content_curator) || requestedRoles.includes('content_curator')
+    const baseRole = isGuest ? 'invited' : 'colaborador'
+    const rolesToAssign = [baseRole, ...(wantsCurator ? ['content_curator'] : [])]
+
     const { error: roleError } = await supabaseAdmin
       .from('user_roles')
-      .insert({ user_id: newUser.user.id, role: 'colaborador' });
+      .insert(rolesToAssign.map((role) => ({ user_id: newUser.user.id, role } as any)) as any);
     if (roleError) {
       const msg = String((roleError as any).message || '').toLowerCase()
       const code = String((roleError as any).code || '')
@@ -275,6 +281,20 @@ Deno.serve(async (req) => {
     }
 
     console.log('Registration approved successfully');
+
+    // Audit (best-effort)
+    try {
+      await supabaseAdmin.from('audit_log').insert({
+        actor_id: user.id,
+        action: 'registration.approve',
+        entity_type: 'pending_registration',
+        entity_id: String(registrationId),
+        before_json: registration as any,
+        after_json: { user_id: newUser.user.id, roles: rolesToAssign } as any,
+      } as any)
+    } catch {
+      // ignore
+    }
 
     return new Response(
       JSON.stringify({

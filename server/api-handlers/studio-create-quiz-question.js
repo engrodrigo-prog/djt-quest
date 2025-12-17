@@ -1,6 +1,6 @@
-import { createClient } from '@supabase/supabase-js';
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+import { createSupabaseAdminClient, requireCallerUser } from '../lib/supabase-admin.js';
+import { rolesToSet, canCurate, canAccessStudio } from '../lib/rbac.js';
+import { snapshotQuizVersion } from '../lib/quiz-versioning.js';
 const XP_BY_LEVEL = {
     // precisa respeitar o CHECK do banco (5,10,20,40)
     basico: 5,
@@ -14,24 +14,71 @@ export default async function handler(req, res) {
     if (req.method !== 'POST')
         return res.status(405).json({ error: 'Method not allowed' });
     try {
-        if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-            return res.status(500).json({ error: 'Missing Supabase server configuration' });
-        }
-        const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-            auth: { autoRefreshToken: false, persistSession: false },
-        });
-        const authHeader = req.headers['authorization'];
-        const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : undefined;
-        if (!token)
-            return res.status(401).json({ error: 'Unauthorized' });
-        const { data: userResp, error: authErr } = await supabaseAdmin.auth.getUser(token);
-        if (authErr || !userResp?.user)
-            return res.status(401).json({ error: 'Unauthorized' });
-        const userId = userResp.user.id;
+        const supabaseAdmin = createSupabaseAdminClient();
+        const caller = await requireCallerUser(supabaseAdmin, req);
         const { challengeId, question_text, difficulty_level, options } = req.body || {};
         if (!challengeId || !question_text || !difficulty_level || !Array.isArray(options)) {
             return res.status(400).json({ error: 'Campos obrigatórios: challengeId, question_text, difficulty_level, options[]' });
         }
+
+        const { data: rolesRows } = await supabaseAdmin.from('user_roles').select('role').eq('user_id', caller.id);
+        const roleSet = rolesToSet(rolesRows);
+        const isCurator = canCurate(roleSet);
+
+        const { data: callerProfile } = await supabaseAdmin
+            .from('profiles')
+            .select('is_leader, studio_access')
+            .eq('id', caller.id)
+            .maybeSingle();
+        if (!canAccessStudio({ roleSet, profile: callerProfile }))
+            return res.status(403).json({ error: 'Forbidden' });
+
+        const { data: quiz, error: quizErr } = await supabaseAdmin
+            .from('challenges')
+            .select('id, type, owner_id, created_by, quiz_workflow_status')
+            .eq('id', challengeId)
+            .maybeSingle();
+        if (quizErr) return res.status(400).json({ error: quizErr.message });
+        if (!quiz) return res.status(404).json({ error: 'Quiz não encontrado' });
+        if (String(quiz.type || '') !== 'quiz') return res.status(400).json({ error: 'Desafio não é quiz' });
+
+        const isOwner = String(quiz.owner_id || '') === caller.id || String(quiz.created_by || '') === caller.id;
+        const workflow = String(quiz.quiz_workflow_status || 'PUBLISHED');
+
+        if (workflow === 'DRAFT') {
+            if (!isOwner && !isCurator) return res.status(403).json({ error: 'Sem permissão' });
+        } else if (workflow === 'REJECTED') {
+            // Owner can rework rejected quizzes, starting a new draft iteration
+            if (!isOwner) return res.status(403).json({ error: 'Sem permissão' });
+            try {
+                await snapshotQuizVersion(supabaseAdmin, {
+                    challengeId,
+                    actorId: caller.id,
+                    reason: 'edit:REJECTED',
+                    auditAction: 'quiz.version.snapshot',
+                });
+            } catch {
+                // best-effort
+            }
+            await supabaseAdmin
+                .from('challenges')
+                .update({ quiz_workflow_status: 'DRAFT', approved_at: null, approved_by: null })
+                .eq('id', challengeId);
+        } else {
+            // After submission, only curator/admin can edit (and we snapshot for versioning)
+            if (!isCurator) return res.status(403).json({ error: 'Sem permissão' });
+            try {
+                await snapshotQuizVersion(supabaseAdmin, {
+                    challengeId,
+                    actorId: caller.id,
+                    reason: `add_question:${workflow}`,
+                    auditAction: 'quiz.version.snapshot',
+                });
+            } catch {
+                // best-effort
+            }
+        }
+
         const dl = String(difficulty_level);
         const xp = XP_BY_LEVEL[dl];
         if (!xp)
@@ -39,13 +86,13 @@ export default async function handler(req, res) {
         const { data: question, error: qErr } = await supabaseAdmin
             .from('quiz_questions')
             .insert({
-            challenge_id: challengeId,
-            question_text,
-            // OBS: precisa respeitar o CHECK do banco (basico/intermediario/avancado/especialista)
-            difficulty_level: dl,
-            xp_value: xp,
-            created_by: userId,
-        })
+                challenge_id: challengeId,
+                question_text,
+                // OBS: precisa respeitar o CHECK do banco (basico/intermediario/avancado/especialista)
+                difficulty_level: dl,
+                xp_value: xp,
+                created_by: caller.id,
+            })
             .select()
             .single();
         if (qErr)
@@ -56,7 +103,9 @@ export default async function handler(req, res) {
             is_correct: !!opt?.is_correct,
             explanation: (opt?.explanation && String(opt.explanation).trim()) || null,
         }));
-        const { error: oErr } = await supabaseAdmin.from('quiz_options').insert(toInsert);
+        // Embaralhar ordem das alternativas para evitar padrão fixo
+        const shuffled = [...toInsert].sort(() => Math.random() - 0.5);
+        const { error: oErr } = await supabaseAdmin.from('quiz_options').insert(shuffled);
         if (oErr)
             return res.status(400).json({ error: oErr.message });
         return res.status(200).json({ success: true, questionId: question.id });

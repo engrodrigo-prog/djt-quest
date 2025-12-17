@@ -7,6 +7,7 @@ import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { difficultyLevels, type DifficultyLevel } from "@/lib/validations/quiz";
+import { apiFetch } from "@/lib/api";
 
 interface Question {
   id: string;
@@ -59,16 +60,27 @@ export function QuizQuestionsList({ challengeId, onUpdate }: QuizQuestionsListPr
     if (!confirm("Deseja realmente excluir esta pergunta?")) return;
 
     try {
-      const { error } = await supabase.from("quiz_questions").delete().eq("id", questionId);
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) throw new Error("Não autenticado");
 
-      if (error) throw error;
+      const resp = await apiFetch("/api/admin?handler=curation-delete-quiz-question", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ questionId }),
+      });
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(json?.error || "Falha ao excluir pergunta");
 
       toast.success("Pergunta excluída");
       loadQuestions();
       onUpdate();
     } catch (error) {
       console.error("Error deleting question:", error);
-      toast.error("Erro ao excluir pergunta");
+      toast.error((error as any)?.message || "Erro ao excluir pergunta");
     }
   }, [loadQuestions, onUpdate]);
 

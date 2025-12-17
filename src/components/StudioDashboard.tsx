@@ -18,6 +18,7 @@ import { apiFetch, apiBaseUrl } from "@/lib/api";
 import { supabase } from "@/integrations/supabase/client";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { gameTips } from "@/content/game-tips";
+import { useNavigate } from "react-router-dom";
 
 interface StudioModule {
   id: string;
@@ -39,6 +40,7 @@ export const StudioDashboard = ({ onSelectModule, userRole }: StudioDashboardPro
   const [badges, setBadges] = useState<{ approvals: number; passwordResets: number; evaluations: number; forumMentions: number; registrations: number }>({ approvals: 0, passwordResets: 0, evaluations: 0, forumMentions: 0, registrations: 0 });
   const [infoOpen, setInfoOpen] = useState(false);
   const [infoId, setInfoId] = useState<string | null>(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
     let active = true;
@@ -82,6 +84,15 @@ export const StudioDashboard = ({ onSelectModule, userRole }: StudioDashboardPro
   }, []);
 
   const modules: StudioModule[] = [
+    {
+      id: 'curation',
+      title: 'Curadoria de Conteúdo',
+      description: 'Submeter, revisar e publicar quizzes',
+      icon: ClipboardCheck,
+      gradientFrom: 'from-emerald-500',
+      gradientTo: 'to-emerald-800',
+      badge: badges.approvals || 0,
+    },
     {
       id: 'content',
       title: 'Campanhas • Quizzes • Fóruns',
@@ -187,6 +198,7 @@ export const StudioDashboard = ({ onSelectModule, userRole }: StudioDashboardPro
   const visibleModules = modules.filter(
     (module) => !module.requiredRole || module.requiredRole === userRole || userRole === 'admin'
   );
+  const finalModules = userRole === 'content_curator' ? visibleModules.filter((m) => m.id === 'curation') : visibleModules;
 
   return (
     <div className="min-h-screen bg-background text-foreground p-4 md:p-8">
@@ -203,21 +215,25 @@ export const StudioDashboard = ({ onSelectModule, userRole }: StudioDashboardPro
 
         {/* Grid de Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {visibleModules.map((module) => {
+          {finalModules.map((module) => {
             const Icon = module.icon;
             const tipKey = `studio-${module.id}` as keyof typeof gameTips;
             return (
               <Card
                 key={`module-${module.id}`}
                 className="relative overflow-hidden cursor-pointer group hover:shadow-2xl transition-all duration-300 hover:-translate-y-2 border border-border/70 bg-card"
-                onClick={() => onSelectModule(module.id)}
+                onClick={() => (module.id === 'curation' ? navigate('/studio/curadoria') : onSelectModule(module.id))}
                 role="button"
                 tabIndex={0}
                 aria-label={`Abrir módulo ${module.title}`}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') {
                     e.preventDefault();
-                    onSelectModule(module.id);
+                    if (module.id === 'curation') {
+                      navigate('/studio/curadoria');
+                    } else {
+                      onSelectModule(module.id);
+                    }
                   }
                 }}
               >

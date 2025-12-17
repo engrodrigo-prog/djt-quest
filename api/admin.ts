@@ -23,6 +23,20 @@ import leadershipChallenges from '../server/api-handlers/leadership-challenges.j
 import coordRankingBonus from '../server/api-handlers/coord-ranking-bonus.js';
 import studioPublishQuizMilhao from '../server/api-handlers/studio-publish-quiz-milhao.js';
 import adminResetMilhaoAttempts from '../server/api-handlers/admin-reset-milhao-attempts.js';
+import curationListQuizzes from '../server/api-handlers/curation-list-quizzes.js';
+import curationCreateQuiz from '../server/api-handlers/curation-create-quiz.js';
+import curationGetQuiz from '../server/api-handlers/curation-get-quiz.js';
+import curationUpdateQuiz from '../server/api-handlers/curation-update-quiz.js';
+import curationSubmitQuiz from '../server/api-handlers/curation-submit-quiz.js';
+import curationReviewQuiz from '../server/api-handlers/curation-review-quiz.js';
+import curationPublishQuiz from '../server/api-handlers/curation-publish-quiz.js';
+import curationDeleteQuizQuestion from '../server/api-handlers/curation-delete-quiz-question.js';
+import curationCreateImport from '../server/api-handlers/curation-create-import.js';
+import curationExtractImport from '../server/api-handlers/curation-extract-import.js';
+import curationStructureImport from '../server/api-handlers/curation-structure-import.js';
+import curationFinalizeImport from '../server/api-handlers/curation-finalize-import.js';
+import curationApplyImportToQuiz from '../server/api-handlers/curation-apply-import-to-quiz.js';
+import curationListQuizVersions from '../server/api-handlers/curation-list-quiz-versions.js';
 
 type Handler = (req: VercelRequest, res: VercelResponse) => any | Promise<any>;
 
@@ -47,6 +61,20 @@ const handlers: Record<string, Handler> = {
   'coord-ranking-bonus': coordRankingBonus,
   'studio-publish-quiz-milhao': studioPublishQuizMilhao,
   'admin-reset-milhao-attempts': adminResetMilhaoAttempts,
+  'curation-list-quizzes': curationListQuizzes,
+  'curation-create-quiz': curationCreateQuiz,
+  'curation-get-quiz': curationGetQuiz,
+  'curation-update-quiz': curationUpdateQuiz,
+  'curation-submit-quiz': curationSubmitQuiz,
+  'curation-review-quiz': curationReviewQuiz,
+  'curation-publish-quiz': curationPublishQuiz,
+  'curation-delete-quiz-question': curationDeleteQuizQuestion,
+  'curation-create-import': curationCreateImport,
+  'curation-extract-import': curationExtractImport,
+  'curation-structure-import': curationStructureImport,
+  'curation-finalize-import': curationFinalizeImport,
+  'curation-apply-import-to-quiz': curationApplyImportToQuiz,
+  'curation-list-quiz-versions': curationListQuizVersions,
 };
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {

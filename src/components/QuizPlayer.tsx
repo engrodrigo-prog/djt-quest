@@ -43,6 +43,7 @@ interface AnswerResult {
   xpBlockedForLeader?: boolean;
   xpApplied?: boolean;
   profileXpAfter?: number | null;
+  answerKeyRestricted?: boolean;
 }
 
 interface PostWrongHelpState {
@@ -758,7 +759,9 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
                         {correctOptionObj.option_text}
                       </>
                     ) : (
-                      "Veja a alternativa destacada em verde."
+                      <span>
+                        {answerResult.answerKeyRestricted ? "Indisponível (gabarito restrito)." : "Indisponível."}
+                      </span>
                     )}
                   </p>
                   {correctOptionObj?.explanation && (
