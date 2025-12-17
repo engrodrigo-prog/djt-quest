@@ -37,6 +37,11 @@ import curationStructureImport from '../server/api-handlers/curation-structure-i
 import curationFinalizeImport from '../server/api-handlers/curation-finalize-import.js';
 import curationApplyImportToQuiz from '../server/api-handlers/curation-apply-import-to-quiz.js';
 import curationListQuizVersions from '../server/api-handlers/curation-list-quiz-versions.js';
+import trackAccess from '../server/api-handlers/track-access.js';
+import reportsQuizSummary from '../server/api-handlers/reports-quiz-summary.js';
+import reportsQuestionUsage from '../server/api-handlers/reports-question-usage.js';
+import reportsAccessSummary from '../server/api-handlers/reports-access-summary.js';
+import reportsListQuizzes from '../server/api-handlers/reports-list-quizzes.js';
 
 type Handler = (req: VercelRequest, res: VercelResponse) => any | Promise<any>;
 
@@ -75,6 +80,11 @@ const handlers: Record<string, Handler> = {
   'curation-finalize-import': curationFinalizeImport,
   'curation-apply-import-to-quiz': curationApplyImportToQuiz,
   'curation-list-quiz-versions': curationListQuizVersions,
+  'track-access': trackAccess,
+  'reports-quiz-summary': reportsQuizSummary,
+  'reports-question-usage': reportsQuestionUsage,
+  'reports-access-summary': reportsAccessSummary,
+  'reports-list-quizzes': reportsListQuizzes,
 };
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {

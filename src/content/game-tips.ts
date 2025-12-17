@@ -6,6 +6,22 @@ export interface GameTip {
 // Dicas centralizadas sobre jogabilidade, XP e uso de cada ferramenta.
 // Atualize aqui sempre que a lógica de XP ou funcionalidades mudarem.
 export const gameTips: Record<string, GameTip> = {
+  'studio-curation': {
+    title: 'Curadoria de Conteúdo (Quizzes)',
+    body: [
+      'Aqui você cria, revisa e publica quizzes com controle de workflow.',
+      '',
+      '• Rascunho (DRAFT): você pode editar título/descrição e adicionar perguntas.',
+      '• Submeter (SUBMITTED): entra na fila da Curadoria.',
+      '• Aprovar/Rejeitar: valida conteúdo e qualidade; se rejeitado, volta para ajustes.',
+      '• Publicar: torna o quiz disponível para os jogadores.',
+      '',
+      'Importar questões:',
+      '• O arquivo é enviado para o Storage (bucket `quiz-imports`).',
+      '• O registro e a extração ficam salvos no banco em `content_imports` (raw_extract / ai_suggested / final_approved).',
+      '• Ao aplicar em um quiz DRAFT, as perguntas são criadas nas tabelas `quiz_questions` e `quiz_options`.'
+    ].join('\n'),
+  },
   'studio-content': {
     title: 'Campanhas • Quizzes • Fóruns',
     body: [
@@ -52,9 +68,9 @@ export const gameTips: Record<string, GameTip> = {
     ].join('\n'),
   },
   'studio-user-approvals': {
-    title: 'Cadastros & Aprovações',
+    title: 'Gerenciar Usuários',
     body: [
-      'Central de filas para aprovar novos cadastros e mudanças de perfil.',
+      'Central de filas para aprovar novos cadastros, mudanças de perfil e resets de senha.',
       '',
       '• Pendências aparecem como badge vermelho no ícone Studio e neste card.',
       '• Aprovar rapidamente garante que novos jogadores entrem na trilha com XP e permissões corretas.',
@@ -71,7 +87,7 @@ export const gameTips: Record<string, GameTip> = {
       '• Cada pedido precisa ser aprovado por um líder para manter a segurança.',
       '• Não gera XP, mas é crítico para que o jogador consiga participar das campanhas e quizzes em andamento.',
       '',
-      'Ao aprovar um reset, oriente o jogador a atualizar a senha e revisar seu perfil antes de voltar a jogar.'
+      'Observação: esta fila agora fica dentro de "Gerenciar Usuários" no Studio.'
     ].join('\n'),
   },
   'studio-evaluations': {
@@ -107,6 +123,19 @@ export const gameTips: Record<string, GameTip> = {
       'Mantenha um registro claro das regras de concessão de bônus extra fora do fluxo normal de campanhas e fóruns.'
     ].join('\n'),
   },
+  'studio-reports': {
+    title: 'Relatórios (Studio)',
+    body: [
+      'Hub para acompanhar métricas do jogo e exportar visões de acompanhamento.',
+      '',
+      'Primeiros focos:',
+      '• Quizzes: aderência (participação), notas médias (%), ranking por período e filtros por escopo (equipe/coord/divisão).',
+      '• Perguntas: histórico de uso (aplicadas vs. não utilizadas) para reutilização/rotatividade.',
+      '• Acessos: histórico de entradas na plataforma por período (quando o rastreamento estiver habilitado).',
+      '',
+      'Use os filtros de data para fechar o mês (dia 1 → dia atual) ou comparar períodos.'
+    ].join('\n'),
+  },
   // Pontuação XP – visão rápida para jogadores (pode ser usada em tooltips ou onboarding)
   'xp-overview': {
     title: 'Como ganho XP no DJT Quest?',
@@ -132,4 +161,3 @@ export const gameTips: Record<string, GameTip> = {
     ].join('\n'),
   },
 };
-

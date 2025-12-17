@@ -72,6 +72,30 @@ async function withTimeout<T>(promise: Promise<T>, ms = 3000): Promise<T> {
   ]);
 }
 
+const accessKeyForToday = (userId: string, kind: string) => {
+  const day = new Date().toISOString().slice(0, 10);
+  return `access_${kind}_${userId}_${day}`;
+};
+
+const tryTrackAccess = async (token: string | null | undefined, userId: string | null | undefined, kind: 'session' | 'login' | 'pageview') => {
+  try {
+    if (!token || !userId) return;
+    const key = accessKeyForToday(userId, kind);
+    if (localStorage.getItem(key) === '1') return;
+    localStorage.setItem(key, '1');
+    await fetch('/api/admin?handler=track-access', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ kind }),
+    });
+  } catch {
+    // best-effort
+  }
+};
+
 const setCachedAuth = (data: any) => {
   try {
     localStorage.setItem(CACHE_KEY, JSON.stringify({
@@ -331,6 +355,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!active) return;
 
         if (currentSession) {
+          tryTrackAccess(currentSession.access_token, currentSession.user?.id, 'session');
           await fetchUserSession(currentSession);
         } else {
           setUser(null);
@@ -359,6 +384,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         if (session) {
           const oldRole = roleRef.current;
+          tryTrackAccess(session.access_token, session.user?.id, 'session');
           fetchUserSession(session)
             .then((authData) => {
               console.log('👤 AuthContext: role check', { oldRole, newRole: authData?.role, hasShownWelcome: welcomeRef.current });

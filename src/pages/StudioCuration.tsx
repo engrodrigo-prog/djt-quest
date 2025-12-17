@@ -16,6 +16,7 @@ import { apiFetch } from '@/lib/api';
 import { supabase } from '@/integrations/supabase/client';
 import { QuizQuestionForm } from '@/components/QuizQuestionForm';
 import { QuizQuestionsList } from '@/components/QuizQuestionsList';
+import { TipDialogButton } from '@/components/TipDialogButton';
 
 type QuizWorkflow = 'DRAFT' | 'SUBMITTED' | 'APPROVED' | 'REJECTED' | 'PUBLISHED' | string;
 
@@ -392,7 +393,10 @@ export default function StudioCuration() {
       <div className="container relative mx-auto p-4 md:p-8 max-w-7xl space-y-6">
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div>
-            <h1 className="text-2xl md:text-3xl font-semibold text-blue-50">Studio • Curadoria de Conteúdo</h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-2xl md:text-3xl font-semibold text-blue-50">Studio • Curadoria de Conteúdo</h1>
+              <TipDialogButton tipId="studio-curation" ariaLabel="Entenda a Curadoria de Conteúdo" className="inline-flex items-center justify-center rounded-full border border-white/20 bg-black/20 p-1 text-blue-100/80 hover:bg-black/30 hover:text-blue-50" />
+            </div>
             <p className="text-sm text-blue-100/80">
               {canCurate ? 'Revisão e publicação de quizzes' : 'Submeta e acompanhe seus quizzes'}
             </p>

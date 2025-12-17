@@ -4,17 +4,16 @@ import {
   Award, 
   ActivitySquare,
   Crown,
+  BarChart3,
   ChevronRight,
   ClipboardCheck,
-  Key,
   AlertCircle,
   Trash2,
 } from "lucide-react";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useEffect, useState } from "react";
-import { apiFetch, apiBaseUrl } from "@/lib/api";
-import { supabase } from "@/integrations/supabase/client";
+import { apiFetch } from "@/lib/api";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { gameTips } from "@/content/game-tips";
 import { useNavigate } from "react-router-dom";
@@ -126,21 +125,12 @@ export const StudioDashboard = ({ onSelectModule, userRole }: StudioDashboardPro
     },
     {
       id: 'user-approvals',
-      title: 'Cadastros & Aprovações',
-      description: 'Aprovar cadastros e mudanças de perfil',
+      title: 'Gerenciar Usuários',
+      description: 'Cadastros, aprovações e reset de senha',
       icon: ClipboardCheck,
       gradientFrom: 'from-emerald-500',
       gradientTo: 'to-green-600',
-      badge: (badges.approvals || 0) + (badges.registrations || 0),
-    },
-    {
-      id: 'password-resets',
-      title: 'Reset de Senha',
-      description: 'Aprovar solicitações de redefinição',
-      icon: Key,
-      gradientFrom: 'from-slate-500',
-      gradientTo: 'to-slate-900',
-      badge: badges.passwordResets,
+      badge: (badges.approvals || 0) + (badges.registrations || 0) + (badges.passwordResets || 0),
     },
     {
       id: 'evaluations',
@@ -150,6 +140,14 @@ export const StudioDashboard = ({ onSelectModule, userRole }: StudioDashboardPro
       gradientFrom: 'from-purple-500',
       gradientTo: 'to-pink-500',
       badge: badges.evaluations,
+    },
+    {
+      id: 'reports',
+      title: 'Relatórios',
+      description: 'Aderência, notas e acessos',
+      icon: BarChart3,
+      gradientFrom: 'from-cyan-600',
+      gradientTo: 'to-sky-900',
     },
     {
       id: 'system',
@@ -201,6 +199,7 @@ export const StudioDashboard = ({ onSelectModule, userRole }: StudioDashboardPro
           {finalModules.map((module) => {
             const Icon = module.icon;
             const tipKey = `studio-${module.id}` as keyof typeof gameTips;
+            const badgeValue = typeof module.badge === 'number' ? module.badge : 0;
             return (
               <Card
                 key={`module-${module.id}`}
@@ -221,12 +220,12 @@ export const StudioDashboard = ({ onSelectModule, userRole }: StudioDashboardPro
                 }}
               >
                 {/* Badge de contagem (opcional) */}
-                {typeof module.badge !== 'undefined' && (
+                {badgeValue > 0 && (
                   <Badge
                     className="absolute top-3 right-3 z-10"
-                    variant={module.badge >= 1 ? "destructive" : "secondary"}
+                    variant="destructive"
                   >
-                    {module.badge > 99 ? '99+' : module.badge}
+                    {badgeValue > 99 ? '99+' : badgeValue}
                   </Badge>
                 )}
 

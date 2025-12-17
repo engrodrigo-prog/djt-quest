@@ -15,9 +15,8 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { apiFetch, apiBaseUrl } from '@/lib/api';
+import { apiFetch } from '@/lib/api';
 import { ChangePasswordCard } from '@/components/profile/ChangePasswordCard';
-import { supabase } from '@/integrations/supabase/client';
 import bgMenu from '@/assets/backgrounds/BG Menu.png';
 
 const Navigation = () => {
@@ -82,10 +81,11 @@ const Navigation = () => {
         const evaluations = json?.evaluations || 0;
         const leadershipAssignments = json?.leadershipAssignments || 0;
         const forumMentions = json?.forumMentions || 0;
+        const evalTotal = evaluations + leadershipAssignments;
 
         if (!active) return;
-        setStudioBadge(studioAccess ? approvals + passwordResets + registrations : 0);
-        setEvalBadge(isLeader ? evaluations + leadershipAssignments : 0);
+        setStudioBadge(studioAccess ? approvals + passwordResets + registrations + evaluations : 0);
+        setEvalBadge(isLeader ? evalTotal : 0);
         setForumBadge(forumMentions);
 
         // SEPBook summary continua vindo da API dedicada
@@ -207,9 +207,11 @@ const Navigation = () => {
             <span className="absolute inset-[3px] rounded-2xl overflow-hidden">
               <img src={iconForum} alt="Fóruns" className="w-full h-full object-cover" />
             </span>
-            <span className={badgeClass(forumBadge >= 1)} style={{ zIndex: 5 }}>
-              {forumBadge > 99 ? '99+' : forumBadge}
-            </span>
+            {forumBadge > 0 && (
+              <span className={badgeClass(true)} style={{ zIndex: 5 }}>
+                {forumBadge > 99 ? '99+' : forumBadge}
+              </span>
+            )}
           </span>
           <span className={labelClass(location.pathname.startsWith('/forum'))}>Fóruns</span>
         </Button>
@@ -274,9 +276,11 @@ const Navigation = () => {
               <span className="absolute inset-[3px] rounded-2xl overflow-hidden">
                 <img src={iconAvaliar} alt="Avaliar" className="w-full h-full object-cover" />
               </span>
-              <span className={badgeClass(evalBadge >= 1)} style={{ zIndex: 5 }}>
-                {evalBadge > 99 ? '99+' : evalBadge}
-              </span>
+              {evalBadge > 0 && (
+                <span className={badgeClass(true)} style={{ zIndex: 5 }}>
+                  {evalBadge > 99 ? '99+' : evalBadge}
+                </span>
+              )}
             </span>
             <span className={labelClass(isActive('/evaluations'))}>Avaliar</span>
           </Button>
@@ -299,9 +303,11 @@ const Navigation = () => {
                     <span className="absolute inset-[3px] rounded-2xl overflow-hidden">
                       <img src={iconStudio} alt="Studio" className="w-full h-full object-cover" />
                     </span>
-                    <span className={badgeClass(studioBadge >= 1)} style={{ zIndex: 5 }}>
-                      {studioBadge > 99 ? '99+' : studioBadge}
-                    </span>
+                    {studioBadge > 0 && (
+                      <span className={badgeClass(true)} style={{ zIndex: 5 }}>
+                        {studioBadge > 99 ? '99+' : studioBadge}
+                      </span>
+                    )}
                   </span>
                   </div>
                   <span className={labelClass(isActive('/studio'))}>Studio</span>

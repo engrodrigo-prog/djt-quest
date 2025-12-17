@@ -28,7 +28,7 @@ interface PasswordResetRequest {
   } | null;
 }
 
-export function PasswordResetManager() {
+export function PasswordResetManager({ embedded = false }: { embedded?: boolean }) {
   const { toast } = useToast();
   const [requests, setRequests] = useState<PasswordResetRequest[]>([]);
   const [loading, setLoading] = useState(true);
@@ -123,12 +123,14 @@ export function PasswordResetManager() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold">Solicitações de Reset de Senha</h2>
-        <p className="text-muted-foreground">
-          Aprove ou rejeite pedidos de redefinição de senha dos colaboradores. Ao aprovar, a senha volta para 123456 e o usuário será obrigado a alterar no próximo acesso.
-        </p>
-      </div>
+      {!embedded && (
+        <div>
+          <h2 className="text-2xl font-bold">Solicitações de Reset de Senha</h2>
+          <p className="text-muted-foreground">
+            Aprove ou rejeite pedidos de redefinição de senha dos colaboradores. Ao aprovar, a senha volta para 123456 e o usuário será obrigado a alterar no próximo acesso.
+          </p>
+        </div>
+      )}
 
       <Card>
         <CardHeader>

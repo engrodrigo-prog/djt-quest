@@ -18,16 +18,16 @@ import { AiQuizGenerator } from '@/components/AiQuizGenerator';
 import { AdminBonusManager } from '@/components/AdminBonusManager';
 import EvaluationManagement from '@/components/EvaluationManagement';
 import { ThemedBackground } from '@/components/ThemedBackground';
-import { PasswordResetManager } from '@/components/PasswordResetManager';
 import { ContentHub } from '@/components/ContentHub';
 import { UserApprovalsHub } from '@/components/UserApprovalsHub';
 import { CampaignManagement } from '@/components/CampaignManagement';
 import { ChallengeManagement } from '@/components/ChallengeManagement';
 import { StudyLab } from '@/components/StudyLab';
 import { StudioMaintenance } from '@/components/StudioMaintenance';
+import { ReportsHub } from '@/components/ReportsHub';
 
 const Studio = () => {
-  const { user, loading, studioAccess, userRole, roleOverride } = useAuth();
+  const { loading, studioAccess, userRole, roleOverride } = useAuth();
   const [selectedModule, setSelectedModule] = useState<string | null>(null);
   const navigate = useNavigate();
 
@@ -101,12 +101,12 @@ const Studio = () => {
         return <EvaluationManagement />;
       case 'user-approvals':
         return <UserApprovalsHub />;
-      case 'password-resets':
-        return <PasswordResetManager />;
       case 'forums':
         return <ForumManagement />;
       case 'forums-manage':
         return <ForumManagement />;
+      case 'reports':
+        return <ReportsHub />;
       case 'system':
         return <SystemHealthCheck />;
       case 'admin':
