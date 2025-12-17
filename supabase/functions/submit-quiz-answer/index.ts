@@ -89,6 +89,71 @@ serve(async (req) => {
     return set;
   };
 
+  const loadChallengeMeta = async (supabase: any, challengeId: string) => {
+    const { data } = await supabase
+      .from('challenges')
+      .select('title, xp_reward, reward_mode, reward_tier_steps, owner_id, created_by')
+      .eq('id', challengeId)
+      .maybeSingle();
+    const title = String((data as any)?.title || '');
+    const xpRewardRaw = (data as any)?.xp_reward;
+    const xpReward =
+      typeof xpRewardRaw === 'number' ? Number(xpRewardRaw) : Number(xpRewardRaw ?? NaN);
+    const ownerId = (data as any)?.owner_id ? String((data as any).owner_id) : null;
+    const createdBy = (data as any)?.created_by ? String((data as any).created_by) : null;
+    const rewardModeRaw = String((data as any)?.reward_mode || '').trim();
+    const rewardTierStepsRaw = (data as any)?.reward_tier_steps;
+    const rewardTierSteps =
+      typeof rewardTierStepsRaw === 'number' ? Number(rewardTierStepsRaw) : null;
+    return {
+      title,
+      xpReward: Number.isFinite(xpReward) ? xpReward : 0,
+      rewardMode: rewardModeRaw,
+      rewardTierSteps,
+      ownerId,
+      createdBy,
+    };
+  };
+
+  const getQuizCounts = async (supabase: any, userId: string, challengeId: string) => {
+    const [{ count: totalQuestions }, { count: answeredQuestions }] = await Promise.all([
+      supabase
+        .from('quiz_questions')
+        .select('id', { count: 'exact', head: true })
+        .eq('challenge_id', challengeId),
+      supabase
+        .from('user_quiz_answers')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', userId)
+        .eq('challenge_id', challengeId),
+    ]);
+    return {
+      totalQuestions: Number(totalQuestions ?? 0),
+      answeredQuestions: Number(answeredQuestions ?? 0),
+      isCompleted: Number(totalQuestions ?? 0) === Number(answeredQuestions ?? 0),
+    };
+  };
+
+  const getTotalXpSoFar = async (supabase: any, userId: string, challengeId: string) => {
+    const { data: allAnswersForTotal } = await supabase
+      .from('user_quiz_answers')
+      .select('xp_earned')
+      .eq('user_id', userId)
+      .eq('challenge_id', challengeId);
+    const totalXpSoFar =
+      allAnswersForTotal?.reduce((sum: number, a: any) => sum + (Number(a?.xp_earned) || 0), 0) || 0;
+    return Math.floor(totalXpSoFar);
+  };
+
+  const computeCompletionBonus = (params: { isMilhao: boolean; challengeXpReward: number; totalXpSoFar: number }) => {
+    if (params.isMilhao) return 0;
+    const target = Number(params.challengeXpReward) || 0;
+    if (target <= 0) return 0;
+    const delta = target - (Number(params.totalXpSoFar) || 0);
+    if (!Number.isFinite(delta)) return 0;
+    return Math.max(0, Math.floor(delta));
+  };
+
   try {
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
@@ -119,15 +184,107 @@ serve(async (req) => {
     // Check if user already answered this question
     const { data: existingAnswer } = await supabase
       .from('user_quiz_answers')
-      .select('id')
+      .select('id, challenge_id, question_id, selected_option_id, is_correct, xp_earned')
       .eq('user_id', user.id)
       .eq('question_id', question_id)
       .maybeSingle();
 
     if (existingAnswer) {
+      const challengeId = String((existingAnswer as any)?.challenge_id || '').trim();
+      if (!challengeId) {
+        return new Response(
+          JSON.stringify({ error: 'Resposta já registrada' }),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      const meta = await loadChallengeMeta(supabase, challengeId);
+      const isMilhao = /milh(ã|a)o/i.test(String(meta.title || ''));
+      const roleSet = await loadRoles(supabase, user.id);
+      const isAdmin = roleSet.has('admin');
+      const isContentCurator = roleSet.has('content_curator');
+      const isOwner =
+        (meta.ownerId && meta.ownerId === user.id) || (meta.createdBy && meta.createdBy === user.id);
+      const canSeeAnswerKey = isAdmin || isContentCurator || isOwner;
+
+      const { isCompleted, totalQuestions } = await getQuizCounts(supabase, user.id, challengeId);
+      const totalXpSoFar = await getTotalXpSoFar(supabase, user.id, challengeId);
+
+      // If quiz is complete but attempt wasn't finalized (e.g., previous request failed mid-way),
+      // finalize now and award completion bonus (best-effort, idempotent via quiz_attempts.submitted_at).
+      let completionBonusEarned = 0;
+      try {
+        const { data: attempt } = await supabase
+          .from('quiz_attempts')
+          .select('submitted_at, reward_total_xp_target')
+          .eq('user_id', user.id)
+          .eq('challenge_id', challengeId)
+          .maybeSingle();
+
+        if (isCompleted && !attempt?.submitted_at) {
+          completionBonusEarned = computeCompletionBonus({
+            isMilhao,
+            challengeXpReward: meta.xpReward,
+            totalXpSoFar,
+          });
+          if (completionBonusEarned > 0) {
+            await supabase.rpc('increment_user_xp', { _user_id: user.id, _xp_to_add: completionBonusEarned });
+          }
+          await supabase
+            .from('quiz_attempts')
+            .upsert(
+              {
+                user_id: user.id,
+                challenge_id: challengeId,
+                submitted_at: new Date().toISOString(),
+                score: totalXpSoFar + completionBonusEarned,
+                max_score: totalQuestions ?? 0,
+              },
+              { onConflict: 'user_id,challenge_id' } as any
+            );
+        }
+      } catch {
+        // ignore
+      }
+
+      // Get correct option ID if user was wrong (restricted)
+      let correctOptionId = null;
+      if (!(existingAnswer as any)?.is_correct && canSeeAnswerKey) {
+        try {
+          const { data: correctOption } = await supabase
+            .from('quiz_options')
+            .select('id')
+            .eq('question_id', question_id)
+            .eq('is_correct', true)
+            .single();
+          correctOptionId = (correctOption as any)?.id || null;
+        } catch {
+          correctOptionId = null;
+        }
+      }
+
+      const { data: profileAfter } = await supabase
+        .from('profiles')
+        .select('xp')
+        .eq('id', user.id)
+        .maybeSingle();
+
       return new Response(
-        JSON.stringify({ error: 'Você já respondeu esta pergunta' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        JSON.stringify({
+          success: true,
+          alreadyAnswered: true,
+          isCorrect: Boolean((existingAnswer as any)?.is_correct),
+          xpEarned: (Number((existingAnswer as any)?.xp_earned) || 0) + completionBonusEarned,
+          explanation: canSeeAnswerKey ? null : null,
+          correctOptionId: canSeeAnswerKey ? correctOptionId : null,
+          answerKeyRestricted: !canSeeAnswerKey,
+          isCompleted: Boolean(isCompleted),
+          endedReason: isCompleted ? 'completed' : undefined,
+          totalXpEarned: isCompleted ? totalXpSoFar + completionBonusEarned : undefined,
+          completionBonusEarned: completionBonusEarned || 0,
+          profileXpAfter: typeof (profileAfter as any)?.xp === 'number' ? (profileAfter as any).xp : null,
+        }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
@@ -178,6 +335,7 @@ serve(async (req) => {
     const isContentCurator = roleSet.has('content_curator');
     const isOwner = Boolean(challengeOwnerId && challengeOwnerId === user.id) || Boolean(challengeCreatedBy && challengeCreatedBy === user.id);
     const canSeeAnswerKey = isAdmin || isContentCurator || isOwner;
+    const completionTargetXp = !isMilhao ? Math.max(0, Math.floor(Number(milhaoConfiguredTotalXp || 0))) : 0;
 
     // Ensure attempt exists and not already submitted
     await supabase
@@ -343,9 +501,28 @@ serve(async (req) => {
     // Calculate total XP earned in this quiz
     let totalXpEarned = 0;
     let endedReason: 'completed' | 'wrong' | null = null;
+    let completionBonusEarned = 0;
 
     if (isCompleted) {
-      totalXpEarned = totalXpSoFar;
+      // Ensure total XP for the quiz reaches challenges.xp_reward when configured (non-milhao).
+      completionBonusEarned = computeCompletionBonus({
+        isMilhao,
+        challengeXpReward: completionTargetXp,
+        totalXpSoFar,
+      });
+      if (completionBonusEarned > 0 && !xpBlockedForLeader) {
+        try {
+          const { error: incBonusErr } = await supabase.rpc('increment_user_xp', {
+            _user_id: user.id,
+            _xp_to_add: completionBonusEarned,
+          });
+          if (incBonusErr) console.error('increment_user_xp bonus failed:', incBonusErr.message || incBonusErr);
+        } catch {
+          // ignore
+        }
+      }
+
+      totalXpEarned = totalXpSoFar + completionBonusEarned;
       endedReason = 'completed';
 
       // finalize attempt (best-effort)
@@ -399,13 +576,14 @@ serve(async (req) => {
       JSON.stringify({
         success: true,
         isCorrect,
-        xpEarned,
+        xpEarned: xpEarned + (endedReason === 'completed' ? completionBonusEarned : 0),
         explanation: canSeeAnswerKey ? option.explanation : null,
         correctOptionId: canSeeAnswerKey ? correctOptionId : null,
         answerKeyRestricted: !canSeeAnswerKey,
         isCompleted: Boolean(endedReason),
         endedReason: endedReason || undefined,
         totalXpEarned: endedReason ? totalXpEarned : undefined,
+        completionBonusEarned: endedReason === 'completed' ? completionBonusEarned : 0,
         xpBlockedForLeader,
         xpApplied,
         profileXpAfter,
