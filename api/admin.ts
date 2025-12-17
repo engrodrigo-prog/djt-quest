@@ -42,6 +42,11 @@ import reportsQuizSummary from '../server/api-handlers/reports-quiz-summary.js';
 import reportsQuestionUsage from '../server/api-handlers/reports-question-usage.js';
 import reportsAccessSummary from '../server/api-handlers/reports-access-summary.js';
 import reportsListQuizzes from '../server/api-handlers/reports-list-quizzes.js';
+import compendiumCatalogImport from '../server/api-handlers/compendium-catalog-import.js';
+import compendiumList from '../server/api-handlers/compendium-list.js';
+import compendiumCreateImport from '../server/api-handlers/compendium-create-import.js';
+import compendiumExtractImport from '../server/api-handlers/compendium-extract-import.js';
+import compendiumFinalizeImport from '../server/api-handlers/compendium-finalize-import.js';
 
 type Handler = (req: VercelRequest, res: VercelResponse) => any | Promise<any>;
 
@@ -85,6 +90,11 @@ const handlers: Record<string, Handler> = {
   'reports-question-usage': reportsQuestionUsage,
   'reports-access-summary': reportsAccessSummary,
   'reports-list-quizzes': reportsListQuizzes,
+  'compendium-catalog-import': compendiumCatalogImport,
+  'compendium-list': compendiumList,
+  'compendium-create-import': compendiumCreateImport,
+  'compendium-extract-import': compendiumExtractImport,
+  'compendium-finalize-import': compendiumFinalizeImport,
 };
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {

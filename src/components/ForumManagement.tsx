@@ -11,6 +11,7 @@ import { toast } from './ui/use-toast';
 import { apiFetch } from '@/lib/api';
 import { MessageSquare, Pin, Lock, CheckCircle, Wand2 } from 'lucide-react';
 import { VoiceRecorderButton } from './VoiceRecorderButton';
+import { CompendiumPicker } from '@/components/CompendiumPicker';
 
 const categories = [
   { value: 'conhecimento_tecnico', label: 'Conhecimento Técnico' },
@@ -27,6 +28,7 @@ export function ForumManagement() {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState('conhecimento_tecnico');
+  const [compOpen, setCompOpen] = useState(false);
   const [cleaning, setCleaning] = useState(false);
   const [range, setRange] = useState<'30' | '60' | '180' | '365'>('30');
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -193,10 +195,41 @@ export function ForumManagement() {
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle>Criar Novo Tópico</CardTitle>
-          <CardDescription>Inicie uma discussão ou compartilhe conhecimento</CardDescription>
+          <div className="flex items-start justify-between gap-3 flex-wrap">
+            <div>
+              <CardTitle>Criar Novo Tópico</CardTitle>
+              <CardDescription>Inicie uma discussão ou compartilhe conhecimento</CardDescription>
+            </div>
+            <Button type="button" variant="outline" size="sm" onClick={() => setCompOpen(true)}>
+              Buscar no Compêndio
+            </Button>
+          </div>
         </CardHeader>
         <CardContent className="space-y-4">
+          <CompendiumPicker
+            open={compOpen}
+            onOpenChange={setCompOpen}
+            onPick={(item) => {
+              const cat = item.final?.catalog || item.final || item.catalog || {};
+              const t = String(cat.title || 'Ocorrência');
+              const summary = String(cat.summary || '').trim();
+              const prompts = Array.isArray(cat.suggested_forum_prompts) ? cat.suggested_forum_prompts : [];
+              const failure = String(cat.failure_mode || '').trim();
+              const root = String(cat.root_cause || '').trim();
+              setTitle(`Debate: ${t}`.slice(0, 200));
+              const body = [
+                summary,
+                failure ? `Modo de falha: ${failure}` : '',
+                root ? `Causa raiz: ${root}` : '',
+                prompts.length ? `Perguntas para debate:\n- ${prompts.slice(0, 5).join('\n- ')}` : '',
+              ]
+                .filter((v) => v && String(v).trim().length > 0)
+                .join('\n\n');
+              setDescription(body);
+            }}
+            title="Buscar ocorrência para base do fórum"
+            description="Selecionar um relatório do Compêndio para gerar um tópico de debate"
+          />
           <div>
             <Label htmlFor="title">Título</Label>
             <Input

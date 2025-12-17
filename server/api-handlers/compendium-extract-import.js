@@ -1,7 +1,10 @@
 import { createSupabaseAdminClient, requireCallerUser } from '../lib/supabase-admin.js';
-import { rolesToSet, canCurate } from '../lib/rbac.js';
+import { rolesToSet } from '../lib/rbac.js';
 import { parseCsvQuestions, parseXlsxQuestions, extractPdfText, extractPlainText } from '../lib/import-parsers.js';
 import { tryInsertAuditLog } from '../lib/audit-log.js';
+
+const STAFF_ROLES = new Set(['admin', 'gerente_djt', 'gerente_divisao_djtx', 'coordenador_djtx', 'content_curator']);
+const LEADER_ROLES = new Set(['lider_equipe']);
 
 const extOf = (p) => {
   const s = String(p || '');
@@ -27,8 +30,17 @@ export default async function handler(req, res) {
 
     const { data: rolesRows } = await admin.from('user_roles').select('role').eq('user_id', caller.id);
     const roleSet = rolesToSet(rolesRows);
-    const isCurator = canCurate(roleSet);
-    if (!isCurator) return res.status(403).json({ error: 'Forbidden' });
+    const { data: profile } = await admin
+      .from('profiles')
+      .select('studio_access, is_leader')
+      .eq('id', caller.id)
+      .maybeSingle();
+
+    const allowed =
+      Boolean(profile?.studio_access) ||
+      Boolean(profile?.is_leader) ||
+      Array.from(roleSet).some((r) => STAFF_ROLES.has(r) || LEADER_ROLES.has(r));
+    if (!allowed) return res.status(403).json({ error: 'Forbidden' });
 
     const { importId, purpose } = req.body || {};
     const id = String(importId || '').trim();
@@ -73,11 +85,11 @@ export default async function handler(req, res) {
 
     await tryInsertAuditLog(admin, {
       actor_id: caller.id,
-      action: 'import.extract',
+      action: 'compendium.import.extract',
       entity_type: 'content_import',
       entity_id: id,
       before_json: { status: imp.status },
-      after_json: { status: updated.status, kind: raw_extract?.kind, questions: raw_extract?.questions?.length || null },
+      after_json: { status: updated.status, kind: raw_extract?.kind, purpose: importPurpose || null },
     });
 
     return res.status(200).json({ success: true, import: updated });
@@ -87,3 +99,4 @@ export default async function handler(req, res) {
 }
 
 export const config = { api: { bodyParser: true } };
+

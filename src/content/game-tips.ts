@@ -22,6 +22,20 @@ export const gameTips: Record<string, GameTip> = {
       '• Ao aplicar em um quiz DRAFT, as perguntas são criadas nas tabelas `quiz_questions` e `quiz_options`.'
     ].join('\n'),
   },
+  'studio-compendium': {
+    title: 'Compêndio de Ocorrências (IA)',
+    body: [
+      'Use este fluxo para subir relatórios de ocorrências (PDF/TXT) e transformar em conhecimento reutilizável.',
+      '',
+      'Pipeline:',
+      '• Upload: o arquivo é enviado para o Storage (bucket `quiz-imports`).',
+      '• Extração: o texto é extraído e salvo em `content_imports.raw_extract`.',
+      '• IA: a IA sugere catalogação (tipo de ativo, modo de falha, causa raiz, severidade, tags e aprendizados).',
+      '• Aprovação: ao salvar, fica disponível no Compêndio para buscar e reutilizar ao criar quizzes, fóruns e desafios.',
+      '',
+      'Objetivo: acelerar aprendizado organizacional (subestações, telecom e linhas) com material real.'
+    ].join('\n'),
+  },
   'studio-content': {
     title: 'Campanhas • Quizzes • Fóruns',
     body: [

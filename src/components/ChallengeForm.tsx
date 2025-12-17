@@ -18,6 +18,7 @@ import { QuizQuestionForm } from "./QuizQuestionForm";
 import { QuizQuestionsList } from "./QuizQuestionsList";
 import { AttachmentUploader } from "@/components/AttachmentUploader";
 import { VoiceRecorderButton } from "@/components/VoiceRecorderButton";
+import { CompendiumPicker } from "@/components/CompendiumPicker";
 
 interface Campaign {
   id: string;
@@ -59,6 +60,7 @@ export const ChallengeForm = () => {
   const [campaignDialogOpen, setCampaignDialogOpen] = useState(false);
   const [newCampaign, setNewCampaign] = useState({ title: '', description: '', start: '', end: '' });
   const [coverUrl, setCoverUrl] = useState<string | null>(null);
+  const [compOpen, setCompOpen] = useState(false);
 
   const {
     register,
@@ -288,12 +290,40 @@ export const ChallengeForm = () => {
   };
 
   return (
-    <Card>
+    <>
+      <CompendiumPicker
+        open={compOpen}
+        onOpenChange={setCompOpen}
+        onPick={(item) => {
+          const cat = item.final?.catalog || item.final || item.catalog || {};
+          const t = String(cat.title || "Ocorrência");
+          const summary = String(cat.summary || "").trim();
+          const failure = String(cat.failure_mode || "").trim();
+          const root = String(cat.root_cause || "").trim();
+          setValue("title", `Desafio: ${t}`.slice(0, 200) as any, { shouldDirty: true, shouldValidate: true });
+          const body = [summary, failure ? `Modo de falha: ${failure}` : "", root ? `Causa raiz: ${root}` : ""]
+            .filter((v) => v && String(v).trim().length > 0)
+            .join("\n\n");
+          setValue("description", body as any, { shouldDirty: true, shouldValidate: true });
+          const area = String(cat.asset_area || "").toLowerCase();
+          if (area) setValue("theme", area.slice(0, 80) as any, { shouldDirty: true });
+        }}
+        title="Buscar ocorrência para base do desafio"
+        description="Selecionar um relatório do Compêndio para pré-preencher o desafio/ação"
+      />
+      <Card>
       <CardHeader>
-        <CardTitle>Criar Novo Desafio</CardTitle>
-        <CardDescription>
-          Configure um desafio com alvos específicos e requisitos
-        </CardDescription>
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div>
+            <CardTitle>Criar Novo Desafio</CardTitle>
+            <CardDescription>
+              Configure um desafio com alvos específicos e requisitos
+            </CardDescription>
+          </div>
+          <Button type="button" variant="outline" size="sm" onClick={() => setCompOpen(true)}>
+            Buscar no Compêndio
+          </Button>
+        </div>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
@@ -727,5 +757,6 @@ export const ChallengeForm = () => {
         </CardContent>
       )}
     </Card>
+    </>
   );
 };

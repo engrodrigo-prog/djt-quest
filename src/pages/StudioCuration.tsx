@@ -51,6 +51,7 @@ export default function StudioCuration() {
 
   const isAdmin = userRole === 'admin' || userRole === 'gerente_djt';
   const canCurate = isContentCurator || isAdmin;
+  const canCompendium = canCurate || String(userRole || '').includes('lider') || String(userRole || '').includes('coordenador') || String(userRole || '').includes('gerente');
 
   const [tab, setTab] = useState(canCurate ? 'inbox' : 'my');
   const [loading, setLoading] = useState(true);
@@ -261,6 +262,25 @@ export default function StudioCuration() {
 
   const draftQuizzes = useMemo(() => quizzes.filter((q) => String(q.quiz_workflow_status || 'PUBLISHED') === 'DRAFT'), [quizzes]);
 
+  // --- Compendium pipeline (incident reports) ---
+  const [occFile, setOccFile] = useState<File | null>(null);
+  const [occLoading, setOccLoading] = useState(false);
+  const [occRow, setOccRow] = useState<any | null>(null);
+  const [occDraft, setOccDraft] = useState<any | null>(null);
+  const [compendiumItems, setCompendiumItems] = useState<any[]>([]);
+  const [compSearch, setCompSearch] = useState('');
+
+  const loadCompendium = useCallback(async () => {
+    try {
+      const resp = await apiFetch('/api/admin?handler=compendium-list', { method: 'GET', cache: 'no-store' });
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(json?.error || 'Falha ao carregar compêndio');
+      setCompendiumItems(Array.isArray(json?.items) ? json.items : []);
+    } catch {
+      setCompendiumItems([]);
+    }
+  }, []);
+
   const runImport = async () => {
     if (!importFile || !user) return;
     setImportLoading(true);
@@ -303,6 +323,107 @@ export default function StudioCuration() {
       toast.error(e?.message || 'Falha no import');
     } finally {
       setImportLoading(false);
+    }
+  };
+
+  const runOccUpload = async () => {
+    if (!occFile || !user) return;
+    setOccLoading(true);
+    try {
+      const userId = user.id;
+      const safeName = String(occFile.name || 'arquivo')
+        .replace(/[^a-zA-Z0-9._-]/g, '_')
+        .slice(0, 80);
+      const path = `${userId}/occurrences/${Date.now()}-${Math.random().toString(36).slice(2)}-${safeName}`;
+
+      const { error: upErr } = await supabase.storage.from('quiz-imports').upload(path, occFile, {
+        upsert: false,
+        cacheControl: '3600',
+        contentType: occFile.type || undefined,
+      } as any);
+      if (upErr) throw upErr;
+
+      const createResp = await apiFetch('/api/admin?handler=compendium-create-import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source_bucket: 'quiz-imports', source_path: path, source_mime: occFile.type }),
+      });
+      const createJson = await createResp.json().catch(() => ({}));
+      if (!createResp.ok) throw new Error(createJson?.error || 'Falha ao registrar upload');
+
+      const importId = createJson?.import?.id;
+      if (!importId) throw new Error('Import id ausente');
+
+      const extractResp = await apiFetch('/api/admin?handler=compendium-extract-import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ importId, purpose: 'incident' }),
+      });
+      const extractJson = await extractResp.json().catch(() => ({}));
+      if (!extractResp.ok) throw new Error(extractJson?.error || 'Falha ao extrair texto');
+
+      setOccRow(extractJson?.import || null);
+      setOccDraft(null);
+      toast.success('Relatório extraído');
+    } catch (e: any) {
+      toast.error(e?.message || 'Falha ao processar relatório');
+    } finally {
+      setOccLoading(false);
+    }
+  };
+
+  const runOccAiCatalog = async () => {
+    if (!occRow?.id) return;
+    setOccLoading(true);
+    try {
+      const resp = await apiFetch('/api/admin?handler=compendium-catalog-import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ importId: occRow.id }),
+      });
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(json?.error || 'Falha na catalogação');
+      const updated = json?.import || null;
+      setOccRow(updated);
+      const catalog = updated?.ai_suggested?.catalog || null;
+      setOccDraft(catalog ? { ...catalog } : null);
+      toast.success(`Catalogado com IA (${json?.usedModel || 'modelo'})`);
+    } catch (e: any) {
+      toast.error(e?.message || 'Falha na IA');
+    } finally {
+      setOccLoading(false);
+    }
+  };
+
+  const saveOccToCompendium = async () => {
+    if (!occRow?.id || !occDraft) return;
+    const title = String(occDraft.title || '').trim();
+    const summary = String(occDraft.summary || '').trim();
+    if (!title || !summary) {
+      toast.error('Preencha pelo menos título e resumo');
+      return;
+    }
+    setOccLoading(true);
+    try {
+      const final = {
+        kind: 'incident_report',
+        catalog: occDraft,
+        source: { bucket: occRow.source_bucket, path: occRow.source_path, mime: occRow.source_mime || null },
+      };
+      const resp = await apiFetch('/api/admin?handler=compendium-finalize-import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ importId: occRow.id, final }),
+      });
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(json?.error || 'Falha ao salvar no compêndio');
+      setOccRow(json?.import || occRow);
+      toast.success('Salvo no Compêndio');
+      await loadCompendium();
+    } catch (e: any) {
+      toast.error(e?.message || 'Falha ao salvar');
+    } finally {
+      setOccLoading(false);
     }
   };
 
@@ -415,6 +536,7 @@ export default function StudioCuration() {
             {canCurate && <TabsTrigger value="inbox">Fila (SUBMITTED)</TabsTrigger>}
             {canCurate && <TabsTrigger value="all">Todos</TabsTrigger>}
             {canCurate && <TabsTrigger value="import">Importar questões</TabsTrigger>}
+            {canCompendium && <TabsTrigger value="compendium">Ocorrências (Compêndio)</TabsTrigger>}
           </TabsList>
 
           <TabsContent value="my">
@@ -580,6 +702,185 @@ export default function StudioCuration() {
                 )}
               </CardContent>
             </Card>
+          </TabsContent>
+
+          <TabsContent value="compendium">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <Card>
+                <CardHeader>
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <CardTitle className="flex items-center gap-2">
+                        Subir relatório de ocorrência
+                        <TipDialogButton tipId="studio-compendium" ariaLabel="Entenda o Compêndio de Ocorrências" />
+                      </CardTitle>
+                      <CardDescription>
+                        Faça upload (PDF/TXT), extraia o texto, cataloge com IA e salve no Compêndio
+                      </CardDescription>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>Arquivo (PDF/TXT)</Label>
+                    <Input
+                      type="file"
+                      accept=".pdf,.txt,application/pdf,text/plain"
+                      onChange={(e) => setOccFile(e.target.files?.[0] || null)}
+                    />
+                    <div className="flex gap-2 flex-wrap">
+                      <Button type="button" onClick={runOccUpload} disabled={!occFile || occLoading}>
+                        {occLoading ? 'Processando...' : 'Extrair texto'}
+                      </Button>
+                      <Button type="button" variant="outline" onClick={runOccAiCatalog} disabled={!occRow?.raw_extract?.text || occLoading}>
+                        Catalogar com IA
+                      </Button>
+                      <Button type="button" variant="default" onClick={saveOccToCompendium} disabled={!occDraft || occLoading}>
+                        Salvar no Compêndio
+                      </Button>
+                      <Button type="button" variant="outline" onClick={loadCompendium} disabled={occLoading}>
+                        Atualizar lista
+                      </Button>
+                    </div>
+                  </div>
+
+                  {occRow?.raw_extract?.text && (
+                    <div className="space-y-2">
+                      <Label>Texto extraído (prévia)</Label>
+                      <Textarea value={String(occRow.raw_extract.text).slice(0, 1200)} readOnly rows={8} />
+                      <p className="text-xs text-muted-foreground">
+                        {String(occRow.raw_extract.text).length > 1200 ? 'Prévia limitada a 1200 caracteres.' : ''}
+                      </p>
+                    </div>
+                  )}
+
+                  {occDraft && (
+                    <div className="space-y-3">
+                      <div className="space-y-1">
+                        <Label>Título</Label>
+                        <Input
+                          value={String(occDraft.title || '')}
+                          onChange={(e) => setOccDraft((p: any) => ({ ...(p || {}), title: e.target.value }))}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label>Resumo</Label>
+                        <Textarea
+                          value={String(occDraft.summary || '')}
+                          onChange={(e) => setOccDraft((p: any) => ({ ...(p || {}), summary: e.target.value }))}
+                          rows={4}
+                        />
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <Label>Área (subestacao/telecom/linhas)</Label>
+                          <Input
+                            value={String(occDraft.asset_area || '')}
+                            onChange={(e) => setOccDraft((p: any) => ({ ...(p || {}), asset_area: e.target.value }))}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label>Tipo de ativo</Label>
+                          <Input
+                            value={String(occDraft.asset_type || '')}
+                            onChange={(e) => setOccDraft((p: any) => ({ ...(p || {}), asset_type: e.target.value }))}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label>Modo de falha</Label>
+                          <Input
+                            value={String(occDraft.failure_mode || '')}
+                            onChange={(e) => setOccDraft((p: any) => ({ ...(p || {}), failure_mode: e.target.value }))}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label>Causa raiz</Label>
+                          <Input
+                            value={String(occDraft.root_cause || '')}
+                            onChange={(e) => setOccDraft((p: any) => ({ ...(p || {}), root_cause: e.target.value }))}
+                          />
+                        </div>
+                      </div>
+                      <div className="space-y-1">
+                        <Label>Palavras-chave (separe por vírgula)</Label>
+                        <Input
+                          value={Array.isArray(occDraft.keywords) ? occDraft.keywords.join(', ') : String(occDraft.keywords || '')}
+                          onChange={(e) =>
+                            setOccDraft((p: any) => ({
+                              ...(p || {}),
+                              keywords: e.target.value.split(',').map((s) => s.trim()).filter(Boolean),
+                            }))
+                          }
+                        />
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Compêndio (itens aprovados)</CardTitle>
+                  <CardDescription>Base de conhecimento reutilizável para quizzes, fóruns e desafios</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <Input value={compSearch} onChange={(e) => setCompSearch(e.target.value)} placeholder="Buscar no compêndio..." />
+                    <Button type="button" variant="outline" onClick={loadCompendium}>
+                      Recarregar
+                    </Button>
+                  </div>
+                  {(compendiumItems || [])
+                    .filter((it) => {
+                      const q = compSearch.trim().toLowerCase();
+                      if (!q) return true;
+                      const cat = it?.final?.catalog || it?.final || it?.catalog || {};
+                      const hay = [
+                        cat?.title,
+                        cat?.summary,
+                        cat?.asset_area,
+                        cat?.asset_type,
+                        cat?.failure_mode,
+                        cat?.root_cause,
+                        ...(Array.isArray(cat?.keywords) ? cat.keywords : []),
+                      ]
+                        .map((v) => String(v || '').toLowerCase())
+                        .join(' ');
+                      return hay.includes(q);
+                    })
+                    .slice(0, 30)
+                    .map((it) => {
+                      const cat = it?.final?.catalog || it?.final || it?.catalog || {};
+                      return (
+                        <div key={it.id} className="border rounded-md p-3 bg-black/20 border-white/10 space-y-1">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="text-sm font-semibold text-blue-50 truncate">{String(cat?.title || 'Ocorrência')}</div>
+                              <div className="text-xs text-muted-foreground truncate">
+                                {String(cat?.asset_area || '—')} • {String(cat?.asset_type || '—')} • {String(cat?.failure_mode || '—')}
+                              </div>
+                              <div className="text-xs text-muted-foreground truncate">Causa raiz: {String(cat?.root_cause || '—')}</div>
+                            </div>
+                            <Badge variant="secondary" className="text-[10px]">APROVADO</Badge>
+                          </div>
+                          {Array.isArray(cat?.keywords) && cat.keywords.length > 0 && (
+                            <div className="flex flex-wrap gap-1 pt-1">
+                              {cat.keywords.slice(0, 6).map((k: string) => (
+                                <Badge key={`${it.id}-${k}`} variant="outline" className="text-[10px]">
+                                  {k}
+                                </Badge>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  {compendiumItems.length === 0 && (
+                    <p className="text-sm text-muted-foreground">Nenhum item aprovado ainda.</p>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
           </TabsContent>
         </Tabs>
 

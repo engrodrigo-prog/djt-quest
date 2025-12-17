@@ -104,3 +104,7 @@ export async function extractPdfText(buffer) {
   return String(data?.text || '').trim();
 }
 
+export function extractPlainText(buffer) {
+  const text = Buffer.isBuffer(buffer) ? buffer.toString('utf-8') : String(buffer || '');
+  return String(text || '').trim();
+}

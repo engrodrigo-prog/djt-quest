@@ -16,6 +16,7 @@ import { QuizQuestionForm } from './QuizQuestionForm';
 import { QuizQuestionsList } from './QuizQuestionsList';
 import { AiQuizGenerator } from './AiQuizGenerator';
 import { apiFetch } from '@/lib/api';
+import { CompendiumPicker } from '@/components/CompendiumPicker';
 
 const quizSchema = z.object({
   title: z.string().min(3, "Título deve ter no mínimo 3 caracteres"),
@@ -38,6 +39,7 @@ export function QuizCreationWizard() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmittingForCuration, setIsSubmittingForCuration] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [compOpen, setCompOpen] = useState(false);
   const navigate = useNavigate();
 
   const { register, handleSubmit, formState: { errors }, setValue } = useForm<QuizFormData>({
@@ -176,9 +178,38 @@ export function QuizCreationWizard() {
           </CardTitle>
         </CardHeader>
         <CardContent>
+          <CompendiumPicker
+            open={compOpen}
+            onOpenChange={setCompOpen}
+            onPick={(item) => {
+              const cat = item.final?.catalog || item.final || item.catalog || {};
+              const title = String(cat.title || 'Ocorrência');
+              const summary = String(cat.summary || '').trim();
+              const tags = Array.isArray(cat.keywords) ? cat.keywords : [];
+              const failure = String(cat.failure_mode || '').trim();
+              const root = String(cat.root_cause || '').trim();
+              setValue('title', `Quiz: ${title}`.replace(/^Quiz:\s*/i, 'Quiz: '), { shouldValidate: true, shouldDirty: true });
+              const body = [
+                summary,
+                failure ? `Modo de falha: ${failure}` : '',
+                root ? `Causa raiz: ${root}` : '',
+                tags.length ? `Palavras-chave: ${tags.join(', ')}` : '',
+              ]
+                .filter((v) => v && String(v).trim().length > 0)
+                .join('\n');
+              setValue('description', body, { shouldValidate: true, shouldDirty: true });
+            }}
+            title="Buscar ocorrência para base do quiz"
+            description="Selecionar um relatório do Compêndio para pré-preencher título e contexto do quiz"
+          />
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="title">Título do Quiz</Label>
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="title">Título do Quiz</Label>
+                <Button type="button" variant="outline" size="sm" onClick={() => setCompOpen(true)}>
+                  Buscar no Compêndio
+                </Button>
+              </div>
               <Input
                 id="title"
                 {...register('title')}
