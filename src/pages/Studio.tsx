@@ -16,10 +16,7 @@ import { SystemHealthCheck } from '@/components/SystemHealthCheck';
 import { QuizCreationWizard } from '@/components/QuizCreationWizard';
 import { AiQuizGenerator } from '@/components/AiQuizGenerator';
 import { AdminBonusManager } from '@/components/AdminBonusManager';
-import { PendingRegistrationsManager } from '@/components/PendingRegistrationsManager';
-import { UserManagement } from '@/components/UserManagement';
 import EvaluationManagement from '@/components/EvaluationManagement';
-import { PendingApprovals } from '@/components/PendingApprovals';
 import { ThemedBackground } from '@/components/ThemedBackground';
 import { PasswordResetManager } from '@/components/PasswordResetManager';
 import { ContentHub } from '@/components/ContentHub';
@@ -100,8 +97,6 @@ const Studio = () => {
         return <StudioMaintenance />;
       case 'team-bonus':
         return <TeamEventForm />;
-      case 'user-management':
-        return <UserManagement />;
       case 'evaluations':
         return <EvaluationManagement />;
       case 'user-approvals':
