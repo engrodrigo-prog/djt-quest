@@ -12,7 +12,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
-import buriniImg from "@/assets/backgrounds/burini.png";
+import buriniImg from "@/assets/backgrounds/burini.webp";
 
 interface QuizPlayerProps {
   challengeId: string;

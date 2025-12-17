@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Play } from 'lucide-react';
-import djtCover from '@/assets/backgrounds/djt-quest-cover.png';
+import djtCover from '@/assets/backgrounds/djt-quest-cover.webp';
 
   const Home = () => {
   const navigate = useNavigate();

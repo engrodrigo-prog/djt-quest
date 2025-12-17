@@ -13,7 +13,7 @@ import { Check, ChevronsUpDown, Wand2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import djtCover from '@/assets/backgrounds/djt-quest-cover.png';
+import djtCover from '@/assets/backgrounds/djt-quest-cover.webp';
 import { apiFetch } from "@/lib/api";
 import { buildAbsoluteAppUrl, openWhatsAppShare } from "@/lib/whatsappShare";
 

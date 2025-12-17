@@ -1,15 +1,15 @@
 import { useEffect, useRef, useState, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 //
-import iconHome from '@/assets/backgrounds/home.png';
-import iconRanking from '@/assets/backgrounds/Ranking.png';
-import iconAvaliar from '@/assets/backgrounds/avaliar.png';
-import iconForum from '@/assets/backgrounds/Forum.png';
-import iconStudio from '@/assets/backgrounds/studio.png';
-import iconProfile from '@/assets/backgrounds/perfil.png';
-import iconLogout from '@/assets/backgrounds/SAIR.png';
-import iconSEPBook from '@/assets/backgrounds/SEPbook.png';
-import iconStudy from '@/assets/backgrounds/studylab.png';
+import iconHome from '@/assets/backgrounds/home.webp';
+import iconRanking from '@/assets/backgrounds/Ranking.webp';
+import iconAvaliar from '@/assets/backgrounds/avaliar.webp';
+import iconForum from '@/assets/backgrounds/Forum.webp';
+import iconStudio from '@/assets/backgrounds/studio.webp';
+import iconProfile from '@/assets/backgrounds/perfil.webp';
+import iconLogout from '@/assets/backgrounds/SAIR.webp';
+import iconSEPBook from '@/assets/backgrounds/SEPbook.webp';
+import iconStudy from '@/assets/backgrounds/studylab.webp';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useAuth } from '@/contexts/AuthContext';
@@ -17,7 +17,7 @@ import { cn } from '@/lib/utils';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { apiFetch } from '@/lib/api';
 import { ChangePasswordCard } from '@/components/profile/ChangePasswordCard';
-import bgMenu from '@/assets/backgrounds/BG Menu.png';
+import bgMenu from '@/assets/backgrounds/BG Menu.webp';
 
 const Navigation = () => {
   const navigate = useNavigate();

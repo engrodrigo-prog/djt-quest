@@ -12,7 +12,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Command, CommandEmpty, CommandGroup, CommandItem, CommandList, CommandInput } from "@/components/ui/command";
 import { cn } from "@/lib/utils";
 import { Check, ChevronsUpDown } from "lucide-react";
-import registerBg from "@/assets/backgrounds/BG.png";
+import registerBg from "@/assets/backgrounds/BG.webp";
 
 const registerSchema = z.object({
   name: z.string()

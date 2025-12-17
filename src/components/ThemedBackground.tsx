@@ -1,6 +1,6 @@
 import { Shield } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import appBg from '@/assets/backgrounds/BG.png'
+import appBg from '@/assets/backgrounds/BG.webp'
 
 type ThemeKey = 'conhecimento' | 'habilidades' | 'atitude' | 'seguranca'
 
