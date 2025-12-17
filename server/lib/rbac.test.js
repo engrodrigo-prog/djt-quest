@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { ROLE, normalizeRole, rolesToSet, canCurate, canManageUsers } from './rbac.js';
+import { ROLE, normalizeRole, rolesToSet, canCurate, canManageUsers, canSeeAnswerKey, studioLandingPath } from './rbac.js';
 
 test('normalizeRole maps legacy roles', () => {
   assert.equal(normalizeRole('gerente'), 'gerente_djt');
@@ -26,6 +26,21 @@ test('canManageUsers true for management roles', () => {
   assert.equal(canManageUsers(new Set([ROLE.MANAGER])), true);
   assert.equal(canManageUsers(new Set([ROLE.DIV_MANAGER])), true);
   assert.equal(canManageUsers(new Set([ROLE.COORD])), true);
+  assert.equal(canManageUsers(new Set([ROLE.TEAM_LEADER])), true);
   assert.equal(canManageUsers(new Set([ROLE.CONTENT_CURATOR])), false);
+  assert.equal(canManageUsers({ roleSet: new Set(), profile: { is_leader: true } }), true);
 });
 
+test('canSeeAnswerKey allows admin/curator/owner only', () => {
+  assert.equal(canSeeAnswerKey({ roleSet: new Set([ROLE.ADMIN]), isOwner: false }), true);
+  assert.equal(canSeeAnswerKey({ roleSet: new Set([ROLE.CONTENT_CURATOR]), isOwner: false }), true);
+  assert.equal(canSeeAnswerKey({ roleSet: new Set([ROLE.MANAGER]), isOwner: false }), false);
+  assert.equal(canSeeAnswerKey({ roleSet: new Set([ROLE.INVITED]), isOwner: false }), false);
+  assert.equal(canSeeAnswerKey({ roleSet: new Set(), isOwner: true }), true);
+});
+
+test('studioLandingPath redirects curator to /studio/curadoria', () => {
+  assert.equal(studioLandingPath({ roleSet: new Set([ROLE.CONTENT_CURATOR]) }), '/studio/curadoria');
+  assert.equal(studioLandingPath({ roleSet: new Set([ROLE.ADMIN, ROLE.CONTENT_CURATOR]) }), '/studio');
+  assert.equal(studioLandingPath({ roleSet: new Set([ROLE.TEAM_LEADER]) }), '/studio');
+});

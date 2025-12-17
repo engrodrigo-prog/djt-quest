@@ -73,14 +73,20 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ error: 'Usuário não autenticado' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
     }
 
-    // Permission: must be gerente/coordenador
+    // Permission: LEADER/ADMIN only (leader may be team leader role or legacy profile flag).
     const { data: roles } = await supabaseAdmin
       .from('user_roles')
       .select('role')
       .eq('user_id', caller.id)
 
-    const allowed = new Set(['gerente_djt','gerente_divisao_djtx','coordenador_djtx','admin'])
-    const hasPermission = (roles || []).some(r => allowed.has(r.role as string))
+    const { data: callerProfile } = await supabaseAdmin
+      .from('profiles')
+      .select('is_leader')
+      .eq('id', caller.id)
+      .maybeSingle()
+
+    const allowed = new Set(['gerente_djt','gerente_divisao_djtx','coordenador_djtx','lider_equipe','admin'])
+    const hasPermission = Boolean(callerProfile?.is_leader) || (roles || []).some(r => allowed.has(r.role as string))
     if (!hasPermission) {
       return new Response(JSON.stringify({ error: 'Sem permissão' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
     }

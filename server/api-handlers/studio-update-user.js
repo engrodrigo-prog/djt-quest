@@ -28,8 +28,8 @@ export default async function handler(req, res) {
         // Permission check: user management remains restricted (leaders/managers/admin)
         // - Admin/gerentes/coordenadores always allowed
         // - Leaders (profile flag) allowed for limited role assignment only
-        const isManagement = canManageUsers(callerRoleSet);
-        const isLeaderFlag = Boolean(callerProfile?.is_leader);
+        const isManagement = canManageUsers({ roleSet: callerRoleSet, profile: callerProfile });
+        const isLeaderFlag = Boolean(callerProfile?.is_leader) || callerRoleSet.has(ROLE.TEAM_LEADER);
         const hasPermission = isManagement || isLeaderFlag;
         if (!hasPermission) return res.status(403).json({ error: 'Sem permissão' });
 

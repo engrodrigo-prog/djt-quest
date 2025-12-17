@@ -8,6 +8,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { CompleteProfile } from "./components/CompleteProfile";
+import { STUDIO_ALLOWED_ROLES } from "../shared/rbac.js";
 const Home = lazy(() => import("./pages/Home"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const Auth = lazy(() => import("./pages/Auth"));
@@ -40,8 +41,6 @@ const LEADER_ALLOWED_ROLES = [
   'gerente',
   'lider_equipe',
 ];
-
-const STUDIO_ALLOWED_ROLES = [...LEADER_ALLOWED_ROLES, 'content_curator'];
 
 const ProfileCheckWrapper = ({ children }: { children: React.ReactNode }) => {
   const { profile, loading } = useAuth();

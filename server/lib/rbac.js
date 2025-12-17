@@ -1,54 +1,13 @@
-export const ROLE = Object.freeze({
-  ADMIN: 'admin',
-  MANAGER: 'gerente_djt',
-  DIV_MANAGER: 'gerente_divisao_djtx',
-  COORD: 'coordenador_djtx',
-  TEAM_LEADER: 'lider_equipe',
-  COLLAB: 'colaborador',
-  INVITED: 'invited',
-  CONTENT_CURATOR: 'content_curator',
-});
+export { ROLE, ROLE_ALIASES, normalizeRole, rolesToSet, hasRole, isAdmin, canCurate, canSeeAnswerKey, studioLandingPath, STUDIO_ALLOWED_ROLES } from '../../shared/rbac.js';
 
-export const ROLE_ALIASES = Object.freeze({
-  gerente: ROLE.MANAGER,
-  lider_divisao: ROLE.DIV_MANAGER,
-  coordenador: ROLE.COORD,
-});
+import { ROLE, normalizeRole, rolesToSet, hasRole, isAdmin, canCurate, canAssignRoles } from '../../shared/rbac.js';
 
-export function normalizeRole(raw) {
-  const r = String(raw || '').trim();
-  if (!r) return '';
-  return ROLE_ALIASES[r] || r;
-}
-
-export function rolesToSet(rows) {
-  const set = new Set();
-  for (const row of rows || []) {
-    const r = normalizeRole(row?.role);
-    if (r) set.add(r);
-  }
-  return set;
-}
-
-export function hasRole(roleSet, role) {
-  return Boolean(roleSet && roleSet.has(role));
-}
-
-export function isAdmin(roleSet) {
-  return hasRole(roleSet, ROLE.ADMIN);
-}
-
-export function canCurate(roleSet) {
-  return hasRole(roleSet, ROLE.CONTENT_CURATOR) || hasRole(roleSet, ROLE.ADMIN);
-}
-
-export function canManageUsers(roleSet) {
-  return (
-    hasRole(roleSet, ROLE.ADMIN) ||
-    hasRole(roleSet, ROLE.MANAGER) ||
-    hasRole(roleSet, ROLE.DIV_MANAGER) ||
-    hasRole(roleSet, ROLE.COORD)
-  );
+export function canManageUsers(params) {
+  // Kept for compatibility with existing code (previously accepted only roleSet).
+  if (params instanceof Set) return canAssignRoles({ roleSet: params, profile: {} });
+  const roleSet = params?.roleSet;
+  const profile = params?.profile || {};
+  return canAssignRoles({ roleSet, profile });
 }
 
 export function canAccessStudio(params) {
@@ -58,7 +17,7 @@ export function canAccessStudio(params) {
     Boolean(profile?.studio_access) ||
     Boolean(profile?.is_leader) ||
     hasRole(roleSet, ROLE.TEAM_LEADER) ||
-    canManageUsers(roleSet) ||
+    canManageUsers({ roleSet, profile }) ||
     canCurate(roleSet)
   );
 }

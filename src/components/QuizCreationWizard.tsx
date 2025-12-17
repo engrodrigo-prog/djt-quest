@@ -66,7 +66,9 @@ export function QuizCreationWizard() {
       setValue('xp_reward', 20);
       // Clear so it won't prefill again unexpectedly
       localStorage.removeItem('studio_compendium_draft');
-    } catch {}
+    } catch {
+      void 0;
+    }
   }, [setValue]);
 
   const onSubmit = async (data: QuizFormData) => {
