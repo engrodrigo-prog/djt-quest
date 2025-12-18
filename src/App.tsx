@@ -6,6 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
+import { I18nProvider } from "./contexts/I18nContext";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { CompleteProfile } from "./components/CompleteProfile";
 import { STUDIO_ALLOWED_ROLES } from "../shared/rbac.js";
@@ -63,95 +64,97 @@ const App = () => (
       <Sonner />
       <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <AuthProvider>
-          <StudioWelcomeToast />
-          <Suspense
-            fallback={
-              <div className="min-h-screen flex items-center justify-center">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
-              </div>
-            }
-          >
-          <Routes>
-            <Route path="/auth" element={<Auth />} />
-            <Route path="/register" element={<Register />} />
-            <Route path="/user-setup" element={<UserSetup />} />
-          <Route path="/" element={<Home />} />
-            <Route path="/dashboard" element={
-              <ProtectedRoute>
-                <ProfileCheckWrapper>
-                  <Dashboard />
-                </ProfileCheckWrapper>
-              </ProtectedRoute>
-            } />
-            <Route path="/challenge/:id" element={
-              <ProtectedRoute>
-                <ChallengeDetail />
-              </ProtectedRoute>
-            } />
-            <Route path="/campaign/:campaignId" element={
-              <ProtectedRoute>
-                <CampaignDetail />
-              </ProtectedRoute>
-            } />
-            <Route path="/evaluations" element={
-              <ProtectedRoute requireLeader allowedRoles={LEADER_ALLOWED_ROLES}>
-                <Evaluations />
-              </ProtectedRoute>
-            } />
-            <Route path="/studio" element={
-              <ProtectedRoute requireStudio allowedRoles={STUDIO_ALLOWED_ROLES}>
-                <Studio />
-              </ProtectedRoute>
-            } />
-            <Route path="/studio/curadoria" element={
-              <ProtectedRoute requireStudio allowedRoles={STUDIO_ALLOWED_ROLES}>
-                <StudioCuration />
-              </ProtectedRoute>
-            } />
-            <Route path="/leader-dashboard" element={
-              <ProtectedRoute requireLeader allowedRoles={LEADER_ALLOWED_ROLES}>
-                <LeaderDashboard />
-              </ProtectedRoute>
-            } />
-            <Route path="/profile" element={
-              <ProtectedRoute>
-                <Profile />
-              </ProtectedRoute>
-            } />
-            <Route path="/rankings" element={
-              <ProtectedRoute>
-                <Rankings />
-              </ProtectedRoute>
-            } />
-            <Route path="/forums" element={
-              <ProtectedRoute>
-                <Forums />
-              </ProtectedRoute>
-            } />
-            <Route path="/forums/insights" element={
-              <ProtectedRoute>
-                <ForumInsights />
-              </ProtectedRoute>
-            } />
-            <Route path="/sepbook" element={
-              <ProtectedRoute>
-                <SEPBook />
-              </ProtectedRoute>
-            } />
-            <Route path="/study" element={
-              <ProtectedRoute>
-                <Study />
-              </ProtectedRoute>
-            } />
-            <Route path="/forum/:topicId" element={
-              <ProtectedRoute>
-                <ForumTopic />
-              </ProtectedRoute>
-            } />
-            {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-          </Suspense>
+          <I18nProvider>
+            <StudioWelcomeToast />
+            <Suspense
+              fallback={
+                <div className="min-h-screen flex items-center justify-center">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+                </div>
+              }
+            >
+            <Routes>
+              <Route path="/auth" element={<Auth />} />
+              <Route path="/register" element={<Register />} />
+              <Route path="/user-setup" element={<UserSetup />} />
+            <Route path="/" element={<Home />} />
+              <Route path="/dashboard" element={
+                <ProtectedRoute>
+                  <ProfileCheckWrapper>
+                    <Dashboard />
+                  </ProfileCheckWrapper>
+                </ProtectedRoute>
+              } />
+              <Route path="/challenge/:id" element={
+                <ProtectedRoute>
+                  <ChallengeDetail />
+                </ProtectedRoute>
+              } />
+              <Route path="/campaign/:campaignId" element={
+                <ProtectedRoute>
+                  <CampaignDetail />
+                </ProtectedRoute>
+              } />
+              <Route path="/evaluations" element={
+                <ProtectedRoute requireLeader allowedRoles={LEADER_ALLOWED_ROLES}>
+                  <Evaluations />
+                </ProtectedRoute>
+              } />
+              <Route path="/studio" element={
+                <ProtectedRoute requireStudio allowedRoles={STUDIO_ALLOWED_ROLES}>
+                  <Studio />
+                </ProtectedRoute>
+              } />
+              <Route path="/studio/curadoria" element={
+                <ProtectedRoute requireStudio allowedRoles={STUDIO_ALLOWED_ROLES}>
+                  <StudioCuration />
+                </ProtectedRoute>
+              } />
+              <Route path="/leader-dashboard" element={
+                <ProtectedRoute requireLeader allowedRoles={LEADER_ALLOWED_ROLES}>
+                  <LeaderDashboard />
+                </ProtectedRoute>
+              } />
+              <Route path="/profile" element={
+                <ProtectedRoute>
+                  <Profile />
+                </ProtectedRoute>
+              } />
+              <Route path="/rankings" element={
+                <ProtectedRoute>
+                  <Rankings />
+                </ProtectedRoute>
+              } />
+              <Route path="/forums" element={
+                <ProtectedRoute>
+                  <Forums />
+                </ProtectedRoute>
+              } />
+              <Route path="/forums/insights" element={
+                <ProtectedRoute>
+                  <ForumInsights />
+                </ProtectedRoute>
+              } />
+              <Route path="/sepbook" element={
+                <ProtectedRoute>
+                  <SEPBook />
+                </ProtectedRoute>
+              } />
+              <Route path="/study" element={
+                <ProtectedRoute>
+                  <Study />
+                </ProtectedRoute>
+              } />
+              <Route path="/forum/:topicId" element={
+                <ProtectedRoute>
+                  <ForumTopic />
+                </ProtectedRoute>
+              } />
+              {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+            </Suspense>
+          </I18nProvider>
         </AuthProvider>
       </BrowserRouter>
     </TooltipProvider>

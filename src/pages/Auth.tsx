@@ -16,6 +16,8 @@ import { Textarea } from "@/components/ui/textarea";
 import djtCover from '@/assets/backgrounds/djt-quest-cover.webp';
 import { apiFetch } from "@/lib/api";
 import { buildAbsoluteAppUrl, openWhatsAppShare } from "@/lib/whatsappShare";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { SUPPORTED_LOCALES, useI18n } from "@/contexts/I18nContext";
 
 interface UserOption {
   id: string;
@@ -46,6 +48,7 @@ const Auth = () => {
   const matriculaLookupRef = useRef<string | null>(null);
   const suggestionsLookupRef = useRef<string | null>(null);
   const { signIn, refreshUserSession } = useAuth();
+  const { locale, setLocale, t } = useI18n();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const redirectParam = searchParams.get('redirect');
@@ -394,6 +397,23 @@ const Auth = () => {
       <div className="absolute inset-0 bg-black/45 backdrop-blur-[10px]" />
       <Card className="w-full max-w-md bg-white/90 text-slate-900 border border-white/70 shadow-[0_24px_70px_rgba(0,0,0,0.55)] relative z-10 backdrop-blur-xl">
         <CardHeader className="space-y-2">
+          <div className="flex items-center justify-end">
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-medium text-slate-700">{t("common.language")}</span>
+              <Select value={locale} onValueChange={(v) => setLocale(v as any)}>
+                <SelectTrigger className="h-8 w-[170px] bg-white text-slate-900 border-slate-300">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {SUPPORTED_LOCALES.map((l) => (
+                    <SelectItem key={l} value={l}>
+                      {t(`locale.${l}`)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
           <CardTitle className="text-3xl font-semibold leading-tight tracking-tight text-slate-900">
             DJT Quest - Login
           </CardTitle>

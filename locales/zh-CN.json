@@ -1,0 +1,13 @@
+{
+  "common": {
+    "appName": "DJT Quest",
+    "loading": "加载中…",
+    "language": "语言"
+  },
+  "locale": {
+    "pt-BR": "葡萄牙语",
+    "en": "英语",
+    "zh-CN": "中文（简体）"
+  }
+}
+
