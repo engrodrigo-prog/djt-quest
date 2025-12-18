@@ -12,6 +12,7 @@
     "lint": "eslint .",
     "test": "node --test",
     "preview": "vite preview",
+    "i18n:check": "node scripts/i18n-check.mjs",
     "import:reset": "node scripts/reset-and-import.mjs",
     "sync:operational-base": "node scripts/sync-operational-base.mjs",
     "fix:dob": "node scripts/backfill-date-of-birth.mjs",
