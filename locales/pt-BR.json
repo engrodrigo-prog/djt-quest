@@ -201,5 +201,9 @@
       "open": "Aberto",
       "closed": "Fechado"
     }
+  },
+  "study": {
+    "title": "Laboratório de estudos",
+    "subtitle": "Envie materiais, catalogue para consulta e converse com a IA sobre os conteúdos para aprofundar seus conhecimentos."
   }
 }

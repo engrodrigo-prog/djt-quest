@@ -201,5 +201,9 @@
       "open": "Open",
       "closed": "Closed"
     }
+  },
+  "study": {
+    "title": "Study Lab",
+    "subtitle": "Upload materials, catalog them for consultation and chat with the AI about the content to deepen your knowledge."
   }
 }
