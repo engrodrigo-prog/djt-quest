@@ -226,5 +226,29 @@
     "accessDeniedTestSuffix": "Você está em modo de teste — volte ao papel real no menu do perfil.",
     "accessDeniedHintSuffix": "Entre como Coordenador, Líder ou Gerente.",
     "backToStudio": "Voltar ao Studio"
+  },
+  "helpInfo": {
+    "ariaLabel": "Ajuda (como pontua)",
+    "quiz": {
+      "title": "Como pontua (quiz)",
+      "b1": "Você tem 1 tentativa por quiz. Líderes não acumulam XP de quiz.",
+      "b2": "Cada acerto vale XP conforme a dificuldade: Básico 5, Intermediário 10, Avançado 20, Especialista 40.",
+      "b3": "Seu XP no quiz é a soma dos acertos.",
+      "b4": "Se o bônus mensal do Fórum estiver ativo, ele pode aumentar seu XP do mês (até 20%)."
+    },
+    "forum": {
+      "title": "Como pontua (fórum)",
+      "b1": "O engajamento é contabilizado mensalmente (quantidade + qualidade; a IA ajuda a avaliar).",
+      "b2": "O Top 10 do mês pode receber bônus de 5% a 20% no XP mensal (quizzes + ações), se habilitado no Studio.",
+      "b3": "Postagens com imagens, casos reais e áudio transcrito enriquecem o aprendizado.",
+      "b4": "Líderes podem fechar temas e transformar discussões em compêndios, quizzes e desafios."
+    },
+    "challenge": {
+      "title": "Como pontua (ações)",
+      "b1": "As ações são avaliadas por 3 avaliadores (líder imediato, líder de divisão e gerente).",
+      "b2": "A nota final é a média das 3 avaliações; ela aplica sobre o XP do desafio e os modificadores da equipe.",
+      "b3": "Para evitar duplicidade, informe data, local e nota SAP (quando aplicável).",
+      "b4": "Anexos (imagens, áudio, relatórios) ajudam na avaliação e deixam o histórico completo."
+    }
   }
 }

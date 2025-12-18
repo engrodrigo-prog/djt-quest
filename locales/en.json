@@ -226,5 +226,29 @@
     "accessDeniedTestSuffix": "You are in test mode — return to your real role in the profile menu.",
     "accessDeniedHintSuffix": "Sign in as Coordinator, Leader or Manager.",
     "backToStudio": "Back to Studio"
+  },
+  "helpInfo": {
+    "ariaLabel": "Help (how scoring works)",
+    "quiz": {
+      "title": "How scoring works (quiz)",
+      "b1": "You get 1 attempt per quiz. Leaders do not earn quiz XP.",
+      "b2": "Each correct answer gives XP by difficulty: Basic 5, Intermediate 10, Advanced 20, Expert 40.",
+      "b3": "Your quiz XP is the sum of correct answers.",
+      "b4": "If the monthly Forum bonus is enabled, it can increase your monthly XP (up to 20%)."
+    },
+    "forum": {
+      "title": "How scoring works (forum)",
+      "b1": "Engagement is calculated monthly (quantity + quality; AI helps evaluate).",
+      "b2": "The Top 10 of the month can receive a 5%–20% bonus on monthly XP (quizzes + actions), if enabled in Studio.",
+      "b3": "Posts with images, real cases and transcribed audio enrich learning.",
+      "b4": "Leaders can close topics and turn discussions into compendiums, quizzes and challenges."
+    },
+    "challenge": {
+      "title": "How scoring works (actions)",
+      "b1": "Actions are reviewed by 3 reviewers (direct leader, division leader and manager).",
+      "b2": "Final score is the average of the 3 reviews; it applies over challenge XP and team modifiers.",
+      "b3": "To avoid duplicates, provide date, location and SAP note (when applicable).",
+      "b4": "Attachments (images, audio, reports) help the review and keep a complete history."
+    }
   }
 }
