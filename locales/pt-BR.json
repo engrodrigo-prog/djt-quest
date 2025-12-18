@@ -35,7 +35,29 @@
     "entering": "Entrando…"
   },
   "profile": {
-    "changePasswordTitle": "Alterar senha"
+    "changePasswordTitle": "Alterar senha",
+    "menu": {
+      "open": "Abrir menu do perfil",
+      "noTeam": "Sem equipe",
+      "leaderBadge": "Líder",
+      "modeLeaderTest": "Modo líder (teste)",
+      "modeCollaboratorTest": "Modo colaborador (teste)",
+      "modeLeader": "Líder",
+      "modeCollaborator": "Colaborador",
+      "impersonateBackToast": "Voltando ao seu papel real",
+      "impersonateBack": "Voltar ao papel real",
+      "impersonateLeaderToast": "Modo líder (teste) ativado",
+      "impersonateLeader": "Navegar como líder",
+      "impersonateLeaderDesc": "Use “Voltar ao papel real” para desfazer.",
+      "impersonateCollaboratorToast": "Modo colaborador (teste) ativado",
+      "impersonateCollaborator": "Navegar como colaborador",
+      "impersonateCollaboratorDesc": "Isso oculta Studio/Avaliações. Use “Voltar ao papel real” para desfazer.",
+      "updatePhoto": "Atualizar foto",
+      "viewProfile": "Ver perfil",
+      "changePassword": "Alterar senha",
+      "settings": "Configurações",
+      "comingSoon": "(em breve)"
+    }
   },
   "notFound": {
     "message": "Ops! Página não encontrada",
@@ -99,5 +121,37 @@
       "teamMax": "Sigla deve ter no máximo 10 caracteres",
       "teamRegex": "Sigla deve conter apenas letras maiúsculas, números e hífen"
     }
+  },
+  "dashboard": {
+    "leaderAria": "Abrir dashboard de liderança",
+    "leaderTitle": "Dashboard de liderança",
+    "leaderHint": "Ver minha equipe (liderança)",
+    "progressTitle": "Sua progressão",
+    "progressRemaining": "Faltam {xp} XP para {next}",
+    "progressViewLevels": "Ver todos os níveis e pontos",
+    "campaignsTitle": "Campanhas ativas",
+    "campaignShareMessage": "Conheça a campanha \"{title}\" no DJT Quest:",
+    "campaignDetails": "Ver detalhes e engajar",
+    "quizCompleted": "Concluído",
+    "quizShareMessage": "Participe deste quiz no DJT Quest:\n{title}",
+    "quizFallbackDescription": "Desafio progressivo com 10 perguntas (dificuldade 1→10).",
+    "quizViewAgain": "Ver novamente",
+    "quizStartNow": "Começar agora",
+    "shareWhatsApp": "Compartilhar no WhatsApp",
+    "deleteForumErrorTitle": "Erro ao excluir fórum",
+    "forumsPosts": "{count} posts",
+    "forumShareMessage": "Veja este fórum no DJT Quest:\n{title}",
+    "forumShareAria": "Compartilhar fórum no WhatsApp",
+    "forumDeleteAria": "Excluir fórum e reverter XP relacionado",
+    "forumsViewAll": "Ver todos",
+    "featuredQuizTitle": "Quiz do Milhão (aberto)",
+    "levelsBadgeTier": "10 níveis • +{steps} patamar(es)",
+    "levelsBadgeXp": "10 níveis • {xp} XP total",
+    "progressBarLegend": "Barra única: verde (base), azul (potencial), amarelo→vermelho (atingido)",
+    "nextLevelLabel": "Próximo: {name}",
+    "forumPotentialPrefix": "Você tem {count} fórum(s) aberto(s) — cada um pode render até",
+    "forumPotentialSuffix": "(5 interações fortes x 100 XP). Participe para aproximar-se do próximo nível.",
+    "openForumsTitle": "Fóruns abertos",
+    "openForumsDescription": "Participe das discussões em andamento"
   }
 }

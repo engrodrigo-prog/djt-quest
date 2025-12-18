@@ -15,6 +15,7 @@ import { ProfileDropdown } from "@/components/ProfileDropdown";
 import { getTierInfo, getNextTierLevel } from "@/lib/constants/tiers";
 import { fetchTeamNames } from "@/lib/teamLookup";
 import { buildAbsoluteAppUrl, openWhatsAppShare } from "@/lib/whatsappShare";
+import { useI18n } from "@/contexts/I18nContext";
 
 interface Campaign {
   id: string;
@@ -41,6 +42,7 @@ interface Challenge {
 const Dashboard = () => {
   const { user, signOut, isLeader, userRole, profile: authProfile } = useAuth() as any;
   const navigate = useNavigate();
+  const { locale, t: tr } = useI18n();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [allChallenges, setAllChallenges] = useState<Challenge[]>([]);
   const [quizQuestionCounts, setQuizQuestionCounts] = useState<Record<string, number>>({});
@@ -439,7 +441,7 @@ const Dashboard = () => {
       alert('Fórum excluído; XP de soluções foi revertido quando aplicável.');
     } catch (e: any) {
       console.error('Erro ao excluir fórum:', e);
-      alert(String(e?.message || 'Erro ao excluir fórum'));
+      alert(String(e?.message || tr("dashboard.deleteForumErrorTitle")));
     }
   };
 
@@ -463,8 +465,8 @@ const Dashboard = () => {
                 type="button"
                 onClick={() => navigate('/leader-dashboard')}
                 className="flex items-center gap-2 text-left hover:opacity-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded-md px-1 -mx-1"
-                aria-label="Abrir dashboard de liderança"
-                title="Dashboard de liderança"
+                aria-label={tr("dashboard.leaderAria")}
+                title={tr("dashboard.leaderTitle")}
               >
                 <div className="flex items-center gap-1.5">
                   <Shield className="h-6 w-6 text-primary" />
@@ -473,7 +475,7 @@ const Dashboard = () => {
                 <div>
                   <h1 className="text-xl font-bold text-blue-50">DJT - Quest</h1>
                   <p className="text-[10px] text-blue-100/80 leading-none">
-                    Ver minha equipe (liderança)
+                    {tr("dashboard.leaderHint")}
                   </p>
                 </div>
               </button>
@@ -529,7 +531,7 @@ const Dashboard = () => {
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-lg">
               <Trophy className="h-5 w-5 text-accent" />
-              Sua Progressão
+              {tr("dashboard.progressTitle")}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -540,7 +542,7 @@ const Dashboard = () => {
                   <span className="font-semibold">{profile.xp} XP</span>
                   {nextLevel && (
                     <span className="text-muted-foreground">
-                      Faltam {Math.max(0, nextLevel.xpNeeded)} XP para {nextLevel.name}
+                      {tr("dashboard.progressRemaining", { xp: Math.max(0, nextLevel.xpNeeded), next: nextLevel.name })}
                     </span>
                   )}
                 </div>
@@ -548,7 +550,7 @@ const Dashboard = () => {
                   type="button"
                   onClick={() => navigate('/profile')}
                   className="w-full text-left space-y-1 group"
-                  aria-label="Ver todos os níveis e pontos"
+                  aria-label={tr("dashboard.progressViewLevels")}
                 >
                   <div className="relative h-4 w-full overflow-hidden rounded-full bg-green-800/50 border border-green-700/60">
                     <div
@@ -561,13 +563,15 @@ const Dashboard = () => {
                     />
                   </div>
                   <div className="flex justify-between text-[11px] text-muted-foreground">
-                    <span>Barra única: verde (base), azul (potencial), amarelo→vermelho (atingido)</span>
-                    {nextLevel && <span>Próximo: {nextLevel.name}</span>}
+                    <span>{tr("dashboard.progressBarLegend")}</span>
+                    {nextLevel && <span>{tr("dashboard.nextLevelLabel", { name: nextLevel.name })}</span>}
                   </div>
                 </button>
                 {forumPotentialXp > 0 && (
                   <p className="mt-1 text-[11px] text-muted-foreground">
-                    Você tem {openForums.length} fórum(s) aberto(s) — cada um pode render até <strong>500 XP</strong> (5 interações fortes x 100 XP). Participe para aproximar-se do próximo nível.
+                    {tr("dashboard.forumPotentialPrefix", { count: openForums.length })}{" "}
+                    <strong>500 XP</strong>{" "}
+                    {tr("dashboard.forumPotentialSuffix")}
                   </p>
                 )}
               </>
@@ -584,36 +588,38 @@ const Dashboard = () => {
             <CardHeader className="pb-3">
               <CardTitle className="flex items-center gap-2 text-lg text-white">
                 <Target className="h-5 w-5 text-white" />
-                Fóruns Abertos
+                {tr("dashboard.openForumsTitle")}
               </CardTitle>
-              <CardDescription className="text-white/80">Participe das discussões em andamento</CardDescription>
+              <CardDescription className="text-white/80">{tr("dashboard.openForumsDescription")}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-2">
-              {openForums.slice(0,4).map((t) => (
+              {openForums.slice(0,4).map((topic) => (
                 <div
-                  key={t.id}
+                  key={topic.id}
                   className="flex items-center justify-between p-3 border border-white/30 rounded-lg hover:bg-white/10 cursor-pointer gap-3"
-                  onClick={() => navigate(`/forum/${t.id}`)}
+                  onClick={() => navigate(`/forum/${topic.id}`)}
                 >
                   <div className="min-w-0 flex-1">
-                    <p className="font-medium truncate text-white">{t.title}</p>
-                    <p className="text-xs text-white/70 truncate">{t.description}</p>
+                    <p className="font-medium truncate text-white">{topic.title}</p>
+                    <p className="text-xs text-white/70 truncate">{topic.description}</p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Badge variant="outline" className="border-white/50 text-white">{t.posts_count || 0} posts</Badge>
+                    <Badge variant="outline" className="border-white/50 text-white">
+                      {tr("dashboard.forumsPosts", { count: topic.posts_count || 0 })}
+                    </Badge>
                     <button
                       type="button"
                       className="p-1 rounded-full hover:bg-white/10 text-white/90"
                       onClick={(e) => {
                         e.stopPropagation();
-                        const url = buildAbsoluteAppUrl(`/forum/${encodeURIComponent(t.id)}`);
+                        const url = buildAbsoluteAppUrl(`/forum/${encodeURIComponent(topic.id)}`);
                         openWhatsAppShare({
-                          message: `Veja este fórum no DJT Quest:\n${t.title}`,
+                          message: tr("dashboard.forumShareMessage", { title: topic.title }),
                           url,
                         });
                       }}
-                      aria-label="Compartilhar fórum no WhatsApp"
-                      title="Compartilhar no WhatsApp"
+                      aria-label={tr("dashboard.forumShareAria")}
+                      title={tr("dashboard.shareWhatsApp")}
                     >
                       <Share2 className="h-4 w-4" />
                     </button>
@@ -623,9 +629,9 @@ const Dashboard = () => {
                         className="p-1 rounded-full hover:bg-destructive/20 text-destructive"
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleDeleteForumFromDashboard(t.id, t.title);
+                          handleDeleteForumFromDashboard(topic.id, topic.title);
                         }}
-                        aria-label="Excluir fórum e reverter XP relacionado"
+                        aria-label={tr("dashboard.forumDeleteAria")}
                       >
                         <Trash2 className="h-4 w-4" />
                       </button>
@@ -634,7 +640,7 @@ const Dashboard = () => {
                 </div>
               ))}
               <div className="pt-2 flex justify-end">
-                <Button variant="ghost" size="sm" onClick={() => navigate('/forums')}>Ver todos</Button>
+                <Button variant="ghost" size="sm" onClick={() => navigate('/forums')}>{tr("dashboard.forumsViewAll")}</Button>
               </div>
             </CardContent>
           </Card>
@@ -645,20 +651,20 @@ const Dashboard = () => {
           <section>
             <div className="flex items-center gap-2 mb-3 text-foreground">
               <Trophy className="h-5 w-5 text-amber-300" />
-              <h2 className="text-2xl font-semibold leading-tight">Quiz do Milhão (Aberto)</h2>
+              <h2 className="text-2xl font-semibold leading-tight">{tr("dashboard.featuredQuizTitle")}</h2>
             </div>
             <Card className="bg-white/5 border border-white/20 text-white backdrop-blur-md shadow-lg">
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between gap-2">
                   <Badge variant="outline" className="w-fit text-[11px] uppercase tracking-wide border-white/50 text-white">
                     {featuredMilhao.reward_mode === 'tier_steps'
-                      ? `10 níveis • +${featuredMilhao.reward_tier_steps || 1} patamar(es)`
-                      : `10 níveis • ${featuredMilhao.xp_reward} XP total`}
+                      ? tr("dashboard.levelsBadgeTier", { steps: featuredMilhao.reward_tier_steps || 1 })
+                      : tr("dashboard.levelsBadgeXp", { xp: featuredMilhao.xp_reward })}
                   </Badge>
                   <div className="flex items-center gap-2">
                     {completedChallengeIds.has(featuredMilhao.id) && (
                       <Badge variant="secondary" className="text-[11px]">
-                        Concluído
+                        {tr("dashboard.quizCompleted")}
                       </Badge>
                     )}
                     <Button
@@ -668,11 +674,11 @@ const Dashboard = () => {
                       onClick={() => {
                         const url = buildAbsoluteAppUrl(`/challenge/${encodeURIComponent(featuredMilhao.id)}`);
                         openWhatsAppShare({
-                          message: `Participe deste quiz no DJT Quest:\n${featuredMilhao.title}`,
+                          message: tr("dashboard.quizShareMessage", { title: featuredMilhao.title }),
                           url,
                         });
                       }}
-                      title="Compartilhar no WhatsApp"
+                      title={tr("dashboard.shareWhatsApp")}
                     >
                       <Share2 className="h-4 w-4" />
                     </Button>
@@ -680,7 +686,7 @@ const Dashboard = () => {
                 </div>
                 <CardTitle className="text-lg leading-tight text-white">{featuredMilhao.title}</CardTitle>
                 <CardDescription className="text-sm text-white/75 line-clamp-2">
-                  {featuredMilhao.description || 'Desafio progressivo com 10 perguntas (dificuldade 1→10).'}
+                  {featuredMilhao.description || tr("dashboard.quizFallbackDescription")}
                 </CardDescription>
               </CardHeader>
               <CardContent className="pt-0">
@@ -689,7 +695,7 @@ const Dashboard = () => {
                   variant="secondary"
                   onClick={() => navigate(`/challenge/${featuredMilhao.id}`)}
                 >
-                  {completedChallengeIds.has(featuredMilhao.id) ? 'Ver novamente' : 'Começar agora'}
+                  {completedChallengeIds.has(featuredMilhao.id) ? tr("dashboard.quizViewAgain") : tr("dashboard.quizStartNow")}
                 </Button>
               </CardContent>
             </Card>
@@ -698,7 +704,7 @@ const Dashboard = () => {
         <section>
           <div className="flex items-center gap-2 mb-3 text-foreground">
             <Target className="h-5 w-5 text-primary" />
-            <h2 className="text-2xl font-semibold leading-tight">Campanhas Ativas</h2>
+            <h2 className="text-2xl font-semibold leading-tight">{tr("dashboard.campaignsTitle")}</h2>
           </div>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {campaigns.map((campaign) => (
@@ -718,11 +724,11 @@ const Dashboard = () => {
                       onClick={() => {
                         const url = buildAbsoluteAppUrl(`/campaign/${encodeURIComponent(campaign.id)}`);
                         openWhatsAppShare({
-                          message: `Conheça a campanha "${campaign.title}" no DJT Quest:`,
+                          message: tr("dashboard.campaignShareMessage", { title: campaign.title }),
                           url,
                         });
                       }}
-                      title="Compartilhar no WhatsApp"
+                      title={tr("dashboard.shareWhatsApp")}
                     >
                       <Share2 className="h-4 w-4" />
                     </Button>
@@ -732,15 +738,15 @@ const Dashboard = () => {
                 </CardHeader>
                 <CardContent className="pt-0">
                   <p className="text-xs text-white/70 mb-2">
-                    {new Date(campaign.start_date).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })} -{" "}
-                    {new Date(campaign.end_date).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })}
+                    {new Date(campaign.start_date).toLocaleDateString(locale, { day: "2-digit", month: "short" })} -{" "}
+                    {new Date(campaign.end_date).toLocaleDateString(locale, { day: "2-digit", month: "short" })}
                   </p>
                   <Button
                     className="w-full h-9 text-sm"
                     variant="secondary"
                     onClick={() => navigate(`/campaign/${campaign.id}`)}
                   >
-                    Ver detalhes & engajar
+                    {tr("dashboard.campaignDetails")}
                   </Button>
                 </CardContent>
               </Card>

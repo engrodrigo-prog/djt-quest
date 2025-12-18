@@ -35,7 +35,29 @@
     "entering": "正在登录…"
   },
   "profile": {
-    "changePasswordTitle": "修改密码"
+    "changePasswordTitle": "修改密码",
+    "menu": {
+      "open": "打开个人菜单",
+      "noTeam": "无团队",
+      "leaderBadge": "领导",
+      "modeLeaderTest": "领导模式（测试）",
+      "modeCollaboratorTest": "协作者模式（测试）",
+      "modeLeader": "领导",
+      "modeCollaborator": "协作者",
+      "impersonateBackToast": "返回真实角色",
+      "impersonateBack": "返回真实角色",
+      "impersonateLeaderToast": "领导模式（测试）已启用",
+      "impersonateLeader": "以领导身份浏览",
+      "impersonateLeaderDesc": "使用“返回真实角色”撤销。",
+      "impersonateCollaboratorToast": "协作者模式（测试）已启用",
+      "impersonateCollaborator": "以协作者身份浏览",
+      "impersonateCollaboratorDesc": "该模式会隐藏 Studio/评审。使用“返回真实角色”撤销。",
+      "updatePhoto": "更新头像",
+      "viewProfile": "查看个人资料",
+      "changePassword": "修改密码",
+      "settings": "设置",
+      "comingSoon": "（即将推出）"
+    }
   },
   "notFound": {
     "message": "哎呀！页面未找到",
@@ -99,5 +121,37 @@
       "teamMax": "团队代码最多 10 个字符",
       "teamRegex": "团队代码只能包含大写字母、数字和连字符"
     }
+  },
+  "dashboard": {
+    "leaderAria": "打开领导看板",
+    "leaderTitle": "领导看板",
+    "leaderHint": "查看我的团队（领导）",
+    "progressTitle": "我的进度",
+    "progressRemaining": "距离 {next} 还差 {xp} XP",
+    "progressViewLevels": "查看所有等级与积分",
+    "campaignsTitle": "进行中的活动",
+    "campaignShareMessage": "在 DJT Quest 查看活动“{title}”：",
+    "campaignDetails": "查看详情并参与",
+    "quizCompleted": "已完成",
+    "quizShareMessage": "来参加 DJT Quest 的测验：\n{title}",
+    "quizFallbackDescription": "循序渐进的挑战（10 题，难度 1→10）。",
+    "quizViewAgain": "再次查看",
+    "quizStartNow": "立即开始",
+    "shareWhatsApp": "分享到 WhatsApp",
+    "deleteForumErrorTitle": "删除论坛失败",
+    "forumsPosts": "{count} 条帖子",
+    "forumShareMessage": "在 DJT Quest 查看此论坛：\n{title}",
+    "forumShareAria": "分享到 WhatsApp（论坛）",
+    "forumDeleteAria": "删除论坛并回退相关 XP",
+    "forumsViewAll": "查看全部",
+    "featuredQuizTitle": "百万测验（开放）",
+    "levelsBadgeTier": "10 个等级 • +{steps} 个等级步进",
+    "levelsBadgeXp": "10 个等级 • 总计 {xp} XP",
+    "progressBarLegend": "单进度条：绿色（基础）、蓝色（潜力）、黄→红（已获得）",
+    "nextLevelLabel": "下一级：{name}",
+    "forumPotentialPrefix": "你有 {count} 个开放论坛，每个最多可获得",
+    "forumPotentialSuffix": "（5 次高质量互动 × 100 XP）。参与以更接近下一级。",
+    "openForumsTitle": "开放论坛",
+    "openForumsDescription": "参与正在进行的讨论"
   }
 }

@@ -1,10 +1,23 @@
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { AvatarDisplay } from "@/components/AvatarDisplay";
 import { Badge } from "@/components/ui/badge";
-import { User, Settings, LogOut, Shield, Users, Camera, Key, Repeat } from "lucide-react";
+import { User, Settings, LogOut, Shield, Users, Camera, Key, Repeat, Languages } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
+import { SUPPORTED_LOCALES, useI18n } from "@/contexts/I18nContext";
 
 interface ProfileDropdownProps {
   profile: {
@@ -22,24 +35,25 @@ interface ProfileDropdownProps {
 export const ProfileDropdown = ({ profile, isLeader, onSignOut }: ProfileDropdownProps) => {
   const navigate = useNavigate();
   const { roleOverride, setRoleOverride } = useAuth();
+  const { locale, setLocale, t } = useI18n();
   const canImpersonate =
     profile?.matricula === "601555" ||
     (profile?.email || "").toLowerCase() === "rodrigonasc@cpfl.com.br";
   const currentMode =
     roleOverride === "lider"
-      ? "Modo líder (teste)"
+      ? t("profile.menu.modeLeaderTest")
       : roleOverride === "colaborador"
-      ? "Modo colaborador (teste)"
+      ? t("profile.menu.modeCollaboratorTest")
       : isLeader
-      ? "Líder"
-      : "Colaborador";
+      ? t("profile.menu.modeLeader")
+      : t("profile.menu.modeCollaborator");
   
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button
           className="cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded-full"
-          aria-label="Abrir menu do perfil"
+          aria-label={t("profile.menu.open")}
         >
           <AvatarDisplay 
             avatarUrl={profile.avatar_url} 
@@ -62,7 +76,7 @@ export const ProfileDropdown = ({ profile, isLeader, onSignOut }: ProfileDropdow
               <p className="font-semibold text-sm truncate">{profile.name}</p>
               <p className="text-xs text-muted-foreground flex items-center gap-1">
                 <Users className="h-3 w-3 flex-shrink-0" />
-                <span className="truncate">DJTX-{profile.team?.name || 'Sem equipe'}</span>
+                <span className="truncate">DJTX-{profile.team?.name || t("profile.menu.noTeam")}</span>
              </p>
               {isLeader && (
                 <div className="mt-1">
@@ -71,7 +85,7 @@ export const ProfileDropdown = ({ profile, isLeader, onSignOut }: ProfileDropdow
                     className="cursor-pointer text-primary hover:bg-secondary/60"
                     onClick={() => navigate('/leader-dashboard')}
                   >
-                    Líder
+                    {t("profile.menu.leaderBadge")}
                   </Badge>
                 </div>
               )}
@@ -101,62 +115,81 @@ export const ProfileDropdown = ({ profile, isLeader, onSignOut }: ProfileDropdow
               <DropdownMenuItem
                 onClick={() => {
                   setRoleOverride(null);
-                  toast.success("Voltando ao seu papel real");
+                  toast.success(t("profile.menu.impersonateBackToast"));
                 }}
               >
                 <Repeat className="h-4 w-4 mr-2" />
-                Voltar ao papel real
+                {t("profile.menu.impersonateBack")}
               </DropdownMenuItem>
             )}
             <DropdownMenuItem
               onClick={() => {
                 setRoleOverride("lider");
-                toast.message("Modo líder (teste) ativado", {
-                  description: "Use “Voltar ao papel real” para desfazer.",
+                toast.message(t("profile.menu.impersonateLeaderToast"), {
+                  description: t("profile.menu.impersonateLeaderDesc"),
                 });
               }}
             >
               <Repeat className="h-4 w-4 mr-2" />
-              Navegar como Líder
+              {t("profile.menu.impersonateLeader")}
             </DropdownMenuItem>
             <DropdownMenuItem
               onClick={() => {
                 setRoleOverride("colaborador");
-                toast.message("Modo colaborador (teste) ativado", {
-                  description: "Isso oculta Studio/Avaliações. Use “Voltar ao papel real” para desfazer.",
+                toast.message(t("profile.menu.impersonateCollaboratorToast"), {
+                  description: t("profile.menu.impersonateCollaboratorDesc"),
                 });
               }}
             >
               <Repeat className="h-4 w-4 mr-2" />
-              Navegar como Colaborador
+              {t("profile.menu.impersonateCollaborator")}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
           </>
         )}
+
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>
+            <Languages className="h-4 w-4 mr-2" />
+            {t("common.language")}
+          </DropdownMenuSubTrigger>
+          <DropdownMenuSubContent>
+            <DropdownMenuRadioGroup value={locale} onValueChange={(v) => setLocale(v as any)}>
+              {SUPPORTED_LOCALES.map((l) => (
+                <DropdownMenuRadioItem key={l} value={l}>
+                  {t(`locale.${l}`)}
+                </DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+
+        <DropdownMenuSeparator />
+
         <DropdownMenuItem onClick={() => navigate('/profile?avatar=open')}>
           <Camera className="h-4 w-4 mr-2" />
-          Atualizar Foto
+          {t("profile.menu.updatePhoto")}
         </DropdownMenuItem>
         <DropdownMenuItem onClick={() => navigate('/profile')}>
           <User className="h-4 w-4 mr-2" />
-          Ver Perfil
+          {t("profile.menu.viewProfile")}
         </DropdownMenuItem>
         <DropdownMenuItem onClick={() => window.dispatchEvent(new CustomEvent('open-password-dialog'))}>
           <Key className="h-4 w-4 mr-2" />
-          Alterar Senha
+          {t("profile.menu.changePassword")}
         </DropdownMenuItem>
         
         <DropdownMenuItem disabled>
           <Settings className="h-4 w-4 mr-2" />
-          <span>Configurações</span>
-          <span className="ml-auto text-xs text-muted-foreground">(em breve)</span>
+          <span>{t("profile.menu.settings")}</span>
+          <span className="ml-auto text-xs text-muted-foreground">{t("profile.menu.comingSoon")}</span>
         </DropdownMenuItem>
         
         <DropdownMenuSeparator />
         
         <DropdownMenuItem onClick={onSignOut} className="text-destructive focus:text-destructive">
           <LogOut className="h-4 w-4 mr-2" />
-          Sair
+          {t("nav.logout")}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

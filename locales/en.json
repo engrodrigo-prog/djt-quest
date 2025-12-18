@@ -35,7 +35,29 @@
     "entering": "Signing in…"
   },
   "profile": {
-    "changePasswordTitle": "Change password"
+    "changePasswordTitle": "Change password",
+    "menu": {
+      "open": "Open profile menu",
+      "noTeam": "No team",
+      "leaderBadge": "Leader",
+      "modeLeaderTest": "Leader mode (test)",
+      "modeCollaboratorTest": "Collaborator mode (test)",
+      "modeLeader": "Leader",
+      "modeCollaborator": "Collaborator",
+      "impersonateBackToast": "Returning to your real role",
+      "impersonateBack": "Back to real role",
+      "impersonateLeaderToast": "Leader mode (test) enabled",
+      "impersonateLeader": "Browse as Leader",
+      "impersonateLeaderDesc": "Use “Back to real role” to undo.",
+      "impersonateCollaboratorToast": "Collaborator mode (test) enabled",
+      "impersonateCollaborator": "Browse as Collaborator",
+      "impersonateCollaboratorDesc": "This hides Studio/Reviews. Use “Back to real role” to undo.",
+      "updatePhoto": "Update photo",
+      "viewProfile": "View profile",
+      "changePassword": "Change password",
+      "settings": "Settings",
+      "comingSoon": "(soon)"
+    }
   },
   "notFound": {
     "message": "Oops! Page not found",
@@ -99,5 +121,37 @@
       "teamMax": "Team code must be at most 10 characters",
       "teamRegex": "Team code must contain only uppercase letters, numbers and hyphen"
     }
+  },
+  "dashboard": {
+    "leaderAria": "Open leader dashboard",
+    "leaderTitle": "Leader dashboard",
+    "leaderHint": "View my team (leadership)",
+    "progressTitle": "Your progress",
+    "progressRemaining": "{xp} XP remaining to reach {next}",
+    "progressViewLevels": "View all levels and points",
+    "campaignsTitle": "Active campaigns",
+    "campaignShareMessage": "Check out the campaign \"{title}\" on DJT Quest:",
+    "campaignDetails": "View details and engage",
+    "quizCompleted": "Completed",
+    "quizShareMessage": "Join this quiz on DJT Quest:\n{title}",
+    "quizFallbackDescription": "Progressive challenge with 10 questions (difficulty 1→10).",
+    "quizViewAgain": "View again",
+    "quizStartNow": "Start now",
+    "shareWhatsApp": "Share on WhatsApp",
+    "deleteForumErrorTitle": "Could not delete forum",
+    "forumsPosts": "{count} posts",
+    "forumShareMessage": "See this forum on DJT Quest:\n{title}",
+    "forumShareAria": "Share forum on WhatsApp",
+    "forumDeleteAria": "Delete forum and revert related XP",
+    "forumsViewAll": "View all",
+    "featuredQuizTitle": "Million Quiz (open)",
+    "levelsBadgeTier": "10 levels • +{steps} tier step(s)",
+    "levelsBadgeXp": "10 levels • {xp} XP total",
+    "progressBarLegend": "Single bar: green (base), blue (potential), yellow→red (achieved)",
+    "nextLevelLabel": "Next: {name}",
+    "forumPotentialPrefix": "You have {count} open forum(s) — each can yield up to",
+    "forumPotentialSuffix": "(5 strong interactions x 100 XP). Join to get closer to the next level.",
+    "openForumsTitle": "Open forums",
+    "openForumsDescription": "Join the ongoing discussions"
   }
 }
