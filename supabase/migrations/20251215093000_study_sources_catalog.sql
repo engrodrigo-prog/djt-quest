@@ -79,7 +79,7 @@ do $$ begin
         and exists (
           select 1 from public.user_roles ur
           where ur.user_id = (select auth.uid())
-            and ur.role in ('coordenador_djtx','gerente_divisao_djtx','gerente_djt','admin','lider_equipe')
+            and ur.role::text in ('coordenador_djtx','gerente_divisao_djtx','gerente_djt','admin','lider_equipe')
         )
       )
       with check (
@@ -87,9 +87,8 @@ do $$ begin
         and exists (
           select 1 from public.user_roles ur
           where ur.user_id = (select auth.uid())
-            and ur.role in ('coordenador_djtx','gerente_divisao_djtx','gerente_djt','admin','lider_equipe')
+            and ur.role::text in ('coordenador_djtx','gerente_divisao_djtx','gerente_djt','admin','lider_equipe')
         )
       );
   end if;
 end $$;
-
