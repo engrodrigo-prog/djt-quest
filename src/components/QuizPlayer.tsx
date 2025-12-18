@@ -13,6 +13,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import buriniImg from "@/assets/backgrounds/burini.webp";
+import { useSfx } from "@/lib/sfx";
 
 interface QuizPlayerProps {
   challengeId: string;
@@ -89,6 +90,7 @@ const inferDomain = (questionText: string, challengeTitle: string, quizSpecialti
 export function QuizPlayer({ challengeId }: QuizPlayerProps) {
   const navigate = useNavigate();
   const { refreshUserSession } = useAuth();
+  const { play: playSfx } = useSfx();
   const [questions, setQuestions] = useState<Question[]>([]);
   const [challengeTitle, setChallengeTitle] = useState<string>('');
   const [challengeSpecialties, setChallengeSpecialties] = useState<string[] | null>(null);
@@ -417,6 +419,7 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
       setAnswerResult(result);
 
       if (result.isCorrect) {
+        playSfx("correct");
         const xpMsg = result.xpBlockedForLeader ? 'Resposta correta registrada' : `Correto! +${result.xpEarned} XP`;
         toast.success(xpMsg);
         if (result.xpBlockedForLeader) {
@@ -429,6 +432,7 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
           refreshUserSession().catch((e) => console.warn("QuizPlayer: refreshUserSession failed", e));
         }
       } else {
+        playSfx("wrong");
         if (isMilhao && result.isCompleted && result.endedReason === "wrong") {
           toast.error(`Resposta incorreta. Fim de jogo! Total: ${result.totalXpEarned ?? 0} XP`);
         } else {
@@ -461,6 +465,7 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
       if (isMilhao && answerResult.endedReason === "wrong") {
         toast.error(`Fim de jogo! Total acumulado: ${total} XP`);
       } else {
+        playSfx("complete");
         toast.success(`Quiz concluído! Total: ${total} XP`);
       }
       navigate("/dashboard");

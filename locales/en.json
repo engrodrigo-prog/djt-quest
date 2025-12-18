@@ -250,5 +250,16 @@
       "b3": "To avoid duplicates, provide date, location and SAP note (when applicable).",
       "b4": "Attachments (images, audio, reports) help the review and keep a complete history."
     }
+  },
+  "sfx": {
+    "menu": {
+      "sound": "Sound"
+    },
+    "preset": {
+      "off": "Off",
+      "low": "Low",
+      "medium": "Medium",
+      "high": "High"
+    }
   }
 }

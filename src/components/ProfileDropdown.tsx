@@ -13,11 +13,12 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { AvatarDisplay } from "@/components/AvatarDisplay";
 import { Badge } from "@/components/ui/badge";
-import { User, Settings, LogOut, Shield, Users, Camera, Key, Repeat, Languages } from "lucide-react";
+import { User, Settings, LogOut, Shield, Users, Camera, Key, Repeat, Languages, Volume2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { SUPPORTED_LOCALES, useI18n } from "@/contexts/I18nContext";
+import { useSfx } from "@/lib/sfx";
 
 interface ProfileDropdownProps {
   profile: {
@@ -36,6 +37,7 @@ export const ProfileDropdown = ({ profile, isLeader, onSignOut }: ProfileDropdow
   const navigate = useNavigate();
   const { roleOverride, setRoleOverride } = useAuth();
   const { locale, setLocale, t } = useI18n();
+  const { enabled: sfxFeatureEnabled, muted: sfxMuted, volume: sfxVolume, setMuted: setSfxMuted, setVolume: setSfxVolume } = useSfx();
   const canImpersonate =
     profile?.matricula === "601555" ||
     (profile?.email || "").toLowerCase() === "rodrigonasc@cpfl.com.br";
@@ -47,6 +49,9 @@ export const ProfileDropdown = ({ profile, isLeader, onSignOut }: ProfileDropdow
       : isLeader
       ? t("profile.menu.modeLeader")
       : t("profile.menu.modeCollaborator");
+
+  const sfxPreset: "off" | "low" | "medium" | "high" =
+    sfxMuted || sfxVolume <= 0.01 ? "off" : sfxVolume <= 0.35 ? "low" : sfxVolume <= 0.75 ? "medium" : "high";
   
   return (
     <DropdownMenu>
@@ -163,6 +168,36 @@ export const ProfileDropdown = ({ profile, isLeader, onSignOut }: ProfileDropdow
             </DropdownMenuRadioGroup>
           </DropdownMenuSubContent>
         </DropdownMenuSub>
+
+        {sfxFeatureEnabled && (
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>
+              <Volume2 className="h-4 w-4 mr-2" />
+              {t("sfx.menu.sound")}
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent>
+              <DropdownMenuRadioGroup
+                value={sfxPreset}
+                onValueChange={(v) => {
+                  const value = v as typeof sfxPreset;
+                  if (value === "off") {
+                    setSfxMuted(true);
+                    return;
+                  }
+                  setSfxMuted(false);
+                  if (value === "low") setSfxVolume(0.25);
+                  if (value === "medium") setSfxVolume(0.6);
+                  if (value === "high") setSfxVolume(1);
+                }}
+              >
+                <DropdownMenuRadioItem value="off">{t("sfx.preset.off")}</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="low">{t("sfx.preset.low")}</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="medium">{t("sfx.preset.medium")}</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="high">{t("sfx.preset.high")}</DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+        )}
 
         <DropdownMenuSeparator />
 

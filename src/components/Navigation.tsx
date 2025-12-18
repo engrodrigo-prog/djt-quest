@@ -19,12 +19,14 @@ import { apiFetch } from '@/lib/api';
 import { ChangePasswordCard } from '@/components/profile/ChangePasswordCard';
 import bgMenu from '@/assets/backgrounds/BG Menu.webp';
 import { useI18n } from '@/contexts/I18nContext';
+import { useSfx } from '@/lib/sfx';
 
 const Navigation = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { studioAccess, isLeader, signOut } = useAuth();
   const { t } = useI18n();
+  const { play: playSfx } = useSfx();
   const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
   const [studioBadge, setStudioBadge] = useState(0);
   const [evalBadge, setEvalBadge] = useState(0);
@@ -33,6 +35,12 @@ const Navigation = () => {
   const [sepbookMentions, setSepbookMentions] = useState(0);
   const barRef = useRef<HTMLDivElement | null>(null);
   const [itemSize, setItemSize] = useState<number>(60);
+  const playSfxRef = useRef(playSfx);
+  const notifTotalRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    playSfxRef.current = playSfx;
+  }, [playSfx]);
 
   // Calculate dynamic item size so all buttons fit without gaps/scroll on current viewport
   const visibleCount = useMemo(() => {
@@ -71,43 +79,57 @@ const Navigation = () => {
     let active = true;
     let timer: any;
 
-    const fetchCounts = async () => {
-      try {
-        const resp = await apiFetch('/api/admin?handler=studio-pending-counts');
-        const json = await resp.json().catch(() => ({}));
-        if (!resp.ok) throw new Error(json?.error || 'Falha nas contagens');
+	    const fetchCounts = async () => {
+	      try {
+	        const resp = await apiFetch('/api/admin?handler=studio-pending-counts');
+	        const json = await resp.json().catch(() => ({}));
+	        if (!resp.ok) throw new Error(json?.error || 'Falha nas contagens');
 
         const approvals = json?.approvals || 0;
         const passwordResets = json?.passwordResets || 0;
         const registrations = json?.registrations || 0;
         const evaluations = json?.evaluations || 0;
-        const leadershipAssignments = json?.leadershipAssignments || 0;
-        const forumMentions = json?.forumMentions || 0;
-        const evalTotal = evaluations + leadershipAssignments;
+	        const leadershipAssignments = json?.leadershipAssignments || 0;
+	        const forumMentions = json?.forumMentions || 0;
+	        const evalTotal = evaluations + leadershipAssignments;
+          let sepNew = 0;
+          let sepMentions = 0;
 
-        if (!active) return;
-        setStudioBadge(studioAccess ? approvals + passwordResets + registrations + evaluations : 0);
-        setEvalBadge(isLeader ? evalTotal : 0);
-        setForumBadge(forumMentions);
+	        // SEPBook summary continua vindo da API dedicada
+	        try {
+	          const resp2 = await apiFetch('/api/sepbook-summary');
+	          const json2 = await resp2.json();
+	          if (resp2.ok) {
+	            sepNew = json2.new_posts || 0;
+	            sepMentions = json2.mentions || 0;
+	          }
+	        } catch {
+	          sepNew = 0;
+	          sepMentions = 0;
+	        }
 
-        // SEPBook summary continua vindo da API dedicada
-        try {
-          const resp2 = await apiFetch('/api/sepbook-summary');
-          const json2 = await resp2.json();
-          if (resp2.ok && active) {
-            setSepbookNew(json2.new_posts || 0);
-            setSepbookMentions(json2.mentions || 0);
+	        if (!active) return;
+	        setStudioBadge(studioAccess ? approvals + passwordResets + registrations + evaluations : 0);
+	        setEvalBadge(isLeader ? evalTotal : 0);
+	        setForumBadge(forumMentions);
+	        setSepbookNew(sepNew);
+	        setSepbookMentions(sepMentions);
+
+          const nextTotal =
+            (studioAccess ? approvals + passwordResets + registrations + evaluations : 0) +
+            (isLeader ? evalTotal : 0) +
+            forumMentions +
+            sepNew +
+            sepMentions;
+          const prevTotal = notifTotalRef.current;
+          notifTotalRef.current = nextTotal;
+          if (prevTotal != null && nextTotal > prevTotal) {
+            playSfxRef.current("notification");
           }
-        } catch {
-          if (active) {
-            setSepbookNew(0);
-            setSepbookMentions(0);
-          }
-        }
-      } catch {
-        if (!active) return;
-        setStudioBadge(0);
-        setEvalBadge(0);
+	      } catch {
+	        if (!active) return;
+	        setStudioBadge(0);
+	        setEvalBadge(0);
         setForumBadge(0);
         setSepbookNew(0);
         setSepbookMentions(0);

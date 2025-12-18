@@ -250,5 +250,16 @@
       "b3": "Para evitar duplicidade, informe data, local e nota SAP (quando aplicável).",
       "b4": "Anexos (imagens, áudio, relatórios) ajudam na avaliação e deixam o histórico completo."
     }
+  },
+  "sfx": {
+    "menu": {
+      "sound": "Som"
+    },
+    "preset": {
+      "off": "Desligado",
+      "low": "Baixo",
+      "medium": "Médio",
+      "high": "Alto"
+    }
   }
 }
