@@ -218,5 +218,13 @@
     "createQuizDraft": "Criar quiz (rascunho)",
     "createChallengeDraft": "Criar desafio (rascunho)",
     "createCampaignDraft": "Criar campanha (rascunho)"
+  },
+  "studio": {
+    "checkingPermissions": "Verificando permissões…",
+    "accessDeniedTitle": "Acesso negado",
+    "accessDeniedBase": "Seu perfil atual não possui permissão para acessar o DJT Quest Studio.",
+    "accessDeniedTestSuffix": "Você está em modo de teste — volte ao papel real no menu do perfil.",
+    "accessDeniedHintSuffix": "Entre como Coordenador, Líder ou Gerente.",
+    "backToStudio": "Voltar ao Studio"
   }
 }

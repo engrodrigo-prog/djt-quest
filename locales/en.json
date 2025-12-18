@@ -218,5 +218,13 @@
     "createQuizDraft": "Create quiz (draft)",
     "createChallengeDraft": "Create challenge (draft)",
     "createCampaignDraft": "Create campaign (draft)"
+  },
+  "studio": {
+    "checkingPermissions": "Checking permissions…",
+    "accessDeniedTitle": "Access denied",
+    "accessDeniedBase": "Your current profile does not have permission to access DJT Quest Studio.",
+    "accessDeniedTestSuffix": "You are in test mode — return to your real role in the profile menu.",
+    "accessDeniedHintSuffix": "Sign in as Coordinator, Leader or Manager.",
+    "backToStudio": "Back to Studio"
   }
 }

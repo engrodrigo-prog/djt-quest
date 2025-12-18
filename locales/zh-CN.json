@@ -218,5 +218,13 @@
     "createQuizDraft": "创建测验（草稿）",
     "createChallengeDraft": "创建挑战（草稿）",
     "createCampaignDraft": "创建活动（草稿）"
+  },
+  "studio": {
+    "checkingPermissions": "正在检查权限…",
+    "accessDeniedTitle": "拒绝访问",
+    "accessDeniedBase": "你的当前账号没有权限访问 DJT Quest Studio。",
+    "accessDeniedTestSuffix": "你处于测试模式 — 请在个人菜单中返回真实角色。",
+    "accessDeniedHintSuffix": "请以协调员、领导或经理身份登录。",
+    "backToStudio": "返回 Studio"
   }
 }

@@ -25,9 +25,11 @@ import { ChallengeManagement } from '@/components/ChallengeManagement';
 import { StudyLab } from '@/components/StudyLab';
 import { StudioMaintenance } from '@/components/StudioMaintenance';
 import { ReportsHub } from '@/components/ReportsHub';
+import { useI18n } from '@/contexts/I18nContext';
 
 const Studio = () => {
   const { loading, studioAccess, userRole, roleOverride } = useAuth();
+  const { t } = useI18n();
   const [selectedModule, setSelectedModule] = useState<string | null>(null);
   const navigate = useNavigate();
 
@@ -43,7 +45,7 @@ const Studio = () => {
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center space-y-4">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
-          <p className="text-muted-foreground">Verificando permissões...</p>
+          <p className="text-muted-foreground">{t("studio.checkingPermissions")}</p>
         </div>
       </div>
     );
@@ -54,10 +56,10 @@ const Studio = () => {
       <div className="min-h-screen flex items-center justify-center p-4">
         <Card className="max-w-md">
           <CardHeader>
-            <CardTitle>Acesso Negado</CardTitle>
+            <CardTitle>{t("studio.accessDeniedTitle")}</CardTitle>
             <CardDescription>
-              Seu perfil atual não possui permissão para acessar o DJT Quest Studio.
-              {roleOverride ? ' Você está em modo de teste — volte ao papel real no menu do perfil.' : ' Entre como Coordenador, Líder ou Gerente.'}
+              {t("studio.accessDeniedBase")}{" "}
+              {roleOverride ? t("studio.accessDeniedTestSuffix") : t("studio.accessDeniedHintSuffix")}
             </CardDescription>
           </CardHeader>
         </Card>
@@ -130,7 +132,7 @@ const Studio = () => {
                 className="gap-2 hover:bg-muted"
               >
                 <ArrowLeft className="h-4 w-4" />
-                Voltar ao Studio
+                {t("studio.backToStudio")}
               </Button>
             </div>
             <div className="animate-in fade-in duration-300">
