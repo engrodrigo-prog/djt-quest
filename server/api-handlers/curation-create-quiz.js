@@ -26,8 +26,8 @@ export default async function handler(req, res) {
     const { data: callerProfile } = await admin.from('profiles').select('is_leader, studio_access').eq('id', caller.id).maybeSingle();
     if (!canAccessStudio({ roleSet, profile: callerProfile })) return res.status(403).json({ error: 'Forbidden' });
 
-    // Leaders already have insert policy; content_curator can create quizzes as well.
-    const isCurator = canCurate(roleSet);
+    // Leaders already have insert policy; content_curator (or invited curator) can create quizzes as well.
+    const isCurator = canCurate({ roleSet, profile: callerProfile });
     const ownerId = caller.id;
 
     const insertFull = {

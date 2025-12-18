@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { X, Download, Info } from "lucide-react";
@@ -7,6 +7,8 @@ import { AttachmentMetadataModal } from "./AttachmentMetadataModal";
 interface AttachmentViewerProps {
   urls: string[];
   postId?: string;
+  /** Default: 'grid'. Use 'carousel' for Instagram-like media. */
+  mediaLayout?: 'grid' | 'carousel';
 }
 
 const getFileType = (url: string): 'image' | 'audio' | 'video' | 'document' => {
@@ -17,15 +19,29 @@ const getFileType = (url: string): 'image' | 'audio' | 'video' | 'document' => {
   return 'document';
 };
 
-export const AttachmentViewer = ({ urls, postId }: AttachmentViewerProps) => {
+export const AttachmentViewer = ({ urls, postId, mediaLayout = 'grid' }: AttachmentViewerProps) => {
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [metadataUrl, setMetadataUrl] = useState<string | null>(null);
+  const [carouselIndex, setCarouselIndex] = useState(0);
 
   const images = urls.filter(url => getFileType(url) === 'image');
   const audioFiles = urls.filter(url => getFileType(url) === 'audio');
   const videoFiles = urls.filter(url => getFileType(url) === 'video');
   const documents = urls.filter(url => getFileType(url) === 'document');
+
+  const media = useMemo(() => urls.filter((u) => {
+    const t = getFileType(u);
+    return t === 'image' || t === 'video';
+  }), [urls]);
+
+  useEffect(() => {
+    if (!media.length) {
+      setCarouselIndex(0);
+      return;
+    }
+    setCarouselIndex((prev) => Math.max(0, Math.min(prev, media.length - 1)));
+  }, [media.length]);
 
   const openLightbox = (index: number) => {
     setSelectedIndex(index);
@@ -42,8 +58,91 @@ export const AttachmentViewer = ({ urls, postId }: AttachmentViewerProps) => {
 
   return (
     <div className="mt-4 space-y-4">
-      {/* Galeria de Imagens */}
-      {images.length > 0 && (
+      {/* Mídia principal (carousel, estilo Instagram) */}
+      {mediaLayout === 'carousel' && media.length > 0 && (
+        <div className="relative mx-auto w-full max-w-2xl overflow-hidden rounded-lg border bg-background">
+          {(() => {
+            const url = media[carouselIndex];
+            const t = getFileType(url);
+            if (t === 'video') {
+              return (
+                <video controls className="w-full max-h-[70vh] bg-black" preload="metadata">
+                  <source src={url} />
+                  Seu navegador não suporta vídeo.
+                </video>
+              );
+            }
+            const imageIndex = images.indexOf(url);
+            return (
+              <img
+                src={url}
+                alt={`Mídia ${carouselIndex + 1}`}
+                className="w-full max-h-[70vh] object-contain bg-black/5 cursor-pointer"
+                onClick={() => {
+                  if (imageIndex >= 0) openLightbox(imageIndex);
+                }}
+              />
+            );
+          })()}
+
+          <div className="absolute top-2 right-2 flex items-center gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              className="h-7 w-7 p-0"
+              onClick={() => setMetadataUrl(media[carouselIndex])}
+              title="Detalhes"
+              aria-label="Detalhes"
+            >
+              <Info className="w-4 h-4" />
+            </Button>
+          </div>
+
+          {media.length > 1 && (
+            <>
+              <div className="absolute inset-y-0 left-0 flex items-center px-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setCarouselIndex((prev) => (prev > 0 ? prev - 1 : media.length - 1))}
+                  className="rounded-full"
+                  aria-label="Anterior"
+                >
+                  ←
+                </Button>
+              </div>
+              <div className="absolute inset-y-0 right-0 flex items-center px-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setCarouselIndex((prev) => (prev < media.length - 1 ? prev + 1 : 0))}
+                  className="rounded-full"
+                  aria-label="Próximo"
+                >
+                  →
+                </Button>
+              </div>
+              <div className="absolute bottom-2 left-0 right-0 flex items-center justify-center gap-1">
+                {media.map((_, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    className={`h-1.5 w-1.5 rounded-full ${idx === carouselIndex ? 'bg-white' : 'bg-white/40'}`}
+                    onClick={() => setCarouselIndex(idx)}
+                    aria-label={`Ir para mídia ${idx + 1}`}
+                  />
+                ))}
+              </div>
+              <div className="absolute bottom-2 right-2 bg-black/60 text-white px-2 py-0.5 rounded-full text-[11px]">
+                {carouselIndex + 1} / {media.length}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Galeria de Imagens (grid) */}
+      {mediaLayout !== 'carousel' && images.length > 0 && (
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
           {images.map((url, index) => (
             <div key={url} className="relative group">
@@ -91,7 +190,7 @@ export const AttachmentViewer = ({ urls, postId }: AttachmentViewerProps) => {
       )}
 
       {/* Players de Vídeo */}
-      {videoFiles.length > 0 && (
+      {mediaLayout !== 'carousel' && videoFiles.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {videoFiles.map((url) => (
             <div key={url} className="relative group">

@@ -16,6 +16,7 @@ interface PendingRegistration {
   id: string;
   name: string;
   email: string;
+  date_of_birth?: string | null;
   telefone: string | null;
   matricula: string | null;
   operational_base: string;
@@ -389,6 +390,12 @@ export function PendingRegistrationsManager() {
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid grid-cols-2 gap-4 text-sm">
+                  {registration.date_of_birth && (
+                    <div className="flex items-center gap-2">
+                      <Clock className="h-4 w-4 text-muted-foreground" />
+                      <span>Nasc.: {new Date(`${registration.date_of_birth}T00:00:00`).toLocaleDateString("pt-BR")}</span>
+                    </div>
+                  )}
                   {registration.telefone && (
                     <div className="flex items-center gap-2">
                       <Phone className="h-4 w-4 text-muted-foreground" />

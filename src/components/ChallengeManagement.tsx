@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/contexts/AuthContext";
 
-type RangeKey = "30" | "60" | "180" | "365";
+type RangeKey = "30" | "60" | "180" | "365" | "all";
 
 interface Challenge {
   id: string;
@@ -65,6 +65,7 @@ export const ChallengeManagement = ({ onlyQuizzes }: ChallengeManagementProps) =
   }, [onlyQuizzes]);
 
   const cutoff = (() => {
+    if (range === "all") return null;
     const days = range === "30" ? 30 : range === "60" ? 60 : range === "180" ? 180 : 365;
     const d = new Date();
     d.setDate(d.getDate() - days);
@@ -72,6 +73,7 @@ export const ChallengeManagement = ({ onlyQuizzes }: ChallengeManagementProps) =
   })();
 
   const filtered = challenges.filter((c) => {
+    if (!cutoff) return true;
     if (!c.created_at) return true;
     const d = new Date(c.created_at);
     return d >= cutoff;
@@ -199,6 +201,7 @@ export const ChallengeManagement = ({ onlyQuizzes }: ChallengeManagementProps) =
             { key: "60", label: "60 dias" },
             { key: "180", label: "Semestre" },
             { key: "365", label: "Ano" },
+            { key: "all", label: "Tudo" },
           ].map((opt) => (
             <Button
               key={opt.key}
@@ -219,7 +222,16 @@ export const ChallengeManagement = ({ onlyQuizzes }: ChallengeManagementProps) =
           </CardTitle>
           <CardDescription className="text-xs">
             Período considerado a partir dos últimos{" "}
-            {range === "30" ? "30 dias" : range === "60" ? "60 dias" : range === "180" ? "6 meses" : "12 meses"}.
+            {range === "all"
+              ? "todo o período"
+              : range === "30"
+                ? "30 dias"
+                : range === "60"
+                  ? "60 dias"
+                  : range === "180"
+                    ? "6 meses"
+                    : "12 meses"}
+            .
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">

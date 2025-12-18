@@ -109,6 +109,9 @@ export default async function handler(req, res) {
             .single();
         if (regErr || !reg)
             return res.status(404).json({ error: 'Registration not found or processed' });
+        if (!reg.date_of_birth) {
+            return res.status(400).json({ error: 'Data de nascimento ausente na solicitação. Peça ao usuário para reenviar o cadastro.' });
+        }
         if (!inScope(reg.sigla_area, scope))
             return res.status(403).json({ error: 'Fora do escopo' });
         // Prevent duplicate approvals
@@ -138,6 +141,7 @@ export default async function handler(req, res) {
             matricula: reg.matricula,
             operational_base: reg.operational_base,
             sigla_area: reg.sigla_area,
+            date_of_birth: reg.date_of_birth,
             must_change_password: true,
             needs_profile_completion: true,
         }, { onConflict: 'id' });

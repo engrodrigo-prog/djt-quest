@@ -35,16 +35,38 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     let posts: any[] = [];
     try {
-      const { data, error } = await admin
-        .from("sepbook_posts")
-        .select(
-          `
+      const baseSelect = `
           id, user_id, content_md, attachments, like_count, comment_count, created_at, location_label, campaign_id, challenge_id, group_label,
           participants:sepbook_post_participants(user_id, profiles(id, name, sigla_area))
-        `,
-        )
+        `;
+
+      // Try to include repost data (newer schema); fall back if column/relationship doesn't exist yet.
+      const selectWithRepost = `
+          ${baseSelect},
+          repost_of,
+          repost:sepbook_posts!sepbook_posts_repost_of_fkey(
+            id, user_id, content_md, attachments, like_count, comment_count, created_at, location_label, campaign_id, challenge_id, group_label
+          )
+        `;
+
+      let data: any[] | null = null;
+      let error: any = null;
+      const attempt = await admin
+        .from("sepbook_posts")
+        .select(selectWithRepost)
         .order("created_at", { ascending: false })
         .limit(50);
+      data = attempt.data as any;
+      error = attempt.error as any;
+      if (error && /repost_of|sepbook_posts_repost_of_fkey/i.test(String(error.message || ""))) {
+        const fallback = await admin
+          .from("sepbook_posts")
+          .select(baseSelect)
+          .order("created_at", { ascending: false })
+          .limit(50);
+        data = fallback.data as any;
+        error = fallback.error as any;
+      }
       if (error) {
         // Se a tabela ainda não existir (migração não aplicada), devolve lista vazia com aviso opcional
         if (/sepbook_posts/i.test(error.message) && /relation|table.*does not exist/i.test(error.message)) {
@@ -61,7 +83,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(200).json({ items: [], meta: { warning: "SEPBook temporariamente indisponível." } });
     }
 
-    const userIds = Array.from(new Set(posts.map((p) => p.user_id)));
+    const userIds = Array.from(
+      new Set(
+        posts
+          .flatMap((p) => [p.user_id, p?.repost?.user_id].filter(Boolean))
+      ),
+    );
     const { data: profiles } = await admin
       .from("profiles")
       .select("id, name, sigla_area, avatar_url, operational_base")
@@ -86,6 +113,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const items = (posts || []).map((p) => {
       const prof = profileMap.get(p.user_id) || { name: "Colaborador", sigla_area: null, avatar_url: null, operational_base: null };
+      const repostRow = p?.repost || null;
+      const repostAuthor =
+        repostRow && repostRow.user_id ? profileMap.get(repostRow.user_id) || { name: "Colaborador", sigla_area: null, avatar_url: null, operational_base: null } : null;
       const participants =
         Array.isArray(p.participants) && p.participants.length > 0
           ? (p.participants as any[]).map((row) => ({
@@ -112,6 +142,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         group_label: p.group_label || null,
         participants,
         has_liked: likedSet.has(p.id),
+        repost_of: p.repost_of || null,
+        repost: repostRow
+          ? {
+              id: repostRow.id,
+              user_id: repostRow.user_id,
+              author_name: repostAuthor?.name || "Colaborador",
+              author_team: repostAuthor?.sigla_area || null,
+              author_avatar: repostAuthor?.avatar_url || null,
+              author_base: repostAuthor?.operational_base || null,
+              content_md: repostRow.content_md,
+              attachments: Array.isArray(repostRow.attachments) ? repostRow.attachments : [],
+              like_count: repostRow.like_count || 0,
+              comment_count: repostRow.comment_count || 0,
+              created_at: repostRow.created_at,
+              location_label: repostRow.location_label,
+              campaign_id: repostRow.campaign_id || null,
+              challenge_id: repostRow.challenge_id || null,
+              group_label: repostRow.group_label || null,
+            }
+          : null,
       };
     });
 

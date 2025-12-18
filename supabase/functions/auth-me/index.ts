@@ -147,9 +147,17 @@ Deno.serve(async (req) => {
 
     // Considera flags do perfil como fallback (ambientes onde user_roles não é legível via RLS).
     const userRoles = (rolesData || []).map((r) => String(r?.role || ''));
-    const hasContentCurator = userRoles.includes('content_curator');
+    // Guests can be granted "curation-only" Studio access via profile flag.
+    const invitedCurator = Boolean(profile?.studio_access) && userRoles.includes('invited');
+    const hasContentCurator = userRoles.includes('content_curator') || invitedCurator;
     const isLeader = Boolean(profile?.is_leader) || privilegedRoles.has(role);
     const studioAccess = Boolean(profile?.studio_access) || privilegedRoles.has(role) || hasContentCurator;
+
+    // If this is an invited curator (no explicit role), treat primary role as content_curator
+    // to keep the UX consistent (Studio redirects straight to /studio/curadoria).
+    if (role === 'invited' && invitedCurator) {
+      role = 'content_curator';
+    }
 
     // Build organizational scope
     const orgScope = {

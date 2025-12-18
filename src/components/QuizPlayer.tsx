@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { CheckCircle2, XCircle, ArrowRight, Trophy } from "lucide-react";
+import { CheckCircle2, XCircle, ArrowRight, Trophy, Volume2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -467,6 +467,19 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
     answerResult?.correctOptionId ? options.find((o) => o.id === answerResult.correctOptionId) || null : null;
   const correctOptionIndex = correctOptionObj ? options.findIndex((o) => o.id === correctOptionObj.id) : -1;
   const correctOptionLabel = correctOptionIndex >= 0 ? String.fromCharCode(65 + correctOptionIndex) : null;
+  const questionTtsText = (() => {
+    const q = String(currentQuestion.question_text || "").trim();
+    const opts = (options || [])
+      .map((o, idx) => {
+        const label = String.fromCharCode(65 + idx);
+        const text = String(o?.option_text || "").trim();
+        return text ? `${label}. ${text}` : null;
+      })
+      .filter(Boolean)
+      .join("\n");
+    const header = isMilhao && currentMilhaoMeta ? `Pergunta nível ${currentMilhaoMeta.level}.` : `Pergunta ${currentQuestionIndex + 1}.`;
+    return [header, q, opts ? `Alternativas:\n${opts}` : ""].filter(Boolean).join("\n\n");
+  })();
 
   const monitorReviewFallbackText = (() => {
     if (!answerResult || answerResult.isCorrect) return "";
@@ -543,15 +556,39 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
       {/* Question */}
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
+          <div className="flex items-start justify-between gap-3">
             <CardTitle className="text-lg font-semibold leading-tight text-foreground">
               {currentQuestion.question_text}
             </CardTitle>
-            <span className="text-sm px-3 py-1 rounded-full bg-primary/10 text-primary border border-primary/20">
-              {isMilhao && currentMilhaoMeta
-                ? `${currentMilhaoMeta.faixa} • Nível ${currentMilhaoMeta.level}`
-                : difficultyLabel}
-            </span>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                className="h-8 w-8"
+                disabled={isSpeaking}
+                onClick={async () => {
+                  try {
+                    if (!ttsEnabled) {
+                      toast.info("Ative a leitura em voz no menu do perfil.");
+                      return;
+                    }
+                    await speak(questionTtsText);
+                  } catch (e: any) {
+                    toast.error(e?.message || "Falha ao gerar áudio");
+                  }
+                }}
+                title="Ouvir pergunta e alternativas"
+                aria-label="Ouvir pergunta e alternativas"
+              >
+                <Volume2 className="h-4 w-4" />
+              </Button>
+              <span className="text-sm px-3 py-1 rounded-full bg-primary/10 text-primary border border-primary/20">
+                {isMilhao && currentMilhaoMeta
+                  ? `${currentMilhaoMeta.faixa} • Nível ${currentMilhaoMeta.level}`
+                  : difficultyLabel}
+              </span>
+            </div>
           </div>
         </CardHeader>
         <CardContent className="space-y-6">

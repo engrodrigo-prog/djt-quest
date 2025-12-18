@@ -15,7 +15,7 @@ export default async function handler(req, res) {
     const { data: callerProfile } = await admin.from('profiles').select('is_leader, studio_access').eq('id', caller.id).maybeSingle();
     if (!canAccessStudio({ roleSet, profile: callerProfile })) return res.status(403).json({ error: 'Forbidden' });
 
-    const isCurator = canCurate(roleSet);
+    const isCurator = canCurate({ roleSet, profile: callerProfile });
     const mineOnly = String(req.query?.mine || '').toLowerCase() === 'true';
     const status = req.query?.status ? String(req.query.status) : null;
 

@@ -78,6 +78,8 @@
     "fullNamePlaceholder": "Enter your full name",
     "emailLabel": "Email *",
     "emailPlaceholder": "your.email@example.com",
+    "dobLabel": "Date of birth *",
+    "dobHint": "Used for identity verification and profile.",
     "phoneLabel": "Phone",
     "phonePlaceholder": "(00) 00000-0000",
     "employeeIdLabel": "Employee ID",
@@ -114,6 +116,8 @@
       "nameMax": "Name must be at most 100 characters",
       "emailInvalid": "Invalid email",
       "emailMax": "Email must be at most 255 characters",
+      "dobRequired": "Date of birth is required",
+      "dobInvalid": "Invalid date of birth",
       "phoneMax": "Phone must be at most 20 characters",
       "employeeIdMax": "Employee ID must be at most 50 characters",
       "baseRequired": "Operational base is required",
@@ -226,6 +230,36 @@
     "accessDeniedTestSuffix": "You are in test mode — return to your real role in the profile menu.",
     "accessDeniedHintSuffix": "Sign in as Coordinator, Leader or Manager.",
     "backToStudio": "Back to Studio"
+  },
+  "contentHub": {
+    "title": "Content",
+    "subtitle": "Manage campaigns, quizzes and forums (with challenge dynamics integrated into campaigns) in one place",
+    "campaigns": {
+      "title": "Campaigns",
+      "createIndividual": "Create individual campaign",
+      "createTeam": "Create team campaign",
+      "manage": "Manage campaigns"
+    },
+    "quizzes": {
+      "title": "Quizzes",
+      "create": "Create quiz",
+      "milhaoAi": "Million Quiz (AI)",
+      "manage": "Manage quizzes"
+    },
+    "forums": {
+      "title": "Forums",
+      "create": "Create forum",
+      "manage": "Manage forums"
+    }
+  },
+  "userApprovalsHub": {
+    "title": "User management",
+    "subtitle": "Signups, approvals, password resets and full user management",
+    "tabs": {
+      "pending": "Pending",
+      "passwordResets": "Password reset",
+      "users": "Users"
+    }
   },
   "helpInfo": {
     "ariaLabel": "Help (how scoring works)",

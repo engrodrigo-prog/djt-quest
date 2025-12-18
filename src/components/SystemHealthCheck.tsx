@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Activity, CheckCircle2, XCircle, AlertCircle, Settings, Sparkles, Bot, Timer } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
+import { apiFetch } from '@/lib/api';
 
 interface HealthCheckResult {
   email: string;
@@ -28,6 +29,37 @@ export const SystemHealthCheck = () => {
   const [savingBonus, setSavingBonus] = useState(false);
   const [applyingBonus, setApplyingBonus] = useState(false);
   const [forumBonusPreview, setForumBonusPreview] = useState<any[] | null>(null);
+  const [cleanupLoading, setCleanupLoading] = useState<string | null>(null);
+
+  const clearLocalCache = () => {
+    try {
+      localStorage.removeItem('auth_user_cache');
+      localStorage.removeItem('auth_role_override');
+      localStorage.removeItem('studio_compendium_draft');
+      localStorage.removeItem('sepbook_draft');
+    } catch {
+      // ignore
+    }
+  };
+
+  const runSystemCleanup = async (action: string, opts?: { dryRun?: boolean }) => {
+    setCleanupLoading(action);
+    try {
+      const { data: session } = await supabase.auth.getSession();
+      const token = session.session?.access_token;
+      if (!token) throw new Error('Não autenticado');
+      const resp = await apiFetch('/api/admin?handler=system-cleanup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action, ...(opts || {}) }),
+      });
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(json?.error || 'Falha na limpeza');
+      return json;
+    } finally {
+      setCleanupLoading(null);
+    }
+  };
 
   const checkSystem = async () => {
     setChecking(true);
@@ -253,6 +285,154 @@ export const SystemHealthCheck = () => {
 
   return (
     <div className="space-y-4">
+      {/* Cleanup */}
+      <Card className="border-border/60 bg-card">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Settings className="h-5 w-5" />
+            Limpeza & Cache
+          </CardTitle>
+          <CardDescription>
+            Ferramentas para remover pendências antigas, usuários de teste e áudios temporários.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                clearLocalCache();
+                toast.success('Cache local limpo.');
+              }}
+            >
+              Limpar cache local
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={async () => {
+                const ok = confirm('Sair, limpar sessão local e recarregar?');
+                if (!ok) return;
+                try {
+                  await supabase.auth.signOut();
+                } catch {
+                  // ignore
+                }
+                clearLocalCache();
+                window.location.reload();
+              }}
+            >
+              Sair + limpar sessão
+            </Button>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={cleanupLoading === 'purge-pending-registrations'}
+                onClick={async () => {
+                  try {
+                    const r = await runSystemCleanup('purge-pending-registrations', { dryRun: true });
+                    toast.success(`Prévia: ${r.deleteCount || 0} pendências antigas.`);
+                  } catch (e: any) {
+                    toast.error(e?.message || 'Falha na prévia');
+                  }
+                }}
+              >
+                Prévia pendências antigas
+              </Button>
+              <Button
+                type="button"
+                disabled={cleanupLoading === 'purge-pending-registrations'}
+                onClick={async () => {
+                  const ok = confirm('Excluir pendências antigas (pending/rejected) com mais de 30 dias?');
+                  if (!ok) return;
+                  try {
+                    const r = await runSystemCleanup('purge-pending-registrations', { dryRun: false });
+                    toast.success(`Excluídas: ${r.deleted || 0} pendências.`);
+                  } catch (e: any) {
+                    toast.error(e?.message || 'Falha ao excluir');
+                  }
+                }}
+              >
+                Excluir pendências antigas
+              </Button>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={cleanupLoading === 'purge-test-users'}
+                onClick={async () => {
+                  try {
+                    const r = await runSystemCleanup('purge-test-users', { dryRun: true });
+                    toast.success(`Prévia: ${r.found || 0} usuários de teste.`);
+                  } catch (e: any) {
+                    toast.error(e?.message || 'Falha na prévia');
+                  }
+                }}
+              >
+                Prévia usuários de teste
+              </Button>
+              <Button
+                type="button"
+                disabled={cleanupLoading === 'purge-test-users'}
+                onClick={async () => {
+                  const ok = confirm('Deletar usuários de teste detectados (@djtquest/@test/@exemplo)? Esta ação é irreversível.');
+                  if (!ok) return;
+                  try {
+                    const r = await runSystemCleanup('purge-test-users', { dryRun: false });
+                    toast.success(`Removidos: ${r.deleted || 0} usuários.`);
+                  } catch (e: any) {
+                    toast.error(e?.message || 'Falha ao remover');
+                  }
+                }}
+              >
+                Remover usuários de teste
+              </Button>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={cleanupLoading === 'purge-voice-transcribe'}
+                onClick={async () => {
+                  try {
+                    const r = await runSystemCleanup('purge-voice-transcribe', { dryRun: true });
+                    toast.success(`Prévia: ${r.found || 0} arquivo(s) de áudio temporário.`);
+                  } catch (e: any) {
+                    toast.error(e?.message || 'Falha na prévia');
+                  }
+                }}
+              >
+                Prévia áudios temporários
+              </Button>
+              <Button
+                type="button"
+                disabled={cleanupLoading === 'purge-voice-transcribe'}
+                onClick={async () => {
+                  const ok = confirm('Apagar áudios temporários de transcrição (voice-transcribe/*)?');
+                  if (!ok) return;
+                  try {
+                    const r = await runSystemCleanup('purge-voice-transcribe', { dryRun: false });
+                    toast.success(`Removidos: ${r.removed || 0} arquivo(s).`);
+                  } catch (e: any) {
+                    toast.error(e?.message || 'Falha ao remover');
+                  }
+                }}
+              >
+                Apagar áudios temporários
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Health Check */}
       <Card className="border-primary/20 bg-primary/5">
         <CardHeader>

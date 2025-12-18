@@ -27,6 +27,22 @@ const buildRegisterSchema = (t: (key: string, params?: any) => string) =>
       .trim()
       .email(t("register.validation.emailInvalid"))
       .max(255, t("register.validation.emailMax")),
+    date_of_birth: z
+      .string()
+      .trim()
+      .min(1, t("register.validation.dobRequired"))
+      .refine(
+        (s) => {
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+          const d = new Date(`${s}T00:00:00Z`);
+          if (Number.isNaN(d.getTime())) return false;
+          // Must not be in the future
+          const now = new Date();
+          const todayUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+          return d <= todayUtc;
+        },
+        t("register.validation.dobInvalid"),
+      ),
     telefone: z
       .string()
       .trim()
@@ -102,6 +118,7 @@ export default function Register() {
   const [formData, setFormData] = useState({
     name: "",
     email: "",
+    date_of_birth: "",
     telefone: "",
     matricula: "",
     operational_base: "",
@@ -199,6 +216,7 @@ export default function Register() {
           body: JSON.stringify({
             name: validatedData.name,
             email: validatedData.email,
+            date_of_birth: validatedData.date_of_birth,
             telefone: validatedData.telefone || null,
             matricula: validatedData.matricula || null,
             operational_base: validatedData.operational_base,
@@ -226,12 +244,13 @@ export default function Register() {
         const { error: insertError } = await supabase.from("pending_registrations").insert({
           name: validatedData.name,
           email: validatedData.email,
+          date_of_birth: validatedData.date_of_birth,
           telefone: validatedData.telefone || null,
           matricula: validatedData.matricula || null,
           operational_base: validatedData.operational_base,
           sigla_area: validatedData.sigla_area.toUpperCase(),
           status: "pending",
-        });
+        } as any);
 
         if (insertError) {
           console.error("Erro ao criar solicitação:", insertError);
@@ -313,6 +332,18 @@ export default function Register() {
                 required
                 maxLength={255}
               />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="date_of_birth">{t("register.dobLabel")}</Label>
+              <Input
+                id="date_of_birth"
+                type="date"
+                value={formData.date_of_birth}
+                onChange={(e) => handleChange("date_of_birth", e.target.value)}
+                required
+              />
+              <p className="text-xs text-muted-foreground">{t("register.dobHint")}</p>
             </div>
 
             <div className="space-y-2">

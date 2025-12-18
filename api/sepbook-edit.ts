@@ -5,7 +5,11 @@ import { recomputeSepbookMentionsForPost } from "./sepbook-mentions";
 import { assertDjtQuestServerEnv } from "../server/env-guard.js";
 
 const SUPABASE_URL = process.env.SUPABASE_URL as string;
-const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY) as string;
+const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY as string | undefined;
+const ANON_KEY = (process.env.SUPABASE_ANON_KEY ||
+  process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+  process.env.VITE_SUPABASE_ANON_KEY) as string;
+const SERVICE_KEY = (SERVICE_ROLE_KEY || ANON_KEY) as string;
 const MOD_ROLES = new Set(["admin", "gerente_djt", "gerente_divisao_djtx", "coordenador_djtx"]);
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -15,20 +19,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     assertDjtQuestServerEnv({ requireSupabaseUrl: false });
     if (!SUPABASE_URL || !SERVICE_KEY) return res.status(500).json({ error: "Missing Supabase config" });
-    const admin = createClient(SUPABASE_URL, SERVICE_KEY, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    });
-
     const authHeader = req.headers["authorization"] as string | undefined;
     if (!authHeader?.startsWith("Bearer ")) return res.status(401).json({ error: "Unauthorized" });
     const token = authHeader.slice(7);
-    const { data: userData } = await admin.auth.getUser(token);
+    const authed = createClient(SUPABASE_URL, ANON_KEY || SERVICE_KEY, {
+      auth: { autoRefreshToken: false, persistSession: false },
+      global: { headers: { Authorization: `Bearer ${token}` } },
+    });
+    const admin = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { autoRefreshToken: false, persistSession: false } });
+
+    const { data: userData, error: authErr } = await authed.auth.getUser();
+    if (authErr) return res.status(401).json({ error: "Unauthorized" });
     const uid = userData?.user?.id;
     if (!uid) return res.status(401).json({ error: "Unauthorized" });
 
-    const { data: rolesRows } = await admin.from("user_roles").select("role").eq("user_id", uid);
-    const roles = (rolesRows || []).map((r: any) => r.role as string);
-    const isMod = roles.some((r) => MOD_ROLES.has(r));
+    let isMod = false;
+    if (SERVICE_ROLE_KEY) {
+      const { data: rolesRows } = await admin.from("user_roles").select("role").eq("user_id", uid);
+      const roles = (rolesRows || []).map((r: any) => r.role as string);
+      isMod = roles.some((r) => MOD_ROLES.has(r));
+    }
 
     const { post_id, content_md, attachments } = req.body || {};
     const postId = String(post_id || "").trim();
@@ -39,7 +49,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!text && atts.length === 0)
       return res.status(400).json({ error: "Conteúdo ou mídia obrigatórios" });
 
-    const { data: post, error: postErr } = await admin
+    const { data: post, error: postErr } = await authed
       .from("sepbook_posts")
       .select("id, user_id")
       .eq("id", postId)
@@ -52,7 +62,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(403).json({ error: "Sem permissão para editar este post" });
     }
 
-    const { data, error } = await admin
+    const { data, error } = await authed
       .from("sepbook_posts")
       .update({
         content_md: text || "",
@@ -67,6 +77,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // Recalcular menções (post + comentários)
     try {
+      if (!SERVICE_ROLE_KEY) throw new Error("no service role");
       await recomputeSepbookMentionsForPost(postId);
     } catch {}
 

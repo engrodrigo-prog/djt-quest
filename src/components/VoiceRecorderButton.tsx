@@ -161,36 +161,40 @@ export function VoiceRecorderButton({
 
           const bucket = "forum-attachments";
           const filePath = `voice-transcribe/${userId}/voice-${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+          let uploadedPath: string | null = null;
 
-          const { error: uploadError } = await supabase.storage.from(bucket).upload(filePath, file, {
-            upsert: false,
-            cacheControl: "3600",
-            contentType: file.type || undefined,
-          } as any);
-          if (uploadError) throw uploadError;
-
-          const { data: publicData } = supabase.storage.from(bucket).getPublicUrl(filePath);
-          const publicUrl = publicData?.publicUrl;
-          if (!publicUrl) throw new Error("Falha ao obter URL do áudio");
-
-          const resp = await fetch("/api/ai?handler=transcribe-audio", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ fileUrl: publicUrl, mode, language }),
-          });
-          if (!resp.ok) {
-            const msg = await readApiError(resp);
-            throw new Error(msg || "Falha na transcrição");
-          }
-          const json = await resp.json().catch(() => ({} as any));
-          if (runId !== transcribeRunIdRef.current) return;
-          text = String((json as any)?.text || (json as any)?.transcript || "").trim();
-
-          // best-effort cleanup do arquivo temporário
           try {
-            await supabase.storage.from(bucket).remove([filePath]);
-          } catch {
-            // ignore
+            const { error: uploadError } = await supabase.storage.from(bucket).upload(filePath, file, {
+              upsert: false,
+              cacheControl: "60",
+              contentType: file.type || undefined,
+            } as any);
+            if (uploadError) throw uploadError;
+            uploadedPath = filePath;
+
+            const { data: publicData } = supabase.storage.from(bucket).getPublicUrl(filePath);
+            const publicUrl = publicData?.publicUrl;
+            if (!publicUrl) throw new Error("Falha ao obter URL do áudio");
+
+            const resp = await fetch("/api/ai?handler=transcribe-audio", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ fileUrl: publicUrl, mode, language }),
+            });
+            if (!resp.ok) {
+              const msg = await readApiError(resp);
+              throw new Error(msg || "Falha na transcrição");
+            }
+            const json = await resp.json().catch(() => ({} as any));
+            if (runId !== transcribeRunIdRef.current) return;
+            text = String((json as any)?.text || (json as any)?.transcript || "").trim();
+          } finally {
+            // best-effort cleanup do arquivo temporário (sempre tenta apagar)
+            try {
+              if (uploadedPath) await supabase.storage.from(bucket).remove([uploadedPath]);
+            } catch {
+              // ignore
+            }
           }
         } catch (primaryErr: any) {
           // Fallback: base64 (caso upload falhe / sem sessão / sem permissão)

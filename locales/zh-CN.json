@@ -78,6 +78,8 @@
     "fullNamePlaceholder": "请输入姓名",
     "emailLabel": "邮箱 *",
     "emailPlaceholder": "your.email@example.com",
+    "dobLabel": "出生日期 *",
+    "dobHint": "用于身份验证与个人资料。",
     "phoneLabel": "电话",
     "phonePlaceholder": "(00) 00000-0000",
     "employeeIdLabel": "工号",
@@ -114,6 +116,8 @@
       "nameMax": "姓名最多 100 个字符",
       "emailInvalid": "邮箱格式不正确",
       "emailMax": "邮箱最多 255 个字符",
+      "dobRequired": "出生日期为必填项",
+      "dobInvalid": "出生日期无效",
       "phoneMax": "电话最多 20 个字符",
       "employeeIdMax": "工号最多 50 个字符",
       "baseRequired": "运行基地为必填项",
@@ -226,6 +230,36 @@
     "accessDeniedTestSuffix": "你处于测试模式 — 请在个人菜单中返回真实角色。",
     "accessDeniedHintSuffix": "请以协调员、领导或经理身份登录。",
     "backToStudio": "返回 Studio"
+  },
+  "contentHub": {
+    "title": "内容",
+    "subtitle": "在一个地方管理活动、测验和论坛（挑战机制与活动集成）",
+    "campaigns": {
+      "title": "活动",
+      "createIndividual": "创建个人活动",
+      "createTeam": "创建团队活动",
+      "manage": "管理活动"
+    },
+    "quizzes": {
+      "title": "测验",
+      "create": "创建测验",
+      "milhaoAi": "百万测验（AI）",
+      "manage": "管理测验"
+    },
+    "forums": {
+      "title": "论坛",
+      "create": "创建论坛",
+      "manage": "管理论坛"
+    }
+  },
+  "userApprovalsHub": {
+    "title": "用户管理",
+    "subtitle": "注册申请、审批、密码重置与完整用户管理",
+    "tabs": {
+      "pending": "待处理",
+      "passwordResets": "密码重置",
+      "users": "用户"
+    }
   },
   "helpInfo": {
     "ariaLabel": "帮助（计分说明）",

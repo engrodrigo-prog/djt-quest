@@ -82,7 +82,18 @@ export function canAssignRoles(params) {
 }
 
 export function canCurate(roleSet) {
-  return isAdmin(roleSet) || isContentCurator(roleSet);
+  // Back-compat:
+  // - Old callsites pass only roleSet (Set).
+  // - New callsites may pass { roleSet, profile } to support "invited curator" via profiles.studio_access.
+  if (roleSet instanceof Set) {
+    return isAdmin(roleSet) || isContentCurator(roleSet);
+  }
+  const input = roleSet || {};
+  const set = input?.roleSet instanceof Set ? input.roleSet : rolesToSet(input?.roleSet);
+  const profile = input?.profile || {};
+  if (isAdmin(set) || isContentCurator(set)) return true;
+  // Guests can be granted "curation-only" Studio access via profile flag (see UserManagement UI hint).
+  return Boolean(profile?.studio_access) && hasRole(set, ROLE.INVITED);
 }
 
 export function canSeeAnswerKey(params) {
@@ -96,4 +107,3 @@ export function studioLandingPath(params) {
   if (isContentCurator(roleSet) && !isAdmin(roleSet)) return '/studio/curadoria';
   return '/studio';
 }
-

@@ -5,7 +5,11 @@ import { recomputeSepbookMentionsForPost } from "./sepbook-mentions";
 import { assertDjtQuestServerEnv } from "../server/env-guard.js";
 
 const SUPABASE_URL = process.env.SUPABASE_URL as string;
-const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY) as string;
+const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY as string | undefined;
+const ANON_KEY = (process.env.SUPABASE_ANON_KEY ||
+  process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+  process.env.VITE_SUPABASE_ANON_KEY) as string;
+const SERVICE_KEY = (SERVICE_ROLE_KEY || ANON_KEY) as string;
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === "OPTIONS") return res.status(204).send("");
@@ -14,12 +18,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     assertDjtQuestServerEnv({ requireSupabaseUrl: false });
     if (!SUPABASE_URL || !SERVICE_KEY) return res.status(500).json({ error: "Missing Supabase config" });
-    const admin = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { autoRefreshToken: false, persistSession: false } });
-
     const authHeader = req.headers["authorization"] as string | undefined;
     if (!authHeader?.startsWith("Bearer ")) return res.status(401).json({ error: "Unauthorized" });
     const token = authHeader.slice(7);
-    const { data: userData } = await admin.auth.getUser(token);
+    const authed = createClient(SUPABASE_URL, ANON_KEY || SERVICE_KEY, {
+      auth: { autoRefreshToken: false, persistSession: false },
+      global: { headers: { Authorization: `Bearer ${token}` } },
+    });
+    const admin = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { autoRefreshToken: false, persistSession: false } });
+
+    const { data: userData, error: authErr } = await authed.auth.getUser();
+    if (authErr) return res.status(401).json({ error: "Unauthorized" });
     const uid = userData?.user?.id;
     if (!uid) return res.status(401).json({ error: "Unauthorized" });
 
@@ -33,28 +42,31 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       campaign_id,
       challenge_id,
       group_label,
+      repost_of,
     } = req.body || {};
     const text = String(content_md || "").trim();
     const atts = Array.isArray(attachments) ? attachments : [];
-    if (!text && atts.length === 0) return res.status(400).json({ error: "Conteúdo ou mídia obrigatórios" });
+    const repostOf = repost_of != null ? String(repost_of).trim() : "";
+    if (!text && atts.length === 0 && !repostOf) return res.status(400).json({ error: "Conteúdo, mídia ou repost obrigatórios" });
 
     const participantIds = Array.isArray(participant_ids)
       ? Array.from(new Set((participant_ids as string[]).filter((id) => typeof id === "string" && id.trim().length > 0)))
       : [];
 
-    const { data: profile } = await admin
+    const { data: profile } = await authed
       .from("profiles")
       .select("name, sigla_area, avatar_url, operational_base")
       .eq("id", uid)
       .maybeSingle();
 
-    const { data: post, error } = await admin
+    const { data: post, error } = await authed
       .from("sepbook_posts")
       .insert({
         user_id: uid,
         content_md: text,
         attachments: atts,
         has_media: atts.length > 0,
+        repost_of: repostOf || null,
         location_label: location_label || null,
         location_lat: typeof location_lat === "number" ? location_lat : null,
         location_lng: typeof location_lng === "number" ? location_lng : null,
@@ -72,13 +84,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           .status(500)
           .json({ error: "Tabela sepbook_posts ausente. Aplique a migração supabase/migrations/20251115153000_sepbook.sql" });
       }
+      if (message.toLowerCase().includes("row level security") || message.toLowerCase().includes("rls")) {
+        return res.status(500).json({
+          error:
+            "RLS bloqueou a criação do post. Aplique a migração supabase/migrations/20251218190000_sepbook_rls_write_policies.sql (políticas de escrita do SEPBook).",
+        });
+      }
       return res.status(400).json({ error: message });
     }
 
     if (participantIds.length > 0) {
       try {
         const rows = participantIds.map((pid) => ({ post_id: post.id, user_id: pid }));
-        await admin.from("sepbook_post_participants").insert(rows, { returning: "minimal" } as any);
+        await authed.from("sepbook_post_participants").insert(rows, { returning: "minimal" } as any);
       } catch {}
     }
 
@@ -87,6 +105,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     let eventError: string | null = null;
     try {
       if (campaign_id || challenge_id || participantIds.length > 0) {
+        // Em ambientes sem service role, essa integração é best-effort.
+        const writer = SERVICE_ROLE_KEY ? admin : authed;
         const payload = {
           source: "sepbook",
           sepbook_post_id: post.id,
@@ -97,7 +117,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           location_label: location_label || null,
         };
 
-        const { data: newEvent, error: eventErr } = await admin
+        const { data: newEvent, error: eventErr } = await writer
           .from("events")
           .insert({
             user_id: uid,
@@ -116,7 +136,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const participantsSet = new Set<string>(participantIds);
         participantsSet.add(uid);
         const participantRows = Array.from(participantsSet).map((pid) => ({ event_id: eventId, user_id: pid }));
-        await admin.from("event_participants").upsert(participantRows as any, { onConflict: "event_id,user_id" } as any);
+        await writer.from("event_participants").upsert(participantRows as any, { onConflict: "event_id,user_id" } as any);
       }
     } catch (e: any) {
       const msg = e?.message || "Falha ao criar evidência";
@@ -126,13 +146,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // Atualizar menções com base no conteúdo (post + comentários)
     try {
+      if (!SERVICE_ROLE_KEY) throw new Error("no service role");
       await recomputeSepbookMentionsForPost(post.id);
     } catch {}
 
     // XP por engajamento no SEPBook (post completo) — limitado a 100 XP/mês por usuário.
     // Por enquanto, aplica apenas para o autor; participantes adicionais dependem de migração estável em produção.
     try {
-      await admin.rpc("increment_sepbook_profile_xp", { p_user_id: uid, p_amount: 5 }).catch(() => {});
+      if (SERVICE_ROLE_KEY) {
+        await admin.rpc("increment_sepbook_profile_xp", { p_user_id: uid, p_amount: 5 }).catch(() => {});
+      }
     } catch {}
 
     return res.status(200).json({

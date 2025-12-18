@@ -1,13 +1,15 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Target, HelpCircle, MessageSquare, Crown } from 'lucide-react'
+import { useI18n } from '@/contexts/I18nContext'
 
 export function ContentHub({ onOpen }: { onOpen: (id: 'campaigns' | 'campaigns-manage' | 'quiz' | 'quiz-manage' | 'forums' | 'forums-manage' | 'ai-quiz') => void }) {
+  const { t } = useI18n()
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-3xl font-bold text-blue-50 mb-1">Conteúdos</h2>
-        <p className="text-blue-100/80">Gerencie campanhas, quizzes e fóruns (com dinâmicas de desafio integradas às campanhas) em um só lugar</p>
+        <h2 className="text-3xl font-bold text-blue-50 mb-1">{t('contentHub.title')}</h2>
+        <p className="text-blue-100/80">{t('contentHub.subtitle')}</p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -15,7 +17,7 @@ export function ContentHub({ onOpen }: { onOpen: (id: 'campaigns' | 'campaigns-m
           <CardHeader>
             <div className="flex items-center gap-2">
               <Target className="h-5 w-5 text-primary" />
-              <CardTitle className="text-blue-50">Campanhas</CardTitle>
+              <CardTitle className="text-blue-50">{t('contentHub.campaigns.title')}</CardTitle>
             </div>
           </CardHeader>
           <CardContent className="flex flex-col gap-2">
@@ -26,7 +28,7 @@ export function ContentHub({ onOpen }: { onOpen: (id: 'campaigns' | 'campaigns-m
               }}
               className="w-full"
             >
-              Criar Campanha Individual
+              {t('contentHub.campaigns.createIndividual')}
             </Button>
             <Button
               variant="secondary"
@@ -36,9 +38,9 @@ export function ContentHub({ onOpen }: { onOpen: (id: 'campaigns' | 'campaigns-m
               }}
               className="w-full"
             >
-              Criar Campanha Coletiva
+              {t('contentHub.campaigns.createTeam')}
             </Button>
-            <Button variant="outline" onClick={() => onOpen('campaigns-manage')} className="w-full">Gerenciar Campanhas</Button>
+            <Button variant="outline" onClick={() => onOpen('campaigns-manage')} className="w-full">{t('contentHub.campaigns.manage')}</Button>
           </CardContent>
         </Card>
 
@@ -46,12 +48,12 @@ export function ContentHub({ onOpen }: { onOpen: (id: 'campaigns' | 'campaigns-m
           <CardHeader>
             <div className="flex items-center gap-2">
               <HelpCircle className="h-5 w-5 text-primary" />
-              <CardTitle className="text-blue-50">Quizzes</CardTitle>
+              <CardTitle className="text-blue-50">{t('contentHub.quizzes.title')}</CardTitle>
             </div>
           </CardHeader>
           <CardContent className="flex flex-col gap-2">
             <Button onClick={() => onOpen('quiz')} className="w-full">
-              Criar Quiz
+              {t('contentHub.quizzes.create')}
             </Button>
             <Button
               variant="secondary"
@@ -59,14 +61,14 @@ export function ContentHub({ onOpen }: { onOpen: (id: 'campaigns' | 'campaigns-m
               className="w-full inline-flex items-center gap-2"
             >
               <Crown className="h-4 w-4" />
-              Quiz do Milhão (IA)
+              {t('contentHub.quizzes.milhaoAi')}
             </Button>
             <Button
               variant="outline"
               onClick={() => onOpen('quiz-manage')}
               className="w-full"
             >
-              Gerenciar Quizzes
+              {t('contentHub.quizzes.manage')}
             </Button>
           </CardContent>
         </Card>
@@ -75,12 +77,12 @@ export function ContentHub({ onOpen }: { onOpen: (id: 'campaigns' | 'campaigns-m
           <CardHeader>
             <div className="flex items-center gap-2">
               <MessageSquare className="h-5 w-5 text-primary" />
-              <CardTitle className="text-blue-50">Fóruns</CardTitle>
+              <CardTitle className="text-blue-50">{t('contentHub.forums.title')}</CardTitle>
             </div>
           </CardHeader>
           <CardContent className="flex flex-col gap-2">
-            <Button onClick={() => onOpen('forums')} className="w-full">Criar Fórum</Button>
-            <Button variant="outline" onClick={() => onOpen('forums-manage')} className="w-full">Gerenciar Fóruns</Button>
+            <Button onClick={() => onOpen('forums')} className="w-full">{t('contentHub.forums.create')}</Button>
+            <Button variant="outline" onClick={() => onOpen('forums-manage')} className="w-full">{t('contentHub.forums.manage')}</Button>
           </CardContent>
         </Card>
       </div>

@@ -30,7 +30,7 @@ export function ForumManagement() {
   const [category, setCategory] = useState('conhecimento_tecnico');
   const [compOpen, setCompOpen] = useState(false);
   const [cleaning, setCleaning] = useState(false);
-  const [range, setRange] = useState<'30' | '60' | '180' | '365'>('30');
+  const [range, setRange] = useState<'30' | '60' | '180' | '365' | 'all'>('30');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [editDescription, setEditDescription] = useState('');
@@ -179,6 +179,7 @@ export function ForumManagement() {
   };
 
   const cutoff = (() => {
+    if (range === 'all') return null;
     const days = range === '30' ? 30 : range === '60' ? 60 : range === '180' ? 180 : 365;
     const d = new Date();
     d.setDate(d.getDate() - days);
@@ -186,6 +187,7 @@ export function ForumManagement() {
   })();
 
   const filteredTopics = (topics || []).filter((t: any) => {
+    if (!cutoff) return true;
     if (!t.created_at) return true;
     const d = new Date(t.created_at);
     return d >= cutoff;
@@ -339,6 +341,7 @@ export function ForumManagement() {
               { key: '60', label: '60 dias' },
               { key: '180', label: 'Semestre' },
               { key: '365', label: 'Ano' },
+              { key: 'all', label: 'Tudo' },
             ].map((opt) => (
               <Button
                 key={opt.key}

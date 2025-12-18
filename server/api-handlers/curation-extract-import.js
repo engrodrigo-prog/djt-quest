@@ -36,7 +36,8 @@ export default async function handler(req, res) {
 
     const { data: rolesRows } = await admin.from('user_roles').select('role').eq('user_id', caller.id);
     const roleSet = rolesToSet(rolesRows);
-    const isCurator = canCurate(roleSet);
+    const { data: callerProfile } = await admin.from('profiles').select('is_leader, studio_access').eq('id', caller.id).maybeSingle();
+    const isCurator = canCurate({ roleSet, profile: callerProfile });
     if (!isCurator) return res.status(403).json({ error: 'Forbidden' });
 
     const { importId, purpose } = req.body || {};

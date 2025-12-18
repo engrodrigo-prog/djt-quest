@@ -5,7 +5,11 @@ import { recomputeSepbookMentionsForPost } from "./sepbook-mentions";
 import { assertDjtQuestServerEnv } from "../server/env-guard.js";
 
 const SUPABASE_URL = process.env.SUPABASE_URL as string;
-const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY) as string;
+const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY as string | undefined;
+const ANON_KEY = (process.env.SUPABASE_ANON_KEY ||
+  process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+  process.env.VITE_SUPABASE_ANON_KEY) as string;
+const SERVICE_KEY = (SERVICE_ROLE_KEY || ANON_KEY) as string;
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === "OPTIONS") return res.status(204).send("");
@@ -62,7 +66,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const authHeader = req.headers["authorization"] as string | undefined;
       if (!authHeader?.startsWith("Bearer ")) return res.status(401).json({ error: "Unauthorized" });
       const token = authHeader.slice(7);
-      const { data: userData } = await admin.auth.getUser(token);
+      const authed = createClient(SUPABASE_URL, ANON_KEY || SERVICE_KEY, {
+        auth: { autoRefreshToken: false, persistSession: false },
+        global: { headers: { Authorization: `Bearer ${token}` } },
+      });
+      const { data: userData, error: authErr } = await authed.auth.getUser();
+      if (authErr) return res.status(401).json({ error: "Unauthorized" });
       const uid = userData?.user?.id;
       if (!uid) return res.status(401).json({ error: "Unauthorized" });
 
@@ -71,13 +80,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const text = String(content_md || "").trim();
       if (!postId || text.length < 2) return res.status(400).json({ error: "post_id e texto obrigatórios" });
 
-      const { data: profile } = await admin
+      const { data: profile } = await authed
         .from("profiles")
         .select("name, sigla_area")
         .eq("id", uid)
         .maybeSingle();
 
-      const { data, error } = await admin
+      const { data, error } = await authed
         .from("sepbook_comments")
         .insert({
           post_id: postId,
@@ -86,19 +95,32 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         })
         .select()
         .single();
-      if (error) return res.status(400).json({ error: error.message });
+      if (error) {
+        const message = error.message || "Falha ao comentar";
+        if (message.toLowerCase().includes("row level security") || message.toLowerCase().includes("rls")) {
+          return res.status(500).json({
+            error:
+              "RLS bloqueou a criação do comentário. Aplique a migração supabase/migrations/20251218190000_sepbook_rls_write_policies.sql.",
+          });
+        }
+        return res.status(400).json({ error: message });
+      }
 
       // Atualizar contagem de comentários no post
       try {
-        await admin.rpc("increment_sepbook_comment_count", { p_post_id: postId });
+        if (SERVICE_ROLE_KEY) {
+          await admin.rpc("increment_sepbook_comment_count", { p_post_id: postId });
+        }
       } catch {
         // fallback: set count by query
         try {
-          const { count } = await admin
+          const { count } = await authed
             .from("sepbook_comments")
             .select("id", { count: "exact", head: true })
             .eq("post_id", postId);
-          await admin.from("sepbook_posts").update({ comment_count: count || 0 }).eq("id", postId);
+          if (SERVICE_ROLE_KEY) {
+            await admin.from("sepbook_posts").update({ comment_count: count || 0 }).eq("id", postId);
+          }
         } catch {}
       }
 
@@ -116,6 +138,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       // Recalcular menções para o post considerando este novo comentário
       try {
+        if (!SERVICE_ROLE_KEY) throw new Error("no service role");
         await recomputeSepbookMentionsForPost(postId);
       } catch {}
 

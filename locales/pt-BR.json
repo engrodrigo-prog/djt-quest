@@ -78,6 +78,8 @@
     "fullNamePlaceholder": "Digite seu nome completo",
     "emailLabel": "E-mail *",
     "emailPlaceholder": "seu.email@exemplo.com",
+    "dobLabel": "Data de nascimento *",
+    "dobHint": "Usada para verificação de identidade e perfil.",
     "phoneLabel": "Telefone",
     "phonePlaceholder": "(00) 00000-0000",
     "employeeIdLabel": "Matrícula",
@@ -114,6 +116,8 @@
       "nameMax": "Nome deve ter no máximo 100 caracteres",
       "emailInvalid": "E-mail inválido",
       "emailMax": "E-mail deve ter no máximo 255 caracteres",
+      "dobRequired": "Data de nascimento é obrigatória",
+      "dobInvalid": "Data de nascimento inválida",
       "phoneMax": "Telefone deve ter no máximo 20 caracteres",
       "employeeIdMax": "Matrícula deve ter no máximo 50 caracteres",
       "baseRequired": "Base operacional é obrigatória",
@@ -226,6 +230,36 @@
     "accessDeniedTestSuffix": "Você está em modo de teste — volte ao papel real no menu do perfil.",
     "accessDeniedHintSuffix": "Entre como Coordenador, Líder ou Gerente.",
     "backToStudio": "Voltar ao Studio"
+  },
+  "contentHub": {
+    "title": "Conteúdos",
+    "subtitle": "Gerencie campanhas, quizzes e fóruns (com dinâmicas de desafio integradas às campanhas) em um só lugar",
+    "campaigns": {
+      "title": "Campanhas",
+      "createIndividual": "Criar Campanha Individual",
+      "createTeam": "Criar Campanha Coletiva",
+      "manage": "Gerenciar Campanhas"
+    },
+    "quizzes": {
+      "title": "Quizzes",
+      "create": "Criar Quiz",
+      "milhaoAi": "Quiz do Milhão (IA)",
+      "manage": "Gerenciar Quizzes"
+    },
+    "forums": {
+      "title": "Fóruns",
+      "create": "Criar Fórum",
+      "manage": "Gerenciar Fóruns"
+    }
+  },
+  "userApprovalsHub": {
+    "title": "Gerenciar Usuários",
+    "subtitle": "Cadastros, aprovações, resets e gestão completa",
+    "tabs": {
+      "pending": "Pendências",
+      "passwordResets": "Reset de Senha",
+      "users": "Usuários"
+    }
   },
   "helpInfo": {
     "ariaLabel": "Ajuda (como pontua)",

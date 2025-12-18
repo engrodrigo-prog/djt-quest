@@ -32,7 +32,8 @@ export default async function handler(req, res) {
 
     const { data: rolesRows } = await admin.from('user_roles').select('role').eq('user_id', caller.id);
     const roleSet = rolesToSet(rolesRows);
-    if (!canCurate(roleSet)) return res.status(403).json({ error: 'Forbidden' });
+    const { data: callerProfile } = await admin.from('profiles').select('is_leader, studio_access').eq('id', caller.id).maybeSingle();
+    if (!canCurate({ roleSet, profile: callerProfile })) return res.status(403).json({ error: 'Forbidden' });
 
     const { importId, challengeId, source } = req.body || {};
     const iid = String(importId || '').trim();

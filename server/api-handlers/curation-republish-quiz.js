@@ -26,26 +26,29 @@ export default async function handler(req, res) {
     if (String(before.type || '') !== 'quiz') return res.status(400).json({ error: 'Not a quiz' });
 
     const workflow = String(before.quiz_workflow_status || 'PUBLISHED');
-    if (workflow !== 'APPROVED') return res.status(400).json({ error: 'Quiz is not in APPROVED' });
+    if (workflow !== 'PUBLISHED') {
+      return res.status(400).json({ error: 'Quiz is not in PUBLISHED' });
+    }
 
-    // Snapshot at publish point
+    // Snapshot at republish point (best-effort)
     try {
-      await snapshotQuizVersion(admin, { challengeId: id, actorId: caller.id, reason: 'publish', auditAction: 'quiz.version.snapshot' });
+      await snapshotQuizVersion(admin, { challengeId: id, actorId: caller.id, reason: 'republish', auditAction: 'quiz.version.snapshot' });
     } catch {
       // ignore
     }
 
-    const { data: after, error } = await admin
-      .from('challenges')
-      .update({ quiz_workflow_status: 'PUBLISHED', published_at: new Date().toISOString(), published_by: caller.id })
-      .eq('id', id)
-      .select('*')
-      .maybeSingle();
+    const payload = {
+      quiz_workflow_status: 'PUBLISHED',
+      published_at: new Date().toISOString(),
+      published_by: caller.id,
+    };
+
+    const { data: after, error } = await admin.from('challenges').update(payload).eq('id', id).select('*').maybeSingle();
     if (error) return res.status(400).json({ error: error.message });
 
     await tryInsertAuditLog(admin, {
       actor_id: caller.id,
-      action: 'quiz.publish',
+      action: 'quiz.republish',
       entity_type: 'quiz',
       entity_id: id,
       before_json: before,
@@ -59,3 +62,4 @@ export default async function handler(req, res) {
 }
 
 export const config = { api: { bodyParser: true } };
+

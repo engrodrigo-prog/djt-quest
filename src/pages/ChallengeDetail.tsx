@@ -34,7 +34,7 @@ interface Challenge {
 
 const ChallengeDetail = () => {
   const { id } = useParams();
-  const { user, isLeader, studioAccess, userRole } = useAuth() as any;
+  const { user, isLeader, studioAccess, userRole, refreshUserSession } = useAuth() as any;
   const navigate = useNavigate();
   const { toast } = useToast();
   const [searchParams] = useSearchParams();
@@ -50,6 +50,7 @@ const ChallengeDetail = () => {
   const [transcribing, setTranscribing] = useState(false);
   const [previousFeedback, setPreviousFeedback] = useState<{ positive: string | null; constructive: string | null } | null>(null);
   const [quizCompleted, setQuizCompleted] = useState(false);
+  const [resettingAttempt, setResettingAttempt] = useState(false);
   const [actionDate, setActionDate] = useState<string>('');
   const [actionLocation, setActionLocation] = useState<string>('');
   const [sapNote, setSapNote] = useState<string>('');
@@ -99,6 +100,53 @@ const ChallengeDetail = () => {
       toast({ title: 'Falha ao reabrir', description: e?.message || 'Tente novamente', variant: 'destructive' });
     } finally {
       setReopening(false);
+    }
+  };
+
+  const resetMyQuizAttempt = async () => {
+    if (!challenge || !user) return;
+    const status = String(challenge.status || 'active').toLowerCase();
+    const isLocked = status === 'closed' || status === 'canceled' || status === 'cancelled';
+    if (isLocked) {
+      toast({
+        title: 'Quiz encerrado',
+        description: 'Este quiz está encerrado/cancelado no momento. Peça ao líder para reabrir a coleta.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const ok = window.confirm(
+      'Refazer este quiz?\n\nIsso vai zerar suas respostas, reverter o XP ganho neste quiz e permitir responder novamente.\n\nConfirmar?',
+    );
+    if (!ok) return;
+
+    setResettingAttempt(true);
+    try {
+      const { data: session } = await supabase.auth.getSession();
+      const token = session.session?.access_token;
+      if (!token) throw new Error('Não autenticado');
+
+      const resp = await fetch('/api/admin?handler=quiz-reset-attempt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ challengeId: challenge.id }),
+      });
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(json?.error || 'Falha ao resetar tentativa');
+
+      const reverted = Number(json?.xp_reverted ?? 0) || 0;
+      toast({ title: 'Pronto', description: `Tentativa resetada. XP revertido: ${reverted}` });
+      setQuizCompleted(false);
+      refreshUserSession?.().catch(() => {});
+    } catch (e: any) {
+      toast({
+        title: 'Falha ao refazer',
+        description: e?.message || 'Tente novamente',
+        variant: 'destructive',
+      });
+    } finally {
+      setResettingAttempt(false);
     }
   };
 
@@ -437,7 +485,19 @@ const ChallengeDetail = () => {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <Button onClick={() => navigate('/dashboard')} className="w-full">Voltar</Button>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={resettingAttempt}
+                    onClick={resetMyQuizAttempt}
+                    className="w-full"
+                    title="Zera respostas e permite responder novamente (sobrescreve pontuação deste quiz)"
+                  >
+                    {resettingAttempt ? 'Preparando...' : 'Refazer quiz (sobrescrever pontos)'}
+                  </Button>
+                  <Button onClick={() => navigate('/dashboard')} className="w-full">Voltar</Button>
+                </div>
               </CardContent>
             </Card>
           ) : (

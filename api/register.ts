@@ -50,6 +50,17 @@ const normTeam = (s: any) =>
 
 const isGuestSigla = (sigla: string) => sigla === GUEST_TEAM_ID || sigla === 'EXTERNO';
 
+const normDob = (raw: any) => {
+  const s = String(raw ?? '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  const d = new Date(`${s}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return null;
+  const now = new Date();
+  const todayUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  if (d > todayUtc) return null;
+  return s;
+};
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === 'OPTIONS') return res.status(204).send('');
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
@@ -65,6 +76,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const name = normText(body.name, 100);
     const email = normEmail(body.email);
+    const date_of_birth = normDob(body.date_of_birth);
     const telefone = normText(body.telefone, 20) || null;
     const matricula = normMatricula(body.matricula);
     const siglaRaw = normTeam(body.sigla_area);
@@ -74,6 +86,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (!name) return res.status(400).json({ error: 'Nome é obrigatório' });
     if (!email || !email.includes('@')) return res.status(400).json({ error: 'Email inválido' });
+    if (!date_of_birth) return res.status(400).json({ error: 'Data de nascimento é obrigatória' });
     if (!sigla) return res.status(400).json({ error: 'Equipe/Sigla é obrigatória' });
     if (!ALLOWED_TEAMS.has(sigla.toUpperCase())) return res.status(400).json({ error: 'Equipe/Sigla inválida' });
     if (!operational_base) return res.status(400).json({ error: 'Base operacional é obrigatória' });
@@ -99,6 +112,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const payload: any = {
       name,
       email,
+      date_of_birth,
       telefone,
       matricula,
       operational_base,

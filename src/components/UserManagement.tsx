@@ -160,7 +160,8 @@ export const UserManagement = () => {
         sigla_area: form.sigla_area || null,
         operational_base: form.sigla_area || null,
         is_leader: form.is_leader,
-        studio_access: form.studio_access,
+        // Curador de conteúdo precisa entrar no Studio (hub de curadoria)
+        studio_access: Boolean(form.studio_access || isContentCuratorRole),
       };
       if (dateOfBirth) payload.date_of_birth = dateOfBirth;
       if (primaryRoleForUser) payload.role = primaryRoleForUser;
@@ -182,7 +183,10 @@ export const UserManagement = () => {
       });
       const data = await resp.json();
       if (!resp.ok) throw new Error(data?.error || 'Falha ao salvar');
-      toast({ title: 'Usuário atualizado', description: `${form.name} salvo com sucesso` });
+      toast({
+        title: 'Usuário atualizado',
+        description: data?.warning ? `${form.name} salvo. ${String(data.warning)}` : `${form.name} salvo com sucesso`,
+      });
       setEditOpen(false);
       await loadUsers();
     } catch (error: any) {

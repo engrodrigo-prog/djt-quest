@@ -45,6 +45,46 @@ type QuizComment = {
 
 const fmt = (s?: string | null) => (s ? new Date(s).toLocaleString() : '—');
 
+const QUIZ_IMPORTS_MAX_BYTES = 52_428_800; // 50MB (storage.buckets.file_size_limit)
+const QUIZ_IMPORTS_MIME_BY_EXT: Record<string, string> = {
+  csv: 'text/csv',
+  xls: 'application/vnd.ms-excel',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  pdf: 'application/pdf',
+  json: 'application/json',
+  txt: 'text/plain',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  webp: 'image/webp',
+};
+
+const fileExt = (name: string) => {
+  const s = String(name || '');
+  const i = s.lastIndexOf('.');
+  if (i === -1) return '';
+  return s.slice(i + 1).trim().toLowerCase();
+};
+
+const normalizeMime = (mime: string | null | undefined) => String(mime || '').trim().toLowerCase();
+
+const resolveQuizImportsMime = (file: File): string | null => {
+  const ext = fileExt(file.name);
+  const fromExt = ext ? QUIZ_IMPORTS_MIME_BY_EXT[ext] : undefined;
+
+  const directRaw = normalizeMime(file.type);
+  const direct = directRaw === 'application/x-pdf' ? 'application/pdf' : directRaw;
+  const directIsGeneric =
+    !direct ||
+    direct === 'application/octet-stream' ||
+    direct === 'application/zip' ||
+    (direct === 'text/plain' && ext !== 'txt');
+
+  if (fromExt && directIsGeneric) return fromExt;
+  return direct || fromExt || null;
+};
+
 export default function StudioCuration() {
   const { user, userRole, isContentCurator } = useAuth();
   const nav = useNavigate();
@@ -235,6 +275,24 @@ export default function StudioCuration() {
     }
   };
 
+  const onRepublish = async () => {
+    if (!selectedId) return;
+    try {
+      const resp = await apiFetch('/api/admin?handler=curation-republish-quiz', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ challengeId: selectedId }),
+      });
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(json?.error || 'Falha ao publicar novamente');
+      toast.success('Publicado novamente');
+      await fetchList();
+      await fetchDetail(selectedId);
+    } catch (e: any) {
+      toast.error(e?.message || 'Falha ao publicar novamente');
+    }
+  };
+
   const workflow: QuizWorkflow = String(detail?.quiz?.quiz_workflow_status || selected?.quiz_workflow_status || 'PUBLISHED');
   const canEditDraft = workflow === 'DRAFT' || (workflow === 'REJECTED' && Boolean(detail?.isOwner));
   const canSeeAnswerKey = Boolean(detail?.isOwner || detail?.canCurate);
@@ -283,9 +341,15 @@ export default function StudioCuration() {
 
   const runImport = async () => {
     if (!importFile || !user) return;
+    if (importFile.size > QUIZ_IMPORTS_MAX_BYTES) {
+      toast.error('Arquivo muito grande (máx 50MB). Compacte ou divida em partes.');
+      return;
+    }
     setImportLoading(true);
     try {
       const userId = user.id;
+      const resolvedMime = resolveQuizImportsMime(importFile);
+      if (!resolvedMime) throw new Error('Formato de arquivo não suportado para upload');
       const safeName = String(importFile.name || 'arquivo')
         .replace(/[^a-zA-Z0-9._-]/g, '_')
         .slice(0, 80);
@@ -294,14 +358,14 @@ export default function StudioCuration() {
       const { error: upErr } = await supabase.storage.from('quiz-imports').upload(path, importFile, {
         upsert: false,
         cacheControl: '3600',
-        contentType: importFile.type || undefined,
+        contentType: resolvedMime,
       } as any);
       if (upErr) throw upErr;
 
       const createResp = await apiFetch('/api/admin?handler=curation-create-import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ source_bucket: 'quiz-imports', source_path: path, source_mime: importFile.type }),
+        body: JSON.stringify({ source_bucket: 'quiz-imports', source_path: path, source_mime: resolvedMime }),
       });
       const createJson = await createResp.json().catch(() => ({}));
       if (!createResp.ok) throw new Error(createJson?.error || 'Falha ao registrar import');
@@ -328,9 +392,15 @@ export default function StudioCuration() {
 
   const runOccUpload = async () => {
     if (!occFile || !user) return;
+    if (occFile.size > QUIZ_IMPORTS_MAX_BYTES) {
+      toast.error('Arquivo muito grande (máx 50MB). Compacte ou divida em partes.');
+      return;
+    }
     setOccLoading(true);
     try {
       const userId = user.id;
+      const resolvedMime = resolveQuizImportsMime(occFile);
+      if (!resolvedMime) throw new Error('Formato de arquivo não suportado para upload');
       const safeName = String(occFile.name || 'arquivo')
         .replace(/[^a-zA-Z0-9._-]/g, '_')
         .slice(0, 80);
@@ -339,14 +409,14 @@ export default function StudioCuration() {
       const { error: upErr } = await supabase.storage.from('quiz-imports').upload(path, occFile, {
         upsert: false,
         cacheControl: '3600',
-        contentType: occFile.type || undefined,
+        contentType: resolvedMime,
       } as any);
       if (upErr) throw upErr;
 
       const createResp = await apiFetch('/api/admin?handler=compendium-create-import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ source_bucket: 'quiz-imports', source_path: path, source_mime: occFile.type }),
+        body: JSON.stringify({ source_bucket: 'quiz-imports', source_path: path, source_mime: resolvedMime }),
       });
       const createJson = await createResp.json().catch(() => ({}));
       if (!createResp.ok) throw new Error(createJson?.error || 'Falha ao registrar upload');
@@ -936,6 +1006,11 @@ export default function StudioCuration() {
                   )}
                   {canCurate && workflow === 'APPROVED' && (
                     <Button onClick={onPublish}>Publicar</Button>
+                  )}
+                  {canCurate && workflow === 'PUBLISHED' && (
+                    <Button variant="outline" onClick={onRepublish} title="Atualiza a data de publicação para reaparecer no Hub">
+                      Publicar novamente
+                    </Button>
                   )}
                 </div>
 

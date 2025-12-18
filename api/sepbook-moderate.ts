@@ -4,7 +4,11 @@ import { createClient } from "@supabase/supabase-js";
 import { assertDjtQuestServerEnv } from "../server/env-guard.js";
 
 const SUPABASE_URL = process.env.SUPABASE_URL as string;
-const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY) as string;
+const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY as string | undefined;
+const ANON_KEY = (process.env.SUPABASE_ANON_KEY ||
+  process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+  process.env.VITE_SUPABASE_ANON_KEY) as string;
+const SERVICE_KEY = (SERVICE_ROLE_KEY || ANON_KEY) as string;
 const MOD_ROLES = new Set(["admin", "gerente_djt", "gerente_divisao_djtx", "coordenador_djtx"]);
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -14,34 +18,42 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     assertDjtQuestServerEnv({ requireSupabaseUrl: false });
     if (!SUPABASE_URL || !SERVICE_KEY) return res.status(500).json({ error: "Missing Supabase config" });
-    const admin = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { autoRefreshToken: false, persistSession: false } });
-
     const authHeader = req.headers["authorization"] as string | undefined;
     if (!authHeader?.startsWith("Bearer ")) return res.status(401).json({ error: "Unauthorized" });
     const token = authHeader.slice(7);
-    const { data: userData } = await admin.auth.getUser(token);
+    const authed = createClient(SUPABASE_URL, ANON_KEY || SERVICE_KEY, {
+      auth: { autoRefreshToken: false, persistSession: false },
+      global: { headers: { Authorization: `Bearer ${token}` } },
+    });
+    const admin = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { autoRefreshToken: false, persistSession: false } });
+
+    const { data: userData, error: authErr } = await authed.auth.getUser();
+    if (authErr) return res.status(401).json({ error: "Unauthorized" });
     const uid = userData?.user?.id;
     if (!uid) return res.status(401).json({ error: "Unauthorized" });
 
-    const { data: rolesRows } = await admin.from("user_roles").select("role").eq("user_id", uid);
-    const roles = (rolesRows || []).map((r: any) => r.role as string);
-    const isMod = roles.some((r) => MOD_ROLES.has(r));
+    let isMod = false;
+    if (SERVICE_ROLE_KEY) {
+      const { data: rolesRows } = await admin.from("user_roles").select("role").eq("user_id", uid);
+      const roles = (rolesRows || []).map((r: any) => r.role as string);
+      isMod = roles.some((r) => MOD_ROLES.has(r));
+    }
 
     const { action, post_id } = req.body || {};
     if (action === "delete_post") {
       if (!post_id) return res.status(400).json({ error: "post_id required" });
-      const { data: post } = await admin
+      const { data: post } = await authed
         .from("sepbook_posts")
         .select("id, user_id")
         .eq("id", post_id)
         .maybeSingle();
       if (!post) return res.status(404).json({ error: "Post não encontrado" });
-      if (post.user_id !== uid && !isMod) {
-        return res.status(403).json({ error: "Sem permissão para excluir este post" });
-      }
+      const isOwner = post.user_id === uid;
 
       // Reverter XP associado a esta publicação e seus comentários "ricos"
       try {
+        if (!SERVICE_ROLE_KEY) throw new Error("no service role");
+        if (!isOwner && !isMod) throw new Error("not allowed");
         const authorId = (post as any).user_id as string | undefined;
         if (authorId) {
           try {
@@ -86,8 +98,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         // rollback de XP é best-effort; nunca bloqueia exclusão
       }
 
-      const { error } = await admin.from("sepbook_posts").delete().eq("id", post_id);
-      if (error) return res.status(400).json({ error: error.message });
+      const { error } = await authed.from("sepbook_posts").delete().eq("id", post_id);
+      if (error) {
+        const msg = String(error.message || "");
+        if (msg.toLowerCase().includes("row level security") || msg.toLowerCase().includes("permission denied")) {
+          return res.status(403).json({ error: "Sem permissão para excluir este post" });
+        }
+        return res.status(400).json({ error: error.message });
+      }
       return res.status(200).json({ success: true });
     }
 

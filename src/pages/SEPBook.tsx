@@ -10,9 +10,28 @@ import { AttachmentViewer } from "@/components/AttachmentViewer";
 import { ThemedBackground } from "@/components/ThemedBackground";
 import Navigation from "@/components/Navigation";
 import { useToast } from "@/hooks/use-toast";
-import { MessageSquare, Heart, Trash2, MapPin, Wand2, Send, Flame, Plus, Hash, Pencil, Share2 } from "lucide-react";
+import { MessageSquare, Heart, Trash2, MapPin, Wand2, Send, Flame, Plus, Hash, Pencil, Share2, Repeat2, X, Volume2 } from "lucide-react";
 import { VoiceRecorderButton } from "@/components/VoiceRecorderButton";
 import { buildAbsoluteAppUrl, openWhatsAppShare } from "@/lib/whatsappShare";
+import { useTts } from "@/lib/tts";
+
+type SepPostRepost = {
+  id: string;
+  user_id: string;
+  author_name: string;
+  author_team?: string | null;
+  author_avatar?: string | null;
+  author_base?: string | null;
+  content_md: string;
+  attachments?: string[];
+  like_count: number;
+  comment_count: number;
+  created_at: string;
+  location_label?: string | null;
+  campaign_id?: string | null;
+  challenge_id?: string | null;
+  group_label?: string | null;
+};
 
 interface SepPost {
   id: string;
@@ -30,6 +49,8 @@ interface SepPost {
   has_liked?: boolean;
   campaign?: { id: string; title: string | null } | null;
   participants?: { id: string; name: string; sigla_area?: string | null }[];
+  repost_of?: string | null;
+  repost?: SepPostRepost | null;
 }
 
 interface SepComment {
@@ -52,11 +73,30 @@ interface CampaignOption {
 export default function SEPBook() {
   const { user, profile, isLeader } = useAuth();
   const { toast } = useToast();
+  const { ttsEnabled, isSpeaking, speak } = useTts();
   const routerLocation = useRouterLocation();
   const [content, setContent] = useState("");
   const [attachments, setAttachments] = useState<string[]>([]);
   const [attachmentsUploading, setAttachmentsUploading] = useState(false);
+  const [repostOf, setRepostOf] = useState<SepPost | null>(null);
   const [posts, setPosts] = useState<SepPost[]>([]);
+
+  const speakText = useCallback(
+    async (text: string) => {
+      const cleaned = String(text || "").trim();
+      if (!cleaned) return;
+      if (!ttsEnabled) {
+        toast({ title: "Ative a leitura em voz no menu do perfil." });
+        return;
+      }
+      try {
+        await speak(cleaned);
+      } catch (e: any) {
+        toast({ title: "Falha ao gerar áudio", description: e?.message || "Tente novamente", variant: "destructive" });
+      }
+    },
+    [speak, toast, ttsEnabled],
+  );
   const [loading, setLoading] = useState(false);
   const [feedLoading, setFeedLoading] = useState(false);
   const [useLocation, setUseLocation] = useState(false);
@@ -88,6 +128,55 @@ export default function SEPBook() {
   const [trendingTags, setTrendingTags] = useState<any[]>([]);
   const [trendingTagsAll, setTrendingTagsAll] = useState<any[]>([]);
   const [trendingAI, setTrendingAI] = useState<any | null>(null);
+
+  const copyToClipboard = async (value: string) => {
+    const v = String(value || "").trim();
+    if (!v) return;
+    try {
+      await navigator.clipboard.writeText(v);
+      toast({ title: "Copiado", description: v });
+    } catch {
+      toast({ title: "Não foi possível copiar", description: v, variant: "destructive" });
+    }
+  };
+
+  const renderRichText = (text: string) => {
+    const src = String(text || "");
+    const lines = src.split("\n");
+    const re = /(@[A-Za-z0-9_.-]+|#[\\p{L}0-9_]+)/gu;
+    return (
+      <span className="whitespace-pre-wrap">
+        {lines.map((line, lineIdx) => {
+          const parts: any[] = [];
+          let last = 0;
+          for (const m of line.matchAll(re)) {
+            const idx = m.index ?? 0;
+            const token = String(m[0] || "");
+            if (idx > last) parts.push(line.slice(last, idx));
+            parts.push(
+              <button
+                key={`${lineIdx}-${idx}-${token}`}
+                type="button"
+                className="text-primary hover:underline"
+                onClick={() => copyToClipboard(token)}
+                title="Clique para copiar"
+              >
+                {token}
+              </button>,
+            );
+            last = idx + token.length;
+          }
+          if (last < line.length) parts.push(line.slice(last));
+          return (
+            <span key={`line-${lineIdx}`}>
+              {parts}
+              {lineIdx < lines.length - 1 ? "\n" : ""}
+            </span>
+          );
+        })}
+      </span>
+    );
+  };
   const [showTrending, setShowTrending] = useState(false);
   const [showComposer, setShowComposer] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -540,7 +629,7 @@ export default function SEPBook() {
 
   const handlePublish = async () => {
     const text = content.trim();
-    if (!text && attachments.length === 0) {
+    if (!text && attachments.length === 0 && !repostOf) {
       toast({ title: "Conteúdo vazio", description: "Escreva algo ou envie uma mídia antes de publicar.", variant: "destructive" });
       return;
     }
@@ -565,6 +654,7 @@ export default function SEPBook() {
         body: JSON.stringify({
           content_md: finalText,
           attachments,
+          repost_of: repostOf?.id || null,
           location_label: locationLabel,
           location_lat: coords?.lat ?? null,
           location_lng: coords?.lng ?? null,
@@ -577,6 +667,7 @@ export default function SEPBook() {
       if (!resp.ok) throw new Error(json?.error || "Falha ao publicar no SEPBook");
       setContent("");
       setAttachments([]);
+      setRepostOf(null);
       setSelectedCampaignId("");
       setSelectedParticipants(new Set());
       setUseLocation(false);
@@ -875,6 +966,27 @@ export default function SEPBook() {
           <CardContent className="space-y-3 text-white">
             {showComposer ? (
               <>
+                {repostOf && (
+                  <div className="flex items-start justify-between gap-3 rounded-md border border-white/25 bg-white/10 p-2 text-[11px]">
+                    <div className="min-w-0">
+                      <p className="font-semibold text-white/90">Repostando</p>
+                      <p className="text-white/75 truncate">
+                        {formatName(repostOf.author_name)}: {(repostOf.content_md || "").trim().slice(0, 160)}
+                        {(repostOf.content_md || "").trim().length > 160 ? "…" : ""}
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      className="h-7 w-7 flex-shrink-0"
+                      onClick={() => setRepostOf(null)}
+                      title="Cancelar repost"
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                )}
                 <div className="text-xs text-white/85 border border-white/30 rounded-md p-2 flex gap-2 items-start bg-white/5">
                   <MapPin className="h-3.5 w-3.5 mt-0.5" />
                   <span>
@@ -1040,13 +1152,21 @@ export default function SEPBook() {
                 <AttachmentUploader
                   onAttachmentsChange={setAttachments}
                   maxFiles={4}
-                  maxSizeMB={20}
+                  maxImages={3}
+                  maxVideos={1}
+                  maxSizeMB={50}
                   bucket="evidence"
                   pathPrefix="sepbook"
                   acceptMimeTypes={["image/jpeg", "image/png", "image/webp", "image/gif", "video/mp4", "video/webm"]}
-                  maxVideoSeconds={20}
+                  maxVideoSeconds={30}
+                  maxVideoDimension={1920}
+                  maxImageDimension={3840}
+                  imageQuality={0.82}
                   onUploadingChange={setAttachmentsUploading}
                 />
+                <p className="text-[11px] text-muted-foreground text-center">
+                  Imagens são otimizadas para até 4K. Vídeos: até 30s (preferencialmente 1080p/FullHD). Limite: 3 fotos + 1 vídeo por post.
+                </p>
                 <div className="flex flex-col items-center justify-center gap-2">
                   <div className="flex flex-wrap items-center gap-3">
                     <button
@@ -1326,7 +1446,9 @@ export default function SEPBook() {
                     <AttachmentUploader
                       onAttachmentsChange={setEditingNewAttachments}
                       maxFiles={4}
-                      maxSizeMB={20}
+                      maxImages={3}
+                      maxVideos={1}
+                      maxSizeMB={50}
                       bucket="evidence"
                       pathPrefix="sepbook"
                       acceptMimeTypes={[
@@ -1337,7 +1459,10 @@ export default function SEPBook() {
                         "video/mp4",
                         "video/webm",
                       ]}
-                      maxVideoSeconds={20}
+                      maxVideoSeconds={30}
+                      maxVideoDimension={1920}
+                      maxImageDimension={3840}
+                      imageQuality={0.82}
                     />
                     {p.attachments && p.attachments.length > 0 && (
                       <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mt-2">
@@ -1382,10 +1507,24 @@ export default function SEPBook() {
                   </div>
                 ) : (
                   <>
-                    <p className="text-sm whitespace-pre-wrap">{p.content_md}</p>
+                    <div className="text-sm">{renderRichText(p.content_md)}</div>
+                    {p.repost && (
+                      <div className="mt-2 rounded-lg border bg-muted/30 p-2">
+                        <p className="text-[11px] text-muted-foreground mb-1">
+                          Repost de <span className="font-semibold">{formatName(p.repost.author_name)}</span>
+                          {p.repost.author_team ? ` (${p.repost.author_team})` : ""}
+                        </p>
+                        <div className="text-sm">{renderRichText(p.repost.content_md)}</div>
+                        {p.repost.attachments && p.repost.attachments.length > 0 && (
+                          <div className="mt-2 flex justify-center">
+                            <AttachmentViewer urls={p.repost.attachments} postId={p.repost.id} mediaLayout="carousel" />
+                          </div>
+                        )}
+                      </div>
+                    )}
                     {p.attachments && p.attachments.length > 0 && (
                       <div className="mt-2 flex justify-center">
-                        <AttachmentViewer urls={p.attachments} postId={p.id} />
+                        <AttachmentViewer urls={p.attachments} postId={p.id} mediaLayout="carousel" />
                       </div>
                     )}
                   </>
@@ -1410,24 +1549,52 @@ export default function SEPBook() {
                       <MessageSquare className="h-4 w-4" />
                       <span>{p.comment_count || 0} comentários</span>
                     </button>
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1"
+                      onClick={() => {
+                        setShowComposer(true);
+                        setRepostOf(p);
+                        setAttachments([]);
+                        setSelectedCampaignId("");
+                        setSelectedParticipants(new Set());
+                        window.scrollTo({ top: 0, behavior: "smooth" });
+                      }}
+                      title="Repostar no SEPBook"
+                    >
+                      <Repeat2 className="h-4 w-4" />
+                      <span>Repost</span>
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    className="inline-flex items-center justify-center h-7 w-7 rounded-full border border-border/50 hover:bg-accent"
-                    onClick={() => {
-                      const url = buildAbsoluteAppUrl(`/sepbook#post-${encodeURIComponent(p.id)}`);
-                      const preview = (p.content_md || '').trim().replace(/\s+/g, ' ').slice(0, 140);
-                      openWhatsAppShare({
-                        message: preview
-                          ? `Veja esta publicação no SEPBook (DJT Quest):\n"${preview}${preview.length >= 140 ? '…' : ''}"`
-                          : "Veja esta publicação no SEPBook (DJT Quest):",
-                        url,
-                      });
-                    }}
-                    title="Compartilhar esta publicação no WhatsApp"
-                  >
-                    <Share2 className="h-3.5 w-3.5" />
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      className="inline-flex items-center justify-center h-7 w-7 rounded-full border border-border/50 hover:bg-accent disabled:opacity-60"
+                      onClick={() => speakText(p.content_md)}
+                      title="Ouvir esta publicação"
+                      aria-label="Ouvir esta publicação"
+                      disabled={isSpeaking}
+                    >
+                      <Volume2 className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      className="inline-flex items-center justify-center h-7 w-7 rounded-full border border-border/50 hover:bg-accent"
+                      onClick={() => {
+                        const url = buildAbsoluteAppUrl(`/sepbook#post-${encodeURIComponent(p.id)}`);
+                        const preview = (p.content_md || '').trim().replace(/\s+/g, ' ').slice(0, 140);
+                        openWhatsAppShare({
+                          message: preview
+                            ? `Veja esta publicação no SEPBook (DJT Quest):\n"${preview}${preview.length >= 140 ? '…' : ''}"`
+                            : "Veja esta publicação no SEPBook (DJT Quest):",
+                          url,
+                        });
+                      }}
+                      title="Compartilhar esta publicação no WhatsApp"
+                    >
+                      <Share2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
                 </div>
                 {openComments[p.id] && (
                   <div className="mt-2 space-y-2 border-t pt-2">
@@ -1459,28 +1626,40 @@ export default function SEPBook() {
                                   </span>
                                 )}
                               </div>
-                              <span className="block">{c.content_md}</span>
+                              <div className="block">{renderRichText(c.content_md)}</div>
                             </div>
-                            <button
-                              type="button"
-                              className="inline-flex items-center justify-center h-7 w-7 rounded-full border border-border/50 hover:bg-accent flex-shrink-0"
-                              onClick={() => {
-                                const url = buildAbsoluteAppUrl(
-                                  `/sepbook?comment=${encodeURIComponent(c.id)}#post-${encodeURIComponent(p.id)}`,
-                                );
-                                const preview = (c.content_md || "").trim().replace(/\s+/g, " ").slice(0, 140);
-                                openWhatsAppShare({
-                                  message: preview
-                                    ? `Comentário no SEPBook (DJT Quest):\n"${preview}${preview.length >= 140 ? "…" : ""}"`
-                                    : "Comentário no SEPBook (DJT Quest):",
-                                  url,
-                                });
-                              }}
-                              title="Compartilhar este comentário no WhatsApp"
-                              aria-label="Compartilhar comentário no WhatsApp"
-                            >
-                              <Share2 className="h-3.5 w-3.5" />
-                            </button>
+                            <div className="flex items-center gap-2 flex-shrink-0">
+                              <button
+                                type="button"
+                                className="inline-flex items-center justify-center h-7 w-7 rounded-full border border-border/50 hover:bg-accent disabled:opacity-60"
+                                onClick={() => speakText(c.content_md)}
+                                title="Ouvir este comentário"
+                                aria-label="Ouvir este comentário"
+                                disabled={isSpeaking}
+                              >
+                                <Volume2 className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                className="inline-flex items-center justify-center h-7 w-7 rounded-full border border-border/50 hover:bg-accent"
+                                onClick={() => {
+                                  const url = buildAbsoluteAppUrl(
+                                    `/sepbook?comment=${encodeURIComponent(c.id)}#post-${encodeURIComponent(p.id)}`,
+                                  );
+                                  const preview = (c.content_md || "").trim().replace(/\s+/g, " ").slice(0, 140);
+                                  openWhatsAppShare({
+                                    message: preview
+                                      ? `Comentário no SEPBook (DJT Quest):\n"${preview}${preview.length >= 140 ? "…" : ""}"`
+                                      : "Comentário no SEPBook (DJT Quest):",
+                                    url,
+                                  });
+                                }}
+                                title="Compartilhar este comentário no WhatsApp"
+                                aria-label="Compartilhar comentário no WhatsApp"
+                              >
+                                <Share2 className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
                           </div>
                         ))}
                       </div>

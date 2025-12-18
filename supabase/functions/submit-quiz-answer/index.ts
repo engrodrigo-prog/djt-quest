@@ -90,11 +90,17 @@ serve(async (req) => {
   };
 
   const loadChallengeMeta = async (supabase: any, challengeId: string) => {
-    const { data } = await supabase
-      .from('challenges')
-      .select('title, xp_reward, reward_mode, reward_tier_steps, owner_id, created_by')
-      .eq('id', challengeId)
-      .maybeSingle();
+    const selectV2 = 'title, xp_reward, reward_mode, reward_tier_steps, owner_id, created_by, status';
+    const selectV1 = 'title, xp_reward, reward_mode, reward_tier_steps, owner_id, created_by';
+
+    let data: any = null;
+    const v2 = await supabase.from('challenges').select(selectV2).eq('id', challengeId).maybeSingle();
+    data = v2.data as any;
+    // Backward-compat: older envs may not have status
+    if (v2.error && /status/i.test(String(v2.error?.message || v2.error))) {
+      const v1 = await supabase.from('challenges').select(selectV1).eq('id', challengeId).maybeSingle();
+      data = v1.data as any;
+    }
     const title = String((data as any)?.title || '');
     const xpRewardRaw = (data as any)?.xp_reward;
     const xpReward =
@@ -105,6 +111,7 @@ serve(async (req) => {
     const rewardTierStepsRaw = (data as any)?.reward_tier_steps;
     const rewardTierSteps =
       typeof rewardTierStepsRaw === 'number' ? Number(rewardTierStepsRaw) : null;
+    const status = (data as any)?.status != null ? String((data as any).status) : null;
     return {
       title,
       xpReward: Number.isFinite(xpReward) ? xpReward : 0,
@@ -112,6 +119,7 @@ serve(async (req) => {
       rewardTierSteps,
       ownerId,
       createdBy,
+      status,
     };
   };
 
@@ -310,16 +318,29 @@ serve(async (req) => {
     let challengeOwnerId: string | null = null;
     let challengeCreatedBy: string | null = null;
     try {
-      const { data: ch } = await supabase
-        .from('challenges')
-        .select('title, xp_reward, reward_mode, reward_tier_steps, owner_id, created_by')
-        .eq('id', challengeId)
-        .maybeSingle();
+      const selectV2 = 'title, xp_reward, reward_mode, reward_tier_steps, owner_id, created_by, status';
+      const selectV1 = 'title, xp_reward, reward_mode, reward_tier_steps, owner_id, created_by';
+
+      let ch: any = null;
+      const v2 = await supabase.from('challenges').select(selectV2).eq('id', challengeId).maybeSingle();
+      ch = v2.data as any;
+      // Backward-compat: status column may not exist
+      if (v2.error && /status/i.test(String(v2.error?.message || v2.error))) {
+        const v1 = await supabase.from('challenges').select(selectV1).eq('id', challengeId).maybeSingle();
+        ch = v1.data as any;
+      }
       const title = String(ch?.title || '');
       isMilhao = /milh(ã|a)o/i.test(title);
 
       challengeOwnerId = (ch as any)?.owner_id ? String((ch as any).owner_id) : null;
       challengeCreatedBy = (ch as any)?.created_by ? String((ch as any).created_by) : null;
+      const status = ((ch as any)?.status != null ? String((ch as any).status) : 'active').toLowerCase();
+      if (status === 'closed' || status === 'canceled' || status === 'cancelled') {
+        return new Response(
+          JSON.stringify({ error: 'Quiz encerrado para novas respostas' }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
 
       const modeRaw = String((ch as any)?.reward_mode || '').trim();
       milhaoRewardMode = modeRaw === 'tier_steps' ? 'tier_steps' : 'fixed_xp';

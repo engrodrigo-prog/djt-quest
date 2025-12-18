@@ -18,6 +18,11 @@ export default async function handler(req, res) {
         const supabaseAdmin = createSupabaseAdminClient();
         const caller = await requireCallerUser(supabaseAdmin, req);
         const callerId = caller.id;
+        const isEnumValueMissingError = (msg, value) => {
+            const m = String(msg || '').toLowerCase();
+            return m.includes('invalid input value for enum') && m.includes('app_role') && m.includes(String(value || '').toLowerCase());
+        };
+        let warning = null;
 
         const [{ data: callerRolesRows }, { data: callerProfile }] = await Promise.all([
             supabaseAdmin.from('user_roles').select('role').eq('user_id', callerId),
@@ -172,11 +177,26 @@ export default async function handler(req, res) {
 
             if (toRemove.length) {
                 const { error: delErr } = await supabaseAdmin.from('user_roles').delete().eq('user_id', userId).in('role', toRemove);
-                if (delErr) return res.status(400).json({ error: `Role update failed: ${delErr.message}` });
+                if (delErr)
+                    return res.status(400).json({ error: `Role update failed: ${delErr.message}` });
             }
             if (toAdd.length) {
                 const { error: insErr } = await supabaseAdmin.from('user_roles').insert(toAdd.map((r) => ({ user_id: userId, role: r })));
-                if (insErr) return res.status(400).json({ error: `Role update failed: ${insErr.message}` });
+                if (insErr) {
+                    // Back-compat: some DBs still have app_role enum without newer values.
+                    // If the goal is to grant "curation-only" access for invited users, we can
+                    // fall back to profiles.studio_access without failing the entire save.
+                    const requestedCurator = toAdd.includes(ROLE.CONTENT_CURATOR) || requested.has(ROLE.CONTENT_CURATOR);
+                    const studioAccessOnProfile = Boolean(updates?.studio_access) || Boolean(beforeProfile?.studio_access);
+                    if (requestedCurator && studioAccessOnProfile && isEnumValueMissingError(insErr.message, 'content_curator')) {
+                        // Proceed with warning: user will still be treated as curator via auth-me fallback.
+                        warning =
+                            'Banco com enum app_role desatualizado: não foi possível gravar role content_curator. Usando fallback via profiles.studio_access (curadoria-only).';
+                    }
+                    else {
+                        return res.status(400).json({ error: `Role update failed: ${insErr.message}` });
+                    }
+                }
             }
         }
         const { data: updated } = await supabaseAdmin
@@ -196,7 +216,7 @@ export default async function handler(req, res) {
             after_json: { profile: updated, roles: (afterRolesRows || []).map((r) => r.role) },
         });
 
-        return res.status(200).json({ success: true, profile: updated });
+        return res.status(200).json({ success: true, profile: updated, ...(warning ? { warning } : {}) });
     }
     catch (err) {
         return res.status(500).json({ error: err?.message || 'Unknown error' });

@@ -25,6 +25,8 @@ import { QuizHistory } from '@/components/profile/QuizHistory';
 import { ChangePasswordCard } from '@/components/profile/ChangePasswordCard';
 import Navigation from '@/components/Navigation';
 import { ForumMentions } from '@/components/profile/ForumMentions';
+import { SepbookPostsCard } from '@/components/profile/SepbookPostsCard';
+import { MyCreatedQuizzesCard } from '@/components/profile/MyCreatedQuizzesCard';
 import { fetchTeamNames } from '@/lib/teamLookup';
 import { apiFetch } from '@/lib/api';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -788,6 +790,8 @@ function ProfileContent() {
           <ChangePasswordCard />
           <ProfileChangeHistory />
           <QuizHistory />
+          <SepbookPostsCard />
+          <MyCreatedQuizzesCard />
           <ForumMentions />
           {coordBonus && coordBonus.coordId && (
             <Card>

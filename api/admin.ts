@@ -30,6 +30,7 @@ import curationUpdateQuiz from '../server/api-handlers/curation-update-quiz.js';
 import curationSubmitQuiz from '../server/api-handlers/curation-submit-quiz.js';
 import curationReviewQuiz from '../server/api-handlers/curation-review-quiz.js';
 import curationPublishQuiz from '../server/api-handlers/curation-publish-quiz.js';
+import curationRepublishQuiz from '../server/api-handlers/curation-republish-quiz.js';
 import curationDeleteQuizQuestion from '../server/api-handlers/curation-delete-quiz-question.js';
 import curationCreateImport from '../server/api-handlers/curation-create-import.js';
 import curationExtractImport from '../server/api-handlers/curation-extract-import.js';
@@ -47,6 +48,8 @@ import compendiumList from '../server/api-handlers/compendium-list.js';
 import compendiumCreateImport from '../server/api-handlers/compendium-create-import.js';
 import compendiumExtractImport from '../server/api-handlers/compendium-extract-import.js';
 import compendiumFinalizeImport from '../server/api-handlers/compendium-finalize-import.js';
+import systemCleanup from '../server/api-handlers/system-cleanup.js';
+import quizResetAttempt from '../server/api-handlers/quiz-reset-attempt.js';
 
 type Handler = (req: VercelRequest, res: VercelResponse) => any | Promise<any>;
 
@@ -78,6 +81,7 @@ const handlers: Record<string, Handler> = {
   'curation-submit-quiz': curationSubmitQuiz,
   'curation-review-quiz': curationReviewQuiz,
   'curation-publish-quiz': curationPublishQuiz,
+  'curation-republish-quiz': curationRepublishQuiz,
   'curation-delete-quiz-question': curationDeleteQuizQuestion,
   'curation-create-import': curationCreateImport,
   'curation-extract-import': curationExtractImport,
@@ -95,6 +99,8 @@ const handlers: Record<string, Handler> = {
   'compendium-create-import': compendiumCreateImport,
   'compendium-extract-import': compendiumExtractImport,
   'compendium-finalize-import': compendiumFinalizeImport,
+  'system-cleanup': systemCleanup,
+  'quiz-reset-attempt': quizResetAttempt,
 };
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {

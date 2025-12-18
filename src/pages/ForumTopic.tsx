@@ -14,8 +14,9 @@ import { AttachmentUploader } from '@/components/AttachmentUploader'
 import { AttachmentViewer } from '@/components/AttachmentViewer'
 import { VoiceRecorderButton } from '@/components/VoiceRecorderButton'
 import Navigation from '@/components/Navigation'
-import { Wand2, Share2 } from 'lucide-react'
+import { Wand2, Share2, Volume2 } from 'lucide-react'
 import { buildAbsoluteAppUrl, openWhatsAppShare } from '@/lib/whatsappShare'
+import { useTts } from '@/lib/tts'
 
 interface Topic { id: string; title: string; description: string | null; status: string; chas_dimension: 'C'|'H'|'A'|'S'; quiz_specialties: string[] | null; tags: string[] | null }
 interface Post {
@@ -38,6 +39,7 @@ export default function ForumTopic() {
   const navigate = useNavigate()
   const { toast } = useToast()
   const { isLeader, studioAccess, user, userRole } = useAuth() as any
+  const { ttsEnabled, isSpeaking, speak } = useTts()
   const [topic, setTopic] = useState<Topic | null>(null)
   const [posts, setPosts] = useState<Post[]>([])
   const [compendium, setCompendium] = useState<any | null>(null)
@@ -59,6 +61,23 @@ export default function ForumTopic() {
   const [replyToPostId, setReplyToPostId] = useState<string | null>(null)
   const [replyToExcerpt, setReplyToExcerpt] = useState<string>('')
   const didScrollToHashRef = useRef(false)
+
+  const speakText = useCallback(
+    async (text: string) => {
+      const cleaned = String(text || '').trim()
+      if (!cleaned) return
+      if (!ttsEnabled) {
+        toast({ title: 'Ative a leitura em voz no menu do perfil.' })
+        return
+      }
+      try {
+        await speak(cleaned)
+      } catch (e: any) {
+        toast({ title: 'Falha ao gerar áudio', description: e?.message || 'Tente novamente', variant: 'destructive' })
+      }
+    },
+    [speak, toast, ttsEnabled],
+  )
 
   const load = useCallback(async () => {
     if (!id) return
@@ -570,6 +589,19 @@ export default function ForumTopic() {
                       <Share2 className="h-4 w-4" />
                     </Button>
                   )}
+                  {id && (
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8"
+                      disabled={isSpeaking}
+                      onClick={() => speakText([topic.title, topic.description || ''].filter(Boolean).join('\n\n'))}
+                      title="Ouvir este fórum"
+                      aria-label="Ouvir este fórum"
+                    >
+                      <Volume2 className="h-4 w-4" />
+                    </Button>
+                  )}
                   {isLeaderMod && topic.status !== 'closed' && (
                     <Button size="xs" onClick={handleClose} className="text-[11px]">
                       Fechar & Curar
@@ -767,6 +799,16 @@ export default function ForumTopic() {
                       <Button
                         size="xs"
                         variant="ghost"
+                        disabled={isSpeaking}
+                        onClick={() => speakText(p.content_md)}
+                        title="Ouvir este comentário"
+                        aria-label="Ouvir este comentário"
+                      >
+                        <Volume2 className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        size="xs"
+                        variant="ghost"
                         onClick={() => {
                           setReplyToPostId(p.id)
                           setReplyToExcerpt(p.content_md.slice(0, 140))
@@ -851,6 +893,16 @@ export default function ForumTopic() {
                             title="Compartilhar este comentário no WhatsApp"
                           >
                             <Share2 className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            size="xs"
+                            variant="ghost"
+                            disabled={isSpeaking}
+                            onClick={() => speakText(r.content_md)}
+                            title="Ouvir esta resposta"
+                            aria-label="Ouvir esta resposta"
+                          >
+                            <Volume2 className="h-4 w-4" />
                           </Button>
                           <Button
                             size="xs"

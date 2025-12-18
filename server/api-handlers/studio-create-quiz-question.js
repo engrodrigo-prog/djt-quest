@@ -23,7 +23,6 @@ export default async function handler(req, res) {
 
         const { data: rolesRows } = await supabaseAdmin.from('user_roles').select('role').eq('user_id', caller.id);
         const roleSet = rolesToSet(rolesRows);
-        const isCurator = canCurate(roleSet);
 
         const { data: callerProfile } = await supabaseAdmin
             .from('profiles')
@@ -32,6 +31,7 @@ export default async function handler(req, res) {
             .maybeSingle();
         if (!canAccessStudio({ roleSet, profile: callerProfile }))
             return res.status(403).json({ error: 'Forbidden' });
+        const isCurator = canCurate({ roleSet, profile: callerProfile });
 
         const { data: quiz, error: quizErr } = await supabaseAdmin
             .from('challenges')

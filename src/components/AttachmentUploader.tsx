@@ -20,6 +20,10 @@ interface Attachment {
 interface AttachmentUploaderProps {
   onAttachmentsChange: (urls: string[]) => void;
   maxFiles?: number;
+  /** Optional: max number of image files (by MIME) */
+  maxImages?: number;
+  /** Optional: max number of video files (by MIME) */
+  maxVideos?: number;
   maxSizeMB?: number;
   /** Optional list of MIME types to accept; defaults to internal ALLOWED_TYPES */
   acceptMimeTypes?: string[];
@@ -31,6 +35,12 @@ interface AttachmentUploaderProps {
   capture?: boolean | 'environment' | 'user';
   /** Opcional: limitar duração de vídeos (em segundos) */
   maxVideoSeconds?: number;
+  /** Opcional: limitar maior dimensão do vídeo (px). Ex.: 1920 para 1080p. */
+  maxVideoDimension?: number;
+  /** Opcional: limitar maior dimensão de imagens (px). Default 1080. */
+  maxImageDimension?: number;
+  /** Qualidade JPEG de saída (0..1). Default 0.8. */
+  imageQuality?: number;
   /** Callback opcional: avisa se há uploads em andamento */
   onUploadingChange?: (uploading: boolean) => void;
 }
@@ -54,12 +64,17 @@ const ALLOWED_TYPES = {
 export const AttachmentUploader = ({ 
   onAttachmentsChange,
   maxFiles = 10,
+  maxImages,
+  maxVideos,
   maxSizeMB = 50,
   acceptMimeTypes,
   bucket = 'forum-attachments',
   pathPrefix = '',
   capture,
   maxVideoSeconds,
+  maxVideoDimension,
+  maxImageDimension = 1080,
+  imageQuality = 0.8,
   onUploadingChange,
 }: AttachmentUploaderProps) => {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -78,7 +93,7 @@ export const AttachmentUploader = ({
   }, [maxSizeMB, allowedMimeSet]);
 
   const ensureVideoDurationOk = useCallback(async (file: File): Promise<string | null> => {
-    if (!maxVideoSeconds || !file.type.startsWith('video/')) return null;
+    if ((!maxVideoSeconds && !maxVideoDimension) || !file.type.startsWith('video/')) return null;
     if (typeof document === 'undefined') return null;
     return await new Promise((resolve) => {
       try {
@@ -88,9 +103,13 @@ export const AttachmentUploader = ({
         video.onloadedmetadata = () => {
           try {
             const dur = video.duration || 0;
+            const w = Number(video.videoWidth || 0);
+            const h = Number(video.videoHeight || 0);
             URL.revokeObjectURL(url);
-            if (dur && dur > maxVideoSeconds + 0.5) {
+            if (maxVideoSeconds && dur && dur > maxVideoSeconds + 0.5) {
               resolve(`Vídeo muito longo: ${Math.round(dur)}s (máx: ${maxVideoSeconds}s).`);
+            } else if (maxVideoDimension && w && h && Math.max(w, h) > maxVideoDimension) {
+              resolve(`Vídeo acima do recomendado: ${w}x${h} (máx: ${maxVideoDimension}px).`);
             } else {
               resolve(null);
             }
@@ -100,14 +119,14 @@ export const AttachmentUploader = ({
         };
         video.onerror = () => {
           URL.revokeObjectURL(url);
-          resolve('Não foi possível ler a duração do vídeo.');
+          resolve('Não foi possível ler os metadados do vídeo.');
         };
         video.src = url;
       } catch {
         resolve(null);
       }
     });
-  }, [maxVideoSeconds]);
+  }, [maxVideoDimension, maxVideoSeconds]);
 
   const createPreview = async (file: File): Promise<string | undefined> => {
     if (!file.type.startsWith('image/')) return undefined;
@@ -123,14 +142,22 @@ export const AttachmentUploader = ({
   const maybeDownscaleImage = async (file: File): Promise<File> => {
     if (typeof document === 'undefined') return file;
     if (!file.type.startsWith('image/')) return file;
+    // Preserve animated GIFs (canvas would flatten them)
+    if (file.type === 'image/gif') return file;
 
-    const MAX_DIMENSION = 1080;
+    const MAX_DIMENSION = Math.max(256, Math.floor(Number(maxImageDimension) || 1080));
+    const QUALITY = Math.max(0.1, Math.min(1, Number(imageQuality) || 0.8));
 
     return await new Promise((resolve) => {
       try {
         const img = new Image();
         img.onload = () => {
           try {
+            try {
+              URL.revokeObjectURL(img.src);
+            } catch {
+              // ignore
+            }
             let { width, height } = img;
             if (width <= MAX_DIMENSION && height <= MAX_DIMENSION) {
               resolve(file);
@@ -155,23 +182,28 @@ export const AttachmentUploader = ({
                   resolve(file);
                   return;
                 }
-                const ext = file.name.split('.').pop() || 'jpg';
-                const safeExt = ext.toLowerCase().match(/^(jpe?g|png|webp)$/) ? ext.toLowerCase() : 'jpg';
-                const newFile = new File([blob], `${file.name.replace(/\.[^.]+$/, '')}-1080p.${safeExt}`, {
-                  type: blob.type || file.type,
+                const baseName = file.name.replace(/\.[^.]+$/, '') || 'image';
+                const newFile = new File([blob], `${baseName}-${MAX_DIMENSION}p.jpg`, {
+                  type: 'image/jpeg',
                 });
                 resolve(newFile);
               },
               'image/jpeg',
-              0.8
+              QUALITY
             );
           } catch {
             resolve(file);
           }
         };
-        img.onerror = () => resolve(file);
-        const url = URL.createObjectURL(file);
-        img.src = url;
+        img.onerror = () => {
+          try {
+            URL.revokeObjectURL(img.src);
+          } catch {
+            // ignore
+          }
+          resolve(file);
+        };
+        img.src = URL.createObjectURL(file);
       } catch {
         resolve(file);
       }
@@ -221,7 +253,22 @@ export const AttachmentUploader = ({
 
     const newAttachments: Attachment[] = [];
 
+    let imagesCount = attachments.filter((a) => a.file.type.startsWith('image/')).length;
+    let videosCount = attachments.filter((a) => a.file.type.startsWith('video/')).length;
+
     for (const file of fileArray) {
+      if (file.type.startsWith('image/') && typeof maxImages === 'number' && maxImages >= 0) {
+        if (imagesCount >= maxImages) {
+          toast.error(`Máximo de ${maxImages} imagem(ns) por post`);
+          continue;
+        }
+      }
+      if (file.type.startsWith('video/') && typeof maxVideos === 'number' && maxVideos >= 0) {
+        if (videosCount >= maxVideos) {
+          toast.error(`Máximo de ${maxVideos} vídeo(s) por post`);
+          continue;
+        }
+      }
       const durError = await ensureVideoDurationOk(file);
       if (durError) {
         toast.error(durError);
@@ -243,6 +290,9 @@ export const AttachmentUploader = ({
         uploaded: false,
         progress: 0
       });
+
+      if (file.type.startsWith('image/')) imagesCount += 1;
+      if (file.type.startsWith('video/')) videosCount += 1;
     }
 
     setAttachments(prev => [...prev, ...newAttachments]);
@@ -271,7 +321,7 @@ export const AttachmentUploader = ({
         toast.error(`Erro ao fazer upload de ${attachment.file.name}`);
       }
     }
-  }, [attachments, maxFiles, validateFile]);
+  }, [attachments, ensureVideoDurationOk, maxFiles, maxImages, maxVideos, validateFile]);
 
   // Atualizar callback quando anexos mudarem
   useEffect(() => {
@@ -333,7 +383,12 @@ export const AttachmentUploader = ({
           Arraste arquivos ou clique para selecionar
         </p>
         <p className="text-xs text-muted-foreground mb-4">
-          Imagens, áudio, vídeo ou PDF • Máx {maxSizeMB}MB • Até {maxFiles} arquivos{maxVideoSeconds ? ` • Vídeos até ${maxVideoSeconds}s` : ''}
+          Imagens, áudio, vídeo ou PDF • Máx {maxSizeMB}MB • Até {maxFiles} arquivos
+          {typeof maxImages === 'number' ? ` • ${maxImages} imagem(ns)` : ''}
+          {typeof maxVideos === 'number' ? ` • ${maxVideos} vídeo(s)` : ''}
+          {maxVideoSeconds ? ` • Vídeos até ${maxVideoSeconds}s` : ''}
+          {maxVideoDimension ? ` • Vídeos até ${maxVideoDimension}px` : ''}
+          {maxImageDimension ? ` • Imagens otimizadas até ${maxImageDimension}px` : ''}
         </p>
         <input
           type="file"
