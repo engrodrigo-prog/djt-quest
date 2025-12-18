@@ -11,6 +11,7 @@ import { HelpInfo } from '@/components/HelpInfo'
 import { Flame, Share2 } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
 import { buildAbsoluteAppUrl, openWhatsAppShare } from '@/lib/whatsappShare'
+import { useI18n } from '@/contexts/I18nContext'
 
 interface Topic { id: string; title: string; description: string | null; status: string; chas_dimension: 'C'|'H'|'A'|'S'; quiz_specialties: string[] | null; tags: string[] | null; created_at: string }
 
@@ -25,6 +26,7 @@ interface InsightItem {
 
 export default function Forums() {
   const { isLeader, studioAccess } = useAuth()
+  const { t: tr } = useI18n()
   const nav = useNavigate()
   const [topics, setTopics] = useState<Topic[]>([])
   const [q, setQ] = useState('')
@@ -81,27 +83,27 @@ export default function Forums() {
               onClick={() => nav('/dashboard')}
               className="-ml-2 text-xs text-muted-foreground hover:text-foreground"
             >
-              ← Voltar ao painel
+              {tr("forums.backToDashboard")}
             </Button>
             <div>
-              <h1 className="text-3xl font-bold">Fóruns de Conhecimento</h1>
-              <p className="text-muted-foreground">Temas curados por líderes; contribua com ideias, dúvidas e casos.</p>
+              <h1 className="text-3xl font-bold">{tr("forums.title")}</h1>
+              <p className="text-muted-foreground">{tr("forums.subtitle")}</p>
             </div>
           </div>
           {(isLeader && studioAccess) && (
-            <Button onClick={() => nav('/studio')}>Criar Tema</Button>
+            <Button onClick={() => nav('/studio')}>{tr("forums.createTopic")}</Button>
           )}
         </div>
         <div className="flex gap-3 items-center">
-          <Input placeholder="Buscar por título ou #tag" value={q} onChange={(e)=>setQ(e.target.value)} />
-          <Button variant="outline" onClick={()=>nav('/forums/insights')}>Top Temas & Ações</Button>
+          <Input placeholder={tr("forums.searchPlaceholder")} value={q} onChange={(e)=>setQ(e.target.value)} />
+          <Button variant="outline" onClick={()=>nav('/forums/insights')}>{tr("forums.topThemesButton")}</Button>
         </div>
         <Card className="border-amber-600/40 bg-amber-950/20">
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <Flame className="h-4 w-4 text-amber-400" />
-                <CardTitle className="text-sm">Trending Topics (Fórum)</CardTitle>
+                <CardTitle className="text-sm">{tr("forums.trendingTitle")}</CardTitle>
               </div>
               <div className="flex items-center gap-2">
                 <div className="hidden sm:flex text-[11px] rounded-full border border-amber-500/40 overflow-hidden">
@@ -112,7 +114,7 @@ export default function Forums() {
                       onClick={() => { setTrendingRange(r); fetchTrending(r); setShowTrending(true); }}
                       className={`px-2 py-0.5 ${trendingRange === r ? 'bg-amber-500/20 text-amber-100' : 'text-amber-200/70'}`}
                     >
-                      {r === 'week' ? '7 dias' : r === 'month' ? '30 dias' : '90 dias'}
+                      {r === 'week' ? tr("forums.trendingRange.week") : r === 'month' ? tr("forums.trendingRange.month") : tr("forums.trendingRange.quarter")}
                     </button>
                   ))}
                 </div>
@@ -125,20 +127,20 @@ export default function Forums() {
                     if (next && trendingItems.length === 0) fetchTrending(trendingRange)
                   }}
                 >
-                  {showTrending ? 'Esconder' : 'Ver'}
+                  {showTrending ? tr("forums.hide") : tr("forums.show")}
                 </Button>
               </div>
             </div>
             <CardDescription className="text-[11px] mt-1">
-              Resumo dos temas mais vivos no fórum, considerando engajamento e qualidade das contribuições.
+              {tr("forums.trendingDescription")}
             </CardDescription>
           </CardHeader>
           {showTrending && (
             <CardContent className="pt-1 space-y-2">
               {trendingLoading ? (
-                <p className="text-xs text-muted-foreground">Carregando trending topics...</p>
+                <p className="text-xs text-muted-foreground">{tr("forums.trendingLoading")}</p>
               ) : trendingItems.length === 0 ? (
-                <p className="text-xs text-muted-foreground">Ainda sem trending topics no período.</p>
+                <p className="text-xs text-muted-foreground">{tr("forums.trendingEmpty")}</p>
               ) : (
                 <div className="space-y-1">
                   {trendingItems.map((ins, idx) => (
@@ -164,7 +166,13 @@ export default function Forums() {
                       </span>
                       <div className="ml-2 flex-shrink-0 flex items-center gap-1">
                         <Badge variant="outline">
-                          {ins.chas === 'C' ? 'Conhecimento' : ins.chas === 'H' ? 'Habilidade' : ins.chas === 'A' ? 'Atitude' : 'Segurança'}
+                          {ins.chas === 'C'
+                            ? tr("home.badgeKnowledge")
+                            : ins.chas === 'H'
+                            ? tr("home.badgeSkill")
+                            : ins.chas === 'A'
+                            ? tr("home.badgeAttitude")
+                            : tr("home.badgeSafety")}
                         </Badge>
                         <Button
                           size="icon"
@@ -174,11 +182,11 @@ export default function Forums() {
                             e.stopPropagation()
                             const url = buildAbsoluteAppUrl(`/forum/${encodeURIComponent(ins.topic_id)}`)
                             openWhatsAppShare({
-                              message: `Veja este fórum no DJT Quest:\n${ins.title}`,
+                              message: tr("dashboard.forumShareMessage", { title: ins.title }),
                               url,
                             })
                           }}
-                          title="Compartilhar este fórum no WhatsApp"
+                          title={tr("dashboard.forumShareAria")}
                         >
                           <Share2 className="h-4 w-4" />
                         </Button>
@@ -197,7 +205,13 @@ export default function Forums() {
                 <div className="flex items-center justify-between gap-2">
                   <CardTitle className="truncate">{t.title}</CardTitle>
                   <div className="flex items-center gap-1 flex-shrink-0">
-                    <Badge variant={t.status === 'closed' ? 'secondary' : 'default'}>{t.status}</Badge>
+                    <Badge variant={t.status === 'closed' ? 'secondary' : 'default'}>
+                      {t.status === 'closed'
+                        ? tr("forums.status.closed")
+                        : t.status === 'open'
+                        ? tr("forums.status.open")
+                        : t.status}
+                    </Badge>
                     <Button
                       size="icon"
                       variant="ghost"
@@ -206,11 +220,11 @@ export default function Forums() {
                         e.stopPropagation()
                         const url = buildAbsoluteAppUrl(`/forum/${encodeURIComponent(t.id)}`)
                         openWhatsAppShare({
-                          message: `Veja este fórum no DJT Quest:\n${t.title}`,
+                          message: tr("dashboard.forumShareMessage", { title: t.title }),
                           url,
                         })
                       }}
-                      title="Compartilhar este fórum no WhatsApp"
+                      title={tr("dashboard.forumShareAria")}
                     >
                       <Share2 className="h-4 w-4" />
                     </Button>

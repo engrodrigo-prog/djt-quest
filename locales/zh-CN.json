@@ -178,5 +178,28 @@
     "leadersEmpty": "未找到领导（或你没有权限读取评审）。",
     "leadersStats": "评审：{completed} • 测验：{quizXp} XP",
     "pointsLabel": "积分"
+  },
+  "forums": {
+    "backToDashboard": "← 返回看板",
+    "title": "知识论坛",
+    "subtitle": "由领导策划的主题；欢迎贡献想法、疑问与案例。",
+    "createTopic": "创建主题",
+    "searchPlaceholder": "按标题或 #标签 搜索",
+    "topThemesButton": "热门主题与行动",
+    "trendingTitle": "热门话题（论坛）",
+    "trendingRange": {
+      "week": "7 天",
+      "month": "30 天",
+      "quarter": "90 天"
+    },
+    "show": "查看",
+    "hide": "隐藏",
+    "trendingDescription": "汇总论坛中最活跃的主题，综合互动与贡献质量。",
+    "trendingLoading": "正在加载热门话题…",
+    "trendingEmpty": "该时间段暂无热门话题。",
+    "status": {
+      "open": "开放",
+      "closed": "已关闭"
+    }
   }
 }

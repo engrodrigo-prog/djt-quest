@@ -178,5 +178,28 @@
     "leadersEmpty": "Nenhum líder encontrado (ou você não tem permissão para ler avaliações).",
     "leadersStats": "Avaliações: {completed} • Quizzes: {quizXp} XP",
     "pointsLabel": "Pontos"
+  },
+  "forums": {
+    "backToDashboard": "← Voltar ao painel",
+    "title": "Fóruns de conhecimento",
+    "subtitle": "Temas curados por líderes; contribua com ideias, dúvidas e casos.",
+    "createTopic": "Criar tema",
+    "searchPlaceholder": "Buscar por título ou #tag",
+    "topThemesButton": "Top temas & ações",
+    "trendingTitle": "Trending topics (fórum)",
+    "trendingRange": {
+      "week": "7 dias",
+      "month": "30 dias",
+      "quarter": "90 dias"
+    },
+    "show": "Ver",
+    "hide": "Esconder",
+    "trendingDescription": "Resumo dos temas mais vivos no fórum, considerando engajamento e qualidade das contribuições.",
+    "trendingLoading": "Carregando trending topics…",
+    "trendingEmpty": "Ainda sem trending topics no período.",
+    "status": {
+      "open": "Aberto",
+      "closed": "Fechado"
+    }
   }
 }

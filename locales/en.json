@@ -178,5 +178,28 @@
     "leadersEmpty": "No leaders found (or you don't have permission to read reviews).",
     "leadersStats": "Reviews: {completed} • Quizzes: {quizXp} XP",
     "pointsLabel": "Points"
+  },
+  "forums": {
+    "backToDashboard": "← Back to dashboard",
+    "title": "Knowledge forums",
+    "subtitle": "Topics curated by leaders; contribute ideas, questions and cases.",
+    "createTopic": "Create topic",
+    "searchPlaceholder": "Search by title or #tag",
+    "topThemesButton": "Top themes & actions",
+    "trendingTitle": "Trending topics (forum)",
+    "trendingRange": {
+      "week": "7 days",
+      "month": "30 days",
+      "quarter": "90 days"
+    },
+    "show": "Show",
+    "hide": "Hide",
+    "trendingDescription": "Summary of the most active topics in the forum, considering engagement and contribution quality.",
+    "trendingLoading": "Loading trending topics…",
+    "trendingEmpty": "No trending topics for this period yet.",
+    "status": {
+      "open": "Open",
+      "closed": "Closed"
+    }
   }
 }
