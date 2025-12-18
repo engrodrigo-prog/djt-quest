@@ -13,12 +13,13 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { AvatarDisplay } from "@/components/AvatarDisplay";
 import { Badge } from "@/components/ui/badge";
-import { User, Settings, LogOut, Shield, Users, Camera, Key, Repeat, Languages, Volume2 } from "lucide-react";
+import { User, Settings, LogOut, Shield, Users, Camera, Key, Repeat, Languages, Volume2, Mic } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { SUPPORTED_LOCALES, useI18n } from "@/contexts/I18nContext";
 import { useSfx } from "@/lib/sfx";
+import { useTts } from "@/lib/tts";
 
 interface ProfileDropdownProps {
   profile: {
@@ -38,6 +39,7 @@ export const ProfileDropdown = ({ profile, isLeader, onSignOut }: ProfileDropdow
   const { roleOverride, setRoleOverride } = useAuth();
   const { locale, setLocale, t } = useI18n();
   const { enabled: sfxFeatureEnabled, muted: sfxMuted, volume: sfxVolume, setMuted: setSfxMuted, setVolume: setSfxVolume } = useSfx();
+  const { enabled: ttsFeatureEnabled, ttsEnabled, voiceGender, rate, volume: ttsVolume, setTtsEnabled, setVoiceGender, setRate, setVolume: setTtsVolume } = useTts();
   const canImpersonate =
     profile?.matricula === "601555" ||
     (profile?.email || "").toLowerCase() === "rodrigonasc@cpfl.com.br";
@@ -52,6 +54,12 @@ export const ProfileDropdown = ({ profile, isLeader, onSignOut }: ProfileDropdow
 
   const sfxPreset: "off" | "low" | "medium" | "high" =
     sfxMuted || sfxVolume <= 0.01 ? "off" : sfxVolume <= 0.35 ? "low" : sfxVolume <= 0.75 ? "medium" : "high";
+
+  const ttsRatePreset: "0.9" | "1.0" | "1.1" =
+    rate <= 0.95 ? "0.9" : rate <= 1.05 ? "1.0" : "1.1";
+
+  const ttsVolumePreset: "0.6" | "1.0" =
+    ttsVolume <= 0.8 ? "0.6" : "1.0";
   
   return (
     <DropdownMenu>
@@ -194,6 +202,49 @@ export const ProfileDropdown = ({ profile, isLeader, onSignOut }: ProfileDropdow
                 <DropdownMenuRadioItem value="low">{t("sfx.preset.low")}</DropdownMenuRadioItem>
                 <DropdownMenuRadioItem value="medium">{t("sfx.preset.medium")}</DropdownMenuRadioItem>
                 <DropdownMenuRadioItem value="high">{t("sfx.preset.high")}</DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+        )}
+
+        {ttsFeatureEnabled && (
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>
+              <Mic className="h-4 w-4 mr-2" />
+              {t("tts.menu.voice")}
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className="w-56">
+              <DropdownMenuRadioGroup value={ttsEnabled ? "on" : "off"} onValueChange={(v) => setTtsEnabled(v === "on")}>
+                <DropdownMenuRadioItem value="off">{t("tts.toggle.off")}</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="on">{t("tts.toggle.on")}</DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
+
+              <DropdownMenuSeparator />
+
+              <DropdownMenuRadioGroup value={voiceGender} onValueChange={(v) => setVoiceGender(v as any)}>
+                <DropdownMenuRadioItem value="male">{t("tts.voice.male")}</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="female">{t("tts.voice.female")}</DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
+
+              <DropdownMenuSeparator />
+
+              <DropdownMenuRadioGroup
+                value={ttsRatePreset}
+                onValueChange={(v) => setRate(Number(v))}
+              >
+                <DropdownMenuRadioItem value="0.9">{t("tts.rate.slow")}</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="1.0">{t("tts.rate.normal")}</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="1.1">{t("tts.rate.fast")}</DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
+
+              <DropdownMenuSeparator />
+
+              <DropdownMenuRadioGroup
+                value={ttsVolumePreset}
+                onValueChange={(v) => setTtsVolume(Number(v))}
+              >
+                <DropdownMenuRadioItem value="0.6">{t("tts.volume.low")}</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="1.0">{t("tts.volume.high")}</DropdownMenuRadioItem>
               </DropdownMenuRadioGroup>
             </DropdownMenuSubContent>
           </DropdownMenuSub>

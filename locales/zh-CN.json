@@ -261,5 +261,27 @@
       "medium": "中",
       "high": "高"
     }
+  },
+  "tts": {
+    "menu": {
+      "voice": "朗读"
+    },
+    "toggle": {
+      "off": "关闭",
+      "on": "开启"
+    },
+    "voice": {
+      "male": "男声",
+      "female": "女声"
+    },
+    "rate": {
+      "slow": "慢",
+      "normal": "正常",
+      "fast": "快"
+    },
+    "volume": {
+      "low": "低音量",
+      "high": "高音量"
+    }
   }
 }

@@ -14,6 +14,7 @@ import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import buriniImg from "@/assets/backgrounds/burini.webp";
 import { useSfx } from "@/lib/sfx";
+import { useTts } from "@/lib/tts";
 
 interface QuizPlayerProps {
   challengeId: string;
@@ -91,6 +92,7 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
   const navigate = useNavigate();
   const { refreshUserSession } = useAuth();
   const { play: playSfx } = useSfx();
+  const { ttsEnabled, isSpeaking, speak, stop: stopTts } = useTts();
   const [questions, setQuestions] = useState<Question[]>([]);
   const [challengeTitle, setChallengeTitle] = useState<string>('');
   const [challengeSpecialties, setChallengeSpecialties] = useState<string[] | null>(null);
@@ -109,60 +111,7 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
   const [monitorLoading, setMonitorLoading] = useState(false);
   const [postWrongHelp, setPostWrongHelp] = useState<PostWrongHelpState | null>(null);
   const postWrongHelpKeyRef = useRef<string | null>(null);
-  const [isSpeaking, setIsSpeaking] = useState(false);
   const progressSyncForChallengeRef = useRef<string | null>(null);
-
-  const stopSpeech = useCallback(() => {
-    try {
-      if (typeof window !== "undefined" && "speechSynthesis" in window) {
-        window.speechSynthesis.cancel();
-      }
-    } catch {
-      // ignore
-    } finally {
-      setIsSpeaking(false);
-    }
-  }, []);
-
-  const speakPtBr = useCallback(
-    (rawText: string) => {
-      const text = String(rawText || "").trim();
-      if (!text) return;
-      if (typeof window === "undefined" || !("speechSynthesis" in window) || typeof SpeechSynthesisUtterance === "undefined") {
-        toast.error("Leitura em voz não disponível neste navegador.");
-        return;
-      }
-
-      const synth = window.speechSynthesis;
-      synth.cancel();
-
-      const utter = new SpeechSynthesisUtterance(text);
-      utter.lang = "pt-BR";
-      utter.rate = 1;
-      utter.pitch = 1;
-
-      const voices = typeof synth.getVoices === "function" ? synth.getVoices() : [];
-      const lc = (s: string) => String(s || "").toLowerCase();
-      const candidates = voices.filter((v) => lc(v.lang).startsWith("pt"));
-      const maleHint = /male|masc|mascul|daniel|ricardo|paulo|carlos|joa?o/i;
-      const chosen =
-        candidates.find((v) => lc(v.lang).startsWith("pt-br") && maleHint.test(lc(v.name))) ||
-        candidates.find((v) => lc(v.lang).startsWith("pt-br") && v.default) ||
-        candidates.find((v) => lc(v.lang).startsWith("pt-br")) ||
-        candidates.find((v) => v.default) ||
-        candidates[0];
-      if (chosen) utter.voice = chosen;
-
-      utter.onend = () => setIsSpeaking(false);
-      utter.onerror = () => setIsSpeaking(false);
-
-      setIsSpeaking(true);
-      synth.speak(utter);
-    },
-    []
-  );
-
-  useEffect(() => () => stopSpeech(), [stopSpeech]);
 
   const syncProgressFromDb = useCallback(async (opts?: { silent?: boolean }) => {
     if (!challengeId) return;
@@ -816,12 +765,22 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
                       type="button"
                       size="sm"
                       variant="secondary"
-                      onClick={() => speakPtBr(monitorReviewText)}
+                      onClick={async () => {
+                        try {
+                          if (!ttsEnabled) {
+                            toast.info("Ative a leitura em voz no menu do perfil.");
+                            return;
+                          }
+                          await speak(monitorReviewText);
+                        } catch (e: any) {
+                          toast.error(e?.message || "Falha ao gerar áudio");
+                        }
+                      }}
                       disabled={isSpeaking}
                     >
                       Ouvir
                     </Button>
-                    <Button type="button" size="sm" variant="outline" onClick={stopSpeech} disabled={!isSpeaking}>
+                    <Button type="button" size="sm" variant="outline" onClick={stopTts} disabled={!isSpeaking}>
                       Parar
                     </Button>
                     {postWrongHelp?.loading && (

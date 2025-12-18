@@ -261,5 +261,27 @@
       "medium": "Médio",
       "high": "Alto"
     }
+  },
+  "tts": {
+    "menu": {
+      "voice": "Ler em voz"
+    },
+    "toggle": {
+      "off": "Desligado",
+      "on": "Ligado"
+    },
+    "voice": {
+      "male": "Voz masculina",
+      "female": "Voz feminina"
+    },
+    "rate": {
+      "slow": "Lento",
+      "normal": "Normal",
+      "fast": "Rápido"
+    },
+    "volume": {
+      "low": "Volume baixo",
+      "high": "Volume alto"
+    }
   }
 }

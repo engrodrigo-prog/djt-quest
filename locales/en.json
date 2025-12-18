@@ -261,5 +261,27 @@
       "medium": "Medium",
       "high": "High"
     }
+  },
+  "tts": {
+    "menu": {
+      "voice": "Read aloud"
+    },
+    "toggle": {
+      "off": "Off",
+      "on": "On"
+    },
+    "voice": {
+      "male": "Male voice",
+      "female": "Female voice"
+    },
+    "rate": {
+      "slow": "Slow",
+      "normal": "Normal",
+      "fast": "Fast"
+    },
+    "volume": {
+      "low": "Low volume",
+      "high": "High volume"
+    }
   }
 }

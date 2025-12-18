@@ -1,0 +1,34 @@
+# TTS (“Ler em voz”) — DJT Quest
+
+## Objetivo
+Permitir leitura em voz de textos (enunciados, explicações, análises do Monitor etc.) no idioma do usuário, com voz formal masculina ou feminina.
+
+## Flag
+- `NEXT_PUBLIC_TTS_ENABLED`
+  - Default: ligado (quando ausente)
+  - Desligar: `0` / `false` / `off` / `no`
+
+## Backend
+- Endpoint: `POST /api/tts`
+- Entrada:
+  - `text` (string)
+  - `locale` (`pt-BR` | `en` | `zh-CN`)
+  - `voiceGender` (`male` | `female`)
+  - `rate` (0.25..2)
+- Saída:
+  - `{ url }` (signed URL temporária do áudio em MP3)
+- Cache:
+  - por hash (texto + locale + voz + rate)
+  - armazenado em bucket privado `tts-cache` (Supabase Storage)
+
+## Frontend
+- Provider/hook:
+  - `src/lib/tts/provider.tsx`
+  - `useTts().speak(text)` / `useTts().stop()`
+- Persistência:
+  - `localStorage` (`djt_tts_*`)
+  - `profiles` (`tts_*`) quando o usuário está logado
+- Regras:
+  - só toca após gesto do usuário (autoplay policy)
+  - dispara eventos `window` `tts:start` / `tts:end` para ducking em SFX
+
