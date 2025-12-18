@@ -1,5 +1,9 @@
 -- Exclude CONVIDADOS from team-based aggregates (rankings, dashboards, adherence)
 
+-- Ensure we can update view signatures safely across environments
+drop view if exists public.team_challenge_performance cascade;
+drop view if exists public.team_xp_summary cascade;
+
 -- Views used by leader dashboards
 create or replace view public.team_xp_summary as
 select
@@ -195,4 +199,3 @@ language sql stable as $$
     select * from djt
   ) x
 $$;
-
