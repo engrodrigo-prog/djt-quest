@@ -205,5 +205,18 @@
   "study": {
     "title": "学习实验室",
     "subtitle": "上传资料，整理归档以便查询，并与 AI 就内容进行对话以加深你的知识。"
+  },
+  "forumInsights": {
+    "title": "热门主题与行动（论坛）",
+    "subtitle": "由 AI 对最相关的主题与行动进行策划，应用 80/20 原则（20% 的话题带来 80% 的影响）。",
+    "fetchErrorTitle": "错误",
+    "fetchErrorDesc": "加载洞察失败",
+    "empty": "该时间段暂无洞察。",
+    "priorityLabel": "优先级 {priority}",
+    "actionProposalsTitle": "行动建议",
+    "targetHint": "（目标：{target}）",
+    "createQuizDraft": "创建测验（草稿）",
+    "createChallengeDraft": "创建挑战（草稿）",
+    "createCampaignDraft": "创建活动（草稿）"
   }
 }

@@ -205,5 +205,18 @@
   "study": {
     "title": "Study Lab",
     "subtitle": "Upload materials, catalog them for consultation and chat with the AI about the content to deepen your knowledge."
+  },
+  "forumInsights": {
+    "title": "Top themes & actions (forum)",
+    "subtitle": "AI curation of the most relevant themes and actions, applying the 80/20 principle (20% of topics with 80% impact).",
+    "fetchErrorTitle": "Error",
+    "fetchErrorDesc": "Could not load insights",
+    "empty": "No insights for this period.",
+    "priorityLabel": "Priority {priority}",
+    "actionProposalsTitle": "Proposed actions",
+    "targetHint": "(target: {target})",
+    "createQuizDraft": "Create quiz (draft)",
+    "createChallengeDraft": "Create challenge (draft)",
+    "createCampaignDraft": "Create campaign (draft)"
   }
 }

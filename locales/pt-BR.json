@@ -205,5 +205,18 @@
   "study": {
     "title": "Laboratório de estudos",
     "subtitle": "Envie materiais, catalogue para consulta e converse com a IA sobre os conteúdos para aprofundar seus conhecimentos."
+  },
+  "forumInsights": {
+    "title": "Top temas & ações (fórum)",
+    "subtitle": "Curadoria por IA dos temas e ações mais relevantes, aplicando a lógica 80/20 (20% dos assuntos com 80% do impacto).",
+    "fetchErrorTitle": "Erro",
+    "fetchErrorDesc": "Falha ao carregar insights",
+    "empty": "Sem insights no período.",
+    "priorityLabel": "Prioridade {priority}",
+    "actionProposalsTitle": "Propostas de ação",
+    "targetHint": "(alvo: {target})",
+    "createQuizDraft": "Criar quiz (rascunho)",
+    "createChallengeDraft": "Criar desafio (rascunho)",
+    "createCampaignDraft": "Criar campanha (rascunho)"
   }
 }

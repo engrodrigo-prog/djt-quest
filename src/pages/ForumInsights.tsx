@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { useAuth } from '@/contexts/AuthContext'
 import { useToast } from '@/hooks/use-toast'
 import { HelpInfo } from '@/components/HelpInfo'
+import { useI18n } from '@/contexts/I18nContext'
 
 interface InsightItem {
   topic_id: string
@@ -22,11 +23,12 @@ interface InsightItem {
 export default function ForumInsights() {
   const { isLeader } = useAuth()
   const { toast } = useToast()
+  const { t: tr } = useI18n()
+  const loc = useLocation()
   const [items, setItems] = useState<InsightItem[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const loc = useLocation()
     const search = new URLSearchParams(loc.search)
     const topicId = search.get('topic_id') || ''
     ;(async () => {
@@ -36,13 +38,13 @@ export default function ForumInsights() {
           : '/api/forum?handler=top-insights'
         const resp = await fetch(url)
         const j = await resp.json()
-        if (!resp.ok) throw new Error(j?.error || 'Falha ao carregar insights')
+        if (!resp.ok) throw new Error(j?.error || tr("forumInsights.fetchErrorDesc"))
         setItems(j.items || [])
       } catch (e: any) {
-        toast({ title: 'Erro', description: e?.message || 'Falha ao carregar insights', variant: 'destructive' })
+        toast({ title: tr("forumInsights.fetchErrorTitle"), description: e?.message || tr("forumInsights.fetchErrorDesc"), variant: 'destructive' })
       } finally { setLoading(false) }
     })()
-  }, [toast])
+  }, [loc.search, toast, tr])
 
   const sendToStudio = (ins: InsightItem, kind: 'quiz' | 'desafio' | 'campanha') => {
     // Store a draft locally for Studio to pick up later
@@ -51,7 +53,8 @@ export default function ForumInsights() {
     window.location.href = '/studio'
   }
 
-  const chasLabel = (c: string) => ({ C: 'Conhecimento', H: 'Habilidade', A: 'Atitude', S: 'Segurança' } as any)[c] || c
+  const chasLabel = (c: string) =>
+    ({ C: tr("home.badgeKnowledge"), H: tr("home.badgeSkill"), A: tr("home.badgeAttitude"), S: tr("home.badgeSafety") } as any)[c] || c
 
   return (
     <div className="relative min-h-screen pb-40">
@@ -59,15 +62,15 @@ export default function ForumInsights() {
       <HelpInfo kind="forum" />
       <div className="container relative mx-auto p-4 md:p-6 max-w-5xl space-y-4">
         <div>
-          <h1 className="text-3xl font-bold">Top Temas & Ações (Fórum)</h1>
+          <h1 className="text-3xl font-bold">{tr("forumInsights.title")}</h1>
           <p className="text-muted-foreground">
-            Curadoria por IA dos temas e ações mais relevantes, aplicando a lógica 80/20 (20% dos assuntos com 80% do impacto).
+            {tr("forumInsights.subtitle")}
           </p>
         </div>
         {loading ? (
-          <Card><CardContent className="p-6">Carregando...</CardContent></Card>
+          <Card><CardContent className="p-6">{tr("common.loading")}</CardContent></Card>
         ) : items.length === 0 ? (
-          <Card><CardContent className="p-6">Sem insights no período.</CardContent></Card>
+          <Card><CardContent className="p-6">{tr("forumInsights.empty")}</CardContent></Card>
         ) : (
           <div className="space-y-3">
             {items.map((ins, idx) => (
@@ -83,24 +86,29 @@ export default function ForumInsights() {
                       <div className="flex gap-1 flex-wrap justify-end">
                         {ins.specialties?.slice(0,4).map(s => (<Badge key={s} variant="outline" className="text-xs">{s}</Badge>))}
                       </div>
-                      <Badge variant={ins.priority >=4 ? 'destructive' : ins.priority>=3 ? 'default' : 'secondary'}>Prioridade {ins.priority}</Badge>
+                      <Badge variant={ins.priority >=4 ? 'destructive' : ins.priority>=3 ? 'default' : 'secondary'}>
+                        {tr("forumInsights.priorityLabel", { priority: ins.priority })}
+                      </Badge>
                     </div>
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <div className="text-sm">
-                    <div className="font-semibold mb-1">Propostas de Ação</div>
+                    <div className="font-semibold mb-1">{tr("forumInsights.actionProposalsTitle")}</div>
                     <ul className="list-disc pl-6 space-y-1">
                       {ins.proposed_actions?.map((a, i) => (
-                        <li key={i}><span className="font-medium capitalize">{a.type}</span>: {a.title} — {a.description} <span className="text-xs text-muted-foreground">(alvo: {a.target})</span></li>
+                        <li key={i}>
+                          <span className="font-medium capitalize">{a.type}</span>: {a.title} — {a.description}{" "}
+                          <span className="text-xs text-muted-foreground">{tr("forumInsights.targetHint", { target: a.target })}</span>
+                        </li>
                       ))}
                     </ul>
                   </div>
                   {isLeader && (
                     <div className="flex gap-2">
-                      <Button size="sm" variant="outline" onClick={()=>sendToStudio(ins, 'quiz')}>Criar Quiz (rascunho)</Button>
-                      <Button size="sm" variant="outline" onClick={()=>sendToStudio(ins, 'desafio')}>Criar Desafio (rascunho)</Button>
-                      <Button size="sm" variant="outline" onClick={()=>sendToStudio(ins, 'campanha')}>Criar Campanha (rascunho)</Button>
+                      <Button size="sm" variant="outline" onClick={()=>sendToStudio(ins, 'quiz')}>{tr("forumInsights.createQuizDraft")}</Button>
+                      <Button size="sm" variant="outline" onClick={()=>sendToStudio(ins, 'desafio')}>{tr("forumInsights.createChallengeDraft")}</Button>
+                      <Button size="sm" variant="outline" onClick={()=>sendToStudio(ins, 'campanha')}>{tr("forumInsights.createCampaignDraft")}</Button>
                     </div>
                   )}
                   <div className="text-xs text-muted-foreground">{ins.justification}</div>
