@@ -8,6 +8,96 @@
     "pt-BR": "Portuguese",
     "en": "English",
     "zh-CN": "Chinese (Simplified)"
+  },
+  "nav": {
+    "dashboard": "Home",
+    "forums": "Forums",
+    "sepbook": "SEPBook",
+    "study": "StudyLab",
+    "profile": "Profile",
+    "rankings": "Rankings",
+    "logout": "Logout",
+    "evaluations": "Review",
+    "studio": "Studio"
+  },
+  "auth": {
+    "title": "DJT Quest - Login",
+    "subtitleWelcome": "Welcome back, {name}!",
+    "subtitleSearch": "Type name or employee ID to find your access",
+    "userLabel": "Employee ID / Name / Email",
+    "userPlaceholder": "Type name or employee ID…",
+    "userNotFound": "User not found",
+    "passwordLabel": "Password",
+    "passwordPlaceholder": "Enter your password",
+    "defaultPasswordLabel": "Default password:",
+    "forgotPassword": "Forgot my password",
+    "enter": "Sign in",
+    "entering": "Signing in…"
+  },
+  "profile": {
+    "changePasswordTitle": "Change password"
+  },
+  "notFound": {
+    "message": "Oops! Page not found",
+    "backHome": "Return to Home"
+  },
+  "home": {
+    "go": "GO",
+    "badgeKnowledge": "Knowledge",
+    "badgeSkill": "Skill",
+    "badgeAttitude": "Attitude",
+    "badgeSafety": "Safety"
+  },
+  "register": {
+    "title": "Request access",
+    "description": "Fill in your details to request access to DJT Quest",
+    "fullNameLabel": "Full name *",
+    "fullNamePlaceholder": "Enter your full name",
+    "emailLabel": "Email *",
+    "emailPlaceholder": "your.email@example.com",
+    "phoneLabel": "Phone",
+    "phonePlaceholder": "(00) 00000-0000",
+    "employeeIdLabel": "Employee ID",
+    "employeeIdPlaceholder": "Your employee ID",
+    "teamLabel": "Team/Code *",
+    "teamPlaceholder": "Select your team (code – name)",
+    "teamSearchPlaceholder": "Search team…",
+    "noneTeamFound": "No team found.",
+    "optionsCount": "{count} option(s)",
+    "externalHint": "If you are external, select {guestId} to join without a linked base/team.",
+    "guestTeamLabel": "Guests (external)",
+    "baseLabel": "Operational base (city)",
+    "basePlaceholder": "Select your operational base",
+    "baseSelectTeamFirst": "Select the team first",
+    "baseSearchPlaceholder": "Search base…",
+    "noneBaseFound": "No base found.",
+    "guestHint": "Guests join as collaborators and are not linked to an operational base.",
+    "baseHint": "The base is suggested from existing options (and the default list per team).",
+    "submit": "Request access",
+    "submitting": "Sending…",
+    "backToLogin": "Back to login",
+    "toast": {
+      "alreadyHasAccountTitle": "This email already has an active account.",
+      "alreadyHasAccountDesc": "Go back to login and use “Forgot my password” if needed.",
+      "alreadyPendingTitle": "Your request was already pending.",
+      "alreadyPendingDesc": "Wait for approval to access the system.",
+      "successTitle": "Request sent successfully!",
+      "successDesc": "Wait for approval to access the system.",
+      "duplicatePending": "This email already has a pending request.",
+      "genericError": "Could not send the request. Please try again."
+    },
+    "validation": {
+      "nameRequired": "Name is required",
+      "nameMax": "Name must be at most 100 characters",
+      "emailInvalid": "Invalid email",
+      "emailMax": "Email must be at most 255 characters",
+      "phoneMax": "Phone must be at most 20 characters",
+      "employeeIdMax": "Employee ID must be at most 50 characters",
+      "baseRequired": "Operational base is required",
+      "baseMax": "Operational base must be at most 100 characters",
+      "teamRequired": "Team code is required",
+      "teamMax": "Team code must be at most 10 characters",
+      "teamRegex": "Team code must contain only uppercase letters, numbers and hyphen"
+    }
   }
 }
-

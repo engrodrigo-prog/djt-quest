@@ -8,6 +8,96 @@
     "pt-BR": "葡萄牙语",
     "en": "英语",
     "zh-CN": "中文（简体）"
+  },
+  "nav": {
+    "dashboard": "首页",
+    "forums": "论坛",
+    "sepbook": "SEPBook",
+    "study": "StudyLab",
+    "profile": "个人资料",
+    "rankings": "排行榜",
+    "logout": "退出",
+    "evaluations": "评审",
+    "studio": "Studio"
+  },
+  "auth": {
+    "title": "DJT Quest - 登录",
+    "subtitleWelcome": "欢迎回来，{name}！",
+    "subtitleSearch": "输入姓名或工号以查找账号",
+    "userLabel": "工号 / 姓名 / 邮箱",
+    "userPlaceholder": "输入姓名或工号…",
+    "userNotFound": "未找到用户",
+    "passwordLabel": "密码",
+    "passwordPlaceholder": "输入密码",
+    "defaultPasswordLabel": "默认密码：",
+    "forgotPassword": "忘记密码",
+    "enter": "登录",
+    "entering": "正在登录…"
+  },
+  "profile": {
+    "changePasswordTitle": "修改密码"
+  },
+  "notFound": {
+    "message": "哎呀！页面未找到",
+    "backHome": "返回首页"
+  },
+  "home": {
+    "go": "开始",
+    "badgeKnowledge": "知识",
+    "badgeSkill": "技能",
+    "badgeAttitude": "态度",
+    "badgeSafety": "安全"
+  },
+  "register": {
+    "title": "申请注册",
+    "description": "填写信息以申请访问 DJT Quest",
+    "fullNameLabel": "姓名 *",
+    "fullNamePlaceholder": "请输入姓名",
+    "emailLabel": "邮箱 *",
+    "emailPlaceholder": "your.email@example.com",
+    "phoneLabel": "电话",
+    "phonePlaceholder": "(00) 00000-0000",
+    "employeeIdLabel": "工号",
+    "employeeIdPlaceholder": "你的工号",
+    "teamLabel": "团队/代码 *",
+    "teamPlaceholder": "选择团队（代码 – 名称）",
+    "teamSearchPlaceholder": "搜索团队…",
+    "noneTeamFound": "未找到团队。",
+    "optionsCount": "{count} 个选项",
+    "externalHint": "如为外部人员，请选择 {guestId}，无需绑定基地/团队。",
+    "guestTeamLabel": "访客（外部）",
+    "baseLabel": "运行基地（城市）",
+    "basePlaceholder": "选择运行基地",
+    "baseSelectTeamFirst": "请先选择团队",
+    "baseSearchPlaceholder": "搜索基地…",
+    "noneBaseFound": "未找到基地。",
+    "guestHint": "访客将以协作者身份加入，不绑定运行基地。",
+    "baseHint": "基地会根据已登记的选项（以及团队默认列表）进行推荐。",
+    "submit": "提交申请",
+    "submitting": "发送中…",
+    "backToLogin": "返回登录",
+    "toast": {
+      "alreadyHasAccountTitle": "该邮箱已有有效账户。",
+      "alreadyHasAccountDesc": "返回登录，如需要可使用“忘记密码”。",
+      "alreadyPendingTitle": "申请已处于待审核状态。",
+      "alreadyPendingDesc": "请等待批准后再访问系统。",
+      "successTitle": "申请已成功提交！",
+      "successDesc": "请等待批准后再访问系统。",
+      "duplicatePending": "该邮箱已有待审核申请。",
+      "genericError": "提交失败，请重试。"
+    },
+    "validation": {
+      "nameRequired": "姓名为必填项",
+      "nameMax": "姓名最多 100 个字符",
+      "emailInvalid": "邮箱格式不正确",
+      "emailMax": "邮箱最多 255 个字符",
+      "phoneMax": "电话最多 20 个字符",
+      "employeeIdMax": "工号最多 50 个字符",
+      "baseRequired": "运行基地为必填项",
+      "baseMax": "运行基地最多 100 个字符",
+      "teamRequired": "团队代码为必填项",
+      "teamMax": "团队代码最多 10 个字符",
+      "teamRegex": "团队代码只能包含大写字母、数字和连字符"
+    }
   }
 }
-

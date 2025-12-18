@@ -13,34 +13,42 @@ import { Command, CommandEmpty, CommandGroup, CommandItem, CommandList, CommandI
 import { cn } from "@/lib/utils";
 import { Check, ChevronsUpDown } from "lucide-react";
 import registerBg from "@/assets/backgrounds/BG.webp";
+import { useI18n } from "@/contexts/I18nContext";
 
-const registerSchema = z.object({
-  name: z.string()
-    .trim()
-    .min(1, "Nome é obrigatório")
-    .max(100, "Nome deve ter no máximo 100 caracteres"),
-  email: z.string()
-    .trim()
-    .email("Email inválido")
-    .max(255, "Email deve ter no máximo 255 caracteres"),
-  telefone: z.string()
-    .trim()
-    .max(20, "Telefone deve ter no máximo 20 caracteres")
-    .optional(),
-  matricula: z.string()
-    .trim()
-    .max(50, "Matrícula deve ter no máximo 50 caracteres")
-    .optional(),
-  operational_base: z.string()
-    .trim()
-    .min(1, "Base operacional é obrigatória")
-    .max(100, "Base operacional deve ter no máximo 100 caracteres"),
-  sigla_area: z.string()
-    .trim()
-    .min(1, "Sigla da área é obrigatória")
-    .max(10, "Sigla deve ter no máximo 10 caracteres")
-    .regex(/^[A-Z0-9-]+$/, "Sigla deve conter apenas letras maiúsculas, números e hífen"),
-});
+const buildRegisterSchema = (t: (key: string, params?: any) => string) =>
+  z.object({
+    name: z
+      .string()
+      .trim()
+      .min(1, t("register.validation.nameRequired"))
+      .max(100, t("register.validation.nameMax")),
+    email: z
+      .string()
+      .trim()
+      .email(t("register.validation.emailInvalid"))
+      .max(255, t("register.validation.emailMax")),
+    telefone: z
+      .string()
+      .trim()
+      .max(20, t("register.validation.phoneMax"))
+      .optional(),
+    matricula: z
+      .string()
+      .trim()
+      .max(50, t("register.validation.employeeIdMax"))
+      .optional(),
+    operational_base: z
+      .string()
+      .trim()
+      .min(1, t("register.validation.baseRequired"))
+      .max(100, t("register.validation.baseMax")),
+    sigla_area: z
+      .string()
+      .trim()
+      .min(1, t("register.validation.teamRequired"))
+      .max(10, t("register.validation.teamMax"))
+      .regex(/^[A-Z0-9-]+$/, t("register.validation.teamRegex")),
+  });
 
 const GUEST_TEAM_ID = "CONVIDADOS";
 const REGISTRATION_TEAM_IDS = [
@@ -73,7 +81,7 @@ const filterAndOrderRegistrationTeams = (raw: Array<{ id: string; name?: string 
   // Guarantee every allowed id exists (even if DB is missing rows)
   for (const id of REGISTRATION_TEAM_IDS) {
     if (!byId.has(id)) {
-      byId.set(id, { id, name: id === GUEST_TEAM_ID ? "Convidados (externo)" : id });
+      byId.set(id, { id, name: id });
     }
   }
 
@@ -82,6 +90,8 @@ const filterAndOrderRegistrationTeams = (raw: Array<{ id: string; name?: string 
 
 export default function Register() {
   const navigate = useNavigate();
+  const { t } = useI18n();
+  const registerSchema = useMemo(() => buildRegisterSchema(t), [t]);
   const [loading, setLoading] = useState(false);
   const [teams, setTeams] = useState<Array<{ id: string; name: string }>>(() => filterAndOrderRegistrationTeams([]));
   const [bases, setBases] = useState<string[]>([]);
@@ -199,16 +209,16 @@ export default function Register() {
         if (!resp.ok) throw new Error(json?.error || "Erro ao enviar solicitação");
 
         if (json?.already_has_account) {
-          toast.error("Este e-mail já possui uma conta ativa.", {
-            description: "Volte ao login e use “Esqueci minha senha” se necessário.",
+          toast.error(t("register.toast.alreadyHasAccountTitle"), {
+            description: t("register.toast.alreadyHasAccountDesc"),
           });
           navigate("/auth");
           return;
         }
 
         if (json?.already_pending) {
-          toast.success("Solicitação já estava pendente.", {
-            description: "Aguarde a aprovação do coordenador para acessar o sistema.",
+          toast.success(t("register.toast.alreadyPendingTitle"), {
+            description: t("register.toast.alreadyPendingDesc"),
           });
         }
       } catch (apiErr) {
@@ -228,7 +238,7 @@ export default function Register() {
 
           // Verificar se é erro de email duplicado
           if (insertError.code === "23505") {
-            toast.error("Este email já possui uma solicitação pendente.");
+            toast.error(t("register.toast.duplicatePending"));
             return;
           }
 
@@ -236,8 +246,8 @@ export default function Register() {
         }
       }
 
-      toast.success("Solicitação enviada com sucesso!", {
-        description: "Aguarde a aprovação do coordenador para acessar o sistema.",
+      toast.success(t("register.toast.successTitle"), {
+        description: t("register.toast.successDesc"),
       });
 
       // Redirecionar para login após 2 segundos
@@ -252,7 +262,7 @@ export default function Register() {
         toast.error(firstError.message);
       } else {
         console.error("Erro ao enviar solicitação:", error);
-        toast.error("Erro ao enviar solicitação. Tente novamente.");
+        toast.error(t("register.toast.genericError"));
       }
     } finally {
       setLoading(false);
@@ -272,19 +282,19 @@ export default function Register() {
       {/* Form */}
       <Card className="w-full max-w-md relative z-10 bg-background">
         <CardHeader className="space-y-1">
-          <CardTitle className="text-2xl font-bold text-center">Solicitar Cadastro</CardTitle>
+          <CardTitle className="text-2xl font-bold text-center">{t("register.title")}</CardTitle>
           <CardDescription className="text-center">
-            Preencha seus dados para solicitar acesso ao DJT Quest
+            {t("register.description")}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="name">Nome Completo *</Label>
+              <Label htmlFor="name">{t("register.fullNameLabel")}</Label>
               <Input
                 id="name"
                 type="text"
-                placeholder="Digite seu nome completo"
+                placeholder={t("register.fullNamePlaceholder")}
                 value={formData.name}
                 onChange={(e) => handleChange("name", e.target.value)}
                 required
@@ -293,11 +303,11 @@ export default function Register() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="email">Email *</Label>
+              <Label htmlFor="email">{t("register.emailLabel")}</Label>
               <Input
                 id="email"
                 type="email"
-                placeholder="seu.email@exemplo.com"
+                placeholder={t("register.emailPlaceholder")}
                 value={formData.email}
                 onChange={(e) => handleChange("email", e.target.value)}
                 required
@@ -306,11 +316,11 @@ export default function Register() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="telefone">Telefone</Label>
+              <Label htmlFor="telefone">{t("register.phoneLabel")}</Label>
               <Input
                 id="telefone"
                 type="tel"
-                placeholder="(00) 00000-0000"
+                placeholder={t("register.phonePlaceholder")}
                 value={formData.telefone}
                 onChange={(e) => handleChange("telefone", e.target.value)}
                 maxLength={20}
@@ -318,11 +328,11 @@ export default function Register() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="matricula">Matrícula</Label>
+              <Label htmlFor="matricula">{t("register.employeeIdLabel")}</Label>
               <Input
                 id="matricula"
                 type="text"
-                placeholder="Sua matrícula"
+                placeholder={t("register.employeeIdPlaceholder")}
                 value={formData.matricula}
                 onChange={(e) => handleChange("matricula", e.target.value)}
                 maxLength={50}
@@ -330,7 +340,7 @@ export default function Register() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="sigla_area">Equipe/Sigla *</Label>
+              <Label htmlFor="sigla_area">{t("register.teamLabel")}</Label>
               <Popover open={teamsOpen} onOpenChange={setTeamsOpen}>
                 <PopoverTrigger asChild>
                   <Button
@@ -343,11 +353,18 @@ export default function Register() {
                     <span className="truncate">
                       {sigla
                         ? (() => {
-                            const t = teams.find((x) => String(x.id).toUpperCase() === sigla);
-                            const label = t?.name && t.name !== t.id ? `${t.id} — ${t.name}` : sigla;
+                            const found = teams.find((x) => String(x.id).toUpperCase() === sigla);
+                            const isGuestSelected = sigla === GUEST_TEAM_ID;
+                            const guestLabel = t("register.guestTeamLabel");
+                            const label =
+                              isGuestSelected
+                                ? `${GUEST_TEAM_ID} — ${guestLabel}`
+                                : found?.name && found.name !== found.id
+                                  ? `${found.id} — ${found.name}`
+                                  : sigla;
                             return label;
                           })()
-                        : "Selecione sua equipe (sigla – nome)"}
+                        : t("register.teamPlaceholder")}
                     </span>
                     <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                   </Button>
@@ -359,21 +376,27 @@ export default function Register() {
                   onOpenAutoFocus={(e) => e.preventDefault()}
                 >
                   <Command shouldFilter={false}>
-                    <CommandInput placeholder="Buscar equipe..." value={teamQuery} onValueChange={setTeamQuery} />
+                    <CommandInput placeholder={t("register.teamSearchPlaceholder")} value={teamQuery} onValueChange={setTeamQuery} />
                     <CommandList>
-                      <CommandEmpty>Nenhuma equipe encontrada.</CommandEmpty>
-                      <CommandGroup heading={teamOptions.length ? `${teamOptions.length} opção(ões)` : undefined}>
-                        {teamOptions.map((t) => {
-                          const id = String(t.id).toUpperCase();
+                      <CommandEmpty>{t("register.noneTeamFound")}</CommandEmpty>
+                      <CommandGroup heading={teamOptions.length ? t("register.optionsCount", { count: teamOptions.length }) : undefined}>
+                        {teamOptions.map((team) => {
+                          const id = String(team.id).toUpperCase();
                           const selected = id === sigla;
-                          const display = t.name && t.name !== t.id ? `${t.id} — ${t.name}` : t.id;
+                          const guestLabel = t("register.guestTeamLabel");
+                          const display =
+                            id === GUEST_TEAM_ID
+                              ? `${GUEST_TEAM_ID} — ${guestLabel}`
+                              : team.name && team.name !== team.id
+                                ? `${team.id} — ${team.name}`
+                                : team.id;
                           return (
                             <CommandItem
-                              key={t.id}
-                              value={t.id}
+                              key={team.id}
+                              value={team.id}
                               onMouseDown={(e) => e.preventDefault()}
                               onSelect={() => {
-                                const nextSigla = String(t.id || "").toUpperCase().trim();
+                                const nextSigla = String(team.id || "").toUpperCase().trim();
                                 handleChange("sigla_area", nextSigla);
                                 if (nextSigla === GUEST_TEAM_ID || nextSigla === "EXTERNO") {
                                   handleChange("operational_base", GUEST_TEAM_ID);
@@ -396,12 +419,14 @@ export default function Register() {
                 </PopoverContent>
               </Popover>
               <p className="text-xs text-muted-foreground">
-                Se você for externo, selecione <span className="font-semibold">{GUEST_TEAM_ID}</span> para entrar sem vínculo com base/equipe.
+                {t("register.externalHint", { guestId: GUEST_TEAM_ID })}
               </p>
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="operational_base">Base Operacional (Cidade) {isGuest ? "" : "*"}</Label>
+              <Label htmlFor="operational_base">
+                {t("register.baseLabel")} {isGuest ? "" : "*"}
+              </Label>
               {isGuest ? (
                 <Input id="operational_base" value={GUEST_TEAM_ID} disabled className="opacity-90" />
               ) : (
@@ -416,7 +441,8 @@ export default function Register() {
                       disabled={!sigla || loading}
                     >
                       <span className="truncate">
-                        {formData.operational_base || (sigla ? "Selecione sua base operacional" : "Selecione a equipe primeiro")}
+                        {formData.operational_base ||
+                          (sigla ? t("register.basePlaceholder") : t("register.baseSelectTeamFirst"))}
                       </span>
                       <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                     </Button>
@@ -428,10 +454,10 @@ export default function Register() {
                     onOpenAutoFocus={(e) => e.preventDefault()}
                   >
                     <Command shouldFilter={false}>
-                      <CommandInput placeholder="Buscar base..." value={baseQuery} onValueChange={setBaseQuery} />
+                      <CommandInput placeholder={t("register.baseSearchPlaceholder")} value={baseQuery} onValueChange={setBaseQuery} />
                       <CommandList>
-                        <CommandEmpty>Nenhuma base encontrada.</CommandEmpty>
-                        <CommandGroup heading={baseOptions.length ? `${baseOptions.length} opção(ões)` : undefined}>
+                        <CommandEmpty>{t("register.noneBaseFound")}</CommandEmpty>
+                        <CommandGroup heading={baseOptions.length ? t("register.optionsCount", { count: baseOptions.length }) : undefined}>
                           {baseOptions.map((b) => {
                             const selected = String(formData.operational_base || "") === String(b);
                             return (
@@ -459,13 +485,13 @@ export default function Register() {
               )}
               <p className="text-xs text-muted-foreground">
                 {isGuest
-                  ? "Convidados entram como colaboradores e não ficam vinculados a uma base operacional."
-                  : "A base é sugerida a partir das opções já cadastradas (e também da lista padrão por equipe)."}
+                  ? t("register.guestHint")
+                  : t("register.baseHint")}
               </p>
             </div>
 
             <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? "Enviando..." : "Solicitar Cadastro"}
+              {loading ? t("register.submitting") : t("register.submit")}
             </Button>
 
             <Button 
@@ -475,7 +501,7 @@ export default function Register() {
               onClick={() => navigate("/auth")}
               disabled={loading}
             >
-              Voltar para Login
+              {t("register.backToLogin")}
             </Button>
           </form>
         </CardContent>

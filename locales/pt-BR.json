@@ -8,6 +8,96 @@
     "pt-BR": "Português",
     "en": "English",
     "zh-CN": "中文"
+  },
+  "nav": {
+    "dashboard": "Início",
+    "forums": "Fóruns",
+    "sepbook": "SEPBook",
+    "study": "StudyLab",
+    "profile": "Perfil",
+    "rankings": "Rankings",
+    "logout": "Sair",
+    "evaluations": "Avaliar",
+    "studio": "Studio"
+  },
+  "auth": {
+    "title": "DJT Quest - Login",
+    "subtitleWelcome": "Bem-vindo de volta, {name}!",
+    "subtitleSearch": "Digite nome ou matrícula para localizar seu acesso",
+    "userLabel": "Matrícula / Nome / E-mail",
+    "userPlaceholder": "Digite nome ou matrícula...",
+    "userNotFound": "Usuário não encontrado",
+    "passwordLabel": "Senha",
+    "passwordPlaceholder": "Digite sua senha",
+    "defaultPasswordLabel": "Senha padrão:",
+    "forgotPassword": "Esqueci minha senha",
+    "enter": "Entrar",
+    "entering": "Entrando…"
+  },
+  "profile": {
+    "changePasswordTitle": "Alterar senha"
+  },
+  "notFound": {
+    "message": "Ops! Página não encontrada",
+    "backHome": "Voltar para o início"
+  },
+  "home": {
+    "go": "GO",
+    "badgeKnowledge": "Conhecimento",
+    "badgeSkill": "Habilidade",
+    "badgeAttitude": "Atitude",
+    "badgeSafety": "Segurança"
+  },
+  "register": {
+    "title": "Solicitar cadastro",
+    "description": "Preencha seus dados para solicitar acesso ao DJT Quest",
+    "fullNameLabel": "Nome completo *",
+    "fullNamePlaceholder": "Digite seu nome completo",
+    "emailLabel": "E-mail *",
+    "emailPlaceholder": "seu.email@exemplo.com",
+    "phoneLabel": "Telefone",
+    "phonePlaceholder": "(00) 00000-0000",
+    "employeeIdLabel": "Matrícula",
+    "employeeIdPlaceholder": "Sua matrícula",
+    "teamLabel": "Equipe/Sigla *",
+    "teamPlaceholder": "Selecione sua equipe (sigla – nome)",
+    "teamSearchPlaceholder": "Buscar equipe…",
+    "noneTeamFound": "Nenhuma equipe encontrada.",
+    "optionsCount": "{count} opção(ões)",
+    "externalHint": "Se você for externo, selecione {guestId} para entrar sem vínculo com base/equipe.",
+    "guestTeamLabel": "Convidados (externo)",
+    "baseLabel": "Base operacional (cidade)",
+    "basePlaceholder": "Selecione sua base operacional",
+    "baseSelectTeamFirst": "Selecione a equipe primeiro",
+    "baseSearchPlaceholder": "Buscar base…",
+    "noneBaseFound": "Nenhuma base encontrada.",
+    "guestHint": "Convidados entram como colaboradores e não ficam vinculados a uma base operacional.",
+    "baseHint": "A base é sugerida a partir das opções já cadastradas (e também da lista padrão por equipe).",
+    "submit": "Solicitar cadastro",
+    "submitting": "Enviando…",
+    "backToLogin": "Voltar para login",
+    "toast": {
+      "alreadyHasAccountTitle": "Este e-mail já possui uma conta ativa.",
+      "alreadyHasAccountDesc": "Volte ao login e use “Esqueci minha senha” se necessário.",
+      "alreadyPendingTitle": "Solicitação já estava pendente.",
+      "alreadyPendingDesc": "Aguarde a aprovação do coordenador para acessar o sistema.",
+      "successTitle": "Solicitação enviada com sucesso!",
+      "successDesc": "Aguarde a aprovação do coordenador para acessar o sistema.",
+      "duplicatePending": "Este e-mail já possui uma solicitação pendente.",
+      "genericError": "Erro ao enviar solicitação. Tente novamente."
+    },
+    "validation": {
+      "nameRequired": "Nome é obrigatório",
+      "nameMax": "Nome deve ter no máximo 100 caracteres",
+      "emailInvalid": "E-mail inválido",
+      "emailMax": "E-mail deve ter no máximo 255 caracteres",
+      "phoneMax": "Telefone deve ter no máximo 20 caracteres",
+      "employeeIdMax": "Matrícula deve ter no máximo 50 caracteres",
+      "baseRequired": "Base operacional é obrigatória",
+      "baseMax": "Base operacional deve ter no máximo 100 caracteres",
+      "teamRequired": "Sigla da área é obrigatória",
+      "teamMax": "Sigla deve ter no máximo 10 caracteres",
+      "teamRegex": "Sigla deve conter apenas letras maiúsculas, números e hífen"
+    }
   }
 }
-

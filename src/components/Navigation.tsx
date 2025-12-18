@@ -18,11 +18,13 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { apiFetch } from '@/lib/api';
 import { ChangePasswordCard } from '@/components/profile/ChangePasswordCard';
 import bgMenu from '@/assets/backgrounds/BG Menu.webp';
+import { useI18n } from '@/contexts/I18nContext';
 
 const Navigation = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { studioAccess, isLeader, signOut } = useAuth();
+  const { t } = useI18n();
   const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
   const [studioBadge, setStudioBadge] = useState(0);
   const [evalBadge, setEvalBadge] = useState(0);
@@ -154,7 +156,10 @@ const Navigation = () => {
       active ? "ring-2 ring-cyan-300/60 shadow-[0_0_18px_rgba(0,255,255,0.28)] scale-105" : "ring-0"
     );
   const labelClass = (active: boolean) =>
-    cn("text-[11px] font-semibold leading-4 tracking-tight", active ? "text-slate-50" : "text-slate-200/80");
+    cn(
+      "text-[11px] font-semibold leading-4 tracking-tight max-w-[92px] truncate",
+      active ? "text-slate-50" : "text-slate-200/80"
+    );
   const badgeClass = (alert?: boolean) =>
     cn(
       "absolute -top-1 -right-1 text-white text-[11px] leading-none rounded-full px-1.5 py-0.5 min-w-[20px] text-center shadow-sm",
@@ -184,15 +189,15 @@ const Navigation = () => {
           size="sm"
           onClick={() => navigate('/dashboard')}
           className={baseButtonClass}
-          aria-label="Início"
+          aria-label={t("nav.dashboard")}
           aria-current={isActive('/dashboard') ? 'page' : undefined}
         >
           <span style={{ width: itemSize, height: itemSize }} className={bubbleClass(isActive('/dashboard'))}>
             <span className="absolute inset-[3px] rounded-2xl overflow-hidden">
-              <img src={iconHome} alt="Início" className="w-full h-full object-cover" />
+              <img src={iconHome} alt={t("nav.dashboard")} className="w-full h-full object-cover" />
             </span>
           </span>
-          <span className={labelClass(isActive('/dashboard'))}>Início</span>
+          <span className={labelClass(isActive('/dashboard'))} title={t("nav.dashboard")}>{t("nav.dashboard")}</span>
         </Button>
         
         <Button
@@ -200,12 +205,12 @@ const Navigation = () => {
           size="sm"
           onClick={() => navigate('/forums')}
           className={cn(baseButtonClass, 'relative')}
-          aria-label="Fóruns"
+          aria-label={t("nav.forums")}
           aria-current={location.pathname.startsWith('/forum') ? 'page' : undefined}
         >
           <span style={{ width: itemSize, height: itemSize }} className={bubbleClass(location.pathname.startsWith('/forum'))}>
             <span className="absolute inset-[3px] rounded-2xl overflow-hidden">
-              <img src={iconForum} alt="Fóruns" className="w-full h-full object-cover" />
+              <img src={iconForum} alt={t("nav.forums")} className="w-full h-full object-cover" />
             </span>
             {forumBadge > 0 && (
               <span className={badgeClass(true)} style={{ zIndex: 5 }}>
@@ -213,7 +218,7 @@ const Navigation = () => {
               </span>
             )}
           </span>
-          <span className={labelClass(location.pathname.startsWith('/forum'))}>Fóruns</span>
+          <span className={labelClass(location.pathname.startsWith('/forum'))} title={t("nav.forums")}>{t("nav.forums")}</span>
         </Button>
 
         <Button
@@ -221,12 +226,12 @@ const Navigation = () => {
           size="sm"
           onClick={() => navigate('/sepbook')}
           className={cn(baseButtonClass, 'relative')}
-          aria-label="SEPBook"
+          aria-label={t("nav.sepbook")}
           aria-current={location.pathname.startsWith('/sepbook') ? 'page' : undefined}
         >
           <span style={{ width: itemSize, height: itemSize }} className={bubbleClass(location.pathname.startsWith('/sepbook'))}>
             <span className="absolute inset-[3px] rounded-2xl overflow-hidden">
-              <img src={iconSEPBook} alt="SEPBook" className="w-full h-full object-cover" />
+              <img src={iconSEPBook} alt={t("nav.sepbook")} className="w-full h-full object-cover" />
             </span>
             {sepbookNew > 0 && (
               <span className={badgeClass(false)} style={{ zIndex: 5 }}>
@@ -235,7 +240,7 @@ const Navigation = () => {
             )}
           </span>
           <div className="flex flex-col items-center leading-tight">
-            <span className={labelClass(location.pathname.startsWith('/sepbook'))}>SEPBook</span>
+            <span className={labelClass(location.pathname.startsWith('/sepbook'))} title={t("nav.sepbook")}>{t("nav.sepbook")}</span>
             {sepbookMentions > 0 && (
               <span className="text-[10px] text-emerald-300 font-semibold leading-tight -mt-0.5">
                 {sepbookMentions}@
@@ -249,7 +254,7 @@ const Navigation = () => {
           size="sm"
           onClick={() => navigate('/study')}
           className={baseButtonClass}
-          aria-label="Estudos"
+          aria-label={t("nav.study")}
           aria-current={isActive('/study') ? 'page' : undefined}
         >
           <span
@@ -257,10 +262,10 @@ const Navigation = () => {
             className={bubbleClass(isActive('/study'))}
           >
             <span className="absolute inset-[3px] rounded-2xl overflow-hidden">
-              <img src={iconStudy} alt="Estudos" className="w-full h-full object-cover" />
+              <img src={iconStudy} alt={t("nav.study")} className="w-full h-full object-cover" />
             </span>
           </span>
-          <span className={labelClass(isActive('/study'))}>Estudos</span>
+          <span className={labelClass(isActive('/study'))} title={t("nav.study")}>{t("nav.study")}</span>
         </Button>
         
         {isLeader && (
@@ -269,12 +274,12 @@ const Navigation = () => {
             size="sm"
             onClick={() => navigate('/evaluations')}
             className={cn(baseButtonClass, 'relative')}
-            aria-label="Avaliar"
+            aria-label={t("nav.evaluations")}
             aria-current={isActive('/evaluations') ? 'page' : undefined}
           >
             <span style={{ width: itemSize, height: itemSize }} className={bubbleClass(isActive('/evaluations'))}>
               <span className="absolute inset-[3px] rounded-2xl overflow-hidden">
-                <img src={iconAvaliar} alt="Avaliar" className="w-full h-full object-cover" />
+                <img src={iconAvaliar} alt={t("nav.evaluations")} className="w-full h-full object-cover" />
               </span>
               {evalBadge > 0 && (
                 <span className={badgeClass(true)} style={{ zIndex: 5 }}>
@@ -282,7 +287,7 @@ const Navigation = () => {
                 </span>
               )}
             </span>
-            <span className={labelClass(isActive('/evaluations'))}>Avaliar</span>
+            <span className={labelClass(isActive('/evaluations'))} title={t("nav.evaluations")}>{t("nav.evaluations")}</span>
           </Button>
         )}
         
@@ -295,13 +300,13 @@ const Navigation = () => {
                   size="sm"
                   onClick={() => navigate('/studio')}
                   className={cn(baseButtonClass, "relative")}
-                  aria-label="Studio"
+                  aria-label={t("nav.studio")}
                   aria-current={isActive('/studio') ? 'page' : undefined}
                 >
                   <div className="relative flex items-center justify-center">
                   <span style={{ width: itemSize, height: itemSize }} className={bubbleClass(isActive('/studio'))}>
                     <span className="absolute inset-[3px] rounded-2xl overflow-hidden">
-                      <img src={iconStudio} alt="Studio" className="w-full h-full object-cover" />
+                      <img src={iconStudio} alt={t("nav.studio")} className="w-full h-full object-cover" />
                     </span>
                     {studioBadge > 0 && (
                       <span className={badgeClass(true)} style={{ zIndex: 5 }}>
@@ -310,11 +315,11 @@ const Navigation = () => {
                     )}
                   </span>
                   </div>
-                  <span className={labelClass(isActive('/studio'))}>Studio</span>
+                  <span className={labelClass(isActive('/studio'))} title={t("nav.studio")}>{t("nav.studio")}</span>
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
-                <p>Studio</p>
+                <p>{t("nav.studio")}</p>
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
@@ -325,15 +330,15 @@ const Navigation = () => {
           size="sm"
           onClick={() => navigate('/profile')}
           className={baseButtonClass}
-          aria-label="Perfil"
+          aria-label={t("nav.profile")}
           aria-current={isActive('/profile') ? 'page' : undefined}
         >
           <span style={{ width: itemSize, height: itemSize }} className={bubbleClass(isActive('/profile'))}>
             <span className="absolute inset-[3px] rounded-2xl overflow-hidden">
-              <img src={iconProfile} alt="Perfil" className="w-full h-full object-cover" />
+              <img src={iconProfile} alt={t("nav.profile")} className="w-full h-full object-cover" />
             </span>
           </span>
-          <span className={labelClass(isActive('/profile'))}>Perfil</span>
+          <span className={labelClass(isActive('/profile'))} title={t("nav.profile")}>{t("nav.profile")}</span>
         </Button>
 
         <Button
@@ -341,15 +346,15 @@ const Navigation = () => {
           size="sm"
           onClick={() => navigate('/rankings')}
           className={baseButtonClass}
-          aria-label="Rankings"
+          aria-label={t("nav.rankings")}
           aria-current={isActive('/rankings') ? 'page' : undefined}
         >
           <span style={{ width: itemSize, height: itemSize }} className={bubbleClass(isActive('/rankings'))}>
             <span className="absolute inset-[3px] rounded-2xl overflow-hidden">
-              <img src={iconRanking} alt="Rankings" className="w-full h-full object-cover" />
+              <img src={iconRanking} alt={t("nav.rankings")} className="w-full h-full object-cover" />
             </span>
           </span>
-          <span className={labelClass(isActive('/rankings'))}>Rankings</span>
+          <span className={labelClass(isActive('/rankings'))} title={t("nav.rankings")}>{t("nav.rankings")}</span>
         </Button>
 
         <Button
@@ -365,14 +370,14 @@ const Navigation = () => {
             }
           }}
           className={baseButtonClass}
-          aria-label="Sair"
+          aria-label={t("nav.logout")}
         >
           <span style={{ width: itemSize, height: itemSize }} className={bubbleClass(false)}>
             <span className="absolute inset-[3px] rounded-2xl overflow-hidden">
-              <img src={iconLogout} alt="Sair" className="w-full h-full object-cover" />
+              <img src={iconLogout} alt={t("nav.logout")} className="w-full h-full object-cover" />
             </span>
           </span>
-          <span className={labelClass(false)}>Sair</span>
+          <span className={labelClass(false)} title={t("nav.logout")}>{t("nav.logout")}</span>
         </Button>
         </div>
       </div>
@@ -380,7 +385,7 @@ const Navigation = () => {
       <Dialog open={passwordDialogOpen} onOpenChange={setPasswordDialogOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Alterar Senha</DialogTitle>
+            <DialogTitle>{t("profile.changePasswordTitle")}</DialogTitle>
           </DialogHeader>
           <ChangePasswordCard compact />
         </DialogContent>

@@ -378,7 +378,7 @@ const Auth = () => {
     }
 
     if (!selectedUser) {
-      toast.error("Usuário não encontrado");
+      toast.error(t("auth.userNotFound"));
       return;
     }
 
@@ -415,23 +415,23 @@ const Auth = () => {
             </div>
           </div>
           <CardTitle className="text-3xl font-semibold leading-tight tracking-tight text-slate-900">
-            DJT Quest - Login
+            {t("auth.title")}
           </CardTitle>
           <CardDescription className="text-sm text-slate-700">
-            {selectedUserName ? `Bem-vindo de volta, ${selectedUserName}!` : 'Digite nome ou matrícula para localizar seu acesso'}
+            {selectedUserName ? t("auth.subtitleWelcome", { name: selectedUserName }) : t("auth.subtitleSearch")}
           </CardDescription>
         </CardHeader>
         <CardContent className="text-slate-900">
           <form onSubmit={handleLogin} className="space-y-4 text-slate-900">
             <div className="space-y-2">
-              <Label htmlFor="user" className="text-slate-900">Matrícula / Nome / E-mail</Label>
+              <Label htmlFor="user" className="text-slate-900">{t("auth.userLabel")}</Label>
               <Popover open={open} onOpenChange={setOpen}>
                 <PopoverTrigger asChild>
                   <div className="relative">
                     <Input
                       id="user"
                       name="user"
-                      placeholder="Digite nome ou matrícula..."
+                      placeholder={t("auth.userPlaceholder")}
                       value={query}
                       autoComplete="off"
                       inputMode="numeric"
@@ -504,7 +504,7 @@ const Auth = () => {
             </div>
             
             <div className="space-y-2">
-              <Label htmlFor="password" className="text-slate-900">Senha</Label>
+              <Label htmlFor="password" className="text-slate-900">{t("auth.passwordLabel")}</Label>
               <input type="text" name="username" autoComplete="username" hidden readOnly />
               <Input
                 id="password"
@@ -512,14 +512,14 @@ const Auth = () => {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
-                placeholder="Digite sua senha"
+                placeholder={t("auth.passwordPlaceholder")}
                 autoFocus={!!selectedUserName}
                 autoComplete={selectedUserId ? "current-password" : "off"}
                 ref={passwordRef}
                 className="bg-white text-slate-900 placeholder:text-slate-500 border-slate-300 focus-visible:ring-primary"
               />
               <p className="text-xs text-slate-600">
-                Senha padrão: <code className="bg-slate-100 text-slate-900 px-1 rounded">123456</code>
+                {t("auth.defaultPasswordLabel")} <code className="bg-slate-100 text-slate-900 px-1 rounded">123456</code>
               </p>
               <Button
                 type="button"
@@ -527,7 +527,7 @@ const Auth = () => {
                 className="px-0 text-primary hover:text-primary/80"
                 onClick={() => setForgotOpen(true)}
               >
-                Esqueci minha senha
+                {t("auth.forgotPassword")}
               </Button>
             </div>
             
@@ -536,7 +536,7 @@ const Auth = () => {
               className="w-full bg-primary text-primary-foreground hover:opacity-90"
               disabled={loading || (!selectedUserId && !query.trim())}
             >
-              {loading ? 'Entrando...' : 'Entrar'}
+              {loading ? t("auth.entering") : t("auth.enter")}
             </Button>
 
             <Button

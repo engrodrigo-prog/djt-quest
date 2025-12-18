@@ -4,10 +4,12 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Play } from 'lucide-react';
 import djtCover from '@/assets/backgrounds/djt-quest-cover.webp';
+import { useI18n } from '@/contexts/I18nContext';
 
   const Home = () => {
   const navigate = useNavigate();
   const { hasActiveSession } = useAuth();
+  const { t } = useI18n();
   const [isTransitioning, setIsTransitioning] = useState(false);
 
   // Início deve ser o mesmo para todos (líderes também jogam quizzes).
@@ -54,23 +56,23 @@ import djtCover from '@/assets/backgrounds/djt-quest-cover.webp';
         >
           <a href={targetPath} className="flex items-center">
             <Play className="mr-3 h-12 w-12 group-hover:translate-x-1 transition-transform" />
-            GO
+            {t("home.go")}
           </a>
         </Button>
 
         {/* Badges - Minimalistas */}
         <div className="flex flex-wrap justify-center gap-4 text-sm">
           <span className="border-2 border-white/50 bg-white/5 px-6 py-2.5 rounded-full font-medium uppercase tracking-wide text-white">
-            Conhecimento
+            {t("home.badgeKnowledge")}
           </span>
           <span className="border-2 border-white/50 bg-white/5 px-6 py-2.5 rounded-full font-medium uppercase tracking-wide text-white">
-            Habilidade
+            {t("home.badgeSkill")}
           </span>
           <span className="border-2 border-white/50 bg-white/5 px-6 py-2.5 rounded-full font-medium uppercase tracking-wide text-white">
-            Atitude
+            {t("home.badgeAttitude")}
           </span>
           <span className="border-2 border-white/50 bg-white/5 px-6 py-2.5 rounded-full font-medium uppercase tracking-wide text-white">
-            Segurança
+            {t("home.badgeSafety")}
           </span>
         </div>
       </div>

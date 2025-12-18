@@ -6,7 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
-import { I18nProvider } from "./contexts/I18nContext";
+import { I18nProvider, useI18n } from "./contexts/I18nContext";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { CompleteProfile } from "./components/CompleteProfile";
 import { STUDIO_ALLOWED_ROLES } from "../shared/rbac.js";
@@ -45,9 +45,10 @@ const LEADER_ALLOWED_ROLES = [
 
 const ProfileCheckWrapper = ({ children }: { children: React.ReactNode }) => {
   const { profile, loading } = useAuth();
+  const { t } = useI18n();
 
   if (loading) {
-    return <div className="min-h-screen flex items-center justify-center">Carregando...</div>;
+    return <div className="min-h-screen flex items-center justify-center">{t("common.loading")}</div>;
   }
 
   if (profile && (profile.must_change_password || profile.needs_profile_completion)) {
