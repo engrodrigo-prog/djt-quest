@@ -2,7 +2,8 @@
   "common": {
     "appName": "DJT Quest",
     "loading": "加载中…",
-    "language": "语言"
+    "language": "语言",
+    "back": "返回"
   },
   "locale": {
     "pt-BR": "葡萄牙语",
@@ -153,5 +154,29 @@
     "forumPotentialSuffix": "（5 次高质量互动 × 100 XP）。参与以更接近下一级。",
     "openForumsTitle": "开放论坛",
     "openForumsDescription": "参与正在进行的讨论"
+  },
+  "rankings": {
+    "title": "DJT Quest 排行榜",
+    "subtitle": "跟踪个人、团队与分部表现",
+    "tabs": {
+      "overall": "总榜",
+      "myTeam": "我的团队",
+      "teams": "团队",
+      "divisions": "分部",
+      "leaders": "领导"
+    },
+    "overallTitle": "总榜排行",
+    "myTeamTitle": "我的团队排行",
+    "myTeamEmpty": "在你的团队中未找到协作者。",
+    "teamsTitle": "团队排行（参与度 %）",
+    "divisionsTitle": "分部（参与度监控 %）",
+    "membersLabel": "{count} 名成员",
+    "teamsCountLabel": "{count} 个团队",
+    "levelLabel": "等级 {level}",
+    "leadersTitle": "领导排行（评审 + 测验）",
+    "leadersFormula": "积分 =（完成评审 × {points}）+ 测验 XP",
+    "leadersEmpty": "未找到领导（或你没有权限读取评审）。",
+    "leadersStats": "评审：{completed} • 测验：{quizXp} XP",
+    "pointsLabel": "积分"
   }
 }

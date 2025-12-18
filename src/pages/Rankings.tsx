@@ -8,6 +8,7 @@ import { ThemedBackground } from '@/components/ThemedBackground';
 import { Trophy, Users, Building2, Award, Shield, Percent } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
+import { useI18n } from '@/contexts/I18nContext';
 
 interface IndividualRanking {
   rank: number;
@@ -55,6 +56,7 @@ const LEADER_EVAL_POINTS = 100;
 
 function Rankings() {
   const { orgScope } = useAuth();
+  const { t: tr } = useI18n();
   const [individualRankings, setIndividualRankings] = useState<IndividualRanking[]>([]);
   const [myTeamRankings, setMyTeamRankings] = useState<IndividualRanking[]>([]);
   const [teamRankings, setTeamRankings] = useState<TeamRanking[]>([]);
@@ -398,34 +400,34 @@ function Rankings() {
         <div className="mb-6">
           <h1 className="text-3xl md:text-4xl font-bold flex items-center gap-2">
             <Trophy className="h-8 w-8 text-primary" />
-            Rankings DJT Quest
+            {tr("rankings.title")}
           </h1>
           <p className="text-muted-foreground mt-2">
-            Acompanhe o desempenho individual, das equipes e divisões
+            {tr("rankings.subtitle")}
           </p>
         </div>
 
         <Tabs value={activeTab} onValueChange={(v:any)=>setActiveTab(v)} className="w-full">
           <TabsList className="grid w-full grid-cols-6 mb-6">
-            <TabsTrigger value="individual" className="flex items-center gap-2">
+            <TabsTrigger value="individual" className="flex items-center gap-2 min-w-0" title={tr("rankings.tabs.overall")}>
               <Trophy className="h-4 w-4" />
-              Geral
+              <span className="truncate">{tr("rankings.tabs.overall")}</span>
             </TabsTrigger>
-            <TabsTrigger value="myteam" className="flex items-center gap-2">
+            <TabsTrigger value="myteam" className="flex items-center gap-2 min-w-0" title={tr("rankings.tabs.myTeam")}>
               <Users className="h-4 w-4" />
-              Minha Equipe
+              <span className="truncate">{tr("rankings.tabs.myTeam")}</span>
             </TabsTrigger>
-            <TabsTrigger value="teams" className="flex items-center gap-2">
+            <TabsTrigger value="teams" className="flex items-center gap-2 min-w-0" title={tr("rankings.tabs.teams")}>
               <Users className="h-4 w-4" />
-              Equipes
+              <span className="truncate">{tr("rankings.tabs.teams")}</span>
             </TabsTrigger>
-            <TabsTrigger value="divisions" className="flex items-center gap-2">
+            <TabsTrigger value="divisions" className="flex items-center gap-2 min-w-0" title={tr("rankings.tabs.divisions")}>
               <Building2 className="h-4 w-4" />
-              Divisões
+              <span className="truncate">{tr("rankings.tabs.divisions")}</span>
             </TabsTrigger>
-            <TabsTrigger value="leaders" className="flex items-center gap-2">
+            <TabsTrigger value="leaders" className="flex items-center gap-2 min-w-0" title={tr("rankings.tabs.leaders")}>
               <Shield className="h-4 w-4" />
-              Líderes
+              <span className="truncate">{tr("rankings.tabs.leaders")}</span>
             </TabsTrigger>
           </TabsList>
 
@@ -434,12 +436,12 @@ function Rankings() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Trophy className="h-5 w-5 text-yellow-500" />
-                  Ranking Geral
+                  {tr("rankings.overallTitle")}
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 {loading ? (
-                  <p className="text-center py-8 text-muted-foreground">Carregando...</p>
+                  <p className="text-center py-8 text-muted-foreground">{tr("common.loading")}</p>
                 ) : (
                   <div className="space-y-6">
                     {individualRankings.map((ranking) => (
@@ -469,7 +471,7 @@ function Rankings() {
 
                         <div className="text-right">
                           <p className="text-lg font-bold">{ranking.xp.toLocaleString()} XP</p>
-                          <p className="text-sm text-muted-foreground">Nível {ranking.level}</p>
+                          <p className="text-sm text-muted-foreground">{tr("rankings.levelLabel", { level: ranking.level })}</p>
                         </div>
                       </div>
                     ))}
@@ -483,18 +485,18 @@ function Rankings() {
             <Card className="bg-transparent border-transparent shadow-none">
               <CardHeader>
                 {selectedTeamId && (
-                  <button onClick={()=>{ setSelectedTeamId(null); }} className="text-xs text-muted-foreground hover:text-foreground mb-2 w-fit">← Voltar</button>
+                  <button onClick={()=>{ setSelectedTeamId(null); }} className="text-xs text-muted-foreground hover:text-foreground mb-2 w-fit">← {tr("common.back")}</button>
                 )}
                 <CardTitle className="flex items-center gap-2">
                   <Users className="h-5 w-5 text-green-500" />
-                  Ranking da Minha Equipe
+                  {tr("rankings.myTeamTitle")}
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 {loading ? (
-                  <p className="text-center py-8 text-muted-foreground">Carregando...</p>
+                  <p className="text-center py-8 text-muted-foreground">{tr("common.loading")}</p>
                 ) : myTeamRankings.length === 0 ? (
-                  <p className="text-center py-8 text-muted-foreground">Nenhum colaborador encontrado na sua equipe.</p>
+                  <p className="text-center py-8 text-muted-foreground">{tr("rankings.myTeamEmpty")}</p>
                 ) : (
                   <div className="space-y-6">
                     {myTeamRankings.map((ranking) => (
@@ -522,7 +524,7 @@ function Rankings() {
 
                         <div className="text-right">
                           <p className="text-lg font-bold">{ranking.xp.toLocaleString()} XP</p>
-                          <p className="text-sm text-muted-foreground">Nível {ranking.level}</p>
+                          <p className="text-sm text-muted-foreground">{tr("rankings.levelLabel", { level: ranking.level })}</p>
                         </div>
                       </div>
                     ))}
@@ -537,12 +539,12 @@ function Rankings() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Users className="h-5 w-5 text-purple-500" />
-                  Ranking de Equipes (adesão %)
+                  {tr("rankings.teamsTitle")}
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 {loading ? (
-                  <p className="text-center py-8 text-muted-foreground">Carregando...</p>
+                  <p className="text-center py-8 text-muted-foreground">{tr("common.loading")}</p>
                 ) : (
                   <div className="space-y-6">
                     {teamRankings.map((ranking) => (
@@ -557,7 +559,7 @@ function Rankings() {
 
                         <div className="flex-1">
                           <p className="font-semibold text-lg">{ranking.teamName}</p>
-                          <p className="text-sm text-muted-foreground">{ranking.memberCount} membros</p>
+                          <p className="text-sm text-muted-foreground">{tr("rankings.membersLabel", { count: ranking.memberCount })}</p>
                         </div>
 
                         <div className="text-right">
@@ -578,12 +580,12 @@ function Rankings() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Building2 className="h-5 w-5 text-orange-500" />
-                  Divisões (monitoramento de adesão %)
+                  {tr("rankings.divisionsTitle")}
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 {loading ? (
-                  <p className="text-center py-8 text-muted-foreground">Carregando...</p>
+                  <p className="text-center py-8 text-muted-foreground">{tr("common.loading")}</p>
                 ) : (
                   <div className="space-y-6">
                     {divisionRankings.map((ranking) => (
@@ -593,7 +595,7 @@ function Rankings() {
                       >
                         <div className="flex-1">
                           <p className="font-semibold text-lg">{ranking.divisionName}</p>
-                          <p className="text-sm text-muted-foreground">{ranking.teamCount} equipes</p>
+                          <p className="text-sm text-muted-foreground">{tr("rankings.teamsCountLabel", { count: ranking.teamCount })}</p>
                         </div>
 
                         <div className="text-right">
@@ -614,20 +616,20 @@ function Rankings() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Shield className="h-5 w-5 text-blue-500" />
-                  Ranking de Líderes (avaliações + quizzes)
+                  {tr("rankings.leadersTitle")}
                 </CardTitle>
                 <p className="text-xs text-muted-foreground">
-                  Pontos = (avaliações concluídas × {LEADER_EVAL_POINTS}) + XP em quizzes
+                  {tr("rankings.leadersFormula", { points: LEADER_EVAL_POINTS })}
                 </p>
               </CardHeader>
               <CardContent>
                 {loading ? (
-                  <p className="text-center py-8 text-muted-foreground">Carregando...</p>
+                  <p className="text-center py-8 text-muted-foreground">{tr("common.loading")}</p>
                 ) : (
                   <div className="space-y-6">
                     {leaderRankings.length === 0 && (
                       <p className="text-center py-8 text-muted-foreground">
-                        Nenhum líder encontrado (ou você não tem permissão para ler avaliações).
+                        {tr("rankings.leadersEmpty")}
                       </p>
                     )}
                     {leaderRankings.map((r) => (
@@ -640,12 +642,12 @@ function Rankings() {
                         <div className="flex-1">
                           <p className="font-semibold">{r.name}</p>
                           <p className="text-xs text-muted-foreground">
-                            Avaliações: {r.completed} • Quizzes: {r.quizXp.toLocaleString()} XP
+                            {tr("rankings.leadersStats", { completed: r.completed, quizXp: r.quizXp.toLocaleString() })}
                           </p>
                         </div>
                         <div className="text-right">
                           <p className="text-lg font-bold">{r.score.toLocaleString()}</p>
-                          <p className="text-xs text-muted-foreground">Pontos</p>
+                          <p className="text-xs text-muted-foreground">{tr("rankings.pointsLabel")}</p>
                         </div>
                       </div>
                     ))}

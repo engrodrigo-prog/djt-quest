@@ -2,7 +2,8 @@
   "common": {
     "appName": "DJT Quest",
     "loading": "Loading…",
-    "language": "Language"
+    "language": "Language",
+    "back": "Back"
   },
   "locale": {
     "pt-BR": "Portuguese",
@@ -153,5 +154,29 @@
     "forumPotentialSuffix": "(5 strong interactions x 100 XP). Join to get closer to the next level.",
     "openForumsTitle": "Open forums",
     "openForumsDescription": "Join the ongoing discussions"
+  },
+  "rankings": {
+    "title": "DJT Quest Rankings",
+    "subtitle": "Track individual, team and division performance",
+    "tabs": {
+      "overall": "Overall",
+      "myTeam": "My team",
+      "teams": "Teams",
+      "divisions": "Divisions",
+      "leaders": "Leaders"
+    },
+    "overallTitle": "Overall ranking",
+    "myTeamTitle": "My team ranking",
+    "myTeamEmpty": "No collaborators found in your team.",
+    "teamsTitle": "Team ranking (adherence %)",
+    "divisionsTitle": "Divisions (adherence monitoring %)",
+    "membersLabel": "{count} members",
+    "teamsCountLabel": "{count} teams",
+    "levelLabel": "Level {level}",
+    "leadersTitle": "Leader ranking (reviews + quizzes)",
+    "leadersFormula": "Points = (completed reviews × {points}) + quiz XP",
+    "leadersEmpty": "No leaders found (or you don't have permission to read reviews).",
+    "leadersStats": "Reviews: {completed} • Quizzes: {quizXp} XP",
+    "pointsLabel": "Points"
   }
 }

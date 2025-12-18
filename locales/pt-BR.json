@@ -2,7 +2,8 @@
   "common": {
     "appName": "DJT Quest",
     "loading": "Carregando…",
-    "language": "Idioma"
+    "language": "Idioma",
+    "back": "Voltar"
   },
   "locale": {
     "pt-BR": "Português",
@@ -153,5 +154,29 @@
     "forumPotentialSuffix": "(5 interações fortes x 100 XP). Participe para aproximar-se do próximo nível.",
     "openForumsTitle": "Fóruns abertos",
     "openForumsDescription": "Participe das discussões em andamento"
+  },
+  "rankings": {
+    "title": "Rankings DJT Quest",
+    "subtitle": "Acompanhe o desempenho individual, das equipes e divisões",
+    "tabs": {
+      "overall": "Geral",
+      "myTeam": "Minha equipe",
+      "teams": "Equipes",
+      "divisions": "Divisões",
+      "leaders": "Líderes"
+    },
+    "overallTitle": "Ranking geral",
+    "myTeamTitle": "Ranking da minha equipe",
+    "myTeamEmpty": "Nenhum colaborador encontrado na sua equipe.",
+    "teamsTitle": "Ranking de equipes (adesão %)",
+    "divisionsTitle": "Divisões (monitoramento de adesão %)",
+    "membersLabel": "{count} membros",
+    "teamsCountLabel": "{count} equipes",
+    "levelLabel": "Nível {level}",
+    "leadersTitle": "Ranking de líderes (avaliações + quizzes)",
+    "leadersFormula": "Pontos = (avaliações concluídas × {points}) + XP em quizzes",
+    "leadersEmpty": "Nenhum líder encontrado (ou você não tem permissão para ler avaliações).",
+    "leadersStats": "Avaliações: {completed} • Quizzes: {quizXp} XP",
+    "pointsLabel": "Pontos"
   }
 }
