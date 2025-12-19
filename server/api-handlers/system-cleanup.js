@@ -40,7 +40,7 @@ export default async function handler(req, res) {
       const { count: toDeleteCount } = await admin
         .from('pending_registrations')
         .select('id', { count: 'exact', head: true })
-        .in('status', statuses as any)
+        .in('status', statuses)
         .lt('created_at', cutoff);
 
       if (dryRun) {
@@ -50,7 +50,7 @@ export default async function handler(req, res) {
       const { error: delErr } = await admin
         .from('pending_registrations')
         .delete()
-        .in('status', statuses as any)
+        .in('status', statuses)
         .lt('created_at', cutoff);
       if (delErr) return res.status(400).json({ error: delErr.message });
 
@@ -114,12 +114,12 @@ export default async function handler(req, res) {
       if (rootErr) return res.status(400).json({ error: rootErr.message });
 
       const folders = (roots || [])
-        .filter((it) => it?.name && !(it as any)?.id) // folders usually have no id
+        .filter((it) => it?.name && !it?.id) // folders usually have no id
         .map((it) => String(it.name));
 
       // Also include any files directly under the prefix
       for (const it of roots || []) {
-        if ((it as any)?.id && it?.name) toRemove.push(`${prefix}/${it.name}`);
+        if (it?.id && it?.name) toRemove.push(`${prefix}/${it.name}`);
       }
 
       for (const folder of folders) {
@@ -129,7 +129,7 @@ export default async function handler(req, res) {
         if (listErr) continue;
         for (const f of files || []) {
           if (toRemove.length >= maxDelete) break;
-          if ((f as any)?.id && f?.name) toRemove.push(`${sub}/${f.name}`);
+          if (f?.id && f?.name) toRemove.push(`${sub}/${f.name}`);
         }
       }
 
@@ -156,4 +156,3 @@ export default async function handler(req, res) {
 }
 
 export const config = { api: { bodyParser: true } };
-
