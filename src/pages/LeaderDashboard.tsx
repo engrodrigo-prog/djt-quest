@@ -349,7 +349,7 @@ export default function LeaderDashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-background text-foreground pb-40 md:pb-20">
+    <div className="min-h-screen bg-background text-foreground pb-40">
       {/* Header */}
       <header className="sticky top-0 z-20 bg-[#0b2a34]/85 text-blue-50 border-b border-cyan-700/30 backdrop-blur">
         <div className="container mx-auto px-3 py-3 flex items-center justify-between">

@@ -1,10 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
+import { getSupabaseUrlFromEnv } from './supabase-url.js';
+import { DJT_QUEST_SUPABASE_HOST } from '../env-guard.js';
 
-const getSupabaseUrl = () =>
-  process.env.SUPABASE_URL ||
-  process.env.VITE_SUPABASE_URL ||
-  process.env.NEXT_PUBLIC_SUPABASE_URL ||
-  '';
+const getSupabaseUrl = () => getSupabaseUrlFromEnv(process.env, { expectedHostname: DJT_QUEST_SUPABASE_HOST, allowLocal: true });
 
 export function createSupabaseAdminClient() {
   const url = getSupabaseUrl();
@@ -30,4 +28,3 @@ export async function requireCallerUser(admin, req) {
   if (error || !data?.user) throw new Error('Unauthorized');
   return data.user;
 }
-

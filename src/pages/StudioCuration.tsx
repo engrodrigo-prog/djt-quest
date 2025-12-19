@@ -579,7 +579,7 @@ export default function StudioCuration() {
   }, [importRow]);
 
   return (
-    <div className="relative min-h-screen bg-transparent pb-40 md:pb-20 overflow-hidden">
+    <div className="relative min-h-screen bg-transparent pb-40 overflow-x-hidden">
       <ThemedBackground theme="seguranca" />
       <div className="container relative mx-auto p-4 md:p-8 max-w-7xl space-y-6">
         <div className="flex items-center justify-between gap-3 flex-wrap">

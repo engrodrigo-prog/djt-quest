@@ -119,7 +119,7 @@ const Studio = () => {
   };
 
   return (
-    <div className="relative min-h-screen bg-transparent pb-40 md:pb-20 overflow-hidden">
+    <div className="relative min-h-screen bg-transparent pb-40 overflow-x-hidden">
       <ThemedBackground theme="seguranca" />
       <div className="container relative mx-auto p-4 md:p-8 max-w-7xl space-y-6">
         {/* Se nenhum módulo for escolhido, mostra o dashboard. Caso contrário, mostra o módulo e um voltar. */}

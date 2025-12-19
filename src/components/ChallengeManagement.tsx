@@ -87,11 +87,25 @@ export const ChallengeManagement = ({ onlyQuizzes }: ChallengeManagementProps) =
           ? "Reabrir este desafio/quiz para um novo ciclo?"
           : "Encerrar este desafio/quiz? Ele deixará de aceitar novas ações/respostas.";
       if (!window.confirm(msg)) return;
-      const { error } = await supabase
-        .from("challenges")
-        .update({ status })
-        .eq("id", c.id);
-      if (error) throw error;
+      // Prefer server route (service_role bypasses quiz workflow locks); fallback to direct update.
+      try {
+        const { data: session } = await supabase.auth.getSession();
+        const token = session.session?.access_token;
+        if (!token) throw new Error("Não autenticado");
+        const resp = await fetch("/api/admin?handler=challenges-update-status", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ id: c.id, status }),
+        });
+        const json = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(json?.error || "Falha ao atualizar status");
+      } catch (e) {
+        const { error } = await supabase.from("challenges").update({ status }).eq("id", c.id);
+        if (error) throw error;
+      }
       await load();
     } catch (e: any) {
       alert(String(e?.message || "Erro ao atualizar desafio"));

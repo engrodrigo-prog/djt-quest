@@ -202,7 +202,12 @@ export function TtsProvider({ children }: { children: React.ReactNode }) {
 
         const json = await resp.json().catch(() => ({}));
         if (!resp.ok) throw new Error(json?.error || "TTS failed");
-        const url = String(json?.url || "").trim();
+        let url = String(json?.url || "").trim();
+        if (!url) {
+          const b64 = String(json?.audioBase64 || json?.audio_base64 || "").trim();
+          const mime = String(json?.mime || "audio/mpeg").trim() || "audio/mpeg";
+          if (b64) url = `data:${mime};base64,${b64}`;
+        }
         if (!url) throw new Error("TTS missing url");
 
         const audio = audioRef.current || new Audio();
@@ -292,4 +297,3 @@ export function useTts() {
   if (!ctx) throw new Error("useTts must be used within <TtsProvider />");
   return ctx;
 }
-

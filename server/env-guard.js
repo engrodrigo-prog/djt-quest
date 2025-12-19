@@ -1,3 +1,5 @@
+import { getSupabaseUrlFromEnv } from "./lib/supabase-url.js";
+
 export const DJT_QUEST_SUPABASE_PROJECT_REF = "eyuehdefoedxcunxiyvb";
 export const DJT_QUEST_SUPABASE_HOST = `${DJT_QUEST_SUPABASE_PROJECT_REF}.supabase.co`;
 
@@ -14,7 +16,12 @@ export const assertDjtQuestSupabaseUrl = (rawUrl, opts = {}) => {
   try {
     parsed = new URL(rawUrl);
   } catch {
-    throw new Error(`Invalid ${envName}: ${rawUrl}`);
+    // Accept values without protocol, e.g. "project-ref.supabase.co"
+    try {
+      parsed = new URL(`https://${String(rawUrl).trim()}`);
+    } catch {
+      throw new Error(`Invalid ${envName}: ${rawUrl}`);
+    }
   }
 
   const hostname = parsed.hostname;
@@ -29,19 +36,13 @@ export const assertDjtQuestSupabaseUrl = (rawUrl, opts = {}) => {
 export const assertDjtQuestServerEnv = (opts = {}) => {
   const { requireSupabaseUrl = false, allowLocal = true } = opts;
 
-  const candidates = [
-    { envName: "SUPABASE_URL", value: process.env.SUPABASE_URL },
-    { envName: "VITE_SUPABASE_URL", value: process.env.VITE_SUPABASE_URL },
-    { envName: "NEXT_PUBLIC_SUPABASE_URL", value: process.env.NEXT_PUBLIC_SUPABASE_URL },
-  ];
+  const resolved = getSupabaseUrlFromEnv(process.env, { expectedHostname: DJT_QUEST_SUPABASE_HOST, allowLocal });
 
-  if (requireSupabaseUrl && candidates.every((c) => !c.value)) {
+  if (requireSupabaseUrl && !resolved) {
     throw new Error("Missing SUPABASE_URL (ou VITE_SUPABASE_URL) no ambiente do backend.");
   }
 
-  for (const c of candidates) {
-    if (!c.value) continue;
-    assertDjtQuestSupabaseUrl(c.value, { allowLocal, envName: c.envName });
+  if (resolved) {
+    assertDjtQuestSupabaseUrl(resolved, { allowLocal, envName: "SUPABASE_URL" });
   }
 };
-

@@ -1,5 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
-const SUPABASE_URL = process.env.SUPABASE_URL;
+import { DJT_QUEST_SUPABASE_HOST } from '../env-guard.js';
+import { getSupabaseUrlFromEnv } from '../lib/supabase-url.js';
+const SUPABASE_URL = getSupabaseUrlFromEnv(process.env, { expectedHostname: DJT_QUEST_SUPABASE_HOST, allowLocal: true });
 const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY);
 export default async function handler(req, res) {
     if (req.method === 'OPTIONS')

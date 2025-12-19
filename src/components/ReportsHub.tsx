@@ -10,15 +10,42 @@ import { apiFetch } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { TipDialogButton } from '@/components/TipDialogButton';
 import { Switch } from '@/components/ui/switch';
+import { toast } from 'sonner';
+import { Badge } from '@/components/ui/badge';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from 'recharts';
+import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart';
 
 type Scope = 'team' | 'coord' | 'division' | 'all';
+type Chas = 'C' | 'H' | 'A' | 'S';
 
 type QuizRow = {
   challenge_id: string;
   title: string;
+  chas_dimension?: Chas;
+  quiz_specialties?: string[] | null;
   participants: number;
   attempts: number;
   avgScorePct: number | null;
+};
+
+type ThemeRow = {
+  chas: Chas;
+  label: string;
+  quizzes: number;
+  participants: number;
+  participationRate: number;
+  avgScorePct: number | null;
+};
+
+type UserRow = {
+  user_id: string;
+  name: string;
+  team_id: string | null;
+  is_leader: boolean;
+  completedQuizzes: number;
+  avgScorePct: number | null;
+  byChas: Record<Chas, { completedQuizzes: number; avgScorePct: number | null }>;
 };
 
 type QuizSummary = {
@@ -27,10 +54,13 @@ type QuizSummary = {
   scope: Scope;
   scopeId: string | null;
   includeLeaders: boolean;
+  includeGuests?: boolean;
   eligibleUsers: number;
   participants: number;
   participationRate: number;
   quizzes: QuizRow[];
+  themes?: ThemeRow[];
+  users?: UserRow[];
 };
 
 type AccessSummary = {
@@ -39,6 +69,7 @@ type AccessSummary = {
   scope: Scope;
   scopeId: string | null;
   includeLeaders: boolean;
+  includeGuests?: boolean;
   eligibleUsers: number;
   totalEvents: number;
   daily: Array<{ day: string; count: number }>;
@@ -90,12 +121,14 @@ export function ReportsHub() {
   const [scope, setScope] = useState<Scope>('team');
   const [scopeId, setScopeId] = useState<string>('');
   const [includeLeaders, setIncludeLeaders] = useState(false);
+  const [includeGuests, setIncludeGuests] = useState(false);
   const [from, setFrom] = useState<string>(monthStartIso());
   const [to, setTo] = useState<string>(todayIso());
 
   const [quizSummary, setQuizSummary] = useState<QuizSummary | null>(null);
   const [accessSummary, setAccessSummary] = useState<AccessSummary | null>(null);
   const [loading, setLoading] = useState(false);
+  const [userSearch, setUserSearch] = useState('');
 
   const canAll = userRole === 'admin' || String(userRole || '').includes('gerente') || String(userRole || '').includes('coordenador');
 
@@ -124,10 +157,15 @@ export function ReportsHub() {
       qs.set('scope', scope);
       if (scope !== 'all') qs.set('scopeId', scopeId);
       qs.set('includeLeaders', includeLeaders ? '1' : '0');
+      qs.set('includeGuests', includeGuests ? '1' : '0');
       const resp = await apiFetch(`/api/admin?handler=reports-quiz-summary&${qs.toString()}`, { cache: 'no-store' });
       const json = await resp.json().catch(() => ({}));
       if (!resp.ok) throw new Error(json?.error || 'Falha ao carregar relatório');
       setQuizSummary(json as QuizSummary);
+    } catch (e: any) {
+      console.error('ReportsHub: fetchQuizSummary failed', e);
+      toast.error(String(e?.message || 'Falha ao carregar relatório'));
+      setQuizSummary(null);
     } finally {
       setLoading(false);
     }
@@ -143,27 +181,56 @@ export function ReportsHub() {
       qs.set('scope', scope);
       if (scope !== 'all') qs.set('scopeId', scopeId);
       qs.set('includeLeaders', includeLeaders ? '1' : '0');
+      qs.set('includeGuests', includeGuests ? '1' : '0');
       const resp = await apiFetch(`/api/admin?handler=reports-access-summary&${qs.toString()}`, { cache: 'no-store' });
       const json = await resp.json().catch(() => ({}));
       if (!resp.ok) throw new Error(json?.error || 'Falha ao carregar acessos');
       setAccessSummary(json as AccessSummary);
+    } catch (e: any) {
+      console.error('ReportsHub: fetchAccessSummary failed', e);
+      toast.error(String(e?.message || 'Falha ao carregar acessos'));
+      setAccessSummary(null);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
+    if (tab === 'access') return;
     fetchQuizSummary();
-    // access: carrega só quando entrar na aba
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [from, to, scope, scopeId, includeLeaders]);
+  }, [tab, from, to, scope, scopeId, includeLeaders, includeGuests]);
 
   useEffect(() => {
-    if (tab === 'access') fetchAccessSummary();
+    if (tab !== 'access') return;
+    fetchAccessSummary();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab]);
+  }, [tab, from, to, scope, scopeId, includeLeaders, includeGuests]);
 
   const quizOptions = useMemo(() => quizSummary?.quizzes || [], [quizSummary?.quizzes]);
+  const themes = useMemo(() => (quizSummary?.themes || []) as ThemeRow[], [quizSummary?.themes]);
+  const themeChartData = useMemo(
+    () =>
+      themes.map((t) => ({
+        ...t,
+        avgScorePct: t.avgScorePct ?? 0,
+      })),
+    [themes],
+  );
+  const themeChartConfig = useMemo(
+    () => ({
+      participationRate: { label: 'Aderência (%)', color: 'hsl(var(--secondary))' },
+      avgScorePct: { label: 'Média acerto (%)', color: 'hsl(var(--accent))' },
+    }),
+    [],
+  );
+  const users = useMemo(() => (quizSummary?.users || []) as UserRow[], [quizSummary?.users]);
+  const filteredUsers = useMemo(() => {
+    const q = userSearch.trim().toLowerCase();
+    if (!q) return users;
+    return users.filter((u) => `${u.name || ''} ${u.team_id || ''}`.toLowerCase().includes(q));
+  }, [userSearch, users]);
+
   const [selectedQuizId, setSelectedQuizId] = useState<string>('');
   const [questionUsage, setQuestionUsage] = useState<QuestionUsage | null>(null);
   const [allQuizzes, setAllQuizzes] = useState<Array<{ id: string; title: string; quiz_workflow_status?: string | null }>>([]);
@@ -191,12 +258,17 @@ export function ReportsHub() {
       qs.set('scope', scope);
       if (scope !== 'all') qs.set('scopeId', scopeId);
       qs.set('includeLeaders', includeLeaders ? '1' : '0');
+      qs.set('includeGuests', includeGuests ? '1' : '0');
       if (from) qs.set('from', from);
       if (to) qs.set('to', to);
       const resp = await apiFetch(`/api/admin?handler=reports-question-usage&${qs.toString()}`, { cache: 'no-store' });
       const json = await resp.json().catch(() => ({}));
       if (!resp.ok) throw new Error(json?.error || 'Falha ao carregar perguntas');
       setQuestionUsage(json as QuestionUsage);
+    } catch (e: any) {
+      console.error('ReportsHub: loadQuestionUsage failed', e);
+      toast.error(String(e?.message || 'Falha ao carregar perguntas'));
+      setQuestionUsage(null);
     } finally {
       setLoading(false);
     }
@@ -255,11 +327,19 @@ export function ReportsHub() {
             </div>
           </div>
           <div className="space-y-2 md:col-span-4">
-            <div className="flex items-center gap-2">
-              <Switch id="include-leaders" checked={includeLeaders} onCheckedChange={setIncludeLeaders} />
-              <Label htmlFor="include-leaders" className="text-sm text-muted-foreground">
-                Incluir líderes nos cálculos (por padrão, exclui)
-              </Label>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-6">
+              <div className="flex items-center gap-2">
+                <Switch id="include-leaders" checked={includeLeaders} onCheckedChange={setIncludeLeaders} />
+                <Label htmlFor="include-leaders" className="text-sm text-muted-foreground">
+                  Incluir líderes nos cálculos (por padrão, exclui)
+                </Label>
+              </div>
+              <div className="flex items-center gap-2">
+                <Switch id="include-guests" checked={includeGuests} onCheckedChange={setIncludeGuests} />
+                <Label htmlFor="include-guests" className="text-sm text-muted-foreground">
+                  Incluir convidados (CONVIDADOS/EXTERNO)
+                </Label>
+              </div>
             </div>
           </div>
         </CardContent>
@@ -307,6 +387,8 @@ export function ReportsHub() {
                   const rows = (quizSummary?.quizzes || []).map((q) => ({
                     quiz_id: q.challenge_id,
                     quiz: q.title,
+                    chas: q.chas_dimension || '',
+                    especialidades: Array.isArray(q.quiz_specialties) ? q.quiz_specialties.join(' | ') : '',
                     participantes: q.participants,
                     tentativas: q.attempts,
                     media_pct: q.avgScorePct ?? '',
@@ -326,6 +408,7 @@ export function ReportsHub() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Quiz</TableHead>
+                      <TableHead>CHAS</TableHead>
                       <TableHead className="text-right">Participantes</TableHead>
                       <TableHead className="text-right">Média (%)</TableHead>
                     </TableRow>
@@ -334,12 +417,188 @@ export function ReportsHub() {
                     {quizSummary.quizzes.map((q) => (
                       <TableRow key={q.challenge_id}>
                         <TableCell className="font-medium">{q.title}</TableCell>
+                        <TableCell>
+                          {q.chas_dimension ? (
+                            <Badge variant="outline" className="text-[10px]">
+                              {q.chas_dimension}
+                            </Badge>
+                          ) : (
+                            '—'
+                          )}
+                        </TableCell>
                         <TableCell className="text-right">{q.participants}</TableCell>
                         <TableCell className="text-right">{q.avgScorePct == null ? '—' : `${q.avgScorePct}%`}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
                 </Table>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+              <div>
+                <CardTitle>Aderência por tema (CHAS)</CardTitle>
+                <CardDescription>Participação (%) e média de acerto por dimensão</CardDescription>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  const rows = themes.map((t) => ({
+                    chas: t.chas,
+                    tema: t.label,
+                    quizzes: t.quizzes,
+                    participantes: t.participants,
+                    aderencia_pct: t.participationRate,
+                    media_pct: t.avgScorePct ?? '',
+                  }));
+                  if (rows.length) downloadCsv(`relatorio-chas-${from}-a-${to}.csv`, rows);
+                }}
+                disabled={!themes.length}
+              >
+                Exportar CSV
+              </Button>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {!themes.length ? (
+                <p className="text-sm text-muted-foreground">Sem dados no período.</p>
+              ) : (
+                <>
+                  <ChartContainer config={themeChartConfig} className="aspect-auto h-[260px] w-full">
+                    <BarChart data={themeChartData} margin={{ left: 8, right: 8 }}>
+                      <CartesianGrid vertical={false} />
+                      <XAxis dataKey="chas" tickLine={false} axisLine={false} />
+                      <YAxis domain={[0, 100]} tickLine={false} axisLine={false} width={30} />
+                      <ChartTooltip content={<ChartTooltipContent />} />
+                      <ChartLegend content={<ChartLegendContent />} />
+                      <Bar dataKey="participationRate" fill="var(--color-participationRate)" radius={4} />
+                      <Bar dataKey="avgScorePct" fill="var(--color-avgScorePct)" radius={4} />
+                    </BarChart>
+                  </ChartContainer>
+
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Tema</TableHead>
+                        <TableHead className="text-right">Quizzes</TableHead>
+                        <TableHead className="text-right">Participantes</TableHead>
+                        <TableHead className="text-right">Aderência (%)</TableHead>
+                        <TableHead className="text-right">Média (%)</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {themes.map((t) => (
+                        <TableRow key={t.chas}>
+                          <TableCell className="font-medium">{t.label}</TableCell>
+                          <TableCell className="text-right">{t.quizzes}</TableCell>
+                          <TableCell className="text-right">{t.participants}</TableCell>
+                          <TableCell className="text-right">{t.participationRate}%</TableCell>
+                          <TableCell className="text-right">{t.avgScorePct == null ? '—' : `${t.avgScorePct}%`}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+              <div>
+                <CardTitle>Notas por pessoa</CardTitle>
+                <CardDescription>Quizzes concluídos e média de acerto no período</CardDescription>
+              </div>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <Input
+                  value={userSearch}
+                  onChange={(e) => setUserSearch(e.target.value)}
+                  placeholder="Buscar pessoa/equipe..."
+                  className="w-full sm:w-64"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    const rows = filteredUsers.map((u) => ({
+                      user_id: u.user_id,
+                      nome: u.name,
+                      equipe: u.team_id ?? '',
+                      lider: u.is_leader ? '1' : '0',
+                      quizzes_concluidos: u.completedQuizzes,
+                      media_pct: u.avgScorePct ?? '',
+                      C_quizzes: u.byChas?.C?.completedQuizzes ?? 0,
+                      C_media_pct: u.byChas?.C?.avgScorePct ?? '',
+                      H_quizzes: u.byChas?.H?.completedQuizzes ?? 0,
+                      H_media_pct: u.byChas?.H?.avgScorePct ?? '',
+                      A_quizzes: u.byChas?.A?.completedQuizzes ?? 0,
+                      A_media_pct: u.byChas?.A?.avgScorePct ?? '',
+                      S_quizzes: u.byChas?.S?.completedQuizzes ?? 0,
+                      S_media_pct: u.byChas?.S?.avgScorePct ?? '',
+                    }));
+                    if (rows.length) downloadCsv(`relatorio-notas-${from}-a-${to}.csv`, rows);
+                  }}
+                  disabled={!filteredUsers.length}
+                >
+                  Exportar CSV
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {!users.length ? (
+                <p className="text-sm text-muted-foreground">Sem dados no período.</p>
+              ) : (
+                <ScrollArea className="h-[460px] rounded-md border">
+                  <div className="min-w-[860px]">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Pessoa</TableHead>
+                          <TableHead>Equipe</TableHead>
+                          <TableHead className="text-right">Concluídos</TableHead>
+                          <TableHead className="text-right">Média (%)</TableHead>
+                          <TableHead>CHAS</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {filteredUsers.map((u) => (
+                          <TableRow key={u.user_id}>
+                            <TableCell className="font-medium">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <span className="truncate">{u.name || u.user_id}</span>
+                                {u.is_leader && (
+                                  <Badge variant="secondary" className="text-[10px]">
+                                    Líder
+                                  </Badge>
+                                )}
+                              </div>
+                            </TableCell>
+                            <TableCell>{u.team_id ?? '—'}</TableCell>
+                            <TableCell className="text-right">{u.completedQuizzes}</TableCell>
+                            <TableCell className="text-right">{u.avgScorePct == null ? '—' : `${u.avgScorePct}%`}</TableCell>
+                            <TableCell>
+                              <div className="flex flex-wrap gap-1">
+                                {(['C', 'H', 'A', 'S'] as const).map((c) => {
+                                  const stat = u.byChas?.[c];
+                                  const n = stat?.completedQuizzes ?? 0;
+                                  const pct = stat?.avgScorePct;
+                                  const label = pct == null ? `${c}:${n}` : `${c}:${n} • ${pct}%`;
+                                  return (
+                                    <Badge key={c} variant="outline" className="text-[10px]">
+                                      {label}
+                                    </Badge>
+                                  );
+                                })}
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </ScrollArea>
               )}
             </CardContent>
           </Card>

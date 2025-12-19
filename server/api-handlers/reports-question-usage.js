@@ -4,6 +4,7 @@ import { rolesToSet } from '../lib/rbac.js';
 const STAFF_ROLES = new Set(['admin', 'gerente_djt', 'gerente_divisao_djtx', 'coordenador_djtx']);
 const toIsoStart = (d) => new Date(`${d}T00:00:00.000Z`).toISOString();
 const toIsoEnd = (d) => new Date(`${d}T23:59:59.999Z`).toISOString();
+const GUEST_TEAM_ID = 'CONVIDADOS';
 
 function getDateParam(req, key) {
   const v = req.query?.[key];
@@ -50,6 +51,7 @@ export default async function handler(req, res) {
     const from = getDateParam(req, 'from');
     const to = getDateParam(req, 'to');
     const includeLeaders = getStrParam(req, 'includeLeaders') === '1';
+    const includeGuests = getStrParam(req, 'includeGuests') === '1';
 
     const scope = getStrParam(req, 'scope') || 'team';
     const scopeId = getStrParam(req, 'scopeId');
@@ -82,14 +84,21 @@ export default async function handler(req, res) {
       .order('order_index', { ascending: true });
     if (qErr) return res.status(400).json({ error: qErr.message });
 
-    let usersQuery = admin.from('profiles').select('id');
-    if (!includeLeaders) usersQuery = usersQuery.eq('is_leader', false);
+    let usersQuery = admin.from('profiles').select('id, team_id, is_leader');
     if (normalizedScope === 'team') usersQuery = usersQuery.eq('team_id', effectiveScopeId);
     if (normalizedScope === 'coord') usersQuery = usersQuery.eq('coord_id', effectiveScopeId);
     if (normalizedScope === 'division') usersQuery = usersQuery.eq('division_id', effectiveScopeId);
-    const { data: users, error: usersErr } = await usersQuery;
+    usersQuery = usersQuery.range(0, 9999);
+    const { data: usersRaw, error: usersErr } = await usersQuery;
     if (usersErr) return res.status(400).json({ error: usersErr.message });
-    const userIds = (users || []).map((u) => u.id);
+    const userIds = (usersRaw || [])
+      .filter((u) => (includeLeaders ? true : Boolean(u?.is_leader) !== true))
+      .filter((u) => {
+        if (includeGuests) return true;
+        const team = String(u?.team_id || '').trim().toUpperCase();
+        return team !== GUEST_TEAM_ID;
+      })
+      .map((u) => u.id);
 
     const counts = new Map();
     const fromIso = from ? toIsoStart(from) : null;
@@ -143,6 +152,7 @@ export default async function handler(req, res) {
       scope: normalizedScope,
       scopeId: effectiveScopeId || null,
       includeLeaders,
+      includeGuests,
       totalQuestions,
       usedQuestions,
       unusedQuestions: totalQuestions - usedQuestions,
@@ -154,4 +164,3 @@ export default async function handler(req, res) {
 }
 
 export const config = { api: { bodyParser: false } };
-

@@ -2,13 +2,20 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { createClient } from "@supabase/supabase-js";
 import crypto from "node:crypto";
 
-import { assertDjtQuestServerEnv } from "../server/env-guard.js";
+import { assertDjtQuestServerEnv, DJT_QUEST_SUPABASE_HOST } from "../server/env-guard.js";
+import { getSupabaseUrlFromEnv } from "../server/lib/supabase-url.js";
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
 const OPENAI_TTS_MODEL = process.env.OPENAI_TTS_MODEL || "";
 
-const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+const SUPABASE_URL = getSupabaseUrlFromEnv(process.env, { expectedHostname: DJT_QUEST_SUPABASE_HOST, allowLocal: true });
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+const SUPABASE_PUBLIC_KEY =
+  process.env.SUPABASE_ANON_KEY ||
+  process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+  process.env.VITE_SUPABASE_ANON_KEY ||
+  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY ||
+  "";
 
 const BUCKET = "tts-cache";
 const SIGNED_URL_TTL_SECONDS = 60 * 60; // 1h
@@ -74,18 +81,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     if (!OPENAI_API_KEY) return res.status(500).json({ error: "Missing OPENAI_API_KEY" });
-    if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-      return res.status(500).json({ error: "Missing Supabase server configuration" });
+    if (!SUPABASE_URL || (!SUPABASE_SERVICE_ROLE_KEY && !SUPABASE_PUBLIC_KEY)) {
+      return res.status(500).json({ error: "Missing Supabase configuration (SUPABASE_URL + key)" });
     }
 
-    const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+    const supabaseAuth = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY || SUPABASE_PUBLIC_KEY, {
       auth: { autoRefreshToken: false, persistSession: false },
     });
 
     const authHeader = (req.headers["authorization"] as string | undefined) || "";
     const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : undefined;
     if (!token) return res.status(401).json({ error: "Unauthorized" });
-    const { data: me, error: meErr } = await supabaseAdmin.auth.getUser(token);
+    const { data: me, error: meErr } = await supabaseAuth.auth.getUser(token);
     if (meErr || !me?.user) return res.status(401).json({ error: "Unauthorized" });
 
     const { text, locale, voiceGender, rate } = (req.body || {}) as any;
@@ -100,13 +107,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const cacheKey = hashFor(JSON.stringify({ input, locale: safeLocale, voice, speed, v: 1 }));
     const objectPath = `tts/${cacheKey}.mp3`;
 
-    await ensureBucket(supabaseAdmin);
+    const canCache = Boolean(SUPABASE_SERVICE_ROLE_KEY);
+    const supabaseAdmin = canCache
+      ? createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { auth: { autoRefreshToken: false, persistSession: false } })
+      : null;
 
-    // Cache hit: return a signed URL
-    {
-      const { data: signed, error } = await supabaseAdmin.storage.from(BUCKET).createSignedUrl(objectPath, SIGNED_URL_TTL_SECONDS);
-      if (!error && signed?.signedUrl) {
-        return res.status(200).json({ url: signed.signedUrl, cache: "hit" });
+    if (supabaseAdmin) {
+      await ensureBucket(supabaseAdmin);
+
+      // Cache hit: return a signed URL
+      {
+        const { data: signed, error } = await supabaseAdmin.storage.from(BUCKET).createSignedUrl(objectPath, SIGNED_URL_TTL_SECONDS);
+        if (!error && signed?.signedUrl) {
+          return res.status(200).json({ url: signed.signedUrl, cache: "hit" });
+        }
       }
     }
 
@@ -125,19 +139,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(500).json({ error: lastError?.message || "TTS failed" });
     }
 
-    const { error: upErr } = await supabaseAdmin.storage
-      .from(BUCKET)
-      .upload(objectPath, bytes, { contentType: "audio/mpeg", upsert: true });
-    if (upErr) return res.status(500).json({ error: upErr.message || "Could not cache audio" });
-
-    const { data: signed2, error: signErr2 } = await supabaseAdmin.storage
-      .from(BUCKET)
-      .createSignedUrl(objectPath, SIGNED_URL_TTL_SECONDS);
-    if (signErr2 || !signed2?.signedUrl) {
-      return res.status(500).json({ error: signErr2?.message || "Could not sign audio" });
+    if (!supabaseAdmin) {
+      return res.status(200).json({ audioBase64: bytes.toString("base64"), mime: "audio/mpeg", cache: "none" });
     }
 
-    return res.status(200).json({ url: signed2.signedUrl, cache: "miss" });
+    try {
+      const { error: upErr } = await supabaseAdmin.storage
+        .from(BUCKET)
+        .upload(objectPath, bytes, { contentType: "audio/mpeg", upsert: true });
+      if (!upErr) {
+        const { data: signed2, error: signErr2 } = await supabaseAdmin.storage
+          .from(BUCKET)
+          .createSignedUrl(objectPath, SIGNED_URL_TTL_SECONDS);
+        if (!signErr2 && signed2?.signedUrl) {
+          return res.status(200).json({ url: signed2.signedUrl, cache: "miss" });
+        }
+      }
+    } catch {
+      /* fall back below */
+    }
+
+    // Fallback if caching/signing fails
+    return res.status(200).json({ audioBase64: bytes.toString("base64"), mime: "audio/mpeg", cache: "none" });
   } catch (e: any) {
     return res.status(500).json({ error: e?.message || "Unknown error in /api/tts" });
   }
@@ -148,4 +171,3 @@ export const config = {
     bodyParser: { sizeLimit: "1mb" },
   },
 };
-

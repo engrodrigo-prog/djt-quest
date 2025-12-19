@@ -454,7 +454,7 @@ const Dashboard = () => {
   }
 
   return (
-    <div className="relative min-h-screen bg-background pb-40 md:pb-20 overflow-hidden">
+    <div className="relative min-h-screen bg-background pb-40 overflow-x-hidden">
       <ThemedBackground theme="habilidades" />
       {/* Header */}
       <header className="sticky top-0 z-20 bg-[#0b2a34]/85 text-blue-50 border-b border-cyan-700/30">

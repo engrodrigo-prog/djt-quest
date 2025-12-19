@@ -2,6 +2,8 @@
 import fs from 'fs';
 import path from 'path';
 import { createClient } from '@supabase/supabase-js';
+import { getSupabaseUrlFromEnv } from '../lib/supabase-url.js';
+import { DJT_QUEST_SUPABASE_HOST } from '../env-guard.js';
 // Lightweight .env loader for local dev (avoids dependency on dotenv)
 try {
     const envPath = path.join(process.cwd(), '.env');
@@ -16,7 +18,7 @@ try {
     }
 }
 catch { }
-const SUPABASE_URL = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL);
+const SUPABASE_URL = getSupabaseUrlFromEnv(process.env, { expectedHostname: DJT_QUEST_SUPABASE_HOST, allowLocal: true });
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const PUBLIC_KEY = (process.env.SUPABASE_ANON_KEY ||
     process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
