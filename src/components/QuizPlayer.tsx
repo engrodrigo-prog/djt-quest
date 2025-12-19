@@ -256,9 +256,9 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
       setHelpUsedThisQuestion(false);
       setPostWrongHelp(null);
       postWrongHelpKeyRef.current = null;
-      stopSpeech();
+      stopTts();
     }
-  }, [currentQuestionIndex, loadOptions, questions, stopSpeech]);
+  }, [currentQuestionIndex, loadOptions, questions, stopTts]);
 
   const isMilhao =
     questions.length === 10 &&
