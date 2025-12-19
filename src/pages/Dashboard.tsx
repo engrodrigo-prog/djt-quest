@@ -36,6 +36,7 @@ interface Challenge {
   reward_tier_steps?: number | null;
   require_two_leader_eval: boolean;
    campaign_id?: string | null;
+  status?: string | null;
   created_at?: string;
 }
 
@@ -287,6 +288,25 @@ const Dashboard = () => {
     });
   };
 
+  const isChallengeOpen = (ch: Challenge) => {
+    const status = String(ch?.status || 'active').toLowerCase();
+    return !['closed', 'canceled', 'cancelled'].includes(status);
+  };
+
+  const isChallengeVigente = (ch: Challenge) => {
+    if (!ch.campaign_id) return true;
+    const camp = campaigns.find((c) => c.id === ch.campaign_id);
+    if (!camp || !camp.end_date) return true;
+    try {
+      const end = new Date(camp.end_date);
+      // Considera vigente até o fim do dia de término
+      end.setHours(23, 59, 59, 999);
+      return end >= new Date();
+    } catch {
+      return true;
+    }
+  };
+
   // Map latest status per challenge (events already sorted desc)
   const latestStatusByChallenge = useMemo(() => {
     const map = new Map<string, string>();
@@ -316,31 +336,15 @@ const Dashboard = () => {
   }, [completedNonQuizIds, completedQuizIds]);
 
   const filteredChallenges = useMemo(() => {
-    const now = new Date();
-
-    const isVigente = (ch: Challenge): boolean => {
-      if (!ch.campaign_id) return true;
-      const camp = campaigns.find((c) => c.id === ch.campaign_id);
-      if (!camp || !camp.end_date) return true;
-      try {
-        const end = new Date(camp.end_date);
-        // Considera vigente até o fim do dia de término
-        end.setHours(23, 59, 59, 999);
-        return end >= now;
-      } catch {
-        return true;
-      }
-    };
-
     let base: Challenge[] = [];
     if (challengeTab === 'vigentes') {
       // Mostrar apenas desafios ainda não concluídos e dentro da janela de campanha (quando houver)
-      base = allChallenges.filter((ch) => !completedChallengeIds.has(ch.id) && isVigente(ch));
+      base = allChallenges.filter((ch) => !completedChallengeIds.has(ch.id) && isChallengeOpen(ch) && isChallengeVigente(ch));
     } else {
       // Histórico: desafios concluídos OU cuja campanha já terminou
       const seen = new Set<string>();
       base = allChallenges.filter((c) => {
-        const expired = !isVigente(c);
+        const expired = !isChallengeOpen(c) || !isChallengeVigente(c);
         const completed = completedChallengeIds.has(c.id);
         if (!(expired || completed)) return false;
         if (seen.has(c.id)) return false;
@@ -386,6 +390,18 @@ const Dashboard = () => {
       return total >= 10;
     }) || null;
   }, [allChallenges, quizQuestionCounts]);
+
+  const activeQuizzes = useMemo(() => {
+    const list = (allChallenges || []).filter((ch) => {
+      const isQuiz = (ch.type || '').toLowerCase() === 'quiz';
+      if (!isQuiz) return false;
+      if (!isChallengeOpen(ch)) return false;
+      if (!isChallengeVigente(ch)) return false;
+      return true;
+    });
+    if (!featuredMilhao) return list;
+    return list.filter((q) => q.id !== featuredMilhao.id);
+  }, [allChallenges, campaigns, featuredMilhao]);
 
   const handleDeleteChallenge = async (challenge: Challenge) => {
     if (!user) return;
@@ -699,6 +715,62 @@ const Dashboard = () => {
             </Card>
           </section>
         )}
+
+        {activeQuizzes.length > 0 && (
+          <section>
+            <div className="flex items-center gap-2 mb-3 text-foreground">
+              <Zap className="h-5 w-5 text-blue-300" />
+              <h2 className="text-2xl font-semibold leading-tight">Quizzes vigentes</h2>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {activeQuizzes.map((quiz) => {
+                const completed = completedChallengeIds.has(quiz.id);
+                const totalQuestions = quizQuestionCounts[quiz.id] || 0;
+                return (
+                  <Card key={quiz.id} className="hover:shadow-lg transition-shadow">
+                    <CardHeader className="pb-3">
+                      <div className="flex items-center justify-between mb-2 gap-2">
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline" className="text-[10px]">Quiz</Badge>
+                          <Badge className="text-[10px]" variant="secondary">{typeDomain(quiz.type)}</Badge>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {completed && (
+                            <Badge variant="secondary" className="text-[10px]">
+                              {tr("dashboard.quizCompleted")}
+                            </Badge>
+                          )}
+                          <span className="text-xs font-semibold text-accent">
+                            {quiz.reward_mode === 'tier_steps'
+                              ? `+${quiz.reward_tier_steps || 1} patamar(es)`
+                              : `+${quiz.xp_reward} XP`}
+                          </span>
+                        </div>
+                      </div>
+                      <CardTitle className="text-base leading-tight">{quiz.title}</CardTitle>
+                      <CardDescription className="text-xs line-clamp-2">{quiz.description}</CardDescription>
+                    </CardHeader>
+                    <CardContent className="pt-0">
+                      {totalQuestions > 0 && (
+                        <p className="text-[10px] text-muted-foreground mb-2">
+                          {totalQuestions} perguntas
+                        </p>
+                      )}
+                      <Button
+                        className="w-full h-9 text-sm"
+                        variant="game"
+                        onClick={() => navigate(`/challenge/${quiz.id}`)}
+                      >
+                        {completed ? tr("dashboard.quizViewAgain") : tr("dashboard.quizStartNow")}
+                      </Button>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
         <section>
           <div className="flex items-center gap-2 mb-3 text-foreground">
             <Target className="h-5 w-5 text-primary" />
