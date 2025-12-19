@@ -42,6 +42,8 @@ interface AnswerResult {
   isCompleted: boolean;
   endedReason?: "completed" | "wrong";
   totalXpEarned?: number;
+  bestScoreBefore?: number;
+  bestScoreAfter?: number;
   xpBlockedForLeader?: boolean;
   xpApplied?: boolean;
   profileXpAfter?: number | null;
@@ -369,8 +371,26 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
 
       if (result.isCorrect) {
         playSfx("correct");
-        const xpMsg = result.xpBlockedForLeader ? 'Resposta correta registrada' : `Correto! +${result.xpEarned} XP`;
-        toast.success(xpMsg);
+        const bestBefore = typeof result.bestScoreBefore === "number" ? result.bestScoreBefore : null;
+        const bestAfter = typeof result.bestScoreAfter === "number" ? result.bestScoreAfter : null;
+
+        if (result.xpBlockedForLeader) {
+          toast.success("Resposta correta registrada");
+        } else if (isMilhao) {
+          if (result.xpEarned > 0) {
+            toast.success(`Correto! +${result.xpEarned} XP`);
+            if (bestBefore != null && bestAfter != null && bestAfter > bestBefore) {
+              toast.message("Novo recorde no Milhão!", { description: `${bestAfter} XP acumulado.` });
+            }
+          } else {
+            toast.success("Correto!");
+            if (bestAfter != null) {
+              toast.message("Sem XP extra (recorde já maior)", { description: `Seu recorde atual é ${bestAfter} XP.` });
+            }
+          }
+        } else {
+          toast.success(`Correto! +${result.xpEarned} XP`);
+        }
         if (result.xpBlockedForLeader) {
           toast.info('Líderes não acumulam XP nos quizzes.');
         }
@@ -383,7 +403,13 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
       } else {
         playSfx("wrong");
         if (isMilhao && result.isCompleted && result.endedReason === "wrong") {
-          toast.error(`Resposta incorreta. Fim de jogo! Total: ${result.totalXpEarned ?? 0} XP`);
+          const total = Number(result.totalXpEarned ?? 0) || 0;
+          const bestAfter = typeof result.bestScoreAfter === "number" ? result.bestScoreAfter : null;
+          if (bestAfter != null && bestAfter > total) {
+            toast.error(`Resposta incorreta. Fim de jogo! Total: ${total} XP (recorde: ${bestAfter} XP)`);
+          } else {
+            toast.error(`Resposta incorreta. Fim de jogo! Total: ${total} XP`);
+          }
         } else {
           toast.error("Resposta incorreta");
         }

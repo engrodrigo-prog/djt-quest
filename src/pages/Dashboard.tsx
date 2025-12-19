@@ -380,14 +380,12 @@ const Dashboard = () => {
       if (!c) return false;
       if ((c.type || '').toLowerCase() !== 'quiz') return false;
       if (!isMilhao(String(c.title || ''))) return false;
-      // Não mostrar na home depois que a tentativa já foi finalizada (fica disponível no Perfil > Histórico de Quizzes)
-      if (completedChallengeIds.has(c.id)) return false;
       if ((c.reward_mode || '') !== 'tier_steps' && (c.xp_reward || 0) <= 0) return false;
       // Evita mostrar tentativas antigas que falharam e ficaram sem perguntas
       const total = quizQuestionCounts[c.id] || 0;
       return total >= 10;
     }) || null;
-  }, [allChallenges, quizQuestionCounts, completedChallengeIds]);
+  }, [allChallenges, quizQuestionCounts]);
 
   const handleDeleteChallenge = async (challenge: Challenge) => {
     if (!user) return;

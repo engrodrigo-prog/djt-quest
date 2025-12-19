@@ -43,6 +43,11 @@ export default async function handler(req, res) {
 
     const body = req.body || {};
     const requestedChallengeIds = Array.isArray(body.challenge_ids) ? body.challenge_ids.map((x) => String(x).trim()).filter(Boolean) : [];
+    const requestedMode = String(body.mode || '').trim().toLowerCase();
+    const bestOfMode = ['best', 'best_of', 'best-of', 'milhao_best', 'milhao-best'].includes(requestedMode);
+    const keepBestScoreFlag = Boolean(body?.keep_best_score);
+    const skipXpRevert = Boolean(body?.skip_xp_revert) || bestOfMode || keepBestScoreFlag;
+    const keepBestScore = keepBestScoreFlag || skipXpRevert;
 
     let targetUserId = (body.user_id ? String(body.user_id) : '').trim() || null;
     if (!targetUserId && body.matricula) {
@@ -74,7 +79,21 @@ export default async function handler(req, res) {
         .eq('challenge_id', challengeId);
       const xpSum = (answers || []).reduce((acc, r) => acc + (Number(r?.xp_earned) || 0), 0);
 
-      if (xpSum && !Boolean((req.body || {})?.skip_xp_revert)) {
+      let bestScoreBefore = 0;
+      try {
+        const { data: attempt } = await admin
+          .from('quiz_attempts')
+          .select('score')
+          .eq('user_id', targetUserId)
+          .eq('challenge_id', challengeId)
+          .maybeSingle();
+        bestScoreBefore = Math.max(0, Math.floor(Number(attempt?.score ?? 0) || 0));
+      } catch {
+        bestScoreBefore = 0;
+      }
+      const bestScoreKept = keepBestScore ? Math.max(bestScoreBefore, Math.floor(xpSum)) : 0;
+
+      if (xpSum && !skipXpRevert) {
         try {
           const { error: xpErr } = await admin.rpc('increment_user_xp', { _user_id: targetUserId, _xp_to_add: -xpSum });
           if (xpErr) throw xpErr;
@@ -109,7 +128,7 @@ export default async function handler(req, res) {
         challenge_id: challengeId,
         started_at: asIso(),
         submitted_at: null,
-        score: 0,
+        score: bestScoreKept,
         max_score: 0,
         help_used: false,
         reward_total_xp_target: null,
@@ -122,7 +141,7 @@ export default async function handler(req, res) {
             challenge_id: challengeId,
             started_at: asIso(),
             submitted_at: null,
-            score: 0,
+            score: bestScoreKept,
             max_score: 0,
           },
           { onConflict: 'user_id,challenge_id' },
@@ -130,7 +149,7 @@ export default async function handler(req, res) {
         if (upErr2) return res.status(400).json({ error: upErr2.message, stage: 'reset_attempt', challenge_id: challengeId });
       }
 
-      results.push({ challenge_id: challengeId, xp_reverted: xpSum });
+      results.push({ challenge_id: challengeId, xp_reverted: skipXpRevert ? 0 : xpSum, best_score_kept: keepBestScore ? bestScoreKept : null });
     }
 
     return res.status(200).json({ success: true, user_id: targetUserId, reopened: results, warnings });

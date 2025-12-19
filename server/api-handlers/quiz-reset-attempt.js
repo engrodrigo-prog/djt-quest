@@ -15,9 +15,10 @@ export default async function handler(req, res) {
     const admin = createSupabaseAdminClient();
     const caller = await requireCallerUser(admin, req);
 
-    const { challengeId } = req.body || {};
+    const { challengeId, mode } = req.body || {};
     const id = String(challengeId || '').trim();
     if (!id) return res.status(400).json({ error: 'challengeId required' });
+    const requestedMode = String(mode || '').trim().toLowerCase();
 
     const { data: challenge, error: chErr } = await admin
       .from('challenges')
@@ -29,6 +30,7 @@ export default async function handler(req, res) {
     if (String(challenge.type || '') !== 'quiz') return res.status(400).json({ error: 'Not a quiz' });
 
     const isMilhao = isMilhaoTitle(challenge.title);
+    const bestOfMode = isMilhao && ['best', 'best_of', 'best-of', 'milhao_best', 'milhao-best'].includes(requestedMode);
 
     const warnings = [];
 
@@ -97,7 +99,7 @@ export default async function handler(req, res) {
       xpToRevert = Math.max(xpToRevert, Math.floor(rewardXp));
     }
 
-    const safeRevert = Math.max(0, Math.min(Math.floor(currentXp), Math.floor(xpToRevert)));
+    const safeRevert = bestOfMode ? 0 : Math.max(0, Math.min(Math.floor(currentXp), Math.floor(xpToRevert)));
 
     // Revert XP (best-effort)
     if (safeRevert > 0) {
@@ -139,12 +141,14 @@ export default async function handler(req, res) {
     if (delErr) return res.status(400).json({ error: delErr.message, stage: 'delete_answers' });
 
     // Reset attempt (best-effort; optional columns may not exist)
+    // Best-of mode (Quiz do Milhão): keep the best score to prevent XP farming and allow retries without losing points.
+    const bestScoreToKeep = bestOfMode ? Math.max(attemptScoreOk ? Math.floor(attemptScore) : 0, Math.floor(xpSum)) : 0;
     const attemptBase = {
       user_id: caller.id,
       challenge_id: id,
       started_at: asIso(),
       submitted_at: null,
-      score: 0,
+      score: bestScoreToKeep,
       max_score: 0,
       help_used: false,
       reward_total_xp_target: null,
@@ -178,15 +182,17 @@ export default async function handler(req, res) {
       action: 'quiz.reset_attempt',
       entity_type: 'quiz',
       entity_id: id,
-      before_json: { xp_sum_answers: xpSum, attempt_score: attemptScoreOk ? attemptScore : null },
-      after_json: { xp_reverted: safeRevert, reset_at: asIso() },
+      before_json: { xp_sum_answers: xpSum, attempt_score: attemptScoreOk ? attemptScore : null, mode: requestedMode || null },
+      after_json: { xp_reverted: safeRevert, best_score_kept: bestOfMode ? bestScoreToKeep : null, reset_at: asIso() },
     });
 
     return res.status(200).json({
       success: true,
       challenge_id: id,
+      mode: bestOfMode ? 'best_of' : 'reset',
       xp_reverted: safeRevert,
       xp_estimated_total: xpToRevert,
+      best_score_kept: bestOfMode ? bestScoreToKeep : null,
       warnings,
     });
   } catch (e) {
@@ -195,4 +201,3 @@ export default async function handler(req, res) {
 }
 
 export const config = { api: { bodyParser: true } };
-

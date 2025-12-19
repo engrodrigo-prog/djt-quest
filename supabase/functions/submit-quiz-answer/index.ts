@@ -162,6 +162,28 @@ serve(async (req) => {
     return Math.max(0, Math.floor(delta));
   };
 
+  const awardQuizBestDelta = async (
+    supabase: any,
+    params: { userId: string; challengeId: string; newTotal: number },
+  ): Promise<{ xpAwarded: number; bestScore: number }> => {
+    const userId = String(params.userId || '').trim();
+    const challengeId = String(params.challengeId || '').trim();
+    const newTotal = clampInt(Number(params.newTotal || 0), 0, 1_000_000_000);
+    if (!userId || !challengeId) return { xpAwarded: 0, bestScore: Math.max(0, newTotal) };
+
+    const { data, error } = await supabase.rpc('award_quiz_best_delta', {
+      _user_id: userId,
+      _challenge_id: challengeId,
+      _new_total: newTotal,
+    });
+    if (error) throw error;
+
+    const row = Array.isArray(data) ? (data[0] as any) : (data as any);
+    const xpAwarded = Math.max(0, Math.floor(Number(row?.xp_awarded ?? 0) || 0));
+    const bestScore = Math.max(0, Math.floor(Number(row?.best_score ?? 0) || 0));
+    return { xpAwarded, bestScore };
+  };
+
   try {
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
@@ -221,13 +243,28 @@ serve(async (req) => {
       // If quiz is complete but attempt wasn't finalized (e.g., previous request failed mid-way),
       // finalize now and award completion bonus (best-effort, idempotent via quiz_attempts.submitted_at).
       let completionBonusEarned = 0;
+      let bestScoreBefore = 0;
+      let bestScoreAfter = 0;
+      let bestDeltaAwarded = 0;
       try {
         const { data: attempt } = await supabase
           .from('quiz_attempts')
-          .select('submitted_at, reward_total_xp_target')
+          .select('submitted_at, reward_total_xp_target, score')
           .eq('user_id', user.id)
           .eq('challenge_id', challengeId)
           .maybeSingle();
+
+        bestScoreBefore = Math.max(0, Math.floor(Number((attempt as any)?.score ?? 0) || 0));
+        bestScoreAfter = bestScoreBefore;
+        if (isMilhao) {
+          const bestResp = await awardQuizBestDelta(supabase, {
+            userId: user.id,
+            challengeId,
+            newTotal: totalXpSoFar,
+          });
+          bestDeltaAwarded = Math.max(0, Math.floor(Number(bestResp.xpAwarded ?? 0) || 0));
+          bestScoreAfter = Math.max(bestScoreBefore, Math.floor(Number(bestResp.bestScore ?? 0) || 0));
+        }
 
         if (isCompleted && !attempt?.submitted_at) {
           completionBonusEarned = computeCompletionBonus({
@@ -245,7 +282,7 @@ serve(async (req) => {
                 user_id: user.id,
                 challenge_id: challengeId,
                 submitted_at: new Date().toISOString(),
-                score: totalXpSoFar + completionBonusEarned,
+                ...(!isMilhao ? { score: totalXpSoFar + completionBonusEarned } : {}),
                 max_score: totalQuestions ?? 0,
               },
               { onConflict: 'user_id,challenge_id' } as any
@@ -282,7 +319,7 @@ serve(async (req) => {
           success: true,
           alreadyAnswered: true,
           isCorrect: Boolean((existingAnswer as any)?.is_correct),
-          xpEarned: (Number((existingAnswer as any)?.xp_earned) || 0) + completionBonusEarned,
+          xpEarned: isMilhao ? bestDeltaAwarded : (Number((existingAnswer as any)?.xp_earned) || 0) + completionBonusEarned,
           explanation: canSeeAnswerKey ? null : null,
           correctOptionId: canSeeAnswerKey ? correctOptionId : null,
           answerKeyRestricted: !canSeeAnswerKey,
@@ -290,6 +327,8 @@ serve(async (req) => {
           endedReason: isCompleted ? 'completed' : undefined,
           totalXpEarned: isCompleted ? totalXpSoFar + completionBonusEarned : undefined,
           completionBonusEarned: completionBonusEarned || 0,
+          bestScoreBefore: isMilhao ? bestScoreBefore : undefined,
+          bestScoreAfter: isMilhao ? bestScoreAfter : undefined,
           profileXpAfter: typeof (profileAfter as any)?.xp === 'number' ? (profileAfter as any).xp : null,
         }),
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -365,7 +404,7 @@ serve(async (req) => {
 
     const { data: attempt } = await supabase
       .from('quiz_attempts')
-      .select('submitted_at, reward_total_xp_target')
+      .select('submitted_at, reward_total_xp_target, score')
       .eq('user_id', user.id)
       .eq('challenge_id', challengeId)
       .maybeSingle();
@@ -438,39 +477,80 @@ serve(async (req) => {
       throw insertError;
     }
 
-    // Update XP + tier if correct (usa RPC para manter tier sincronizado)
+    const bestScoreBefore = Math.max(0, Math.floor(Number((attempt as any)?.score ?? 0) || 0));
+    let bestScoreAfter = bestScoreBefore;
+
+    // Totals for this attempt (after inserting the answer)
+    const { count: totalQuestions } = await supabase
+      .from('quiz_questions')
+      .select('id', { count: 'exact', head: true })
+      .eq('challenge_id', challengeId);
+
+    const { data: allAnswersForTotal } = await supabase
+      .from('user_quiz_answers')
+      .select('xp_earned')
+      .eq('user_id', user.id)
+      .eq('challenge_id', challengeId);
+    const answeredQuestions = Array.isArray(allAnswersForTotal) ? allAnswersForTotal.length : 0;
+    const totalXpSoFar =
+      allAnswersForTotal?.reduce((sum: number, a: any) => sum + (Number(a?.xp_earned) || 0), 0) || 0;
+    const isCompleted = Number(totalQuestions ?? 0) === answeredQuestions;
+
+    // Apply XP: Milhão = best-of record; other quizzes = per-answer
     let xpApplied = false;
     let profileXpAfter: number | null = null;
-    if (xpEarned > 0 && !xpBlockedForLeader) {
-      const { error: incErr } = await supabase.rpc('increment_user_xp', { _user_id: user.id, _xp_to_add: xpEarned });
-      if (incErr) {
-        console.error('increment_user_xp failed:', incErr.message || incErr);
-        // fallback: mantém comportamento anterior (pode não atualizar tier)
-        let baseXp = Number(profile?.xp);
-        let baseTier = (profile as any)?.tier;
-        if (!Number.isFinite(baseXp)) {
-          const { data: p2 } = await supabase.from('profiles').select('xp, tier').eq('id', user.id).maybeSingle();
-          baseXp = Number((p2 as any)?.xp);
-          baseTier = (p2 as any)?.tier;
-        }
-        if (!Number.isFinite(baseXp)) baseXp = 0;
+    let xpAwardedNow = 0;
 
-        const targetXp = baseXp + xpEarned;
-        const nextTier = computeTierFromXpLocal({ currentTier: baseTier, xp: targetXp });
-        const { error: updErr } = await supabase
-          .from('profiles')
-          .update({ xp: targetXp, ...(nextTier ? { tier: nextTier } : {}) })
-          .eq('id', user.id);
-        if (updErr) {
-          console.error('profiles xp update fallback failed:', updErr.message || updErr);
+    if (!xpBlockedForLeader) {
+      if (isMilhao) {
+        const expectedDelta = Math.max(0, Math.floor(totalXpSoFar) - bestScoreBefore);
+        try {
+          const bestResp = await awardQuizBestDelta(supabase, {
+            userId: user.id,
+            challengeId,
+            newTotal: totalXpSoFar,
+          });
+          xpAwardedNow = Math.max(0, Math.floor(Number(bestResp.xpAwarded ?? 0) || 0));
+          bestScoreAfter = Math.max(bestScoreAfter, Math.floor(Number(bestResp.bestScore ?? 0) || 0));
+          xpApplied = true;
+        } catch (e) {
+          console.error('award_quiz_best_delta failed:', safeErrMsg(e));
+          xpAwardedNow = expectedDelta;
+          xpApplied = false;
+          bestScoreAfter = bestScoreBefore;
+        }
+      } else if (xpEarned > 0) {
+        xpAwardedNow = xpEarned;
+        const { error: incErr } = await supabase.rpc('increment_user_xp', { _user_id: user.id, _xp_to_add: xpEarned });
+        if (incErr) {
+          console.error('increment_user_xp failed:', incErr.message || incErr);
+          // fallback: mantém comportamento anterior (pode não atualizar tier)
+          let baseXp = Number(profile?.xp);
+          let baseTier = (profile as any)?.tier;
+          if (!Number.isFinite(baseXp)) {
+            const { data: p2 } = await supabase.from('profiles').select('xp, tier').eq('id', user.id).maybeSingle();
+            baseXp = Number((p2 as any)?.xp);
+            baseTier = (p2 as any)?.tier;
+          }
+          if (!Number.isFinite(baseXp)) baseXp = 0;
+
+          const targetXp = baseXp + xpEarned;
+          const nextTier = computeTierFromXpLocal({ currentTier: baseTier, xp: targetXp });
+          const { error: updErr } = await supabase
+            .from('profiles')
+            .update({ xp: targetXp, ...(nextTier ? { tier: nextTier } : {}) })
+            .eq('id', user.id);
+          if (updErr) {
+            console.error('profiles xp update fallback failed:', updErr.message || updErr);
+          } else {
+            xpApplied = true;
+          }
         } else {
           xpApplied = true;
         }
-      } else {
-        xpApplied = true;
       }
 
-      if (xpApplied) {
+      if (xpApplied && xpAwardedNow > 0) {
         const { data: fresh, error: freshErr } = await supabase
           .from('profiles')
           .select('xp')
@@ -483,28 +563,6 @@ serve(async (req) => {
         }
       }
     }
-
-    // Check if quiz is completed
-    const { count: totalQuestions } = await supabase
-      .from('quiz_questions')
-      .select('id', { count: 'exact', head: true })
-      .eq('challenge_id', challengeId);
-
-    const { count: answeredQuestions } = await supabase
-      .from('user_quiz_answers')
-      .select('id', { count: 'exact', head: true })
-      .eq('user_id', user.id)
-      .eq('challenge_id', challengeId);
-
-    const isCompleted = totalQuestions === answeredQuestions;
-
-    // Total XP earned so far in this quiz
-    const { data: allAnswersForTotal } = await supabase
-      .from('user_quiz_answers')
-      .select('xp_earned')
-      .eq('user_id', user.id)
-      .eq('challenge_id', challengeId);
-    const totalXpSoFar = allAnswersForTotal?.reduce((sum, a) => sum + (a.xp_earned || 0), 0) || 0;
 
     // Get correct option ID if user was wrong
     let correctOptionId = null;
@@ -525,6 +583,29 @@ serve(async (req) => {
     let completionBonusEarned = 0;
 
     if (isCompleted) {
+      if (isMilhao && !xpBlockedForLeader) {
+        try {
+          const bestResp = await awardQuizBestDelta(supabase, {
+            userId: user.id,
+            challengeId,
+            newTotal: totalXpSoFar,
+          });
+          const awarded = Math.max(0, Math.floor(Number(bestResp.xpAwarded ?? 0) || 0));
+          const best = Math.max(0, Math.floor(Number(bestResp.bestScore ?? 0) || 0));
+          bestScoreAfter = Math.max(bestScoreAfter, best);
+          if (awarded > 0) {
+            xpAwardedNow = awarded;
+            xpApplied = true;
+            if (profileXpAfter == null) {
+              const { data: fresh } = await supabase.from('profiles').select('xp').eq('id', user.id).maybeSingle();
+              if (fresh && typeof (fresh as any).xp === 'number') profileXpAfter = (fresh as any).xp;
+            }
+          }
+        } catch {
+          // ignore
+        }
+      }
+
       // Ensure total XP for the quiz reaches challenges.xp_reward when configured (non-milhao).
       completionBonusEarned = computeCompletionBonus({
         isMilhao,
@@ -550,7 +631,13 @@ serve(async (req) => {
       await supabase
         .from('quiz_attempts')
         .upsert(
-          { user_id: user.id, challenge_id: challengeId, submitted_at: new Date().toISOString(), score: totalXpEarned, max_score: totalQuestions ?? 0 },
+          {
+            user_id: user.id,
+            challenge_id: challengeId,
+            submitted_at: new Date().toISOString(),
+            score: isMilhao ? bestScoreAfter : totalXpEarned,
+            max_score: totalQuestions ?? 0,
+          },
           { onConflict: 'user_id,challenge_id' } as any
         );
 
@@ -573,7 +660,13 @@ serve(async (req) => {
       await supabase
         .from('quiz_attempts')
         .upsert(
-          { user_id: user.id, challenge_id: challengeId, submitted_at: new Date().toISOString(), score: totalXpEarned, max_score: totalQuestions ?? 0 },
+          {
+            user_id: user.id,
+            challenge_id: challengeId,
+            submitted_at: new Date().toISOString(),
+            score: bestScoreAfter,
+            max_score: totalQuestions ?? 0,
+          },
           { onConflict: 'user_id,challenge_id' } as any
         );
 
@@ -597,7 +690,7 @@ serve(async (req) => {
       JSON.stringify({
         success: true,
         isCorrect,
-        xpEarned: xpEarned + (endedReason === 'completed' ? completionBonusEarned : 0),
+        xpEarned: xpAwardedNow + (endedReason === 'completed' ? completionBonusEarned : 0),
         explanation: canSeeAnswerKey ? option.explanation : null,
         correctOptionId: canSeeAnswerKey ? correctOptionId : null,
         answerKeyRestricted: !canSeeAnswerKey,
@@ -605,6 +698,8 @@ serve(async (req) => {
         endedReason: endedReason || undefined,
         totalXpEarned: endedReason ? totalXpEarned : undefined,
         completionBonusEarned: endedReason === 'completed' ? completionBonusEarned : 0,
+        bestScoreBefore: isMilhao ? bestScoreBefore : undefined,
+        bestScoreAfter: isMilhao ? bestScoreAfter : undefined,
         xpBlockedForLeader,
         xpApplied,
         profileXpAfter,

@@ -278,7 +278,7 @@ export const StudioMaintenance = () => {
       ? `${target.name || "Usuário"} (${target.matricula || target.email || target.id})`
       : "minha conta";
     const ok = window.confirm(
-      `Reabrir os 2 quizzes mais recentes do Milhão para ${label}?\n\nIsso zera respostas, zera tentativa e reverte o XP ganho nesses quizzes.`,
+      `Reabrir os 2 quizzes mais recentes do Milhão para ${label}?\n\nIsso zera respostas e libera novas tentativas.\nO XP NÃO diminui: só ganha XP extra se bater o recorde.\n\nConfirmar?`,
     );
     if (!ok) return;
 
@@ -294,13 +294,14 @@ export const StudioMaintenance = () => {
         },
         body: JSON.stringify({
           user_id: target?.id || undefined,
+          mode: "best_of",
         }),
       });
       const json = await resp.json().catch(() => ({}));
       if (!resp.ok) throw new Error(json?.error || "Falha ao reabrir quizzes");
       const reopened = Array.isArray(json?.reopened) ? json.reopened : [];
-      const xpTotal = reopened.reduce((acc: number, r: any) => acc + (Number(r?.xp_reverted) || 0), 0);
-      toast.success(`Quizzes reabertos: ${reopened.length} • XP revertido: ${xpTotal}`);
+      const bestKeptMax = reopened.reduce((acc: number, r: any) => Math.max(acc, Number(r?.best_score_kept ?? 0) || 0), 0);
+      toast.success(`Quizzes reabertos: ${reopened.length} • Recorde preservado (máx): ${bestKeptMax}`);
     } catch (e: any) {
       toast.error(e?.message || "Falha ao reabrir quizzes");
     } finally {
@@ -438,7 +439,7 @@ export const StudioMaintenance = () => {
           <CardHeader>
             <CardTitle className="text-white">Manutenção • Quiz do Milhão</CardTitle>
             <CardDescription className="text-white/80">
-              Reabre os 2 quizzes mais recentes do Milhão (zera tentativa, remove respostas e reverte o XP ganho no quiz).
+              Reabre os 2 quizzes mais recentes do Milhão (zera respostas e libera novas tentativas; XP não diminui e só aumenta se bater o recorde).
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">

@@ -72,8 +72,8 @@ const ChallengeDetail = () => {
 
     const ok = window.confirm(
       mode === 'current'
-        ? 'Reabrir sua tentativa deste Quiz do Milhão? Isso zera respostas, zera tentativa e reverte o XP ganho neste quiz.'
-        : 'Reabrir suas tentativas dos 2 quizzes mais recentes do Milhão? Isso zera respostas, zera tentativa e reverte o XP ganho nesses quizzes.',
+        ? 'Reabrir sua tentativa deste Quiz do Milhão?\n\nIsso zera respostas e libera uma nova tentativa.\nSeu XP NÃO diminui: você só ganha XP extra se bater seu recorde.\n\nConfirmar?'
+        : 'Reabrir suas tentativas dos 2 quizzes mais recentes do Milhão?\n\nIsso zera respostas e libera novas tentativas.\nSeu XP NÃO diminui: você só ganha XP extra se bater seu recorde.\n\nConfirmar?',
     );
     if (!ok) return;
 
@@ -86,16 +86,17 @@ const ChallengeDetail = () => {
         headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify({
           challenge_ids: mode === 'current' ? [challenge.id] : undefined,
+          mode: 'best_of',
         }),
       });
       const json = await resp.json().catch(() => ({}));
       if (!resp.ok) throw new Error(json?.error || 'Falha ao reabrir tentativas');
       const reopened = Array.isArray(json?.reopened) ? json.reopened : [];
       const reopenedIds = new Set(reopened.map((r: any) => String(r?.challenge_id || '').trim()).filter(Boolean));
-      const xpTotal = reopened.reduce((acc: number, r: any) => acc + (Number(r?.xp_reverted) || 0), 0);
+      const bestKeptMax = reopened.reduce((acc: number, r: any) => Math.max(acc, Number(r?.best_score_kept ?? 0) || 0), 0);
 
       if (reopenedIds.has(challenge.id)) setQuizCompleted(false);
-      toast({ title: 'Pronto', description: `Quizzes reabertos: ${reopened.length} • XP revertido: ${xpTotal}` });
+      toast({ title: 'Pronto', description: `Quizzes reabertos: ${reopened.length} • Recorde preservado (máx): ${bestKeptMax} XP` });
     } catch (e: any) {
       toast({ title: 'Falha ao reabrir', description: e?.message || 'Tente novamente', variant: 'destructive' });
     } finally {
@@ -116,8 +117,11 @@ const ChallengeDetail = () => {
       return;
     }
 
+    const isMilhao = /milh(ã|a)o/i.test(challenge.title || '');
     const ok = window.confirm(
-      'Refazer este quiz?\n\nIsso vai zerar suas respostas, reverter o XP ganho neste quiz e permitir responder novamente.\n\nConfirmar?',
+      isMilhao
+        ? 'Jogar novamente o Quiz do Milhão?\n\nIsso vai zerar suas respostas e liberar uma nova tentativa.\nSeu XP NÃO diminui: você só ganha XP extra se bater seu recorde.\n\nConfirmar?'
+        : 'Refazer este quiz?\n\nIsso vai zerar suas respostas, reverter o XP ganho neste quiz e permitir responder novamente.\n\nConfirmar?',
     );
     if (!ok) return;
 
@@ -130,13 +134,19 @@ const ChallengeDetail = () => {
       const resp = await fetch('/api/admin?handler=quiz-reset-attempt', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ challengeId: challenge.id }),
+        body: JSON.stringify({ challengeId: challenge.id, ...(isMilhao ? { mode: 'best_of' } : {}) }),
       });
       const json = await resp.json().catch(() => ({}));
       if (!resp.ok) throw new Error(json?.error || 'Falha ao resetar tentativa');
 
       const reverted = Number(json?.xp_reverted ?? 0) || 0;
-      toast({ title: 'Pronto', description: `Tentativa resetada. XP revertido: ${reverted}` });
+      const bestKept = Number(json?.best_score_kept ?? 0) || 0;
+      toast({
+        title: 'Pronto',
+        description: isMilhao
+          ? `Nova tentativa liberada. Recorde atual preservado: ${bestKept} XP.`
+          : `Tentativa resetada. XP revertido: ${reverted}`,
+      });
       setQuizCompleted(false);
       refreshUserSession?.().catch(() => {});
     } catch (e: any) {
@@ -480,7 +490,7 @@ const ChallengeDetail = () => {
                 <CardTitle>{/milh(ã|a)o/i.test(challenge.title || '') ? 'Quiz finalizado' : 'Quiz já concluído'}</CardTitle>
                 <CardDescription>
                   {/milh(ã|a)o/i.test(challenge.title || '')
-                    ? 'Sua tentativa do Quiz do Milhão já foi finalizada. Consulte o histórico no seu perfil.'
+                    ? 'Sua última tentativa do Quiz do Milhão já foi finalizada. Você pode jogar novamente para tentar bater seu recorde.'
                     : 'Você já respondeu este quiz. Consulte o histórico no seu perfil.'}
                 </CardDescription>
               </CardHeader>
@@ -492,9 +502,17 @@ const ChallengeDetail = () => {
                     disabled={resettingAttempt}
                     onClick={resetMyQuizAttempt}
                     className="w-full"
-                    title="Zera respostas e permite responder novamente (sobrescreve pontuação deste quiz)"
+                    title={
+                      /milh(ã|a)o/i.test(challenge.title || '')
+                        ? 'Zera respostas e libera nova tentativa (mantém recorde e não reduz XP)'
+                        : 'Zera respostas e permite responder novamente (sobrescreve pontuação deste quiz)'
+                    }
                   >
-                    {resettingAttempt ? 'Preparando...' : 'Refazer quiz (sobrescrever pontos)'}
+                    {resettingAttempt
+                      ? 'Preparando...'
+                      : /milh(ã|a)o/i.test(challenge.title || '')
+                        ? 'Jogar novamente (tentar bater recorde)'
+                        : 'Refazer quiz (sobrescrever pontos)'}
                   </Button>
                   <Button onClick={() => navigate('/dashboard')} className="w-full">Voltar</Button>
                 </div>
