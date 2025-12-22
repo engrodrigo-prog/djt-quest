@@ -346,5 +346,135 @@
       "low": "低音量",
       "high": "高音量"
     }
+  },
+  "forumTopic": {
+    "permission": {
+      "admin": "权限：管理员 — 编辑、清理并删除主题",
+      "moderator": "权限：版主 — 编辑并清理主题",
+      "contributor": "权限：贡献者 — 评论和点赞"
+    },
+    "backToForums": "返回论坛",
+    "edit": {
+      "aiHint": "使用魔杖修正拼写和标点。",
+      "reviewAria": "AI 审阅"
+    },
+    "actions": {
+      "save": "保存",
+      "cancel": "取消",
+      "edit": "编辑",
+      "clear": "清理",
+      "delete": "删除",
+      "closeAndCurate": "关闭并整理",
+      "reply": "回复",
+      "cancelReply": "取消回复",
+      "publish": "发布"
+    },
+    "translationRunning": "正在翻译内容…",
+    "listenForum": "收听论坛",
+    "compendium": {
+      "title": "论坛汇编",
+      "subtitle": "该主题的总结与整理要点。",
+      "keyLearnings": "关键收获",
+      "attachments": "附件",
+      "createQuiz": "创建测验",
+      "createChallenge": "创建挑战",
+      "createCampaign": "创建活动"
+    },
+    "author": {
+      "fallback": "未知作者"
+    },
+    "postEdit": {
+      "aiHint": "使用魔杖修正拼写和标点。"
+    },
+    "post": {
+      "shareMessage": "在 DJT Quest 查看这条贡献：\n{title}\n\n{preview}",
+      "shareAria": "在 WhatsApp 分享帖子",
+      "listenAria": "收听帖子",
+      "reviewAi": "AI 审阅",
+      "qualityLabel": "AI 评分（有用性/清晰度/新颖性）"
+    },
+    "reply": {
+      "label": "回复",
+      "listenAria": "收听回复"
+    },
+    "newPost": {
+      "title": "新贡献",
+      "subtitle": "分享完整记录：用 @ 标记同事，用 # 标记主题，并上传证据让学习持续。",
+      "hint": {
+        "replying": "正在回复一条贡献。使用 @ 标记、# 标记主题。",
+        "default": "用自己的话描述背景。使用魔杖修正拼写和标点。"
+      },
+      "replyTargetLabel": "回复对象",
+      "cleanupAria": "AI 审阅文本",
+      "placeholder": "用几行写出背景、行动与结果..."
+    },
+    "attachments": {
+      "optional": "附件（可选）",
+      "uploading": "正在上传附件…"
+    },
+    "audio": {
+      "optional": "用 AI 整理音频（可选）",
+      "record": "录音",
+      "remove": "移除",
+      "transcribing": "正在整理...",
+      "organize": "整理音频",
+      "hint": "提示：尽量使用短录音，以便更快转写并减少噪声。",
+      "tooLarge": "文件太大。请发送更小的音频（最多 {maxMB}MB）。"
+    },
+    "mentions": {
+      "teamSuffix": "(团队 @{handle})"
+    },
+    "confirm": {
+      "closeTopic": "关闭此主题并生成汇编？",
+      "deletePost": "删除此帖子？",
+      "deleteTopic": "删除此主题？这可能会回退相关 XP。",
+      "clearTopic": "清理此主题（删除帖子）并在适用时回退相关 XP？",
+      "addHashtags": "建议添加这些话题标签：\n{hashtags}\n\n发布前添加吗？",
+      "addHashtagsEdited": "为编辑后的帖子建议添加 #？\n{hashtags}\n\n添加吗？"
+    },
+    "errors": {
+      "aiCleanupFailed": "AI 审阅失败",
+      "cleanupFailed": "AI 审阅失败",
+      "transcribeFailed": "转写失败",
+      "publishFailed": "发布失败",
+      "closeFailed": "关闭失败",
+      "deletePostFailed": "删除失败",
+      "saveEditFailed": "保存编辑失败",
+      "saveReviewFailed": "保存审阅结果失败",
+      "deleteTopicFailed": "删除失败",
+      "clearTopicFailed": "清理失败",
+      "updateTopicFailed": "更新失败"
+    },
+    "toast": {
+      "enableTtsTitle": "请在个人资料菜单中启用语音朗读。",
+      "ttsFailedTitle": "音频生成失败",
+      "tryAgain": "请重试",
+      "tryAgainLater": "请稍后重试。",
+      "aiCleanupErrorTitle": "AI 审阅出错",
+      "audioInsertedTitle": "音频已整理并插入帖子",
+      "transcribeErrorTitle": "转写出错",
+      "nothingToReviewTitle": "没有可审阅的内容",
+      "nothingToReviewDesc": "请先输入文本再请求修正。",
+      "textReviewedTitle": "文本已审阅",
+      "textReviewedDesc": "已调整拼写和标点，内容保持不变。",
+      "reviewUnavailableTitle": "暂时无法审阅",
+      "postTooShortTitle": "内容太短",
+      "postTooShortDesc": "请至少写 10 个字符",
+      "forumConfigPendingTitle": "论坛配置未完成",
+      "forumConfigPendingDesc": "请在 Supabase 中应用 forum_core 迁移以启用发帖。",
+      "publishErrorTitle": "发布出错",
+      "closeErrorTitle": "关闭出错",
+      "deletePostErrorTitle": "删除帖子出错",
+      "postUpdatedTitle": "帖子已更新",
+      "saveEditErrorTitle": "保存编辑出错",
+      "reviewErrorTitle": "审阅出错",
+      "topicDeletedTitle": "主题已删除",
+      "deleteTopicErrorTitle": "删除主题出错",
+      "topicClearedTitle": "主题已清理",
+      "clearTopicErrorTitle": "清理主题出错",
+      "updateTopicErrorTitle": "更新主题出错",
+      "topicClosedTitle": "主题已关闭",
+      "topicClosedDesc": "已生成整理与摘要。你可以基于汇编创建测验/挑战。"
+    }
   }
 }

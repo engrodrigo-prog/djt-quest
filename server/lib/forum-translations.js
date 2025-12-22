@@ -19,12 +19,7 @@ const chunkArray = (arr, size) => {
 };
 
 const fallbackMap = (locales, text) => {
-  const map = {};
-  for (const loc of locales) {
-    map[loc] = text || "";
-  }
-  if (!map[BASE_LOCALE]) map[BASE_LOCALE] = text || "";
-  return map;
+  return { [BASE_LOCALE]: text || "" };
 };
 
 const normalizeLocales = (raw) => {

@@ -346,5 +346,135 @@
       "low": "Volume baixo",
       "high": "Volume alto"
     }
+  },
+  "forumTopic": {
+    "permission": {
+      "admin": "Permissão: Admin — editar, limpar e excluir tópico",
+      "moderator": "Permissão: Moderador — editar e limpar tópico",
+      "contributor": "Permissão: Colaborador — comentar e curtir"
+    },
+    "backToForums": "Voltar aos fóruns",
+    "edit": {
+      "aiHint": "Use a varinha para ajustar ortografia e pontuação.",
+      "reviewAria": "Revisar com IA"
+    },
+    "actions": {
+      "save": "Salvar",
+      "cancel": "Cancelar",
+      "edit": "Editar",
+      "clear": "Limpar",
+      "delete": "Excluir",
+      "closeAndCurate": "Fechar & Curar",
+      "reply": "Responder",
+      "cancelReply": "Cancelar resposta",
+      "publish": "Publicar"
+    },
+    "translationRunning": "Traduzindo conteúdo…",
+    "listenForum": "Ouvir fórum",
+    "compendium": {
+      "title": "Compêndio do Fórum",
+      "subtitle": "Síntese e curadoria geradas a partir deste tópico.",
+      "keyLearnings": "Aprendizados-chave",
+      "attachments": "Anexos",
+      "createQuiz": "Criar Quiz",
+      "createChallenge": "Criar Desafio",
+      "createCampaign": "Criar Campanha"
+    },
+    "author": {
+      "fallback": "Autor desconhecido"
+    },
+    "postEdit": {
+      "aiHint": "Use a varinha para ajustar ortografia e pontuação."
+    },
+    "post": {
+      "shareMessage": "Veja esta contribuição no DJT Quest:\n{title}\n\n{preview}",
+      "shareAria": "Compartilhar post no WhatsApp",
+      "listenAria": "Ouvir post",
+      "reviewAi": "Revisar com IA",
+      "qualityLabel": "Avaliação IA (ajuda/clareza/novidade)"
+    },
+    "reply": {
+      "label": "Resposta",
+      "listenAria": "Ouvir resposta"
+    },
+    "newPost": {
+      "title": "Nova contribuição",
+      "subtitle": "Traga seu relato completo: marque colegas com @, assuntos com # e suba evidências para deixar o aprendizado vivo.",
+      "hint": {
+        "replying": "Respondendo a uma contribuição. Use @ para marcar e # para temas.",
+        "default": "Descreva o contexto com suas palavras. Use a varinha para ajustar ortografia e pontuação."
+      },
+      "replyTargetLabel": "Respondendo a",
+      "cleanupAria": "Revisar texto com IA",
+      "placeholder": "Contexto, ação e resultado em poucas linhas..."
+    },
+    "attachments": {
+      "optional": "Anexos (opcional)",
+      "uploading": "Enviando anexos…"
+    },
+    "audio": {
+      "optional": "Áudio para organizar com IA (opcional)",
+      "record": "Gravar áudio",
+      "remove": "Remover",
+      "transcribing": "Organizando...",
+      "organize": "Organizar áudio",
+      "hint": "Dica: prefira gravações curtas para transcrição rápida e com menos ruído.",
+      "tooLarge": "Arquivo muito grande. Envie um áudio menor (até {maxMB}MB)."
+    },
+    "mentions": {
+      "teamSuffix": "(equipe @{handle})"
+    },
+    "confirm": {
+      "closeTopic": "Fechar este tópico e gerar compêndio?",
+      "deletePost": "Excluir este post?",
+      "deleteTopic": "Excluir este tópico? Isso pode reverter XP relacionado.",
+      "clearTopic": "Limpar este tópico (excluir posts) e reverter XP relacionado quando aplicável?",
+      "addHashtags": "Sugerimos adicionar estas hashtags:\n{hashtags}\n\nAdicionar antes de enviar?",
+      "addHashtagsEdited": "Sugerir # para este post editado?\n{hashtags}\n\nAdicionar?"
+    },
+    "errors": {
+      "aiCleanupFailed": "Falha na revisão automática",
+      "cleanupFailed": "Falha na revisão automática",
+      "transcribeFailed": "Falha na transcrição",
+      "publishFailed": "Falha ao publicar",
+      "closeFailed": "Falha ao fechar",
+      "deletePostFailed": "Falha ao excluir",
+      "saveEditFailed": "Falha ao salvar edição",
+      "saveReviewFailed": "Erro ao salvar revisão",
+      "deleteTopicFailed": "Falha ao excluir",
+      "clearTopicFailed": "Falha ao limpar",
+      "updateTopicFailed": "Falha ao atualizar"
+    },
+    "toast": {
+      "enableTtsTitle": "Ative a leitura em voz no menu do perfil.",
+      "ttsFailedTitle": "Falha ao gerar áudio",
+      "tryAgain": "Tente novamente",
+      "tryAgainLater": "Tente novamente mais tarde.",
+      "aiCleanupErrorTitle": "Erro na revisão automática",
+      "audioInsertedTitle": "Áudio organizado e inserido no post",
+      "transcribeErrorTitle": "Erro ao transcrever",
+      "nothingToReviewTitle": "Nada para revisar",
+      "nothingToReviewDesc": "Digite o texto antes de pedir correção.",
+      "textReviewedTitle": "Texto revisado",
+      "textReviewedDesc": "Ortografia e pontuação ajustadas, conteúdo preservado.",
+      "reviewUnavailableTitle": "Não foi possível revisar agora",
+      "postTooShortTitle": "Conteúdo muito curto",
+      "postTooShortDesc": "Escreva ao menos 10 caracteres",
+      "forumConfigPendingTitle": "Configuração do fórum pendente",
+      "forumConfigPendingDesc": "Aplique a migração forum_core no Supabase para habilitar posts.",
+      "publishErrorTitle": "Erro ao publicar",
+      "closeErrorTitle": "Erro ao fechar",
+      "deletePostErrorTitle": "Erro ao excluir post",
+      "postUpdatedTitle": "Post atualizado",
+      "saveEditErrorTitle": "Erro ao salvar edição",
+      "reviewErrorTitle": "Erro ao revisar",
+      "topicDeletedTitle": "Tópico excluído",
+      "deleteTopicErrorTitle": "Erro ao excluir tópico",
+      "topicClearedTitle": "Tópico limpo",
+      "clearTopicErrorTitle": "Erro ao limpar tópico",
+      "updateTopicErrorTitle": "Erro ao atualizar tópico",
+      "topicClosedTitle": "Tópico fechado",
+      "topicClosedDesc": "Curadoria e resumo gerados. Você pode criar quiz/desafio a partir do compêndio."
+    }
   }
 }

@@ -54,7 +54,7 @@ export default function ForumTopic() {
   const navigate = useNavigate()
   const { toast } = useToast()
   const { isLeader, studioAccess, user, userRole } = useAuth() as any
-  const { locale } = useI18n()
+  const { locale, t: tr } = useI18n()
   const { ttsEnabled, isSpeaking, speak } = useTts()
   const [topic, setTopic] = useState<Topic | null>(null)
   const [posts, setPosts] = useState<Post[]>([])
@@ -73,6 +73,8 @@ export default function ForumTopic() {
   const [editingPostText, setEditingPostText] = useState<string>('')
   const [mentionQuery, setMentionQuery] = useState<string>('')
   const [mentionSuggestions, setMentionSuggestions] = useState<any[]>([])
+  const [mentionActiveIndex, setMentionActiveIndex] = useState(0)
+  const [mentionDraft, setMentionDraft] = useState<{ start: number; end: number; query: string } | null>(null)
   const [cleaningPostId, setCleaningPostId] = useState<string | null>(null)
   const [replyToPostId, setReplyToPostId] = useState<string | null>(null)
   const [replyToExcerpt, setReplyToExcerpt] = useState<string>('')
@@ -81,6 +83,9 @@ export default function ForumTopic() {
   const [translatedSummary, setTranslatedSummary] = useState<string | null>(null)
   const [postLocalTranslations, setPostLocalTranslations] = useState<Record<string, string>>({})
   const [isTranslating, setIsTranslating] = useState(false)
+  const composerRef = useRef<HTMLTextAreaElement | null>(null)
+  const mentionDraftRef = useRef<{ start: number; end: number; query: string } | null>(null)
+  const pendingCursorRef = useRef<number | null>(null)
   const didScrollToHashRef = useRef(false)
   const translatingRef = useRef(false)
 
@@ -89,16 +94,20 @@ export default function ForumTopic() {
       const cleaned = String(text || '').trim()
       if (!cleaned) return
       if (!ttsEnabled) {
-        toast({ title: 'Ative a leitura em voz no menu do perfil.' })
+        toast({ title: tr('forumTopic.toast.enableTtsTitle') })
         return
       }
       try {
         await speak(cleaned)
       } catch (e: any) {
-        toast({ title: 'Falha ao gerar áudio', description: e?.message || 'Tente novamente', variant: 'destructive' })
+        toast({
+          title: tr('forumTopic.toast.ttsFailedTitle'),
+          description: e?.message || tr('forumTopic.toast.tryAgain'),
+          variant: 'destructive',
+        })
       }
     },
-    [speak, toast, ttsEnabled],
+    [speak, toast, tr, ttsEnabled],
   )
 
   const load = useCallback(async () => {
@@ -228,26 +237,40 @@ export default function ForumTopic() {
 
   useEffect(() => {
     let cancelled = false
-    const t = setTimeout(async () => {
-      const q = mentionQuery.trim()
-      if (!q || q.length < 1) {
-        if (!cancelled) setMentionSuggestions([])
-        return
+    if (!mentionDraft) {
+      setMentionSuggestions([])
+      return
+    }
+
+    const q = mentionQuery.trim()
+    if (!q) {
+      const recent = readRecentMentions()
+      if (!cancelled) {
+        setMentionSuggestions(recent)
+        setMentionActiveIndex(0)
       }
+      return
+    }
+
+    const t = setTimeout(async () => {
       try {
         const resp = await fetch(`/api/sepbook-mention-suggest?q=${encodeURIComponent(q)}`)
         const json = await resp.json()
         if (!resp.ok) throw new Error(json?.error || 'Falha ao sugerir menções')
-        if (!cancelled) setMentionSuggestions(json.items || [])
+        if (!cancelled) {
+          setMentionSuggestions(json.items || [])
+          setMentionActiveIndex(0)
+        }
       } catch {
         if (!cancelled) setMentionSuggestions([])
       }
     }, 250)
+
     return () => {
       cancelled = true
       clearTimeout(t)
     }
-  }, [mentionQuery])
+  }, [mentionDraft, mentionQuery])
 
   useEffect(() => {
     if (!topic) return
@@ -317,23 +340,31 @@ export default function ForumTopic() {
     try {
       setTranscribing(true)
       if (audioFile.size > 12 * 1024 * 1024) {
-        throw new Error('Arquivo muito grande. Envie um áudio menor (até 12MB).')
+        throw new Error(tr('forumTopic.audio.tooLarge', { maxMB: 12 }))
       }
       const toBase64 = (f: File) => new Promise<string>((resolve, reject) => { const r = new FileReader(); r.onload = () => resolve(String(r.result)); r.onerror = reject; r.readAsDataURL(f) })
       const b64 = await toBase64(audioFile)
       const resp = await fetch('/api/ai?handler=transcribe-audio', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ audioBase64: b64, mode:'organize', language: localeToSpeechLanguage(getActiveLocale()) }) })
-      const j = await resp.json(); if (!resp.ok) throw new Error(j?.error || 'Falha na transcrição')
+      const j = await resp.json(); if (!resp.ok) throw new Error(j?.error || tr('forumTopic.errors.transcribeFailed'))
       setContent(prev => [prev, j.text || j.transcript].filter(Boolean).join('\n\n'))
-      toast({ title: 'Áudio organizado e inserido no post' })
+      toast({ title: tr('forumTopic.toast.audioInsertedTitle') })
     } catch (e: any) {
-      toast({ title: 'Erro ao transcrever', description: e?.message || 'Tente novamente', variant: 'destructive' })
+      toast({
+        title: tr('forumTopic.toast.transcribeErrorTitle'),
+        description: e?.message || tr('forumTopic.toast.tryAgain'),
+        variant: 'destructive',
+      })
     } finally { setTranscribing(false) }
   }
 
   const handleCleanupContent = async () => {
     const text = (content || '').trim()
     if (text.length < 3) {
-      toast({ title: 'Nada para revisar', description: 'Digite o texto antes de pedir correção.', variant: 'default' })
+      toast({
+        title: tr('forumTopic.toast.nothingToReviewTitle'),
+        description: tr('forumTopic.toast.nothingToReviewDesc'),
+        variant: 'default',
+      })
       return
     }
     try {
@@ -345,31 +376,164 @@ export default function ForumTopic() {
       })
       const j = await resp.json().catch(() => ({}))
       if (!resp.ok || !j?.cleaned?.description) {
-        throw new Error(j?.error || 'Falha na revisão automática')
+        throw new Error(j?.error || tr('forumTopic.errors.cleanupFailed'))
       }
       setContent(String(j.cleaned.description || text))
-      toast({ title: 'Texto revisado', description: 'Ortografia e pontuação ajustadas, conteúdo preservado.' })
+      toast({ title: tr('forumTopic.toast.textReviewedTitle'), description: tr('forumTopic.toast.textReviewedDesc') })
     } catch (e: any) {
-      toast({ title: 'Não foi possível revisar agora', description: e?.message || 'Tente novamente mais tarde.', variant: 'destructive' })
+      toast({
+        title: tr('forumTopic.toast.reviewUnavailableTitle'),
+        description: e?.message || tr('forumTopic.toast.tryAgainLater'),
+        variant: 'destructive',
+      })
     } finally {
       setCleaning(false)
     }
   }
 
-  const handleContentChange = (value: string) => {
-    setContent(value)
-    // Detecta a última menção digitada e só sugere se o cursor estiver logo depois dela
-    const matches = Array.from(value.matchAll(/@([A-Za-z0-9_.-]{2,30})/g))
-    if (matches.length > 0) {
-      const last = matches[matches.length - 1]
-      const endIndex = (last.index ?? 0) + last[0].length
-      if (endIndex === value.length) {
-        setMentionQuery(last[1] || '')
-      } else {
-        setMentionQuery('')
+  const RECENT_MENTIONS_KEY = 'djt_forum_recent_mentions'
+
+  const readRecentMentions = (): any[] => {
+    try {
+      const raw = localStorage.getItem(RECENT_MENTIONS_KEY)
+      const parsed = raw ? JSON.parse(raw) : []
+      if (!Array.isArray(parsed)) return []
+      return parsed
+        .filter((x) => x && typeof x.handle === 'string' && x.handle.trim())
+        .slice(0, 8)
+    } catch {
+      return []
+    }
+  }
+
+  const rememberMention = (item: any) => {
+    try {
+      const next = {
+        kind: item?.kind || 'user',
+        handle: String(item?.handle || '').trim(),
+        label: String(item?.label || item?.handle || '').trim(),
       }
-    } else {
+      if (!next.handle) return
+      const prev = readRecentMentions()
+      const merged = [next, ...prev.filter((x) => x?.handle !== next.handle)].slice(0, 8)
+      localStorage.setItem(RECENT_MENTIONS_KEY, JSON.stringify(merged))
+    } catch {
+      // ignore
+    }
+  }
+
+  useEffect(() => {
+    mentionDraftRef.current = mentionDraft
+  }, [mentionDraft])
+
+  useEffect(() => {
+    const nextCursor = pendingCursorRef.current
+    if (nextCursor == null) return
+    pendingCursorRef.current = null
+    requestAnimationFrame(() => {
+      try {
+        const el = composerRef.current
+        if (!el) return
+        el.focus()
+        el.setSelectionRange(nextCursor, nextCursor)
+      } catch {
+        // ignore
+      }
+    })
+  }, [content])
+
+  const detectMentionDraftAtCursor = (text: string, cursor: number) => {
+    const cur = Math.max(0, Math.min(text.length, cursor))
+    const left = text.slice(0, cur)
+    const match = left.match(/(^|[\s([{<])@([A-Za-z0-9_.-]{0,60})$/)
+    if (!match) return null
+    const query = match[2] ?? ''
+    const start = cur - query.length - 1
+    if (start < 0) return null
+    return { start, end: cur, query }
+  }
+
+  const syncMentionFromCursor = (text: string, cursor: number) => {
+    const next = detectMentionDraftAtCursor(text, cursor)
+    mentionDraftRef.current = next
+    setMentionDraft(next)
+    setMentionQuery(next?.query || '')
+    if (!next) {
+      setMentionSuggestions([])
+      setMentionActiveIndex(0)
+    }
+  }
+
+  const handleContentChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const value = e.target.value
+    setContent(value)
+    const cursor = typeof e.target.selectionStart === 'number' ? e.target.selectionStart : value.length
+    syncMentionFromCursor(value, cursor)
+  }
+
+  const syncMentionFromComposer = () => {
+    const el = composerRef.current
+    if (!el) return
+    const cursor = typeof el.selectionStart === 'number' ? el.selectionStart : el.value.length
+    syncMentionFromCursor(el.value, cursor)
+  }
+
+  const insertMention = (item: any) => {
+    const handle = String(item?.handle || '').trim()
+    const draft = mentionDraftRef.current
+    if (!handle || !draft) return
+
+    setContent((prev) => {
+      const before = prev.slice(0, draft.start)
+      const after = prev.slice(draft.end)
+      const spacer = after.length === 0 || /^\s/.test(after) ? '' : ' '
+      const inserted = `@${handle}${spacer}`
+      pendingCursorRef.current = before.length + inserted.length
+      return `${before}${inserted}${after}`
+    })
+
+    rememberMention(item)
+    setMentionDraft(null)
+    setMentionQuery('')
+    setMentionSuggestions([])
+    setMentionActiveIndex(0)
+  }
+
+  const handleComposerKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (!mentionDraftRef.current) return
+    if (!mentionSuggestions.length) return
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setMentionActiveIndex((prev) => Math.min(prev + 1, mentionSuggestions.length - 1))
+      return
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setMentionActiveIndex((prev) => Math.max(prev - 1, 0))
+      return
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      setMentionDraft(null)
       setMentionQuery('')
+      setMentionSuggestions([])
+      setMentionActiveIndex(0)
+      return
+    }
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey || e.shiftKey)) {
+      return
+    }
+    if (e.key === 'Tab') {
+      e.preventDefault()
+      const picked = mentionSuggestions[mentionActiveIndex]
+      if (picked) insertMention(picked)
+      return
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      const picked = mentionSuggestions[mentionActiveIndex]
+      if (picked) insertMention(picked)
     }
   }
 
@@ -377,7 +541,11 @@ export default function ForumTopic() {
     if (!id) return
     let text = (content || '').trim()
     if (text.length < 10) {
-      toast({ title: 'Conteúdo muito curto', description: 'Escreva ao menos 10 caracteres', variant: 'destructive' })
+      toast({
+        title: tr('forumTopic.toast.postTooShortTitle'),
+        description: tr('forumTopic.toast.postTooShortDesc'),
+        variant: 'destructive',
+      })
       return
     }
     // Sugestão de hashtags via IA antes de enviar (confirmando com usuário)
@@ -391,8 +559,7 @@ export default function ForumTopic() {
       if (resp.ok && Array.isArray(json.hashtags) && json.hashtags.length > 0) {
         const proposal = json.hashtags.filter((h: string) => !text.includes(h))
         if (proposal.length > 0) {
-          const msg = `Sugerimos adicionar estas hashtags:\n${proposal.join(' ')}\n\nAdicionar antes de enviar?`
-          if (confirm(msg)) {
+          if (confirm(tr('forumTopic.confirm.addHashtags', { hashtags: proposal.join(' ') }))) {
             text = `${text}\n${proposal.join(' ')}`
             setContent(text)
           }
@@ -417,7 +584,7 @@ export default function ForumTopic() {
           })
         })
         const j = await resp.json().catch(()=>({}))
-        if (!resp.ok) throw new Error(j?.error || 'Falha ao publicar')
+        if (!resp.ok) throw new Error(j?.error || tr('forumTopic.errors.publishFailed'))
         setContent('')
         setAttachmentUrls([])
         setReplyToPostId(null)
@@ -451,40 +618,52 @@ export default function ForumTopic() {
           setReplyToExcerpt('')
           load()
         } catch (fallbackErr:any) {
-          const msg = String(fallbackErr?.message || apiErr?.message || 'Falha ao publicar')
+          const msg = String(fallbackErr?.message || apiErr?.message || tr('forumTopic.errors.publishFailed'))
           if (/forum_posts/i.test(msg) && /does not exist|doesn't exist/i.test(msg)) {
-            toast({ title: 'Configuração do fórum pendente', description: 'Aplique a migração forum_core no Supabase para habilitar posts.', variant: 'destructive' })
+            toast({
+              title: tr('forumTopic.toast.forumConfigPendingTitle'),
+              description: tr('forumTopic.toast.forumConfigPendingDesc'),
+              variant: 'destructive',
+            })
           } else {
-            toast({ title: 'Erro ao publicar', description: msg, variant: 'destructive' })
+            toast({ title: tr('forumTopic.toast.publishErrorTitle'), description: msg, variant: 'destructive' })
           }
         }
       }
     } catch (e: any) {
-      toast({ title: 'Erro ao publicar', description: e?.message || 'Tente novamente', variant: 'destructive' })
+      toast({
+        title: tr('forumTopic.toast.publishErrorTitle'),
+        description: e?.message || tr('forumTopic.toast.tryAgain'),
+        variant: 'destructive',
+      })
     }
   }
 
   const handleClose = async () => {
     if (!id) return
-    if (!confirm('Fechar este tema e gerar compêndio?')) return
+    if (!confirm(tr('forumTopic.confirm.closeTopic'))) return
     try {
       const { data: session } = await supabase.auth.getSession(); const token = session.session?.access_token
       const resp = await fetch('/api/forum?handler=close-topic', { method:'POST', headers:{ 'Content-Type':'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify({ topic_id: id }) })
-      const j = await resp.json(); if (!resp.ok) throw new Error(j?.error || 'Falha ao fechar')
-      toast({ title: 'Tema fechado', description: 'Compêndio gerado.' })
+      const j = await resp.json(); if (!resp.ok) throw new Error(j?.error || tr('forumTopic.errors.closeFailed'))
+      toast({ title: tr('forumTopic.toast.topicClosedTitle'), description: tr('forumTopic.toast.topicClosedDesc') })
       load()
     } catch (e: any) {
-      toast({ title: 'Erro ao fechar', description: e?.message || 'Tente novamente', variant: 'destructive' })
+      toast({
+        title: tr('forumTopic.toast.closeErrorTitle'),
+        description: e?.message || tr('forumTopic.toast.tryAgain'),
+        variant: 'destructive',
+      })
     }
   }
 
   const isLeaderMod = Boolean(isLeader && studioAccess)
   const canDeleteTopic = typeof userRole === 'string' && (userRole.includes('admin') || userRole.includes('gerente_djt') || userRole.includes('gerente_divisao_djtx'))
   const permissionLabel = canDeleteTopic
-    ? 'Permissão: Admin — editar, limpar e excluir tópico'
+    ? tr('forumTopic.permission.admin')
     : isLeaderMod
-      ? 'Permissão: Moderador — editar e limpar tópico'
-      : 'Permissão: Colaborador — leitura e comentários'
+      ? tr('forumTopic.permission.moderator')
+      : tr('forumTopic.permission.contributor')
 
   const sendCompendiumToStudio = (kind: 'quiz' | 'desafio' | 'campanha') => {
     if (!topic) return
@@ -503,14 +682,18 @@ export default function ForumTopic() {
   }
 
   const handleDeletePost = async (postId: string) => {
-    if (!confirm('Excluir este post definitivamente?')) return
+    if (!confirm(tr('forumTopic.confirm.deletePost'))) return
     try {
       const { data: session } = await supabase.auth.getSession(); const token = session.session?.access_token
       const resp = await fetch('/api/forum?handler=moderate', { method:'POST', headers:{ 'Content-Type':'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify({ action: 'delete_post', post_id: postId }) })
-      const j = await resp.json(); if (!resp.ok) throw new Error(j?.error || 'Falha ao excluir')
+      const j = await resp.json(); if (!resp.ok) throw new Error(j?.error || tr('forumTopic.errors.deletePostFailed'))
       load()
     } catch (e:any) {
-      toast({ title: 'Erro ao excluir post', description: e?.message || 'Tente novamente', variant: 'destructive' })
+      toast({
+        title: tr('forumTopic.toast.deletePostErrorTitle'),
+        description: e?.message || tr('forumTopic.toast.tryAgain'),
+        variant: 'destructive',
+      })
     }
   }
 
@@ -527,7 +710,11 @@ export default function ForumTopic() {
   const handleSavePostEdit = async (post: Post) => {
     let text = (editingPostText || '').trim()
     if (text.length < 10) {
-      toast({ title: 'Conteúdo muito curto', description: 'Escreva ao menos 10 caracteres', variant: 'destructive' })
+      toast({
+        title: tr('forumTopic.toast.postTooShortTitle'),
+        description: tr('forumTopic.toast.postTooShortDesc'),
+        variant: 'destructive',
+      })
       return
     }
     try {
@@ -540,8 +727,7 @@ export default function ForumTopic() {
       if (resp.ok && Array.isArray(json.hashtags) && json.hashtags.length > 0) {
         const proposal = json.hashtags.filter((h: string) => !text.includes(h))
         if (proposal.length > 0) {
-          const add = confirm(`Sugerir # para este post editado?\n${proposal.join(' ')}\n\nAdicionar?`)
-          if (add) {
+          if (confirm(tr('forumTopic.confirm.addHashtagsEdited', { hashtags: proposal.join(' ') }))) {
             text = `${text}\n${proposal.join(' ')}`
             setEditingPostText(text)
           }
@@ -557,12 +743,16 @@ export default function ForumTopic() {
         body: JSON.stringify({ action:'update_post', post_id: post.id, content_md: text })
       })
       const j = await resp.json().catch(()=>({}))
-      if (!resp.ok) throw new Error(j?.error || 'Falha ao salvar edição')
+      if (!resp.ok) throw new Error(j?.error || tr('forumTopic.errors.saveEditFailed'))
       cancelEditPost()
       load()
-      toast({ title: 'Post atualizado' })
+      toast({ title: tr('forumTopic.toast.postUpdatedTitle') })
     } catch (e:any) {
-      toast({ title: 'Erro ao salvar edição', description: e?.message || 'Tente novamente', variant: 'destructive' })
+      toast({
+        title: tr('forumTopic.toast.saveEditErrorTitle'),
+        description: e?.message || tr('forumTopic.toast.tryAgain'),
+        variant: 'destructive',
+      })
     }
   }
 
@@ -576,7 +766,7 @@ export default function ForumTopic() {
       })
       const j = await resp.json().catch(()=>({}))
       const cleaned = j?.cleaned?.description
-      if (!resp.ok || !cleaned) throw new Error(j?.error || 'Falha na revisão automática')
+      if (!resp.ok || !cleaned) throw new Error(j?.error || tr('forumTopic.errors.cleanupFailed'))
 
       const { data: session } = await supabase.auth.getSession(); const token = session.session?.access_token
       if (!token) throw new Error('Não autenticado')
@@ -586,12 +776,16 @@ export default function ForumTopic() {
         body: JSON.stringify({ action:'update_post', post_id: post.id, content_md: cleaned })
       })
       const j2 = await save.json().catch(()=>({}))
-      if (!save.ok) throw new Error(j2?.error || 'Erro ao salvar revisão')
+      if (!save.ok) throw new Error(j2?.error || tr('forumTopic.errors.saveReviewFailed'))
 
       setPosts(prev => prev.map(p => p.id === post.id ? { ...p, content_md: cleaned } : p))
-      toast({ title: 'Texto revisado', description: 'Ortografia e pontuação ajustadas (sem mudar conteúdo).' })
+      toast({ title: tr('forumTopic.toast.textReviewedTitle'), description: tr('forumTopic.toast.textReviewedDesc') })
     } catch (e:any) {
-      toast({ title: 'Erro ao revisar', description: e?.message || 'Tente novamente', variant: 'destructive' })
+      toast({
+        title: tr('forumTopic.toast.reviewErrorTitle'),
+        description: e?.message || tr('forumTopic.toast.tryAgain'),
+        variant: 'destructive',
+      })
     } finally {
       setCleaningPostId(null)
     }
@@ -599,29 +793,37 @@ export default function ForumTopic() {
 
   const handleDeleteTopic = async () => {
     if (!id) return
-    if (!confirm('Excluir este tópico e todos os posts?')) return
+    if (!confirm(tr('forumTopic.confirm.deleteTopic'))) return
     try {
       const { data: session } = await supabase.auth.getSession(); const token = session.session?.access_token
       const resp = await fetch('/api/forum?handler=moderate', { method:'POST', headers:{ 'Content-Type':'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify({ action: 'delete_topic', topic_id: id }) })
-      const j = await resp.json(); if (!resp.ok) throw new Error(j?.error || 'Falha ao excluir')
-      toast({ title: 'Tópico excluído' })
+      const j = await resp.json(); if (!resp.ok) throw new Error(j?.error || tr('forumTopic.errors.deleteTopicFailed'))
+      toast({ title: tr('forumTopic.toast.topicDeletedTitle') })
       window.history.back()
     } catch (e:any) {
-      toast({ title: 'Erro ao excluir tópico', description: e?.message || 'Tente novamente', variant: 'destructive' })
+      toast({
+        title: tr('forumTopic.toast.deleteTopicErrorTitle'),
+        description: e?.message || tr('forumTopic.toast.tryAgain'),
+        variant: 'destructive',
+      })
     }
   }
 
   const handleClearTopic = async () => {
     if (!id) return
-    if (!confirm('Remover todos os posts deste tópico?')) return
+    if (!confirm(tr('forumTopic.confirm.clearTopic'))) return
     try {
       const { data: session } = await supabase.auth.getSession(); const token = session.session?.access_token
       const resp = await fetch('/api/forum?handler=moderate', { method:'POST', headers:{ 'Content-Type':'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify({ action: 'clear_topic', topic_id: id }) })
-      const j = await resp.json(); if (!resp.ok) throw new Error(j?.error || 'Falha ao limpar')
-      toast({ title: 'Tópico limpo' })
+      const j = await resp.json(); if (!resp.ok) throw new Error(j?.error || tr('forumTopic.errors.clearTopicFailed'))
+      toast({ title: tr('forumTopic.toast.topicClearedTitle') })
       load()
     } catch (e:any) {
-      toast({ title: 'Erro ao limpar tópico', description: e?.message || 'Tente novamente', variant: 'destructive' })
+      toast({
+        title: tr('forumTopic.toast.clearTopicErrorTitle'),
+        description: e?.message || tr('forumTopic.toast.tryAgain'),
+        variant: 'destructive',
+      })
     }
   }
 
@@ -630,11 +832,15 @@ export default function ForumTopic() {
     try {
       const { data: session } = await supabase.auth.getSession(); const token = session.session?.access_token
       const resp = await fetch('/api/forum?handler=moderate', { method:'POST', headers:{ 'Content-Type':'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify({ action: 'update_topic', topic_id: id, update: { title: editTitle, description: editDesc } }) })
-      const j = await resp.json(); if (!resp.ok) throw new Error(j?.error || 'Falha ao atualizar')
+      const j = await resp.json(); if (!resp.ok) throw new Error(j?.error || tr('forumTopic.errors.updateTopicFailed'))
       setEditing(false)
       load()
     } catch (e:any) {
-      toast({ title: 'Erro ao atualizar tópico', description: e?.message || 'Tente novamente', variant: 'destructive' })
+      toast({
+        title: tr('forumTopic.toast.updateTopicErrorTitle'),
+        description: e?.message || tr('forumTopic.toast.tryAgain'),
+        variant: 'destructive',
+      })
     }
   }
 
@@ -643,6 +849,12 @@ export default function ForumTopic() {
   const topicTitle = translatedTopic.title || topic.title
   const topicDescription = translatedTopic.description ?? topic.description ?? ''
   const summaryText = translatedSummary || compendium?.summary_md || ''
+  const statusLabel =
+    topic.status === 'closed'
+      ? tr('forums.status.closed')
+      : topic.status === 'open'
+        ? tr('forums.status.open')
+        : topic.status
 
   return (
     <div className="relative min-h-screen pb-40">
@@ -659,12 +871,12 @@ export default function ForumTopic() {
                   onClick={() => navigate('/forums')}
                   className="-ml-2 text-xs text-muted-foreground hover:text-foreground"
                 >
-                  ← Voltar aos fóruns
+                  {tr('forumTopic.backToForums')}
                 </Button>
                 {editing ? (
                   <div className="space-y-3 rounded-2xl border border-white/10 bg-black/35 p-3 shadow-sm">
                     <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-                      <span>Revise título e descrição com IA (somente ortografia e pontuação, sem mudar o conteúdo).</span>
+                      <span>{tr('forumTopic.edit.aiHint')}</span>
                       <Button
                         size="icon"
                         variant="ghost"
@@ -680,7 +892,7 @@ export default function ForumTopic() {
                               body: JSON.stringify({ title: textTitle, description: textDesc, language: localeToOpenAiLanguageTag(getActiveLocale()) })
                             })
                             const j = await resp.json().catch(() => ({}))
-                            if (!resp.ok || !j?.cleaned) throw new Error(j?.error || 'Falha na revisão')
+                            if (!resp.ok || !j?.cleaned) throw new Error(j?.error || tr('forumTopic.errors.aiCleanupFailed'))
                             if (typeof j.cleaned.title === 'string' && j.cleaned.title.trim()) {
                               setEditTitle(j.cleaned.title)
                             }
@@ -688,10 +900,14 @@ export default function ForumTopic() {
                               setEditDesc(j.cleaned.description)
                             }
                           } catch (e:any) {
-                            toast({ title: 'Erro na revisão automática', description: e?.message || 'Tente novamente', variant: 'destructive' })
+                            toast({
+                              title: tr('forumTopic.toast.aiCleanupErrorTitle'),
+                              description: e?.message || tr('forumTopic.toast.tryAgain'),
+                              variant: 'destructive',
+                            })
                           }
                         }}
-                        title="Revisar ortografia e pontuação do tópico"
+                        title={tr('forumTopic.edit.reviewAria')}
                       >
                         <Wand2 className="h-4 w-4" />
                       </Button>
@@ -708,8 +924,8 @@ export default function ForumTopic() {
                       className="bg-black/60 border-white/20"
                     />
                     <div className="flex gap-2 justify-end">
-                      <Button size="sm" onClick={handleUpdateTopic}>Salvar</Button>
-                      <Button size="sm" variant="outline" onClick={()=>{ setEditing(false); }}>Cancelar</Button>
+                      <Button size="sm" onClick={handleUpdateTopic}>{tr('forumTopic.actions.save')}</Button>
+                      <Button size="sm" variant="outline" onClick={()=>{ setEditing(false); }}>{tr('forumTopic.actions.cancel')}</Button>
                     </div>
                   </div>
                 ) : (
@@ -718,7 +934,7 @@ export default function ForumTopic() {
                     <CardDescription className="whitespace-pre-line">{topicDescription}</CardDescription>
                     {isTranslating && (
                       <p className="text-[11px] text-muted-foreground">
-                        Gerando traduções para inglês e mandarim...
+                        {tr('forumTopic.translationRunning')}
                       </p>
                     )}
                   </>
@@ -727,7 +943,7 @@ export default function ForumTopic() {
               <div className="flex flex-col items-end gap-2 w-full md:w-auto">
                 <div className="flex flex-wrap items-center justify-end gap-2 text-[11px]">
                   <Badge variant={topic.status === 'closed' ? 'secondary' : 'default'}>
-                    {topic.status}
+                    {statusLabel}
                   </Badge>
                   <span className="text-muted-foreground text-right max-w-xs">
                     {permissionLabel}
@@ -741,7 +957,7 @@ export default function ForumTopic() {
                     disabled={!id}
                     className="text-[11px]"
                   >
-                    Top Temas & Ações
+                    {tr('forums.topThemesButton')}
                   </Button>
                   {id && (
                     <Button
@@ -751,11 +967,11 @@ export default function ForumTopic() {
                       onClick={() => {
                         const url = buildAbsoluteAppUrl(`/forum/${encodeURIComponent(id)}`)
                         openWhatsAppShare({
-                          message: `Veja este fórum no DJT Quest:\n${topicTitle}`,
+                          message: tr('dashboard.forumShareMessage', { title: topicTitle }),
                           url,
                         })
                       }}
-                      title="Compartilhar este fórum no WhatsApp"
+                      title={tr('dashboard.forumShareAria')}
                     >
                       <Share2 className="h-4 w-4" />
                     </Button>
@@ -767,15 +983,15 @@ export default function ForumTopic() {
                       className="h-8 w-8"
                       disabled={isSpeaking}
                       onClick={() => speakText([topicTitle, topicDescription || ''].filter(Boolean).join('\n\n'))}
-                      title="Ouvir este fórum"
-                      aria-label="Ouvir este fórum"
+                      title={tr('forumTopic.listenForum')}
+                      aria-label={tr('forumTopic.listenForum')}
                     >
                       <Volume2 className="h-4 w-4" />
                     </Button>
                   )}
                   {isLeaderMod && topic.status !== 'closed' && (
                     <Button size="xs" onClick={handleClose} className="text-[11px]">
-                      Fechar & Curar
+                      {tr('forumTopic.actions.closeAndCurate')}
                     </Button>
                   )}
                   {isLeaderMod && !editing && (
@@ -789,7 +1005,7 @@ export default function ForumTopic() {
                       }}
                       className="text-[11px]"
                     >
-                      Editar
+                      {tr('forumTopic.actions.edit')}
                     </Button>
                   )}
                   {isLeaderMod && (
@@ -800,7 +1016,7 @@ export default function ForumTopic() {
                         onClick={handleClearTopic}
                         className="text-[11px]"
                       >
-                        Limpar
+                        {tr('forumTopic.actions.clear')}
                       </Button>
                       {canDeleteTopic && (
                         <Button
@@ -809,7 +1025,7 @@ export default function ForumTopic() {
                           onClick={handleDeleteTopic}
                           className="text-[11px]"
                         >
-                          Excluir
+                          {tr('forumTopic.actions.delete')}
                         </Button>
                       )}
                     </>
@@ -827,9 +1043,9 @@ export default function ForumTopic() {
         {(compendium?.summary_md || compendium?.key_learnings || compendium?.suggested_quizzes || compendium?.suggested_challenges) && (
           <Card>
             <CardHeader>
-              <CardTitle className="text-xl">Compêndio do Tema</CardTitle>
+              <CardTitle className="text-xl">{tr('forumTopic.compendium.title')}</CardTitle>
               <CardDescription>
-                Resumo e aprendizados curados para reuso em quizzes, desafios e campanhas.
+                {tr('forumTopic.compendium.subtitle')}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -839,7 +1055,7 @@ export default function ForumTopic() {
 
               {Array.isArray(compendium?.key_learnings) && compendium.key_learnings.length > 0 && (
                 <div className="space-y-1">
-                  <p className="text-sm font-semibold">Aprendizados-chave</p>
+                  <p className="text-sm font-semibold">{tr('forumTopic.compendium.keyLearnings')}</p>
                   <ul className="list-disc pl-5 text-sm text-muted-foreground space-y-1">
                     {compendium.key_learnings.slice(0, 12).map((k: any, idx: number) => (
                       <li key={idx}>{String(k)}</li>
@@ -864,7 +1080,7 @@ export default function ForumTopic() {
                 if (!all.length) return null
                 return (
                   <div>
-                    <p className="text-sm font-semibold">Anexos do tema</p>
+                    <p className="text-sm font-semibold">{tr('forumTopic.compendium.attachments')}</p>
                     <AttachmentViewer urls={all} />
                   </div>
                 )
@@ -873,13 +1089,13 @@ export default function ForumTopic() {
               {isLeaderMod && (
                 <div className="flex flex-wrap gap-2 pt-1">
                   <Button size="sm" variant="outline" onClick={() => sendCompendiumToStudio('quiz')}>
-                    Criar Quiz (Studio)
+                    {tr('forumTopic.compendium.createQuiz')}
                   </Button>
                   <Button size="sm" variant="outline" onClick={() => sendCompendiumToStudio('desafio')}>
-                    Criar Desafio (Studio)
+                    {tr('forumTopic.compendium.createChallenge')}
                   </Button>
                   <Button size="sm" variant="outline" onClick={() => sendCompendiumToStudio('campanha')}>
-                    Criar Campanha (Studio)
+                    {tr('forumTopic.compendium.createCampaign')}
                   </Button>
                 </div>
               )}
@@ -898,7 +1114,7 @@ export default function ForumTopic() {
                 const name = p.author?.name || ''
                 if (sigla && name) return `[${sigla}] ${name}`
                 if (sigla) return `[${sigla}]`
-                return name || 'Colaborador'
+                return name || tr('forumTopic.author.fallback')
               })()
               return (
             <Card key={p.id} id={`post-${p.id}`}>
@@ -906,7 +1122,7 @@ export default function ForumTopic() {
                 {editingPostId === p.id ? (
                   <div className="space-y-2">
                     <div className="flex items-center justify-between text-xs text-muted-foreground">
-                      <span>Use a varinha para ajustar ortografia e pontuação deste relato.</span>
+                      <span>{tr('forumTopic.postEdit.aiHint')}</span>
                       <Button
                         size="icon"
                         variant="ghost"
@@ -922,10 +1138,14 @@ export default function ForumTopic() {
                             })
                             const j = await resp.json().catch(()=>({}))
                             const cleaned = j?.cleaned?.description
-                            if (!resp.ok || !cleaned) throw new Error(j?.error || 'Falha na revisão automática')
+                            if (!resp.ok || !cleaned) throw new Error(j?.error || tr('forumTopic.errors.aiCleanupFailed'))
                             setEditingPostText(String(cleaned))
                           } catch (e:any) {
-                            toast({ title:'Erro na revisão', description: e?.message || 'Tente novamente', variant:'destructive' })
+                            toast({
+                              title: tr('forumTopic.toast.aiCleanupErrorTitle'),
+                              description: e?.message || tr('forumTopic.toast.tryAgain'),
+                              variant: 'destructive',
+                            })
                           }
                         }}
                       >
@@ -938,8 +1158,8 @@ export default function ForumTopic() {
                       onChange={(e)=>setEditingPostText(e.target.value)}
                     />
                     <div className="flex justify-end gap-2">
-                      <Button size="sm" variant="outline" onClick={cancelEditPost}>Cancelar</Button>
-                      <Button size="sm" onClick={()=>handleSavePostEdit(p)}>Salvar</Button>
+                      <Button size="sm" variant="outline" onClick={cancelEditPost}>{tr('forumTopic.actions.cancel')}</Button>
+                      <Button size="sm" onClick={()=>handleSavePostEdit(p)}>{tr('forumTopic.actions.save')}</Button>
                     </div>
                   </div>
                 ) : (
@@ -959,12 +1179,13 @@ export default function ForumTopic() {
                             `/forum/${encodeURIComponent(id || '')}#post-${encodeURIComponent(p.id)}`,
                           )
                           const preview = (postText || '').trim().replace(/\s+/g, ' ').slice(0, 160)
+                          const previewText = `${preview}${preview.length >= 160 ? '…' : ''}`
                           openWhatsAppShare({
-                            message: `Comentário no fórum:\n${topicTitle}\n"${preview}${preview.length >= 160 ? '…' : ''}"`,
+                            message: tr('forumTopic.post.shareMessage', { title: topicTitle, preview: previewText }),
                             url,
                           })
                         }}
-                        title="Compartilhar este comentário no WhatsApp"
+                        title={tr('forumTopic.post.shareAria')}
                       >
                         <Share2 className="h-4 w-4" />
                       </Button>
@@ -973,8 +1194,8 @@ export default function ForumTopic() {
                         variant="ghost"
                         disabled={isSpeaking}
                         onClick={() => speakText(postText)}
-                        title="Ouvir este comentário"
-                        aria-label="Ouvir este comentário"
+                        title={tr('forumTopic.post.listenAria')}
+                        aria-label={tr('forumTopic.post.listenAria')}
                       >
                         <Volume2 className="h-4 w-4" />
                       </Button>
@@ -986,12 +1207,12 @@ export default function ForumTopic() {
                           setReplyToExcerpt(postText.slice(0, 140))
                         }}
                       >
-                        ↳ Responder
+                        {tr('forumTopic.actions.reply')}
                       </Button>
                       {(isLeaderMod || p.user_id === user?.id) && (
                         <>
-                          <Button size="xs" variant="outline" onClick={()=>startEditPost(p)}>Editar</Button>
-                          <Button size="xs" variant="destructive" onClick={()=>handleDeletePost(p.id)}>Excluir</Button>
+                          <Button size="xs" variant="outline" onClick={()=>startEditPost(p)}>{tr('forumTopic.actions.edit')}</Button>
+                          <Button size="xs" variant="destructive" onClick={()=>handleDeletePost(p.id)}>{tr('forumTopic.actions.delete')}</Button>
                         </>
                       )}
                       {isLeaderMod && (
@@ -1002,7 +1223,7 @@ export default function ForumTopic() {
                           disabled={cleaningPostId === p.id}
                         >
                           <Wand2 className="h-4 w-4 mr-1" />
-                          Revisar IA
+                          {tr('forumTopic.post.reviewAi')}
                         </Button>
                       )}
                     </div>
@@ -1018,7 +1239,7 @@ export default function ForumTopic() {
                 })()}
                 {p.ai_assessment && (
                   <div className="mt-2 text-xs text-muted-foreground">
-                    Qualidade: {(p.ai_assessment.helpfulness ?? 0).toFixed(2)} / {(p.ai_assessment.clarity ?? 0).toFixed(2)} / {(p.ai_assessment.novelty ?? 0).toFixed(2)}
+                    {tr('forumTopic.post.qualityLabel')}: {(p.ai_assessment.helpfulness ?? 0).toFixed(2)} / {(p.ai_assessment.clarity ?? 0).toFixed(2)} / {(p.ai_assessment.novelty ?? 0).toFixed(2)}
                   </div>
                 )}
                 {replies.length > 0 && (
@@ -1030,13 +1251,13 @@ export default function ForumTopic() {
                         const name = r.author?.name || ''
                         if (sigla && name) return `[${sigla}] ${name}`
                         if (sigla) return `[${sigla}]`
-                        return name || 'Colaborador'
+                        return name || tr('forumTopic.author.fallback')
                       })()
                       return (
                       <div key={r.id} id={`post-${r.id}`} className="flex items-start justify-between gap-2 text-sm text-muted-foreground">
                         <div className="whitespace-pre-wrap flex-1 space-y-1">
                           <p className="text-[11px] font-semibold text-muted-foreground flex items-center gap-1">
-                            <span className="text-xs">↳ resposta</span>
+                            <span className="text-xs">{tr('forumTopic.reply.label')}</span>
                             <span>{rAuthorLabel}</span>
                           </p>
                           <div>{replyText}</div>
@@ -1058,12 +1279,13 @@ export default function ForumTopic() {
                                 `/forum/${encodeURIComponent(id || '')}#post-${encodeURIComponent(r.id)}`,
                               )
                               const preview = (replyText || '').trim().replace(/\s+/g, ' ').slice(0, 160)
+                              const previewText = `${preview}${preview.length >= 160 ? '…' : ''}`
                               openWhatsAppShare({
-                                message: `Comentário no fórum:\n${topicTitle}\n"${preview}${preview.length >= 160 ? '…' : ''}"`,
+                                message: tr('forumTopic.post.shareMessage', { title: topicTitle, preview: previewText }),
                                 url,
                               })
                             }}
-                            title="Compartilhar este comentário no WhatsApp"
+                            title={tr('forumTopic.post.shareAria')}
                           >
                             <Share2 className="h-4 w-4" />
                           </Button>
@@ -1072,8 +1294,8 @@ export default function ForumTopic() {
                             variant="ghost"
                             disabled={isSpeaking}
                             onClick={() => speakText(replyText)}
-                            title="Ouvir esta resposta"
-                            aria-label="Ouvir esta resposta"
+                            title={tr('forumTopic.reply.listenAria')}
+                            aria-label={tr('forumTopic.reply.listenAria')}
                           >
                             <Volume2 className="h-4 w-4" />
                           </Button>
@@ -1085,12 +1307,12 @@ export default function ForumTopic() {
                               setReplyToExcerpt(replyText.slice(0, 140))
                             }}
                           >
-                            ↳ Responder
+                            {tr('forumTopic.actions.reply')}
                           </Button>
                           {(isLeaderMod || r.user_id === user?.id) && (
                             <>
-                              <Button size="xs" variant="outline" onClick={()=>startEditPost(r)}>Editar</Button>
-                              <Button size="xs" variant="destructive" onClick={()=>handleDeletePost(r.id)}>Excluir</Button>
+                              <Button size="xs" variant="outline" onClick={()=>startEditPost(r)}>{tr('forumTopic.actions.edit')}</Button>
+                              <Button size="xs" variant="destructive" onClick={()=>handleDeletePost(r.id)}>{tr('forumTopic.actions.delete')}</Button>
                             </>
                           )}
                         </div>
@@ -1108,21 +1330,21 @@ export default function ForumTopic() {
         {topic.status !== 'closed' && (
           <Card>
             <CardHeader>
-              <CardTitle>Nova contribuição</CardTitle>
-              <CardDescription>Traga seu relato completo: marque colegas com @, assuntos com # e suba evidências para deixar o aprendizado vivo.</CardDescription>
+              <CardTitle>{tr('forumTopic.newPost.title')}</CardTitle>
+              <CardDescription>{tr('forumTopic.newPost.subtitle')}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex flex-col gap-1">
                   <p className="text-xs text-muted-foreground">
                     {replyToPostId
-                      ? 'Respondendo a um comentário deste fórum. Sua resposta ficará encadeada logo abaixo do comentário original.'
-                      : 'Descreva o contexto com suas palavras. Use a varinha para ajustar ortografia e pontuação.'}
+                      ? tr('forumTopic.newPost.hint.replying')
+                      : tr('forumTopic.newPost.hint.default')}
                   </p>
                   {replyToPostId && (
                     <div className="text-[11px] text-muted-foreground border border-dashed border-border/60 rounded px-2 py-1 flex items-start justify-between gap-2">
                       <span className="truncate">
-                        <span className="font-semibold mr-1">Comentário alvo:</span>
+                        <span className="font-semibold mr-1">{tr('forumTopic.newPost.replyTargetLabel')}:</span>
                         {replyToExcerpt || '...'}
                       </span>
                       <Button
@@ -1134,7 +1356,7 @@ export default function ForumTopic() {
                           setReplyToExcerpt('')
                         }}
                       >
-                        Cancelar resposta
+                        {tr('forumTopic.actions.cancelReply')}
                       </Button>
                     </div>
                   )}
@@ -1146,35 +1368,35 @@ export default function ForumTopic() {
                   className="h-7 w-7"
                   onClick={handleCleanupContent}
                   disabled={cleaning}
-                  title="Revisar ortografia e pontuação (sem mudar conteúdo)"
+                  title={tr('forumTopic.newPost.cleanupAria')}
                 >
                   <Wand2 className="h-4 w-4" />
                 </Button>
               </div>
-              <Textarea rows={4} value={content} onChange={(e)=>handleContentChange(e.target.value)} placeholder="Contexto, ação e resultado em poucas linhas..." />
-              {mentionSuggestions.length > 0 && mentionQuery.trim().length >= 1 && (
+              <Textarea
+                ref={composerRef}
+                rows={4}
+                value={content}
+                onChange={handleContentChange}
+                onClick={syncMentionFromComposer}
+                onKeyUp={syncMentionFromComposer}
+                onSelect={syncMentionFromComposer}
+                onKeyDown={handleComposerKeyDown}
+                placeholder={tr('forumTopic.newPost.placeholder')}
+              />
+              {mentionSuggestions.length > 0 && mentionDraft && (
                 <div className="flex flex-wrap gap-1 text-[11px] text-muted-foreground">
                   {mentionSuggestions.map((s, idx) => (
                     <button
                       key={`${s.kind}-${s.handle}-${idx}`}
                       type="button"
-                      onClick={() => {
-                        setContent(prev => {
-                          const re = /@([A-Za-z0-9_.-]{1,30})/g
-                          const all = Array.from(prev.matchAll(re))
-                          if (!all.length) {
-                            return [prev.trim(), `@${s.handle}`].filter(Boolean).join(' ')
-                          }
-                          const last = all[all.length - 1]
-                          const start = last.index ?? 0
-                          const before = prev.slice(0, start)
-                          const after = prev.slice(start + last[0].length)
-                          return `${before}@${s.handle}${after}`
-                        })
-                        setMentionQuery('')
-                        setMentionSuggestions([])
+                      onMouseDown={(e) => {
+                        e.preventDefault()
+                        insertMention(s)
                       }}
-                      className="px-2 py-0.5 rounded-full border border-muted-foreground/40 bg-background/60 hover:bg-muted"
+                      className={`px-2 py-0.5 rounded-full border border-muted-foreground/40 bg-background/60 hover:bg-muted ${
+                        idx === mentionActiveIndex ? 'bg-muted text-foreground' : ''
+                      }`}
                     >
                       <span className="font-semibold">
                         {s.label || s.handle}
@@ -1183,7 +1405,7 @@ export default function ForumTopic() {
                         <span className="ml-1 opacity-70">@{s.handle}</span>
                       )}
                       {s.kind === 'team' && (
-                        <span className="ml-1 opacity-70">(equipe @{s.handle})</span>
+                        <span className="ml-1 opacity-70">{tr('forumTopic.mentions.teamSuffix', { handle: s.handle })}</span>
                       )}
                     </button>
                   ))}
@@ -1191,7 +1413,7 @@ export default function ForumTopic() {
               )}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div className="space-y-2">
-                  <p className="text-sm text-muted-foreground">Anexos (opcional)</p>
+                  <p className="text-sm text-muted-foreground">{tr('forumTopic.attachments.optional')}</p>
                   <AttachmentUploader
                     onAttachmentsChange={setAttachmentUrls}
                     onUploadingChange={setAttachmentsUploading}
@@ -1201,39 +1423,39 @@ export default function ForumTopic() {
                     maxVideoSeconds={90}
                   />
                   {attachmentsUploading && (
-                    <p className="text-[11px] text-muted-foreground">Aguarde: enviando anexos…</p>
+                    <p className="text-[11px] text-muted-foreground">{tr('forumTopic.attachments.uploading')}</p>
                   )}
                 </div>
                 <div className="space-y-2">
-                  <p className="text-sm text-muted-foreground">Áudio para organizar com IA (opcional)</p>
+                  <p className="text-sm text-muted-foreground">{tr('forumTopic.audio.optional')}</p>
                   <div className="flex flex-col gap-2">
                     <div className="flex flex-wrap items-center gap-2">
                       <VoiceRecorderButton
                         size="sm"
-                        label="Gravar áudio"
+                        label={tr('forumTopic.audio.record')}
                         onText={(text) => setContent(prev => [prev, text].filter(Boolean).join('\n\n'))}
                       />
                       <Input type="file" accept="audio/*" onChange={(e)=>setAudioFile(e.target.files?.[0] || null)} className="sm:max-w-[360px]" />
                       {audioFile && (
                         <Button type="button" variant="ghost" size="sm" onClick={() => setAudioFile(null)}>
-                          Remover áudio
+                          {tr('forumTopic.audio.remove')}
                         </Button>
                       )}
                       <Button variant="outline" disabled={!audioFile || transcribing} onClick={handleTranscribe}>
-                        {transcribing ? 'Transcrevendo...' : 'Organizar áudio'}
+                        {transcribing ? tr('forumTopic.audio.transcribing') : tr('forumTopic.audio.organize')}
                       </Button>
                     </div>
                     {audioPreviewUrl && (
                       <audio controls src={audioPreviewUrl} className="w-full" />
                     )}
                     <p className="text-[11px] text-muted-foreground">
-                      Dica: prefira gravações curtas para transcrição rápida e com menos ruído.
+                      {tr('forumTopic.audio.hint')}
                     </p>
                   </div>
                 </div>
               </div>
               <div className="flex justify-end">
-                <Button onClick={handlePost} disabled={!content.trim() || attachmentsUploading}>Publicar</Button>
+                <Button onClick={handlePost} disabled={!content.trim() || attachmentsUploading}>{tr('forumTopic.actions.publish')}</Button>
               </div>
             </CardContent>
           </Card>

@@ -346,5 +346,135 @@
       "low": "Low volume",
       "high": "High volume"
     }
+  },
+  "forumTopic": {
+    "permission": {
+      "admin": "Permission: Admin — edit, clear, and delete topic",
+      "moderator": "Permission: Moderator — edit and clear topic",
+      "contributor": "Permission: Contributor — comment and like"
+    },
+    "backToForums": "Back to forums",
+    "edit": {
+      "aiHint": "Use the wand to fix spelling and punctuation.",
+      "reviewAria": "Review with AI"
+    },
+    "actions": {
+      "save": "Save",
+      "cancel": "Cancel",
+      "edit": "Edit",
+      "clear": "Clear",
+      "delete": "Delete",
+      "closeAndCurate": "Close & Curate",
+      "reply": "Reply",
+      "cancelReply": "Cancel reply",
+      "publish": "Publish"
+    },
+    "translationRunning": "Translating content…",
+    "listenForum": "Listen to forum",
+    "compendium": {
+      "title": "Forum Compendium",
+      "subtitle": "Summary and curated insights from this topic.",
+      "keyLearnings": "Key learnings",
+      "attachments": "Attachments",
+      "createQuiz": "Create Quiz",
+      "createChallenge": "Create Challenge",
+      "createCampaign": "Create Campaign"
+    },
+    "author": {
+      "fallback": "Unknown author"
+    },
+    "postEdit": {
+      "aiHint": "Use the wand to fix spelling and punctuation."
+    },
+    "post": {
+      "shareMessage": "Check out this contribution on DJT Quest:\n{title}\n\n{preview}",
+      "shareAria": "Share post on WhatsApp",
+      "listenAria": "Listen to post",
+      "reviewAi": "Review with AI",
+      "qualityLabel": "AI scores (helpfulness/clarity/novelty)"
+    },
+    "reply": {
+      "label": "Reply",
+      "listenAria": "Listen to reply"
+    },
+    "newPost": {
+      "title": "New contribution",
+      "subtitle": "Share your full story: mention teammates with @, topics with #, and upload evidence to keep the learning alive.",
+      "hint": {
+        "replying": "Replying to a contribution. Use @ to mention and # for topics.",
+        "default": "Describe the context in your own words. Use the wand to fix spelling and punctuation."
+      },
+      "replyTargetLabel": "Replying to",
+      "cleanupAria": "Review text with AI",
+      "placeholder": "Context, action, and result in a few lines..."
+    },
+    "attachments": {
+      "optional": "Attachments (optional)",
+      "uploading": "Uploading attachments…"
+    },
+    "audio": {
+      "optional": "Audio to organize with AI (optional)",
+      "record": "Record audio",
+      "remove": "Remove",
+      "transcribing": "Organizing...",
+      "organize": "Organize audio",
+      "hint": "Tip: prefer short recordings for faster transcription and less noise.",
+      "tooLarge": "File too large. Send a smaller audio (up to {maxMB}MB)."
+    },
+    "mentions": {
+      "teamSuffix": "(team @{handle})"
+    },
+    "confirm": {
+      "closeTopic": "Close this topic and generate a compendium?",
+      "deletePost": "Delete this post?",
+      "deleteTopic": "Delete this topic? This may revert related XP.",
+      "clearTopic": "Clear this topic (delete posts) and revert related XP when applicable?",
+      "addHashtags": "We suggest adding these hashtags:\n{hashtags}\n\nAdd before publishing?",
+      "addHashtagsEdited": "Suggest # for this edited post?\n{hashtags}\n\nAdd?"
+    },
+    "errors": {
+      "aiCleanupFailed": "Auto review failed",
+      "cleanupFailed": "Auto review failed",
+      "transcribeFailed": "Transcription failed",
+      "publishFailed": "Publish failed",
+      "closeFailed": "Close failed",
+      "deletePostFailed": "Delete failed",
+      "saveEditFailed": "Save edit failed",
+      "saveReviewFailed": "Save review failed",
+      "deleteTopicFailed": "Delete failed",
+      "clearTopicFailed": "Clear failed",
+      "updateTopicFailed": "Update failed"
+    },
+    "toast": {
+      "enableTtsTitle": "Enable voice playback in the profile menu.",
+      "ttsFailedTitle": "Audio generation failed",
+      "tryAgain": "Try again",
+      "tryAgainLater": "Try again later.",
+      "aiCleanupErrorTitle": "Auto review failed",
+      "audioInsertedTitle": "Audio organized and added to the post",
+      "transcribeErrorTitle": "Transcription error",
+      "nothingToReviewTitle": "Nothing to review",
+      "nothingToReviewDesc": "Type some text before requesting a correction.",
+      "textReviewedTitle": "Text reviewed",
+      "textReviewedDesc": "Spelling and punctuation adjusted; content preserved.",
+      "reviewUnavailableTitle": "Couldn’t review right now",
+      "postTooShortTitle": "Post too short",
+      "postTooShortDesc": "Write at least 10 characters",
+      "forumConfigPendingTitle": "Forum setup pending",
+      "forumConfigPendingDesc": "Apply the forum_core migration in Supabase to enable posts.",
+      "publishErrorTitle": "Publish error",
+      "closeErrorTitle": "Close error",
+      "deletePostErrorTitle": "Delete post error",
+      "postUpdatedTitle": "Post updated",
+      "saveEditErrorTitle": "Save edit error",
+      "reviewErrorTitle": "Review error",
+      "topicDeletedTitle": "Topic deleted",
+      "deleteTopicErrorTitle": "Delete topic error",
+      "topicClearedTitle": "Topic cleared",
+      "clearTopicErrorTitle": "Clear topic error",
+      "updateTopicErrorTitle": "Update topic error",
+      "topicClosedTitle": "Topic closed",
+      "topicClosedDesc": "Curation and summary generated. You can create a quiz/challenge from the compendium."
+    }
   }
 }
