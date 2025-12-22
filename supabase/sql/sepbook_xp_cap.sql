@@ -9,6 +9,7 @@ create table if not exists public.sepbook_xp_log (
 create or replace function public.increment_sepbook_profile_xp(p_user_id uuid, p_amount integer)
 returns void
 language plpgsql
+set search_path = public
 as $$
 declare
   month_start timestamptz;
@@ -57,4 +58,3 @@ begin
   values (p_user_id, to_add);
 end;
 $$;
-

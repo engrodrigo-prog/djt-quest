@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { translateForumTexts, localesForAllTargets, mergeTranslations } from '../lib/forum-translations.js';
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY);
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
@@ -22,6 +23,7 @@ export default async function handler(req, res) {
         if (!uid)
             return res.status(401).json({ error: 'Unauthorized' });
         const { topic_id } = req.body || {};
+        const targetLocales = localesForAllTargets(req.body?.locales);
         if (!topic_id)
             return res.status(400).json({ error: 'topic_id required' });
         // Load posts
@@ -88,12 +90,21 @@ export default async function handler(req, res) {
         const key_learnings = Array.isArray(parsed.key_learnings) ? parsed.key_learnings : null;
         const suggested_quizzes = Array.isArray(parsed.suggested_quizzes) ? parsed.suggested_quizzes : null;
         const suggested_challenges = Array.isArray(parsed.suggested_challenges) ? parsed.suggested_challenges : null;
+        let summary_translations = mergeTranslations(null, { 'pt-BR': summary_md });
+        try {
+            const [map] = await translateForumTexts({ texts: [summary_md], targetLocales });
+            summary_translations = mergeTranslations(summary_translations, map);
+        }
+        catch (_a) {
+            // keep base locale only
+        }
         // Persist compendium and close topic (final)
         await admin.from('forum_compendia').upsert({
             topic_id,
             closed_by: uid,
             closed_at: new Date().toISOString(),
             summary_md,
+            summary_translations,
             key_learnings,
             suggested_quizzes,
             suggested_challenges,

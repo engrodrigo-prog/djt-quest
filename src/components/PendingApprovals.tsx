@@ -6,6 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { CheckCircle, XCircle, Clock } from "lucide-react";
+import { getActiveLocale } from "@/lib/i18n/activeLocale";
 
 interface ChangeRequest {
   id: string;
@@ -117,7 +118,7 @@ export function PendingApprovals() {
                   <span className="font-semibold">{request.new_value}</span>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Solicitado em {new Date(request.created_at).toLocaleString('pt-BR')}
+                  Solicitado em {new Date(request.created_at).toLocaleString(getActiveLocale())}
                 </p>
               </div>
 

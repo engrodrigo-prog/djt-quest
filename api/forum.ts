@@ -6,19 +6,23 @@ import { assertDjtQuestServerEnv } from '../server/env-guard.js';
 import forumPost from '../server/api-handlers/forum-post.js';
 import forumModerate from '../server/api-handlers/forum-moderate.js';
 import forumCloseTopic from '../server/api-handlers/forum-close-topic.js';
+import forumCreateTopic from '../server/api-handlers/forum-create-topic.js';
 import forumAiAssessPost from '../server/api-handlers/forum-ai-assess-post.js';
 import forumTopInsights from '../server/api-handlers/forum-top-insights.js';
 import forumApplyMonthlyBonus from '../server/api-handlers/forum-apply-monthly-bonus.js';
+import forumTranslate from '../server/api-handlers/forum-translate.js';
 
 type Handler = (req: VercelRequest, res: VercelResponse) => any | Promise<any>;
 
 const handlers: Record<string, Handler> = {
   post: forumPost,
   moderate: forumModerate,
+  'create-topic': forumCreateTopic,
   'close-topic': forumCloseTopic,
   'assess-post': forumAiAssessPost,
   'top-insights': forumTopInsights,
   'apply-monthly-bonus': forumApplyMonthlyBonus,
+  translate: forumTranslate,
 };
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {

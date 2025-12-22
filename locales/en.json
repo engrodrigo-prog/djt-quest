@@ -33,7 +33,36 @@
     "defaultPasswordLabel": "Default password:",
     "forgotPassword": "Forgot my password",
     "enter": "Sign in",
-    "entering": "Signing in…"
+    "entering": "Signing in…",
+    "shareWhatsapp": "Share access via WhatsApp",
+    "shareWhatsappMessage": "Access DJT Quest via the link:",
+    "noAccount": "Don't have an account?",
+    "requestSignup": "Request Signup",
+    "errors": {
+      "loginFailedTitle": "Unable to log in",
+      "loginFailedDesc": "Check your credentials and try again",
+      "loginUnexpectedTitle": "Unexpected login failure",
+      "userNotFoundDetailed": "User not found. Check registration number, name, or email."
+    },
+    "forgot": {
+      "title": "Request password reset",
+      "description": "Enter your registration number or email to request a new password. Your leader will need to approve the reset.",
+      "identifierLabel": "Registration number or email",
+      "identifierPlaceholder": "Ex.: 601555 or your.email@cpfl.com.br",
+      "reasonLabel": "Reason (optional)",
+      "reasonPlaceholder": "Describe the reason for the reset",
+      "cancel": "Cancel",
+      "submit": "Request reset",
+      "submitting": "Sending…",
+      "needIdentifier": "Enter your registration number or email",
+      "requestSent": "Request sent! Await leader approval.",
+      "requestFailed": "Error sending request",
+      "aiReviewTitle": "Password reset reason",
+      "aiReviewTooltip": "Review spelling and punctuation (without changing content)",
+      "aiReviewAutoFail": "Automatic review failed",
+      "aiReviewSuccess": "Reason reviewed (spelling and punctuation).",
+      "aiReviewFailed": "Unable to review now."
+    }
   },
   "profile": {
     "changePasswordTitle": "Change password",

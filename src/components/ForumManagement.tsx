@@ -12,6 +12,8 @@ import { apiFetch } from '@/lib/api';
 import { MessageSquare, Pin, Lock, CheckCircle, Wand2 } from 'lucide-react';
 import { VoiceRecorderButton } from './VoiceRecorderButton';
 import { CompendiumPicker } from '@/components/CompendiumPicker';
+import { getActiveLocale } from '@/lib/i18n/activeLocale';
+import { localeToOpenAiLanguageTag, localeToSpeechLanguage } from '@/lib/i18n/language';
 
 const categories = [
   { value: 'conhecimento_tecnico', label: 'Conhecimento Técnico' },
@@ -50,17 +52,22 @@ export function ForumManagement() {
 
   const createTopicMutation = useMutation({
     mutationFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('Not authenticated');
+      const { data: session } = await supabase.auth.getSession();
+      const token = session.session?.access_token;
+      if (!token) throw new Error('Not authenticated');
 
-      const { error } = await supabase.from('forum_topics').insert({
-        title,
-        description,
-        category,
-        created_by: user.id
+      const resp = await apiFetch('/api/forum?handler=create-topic', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ title, description, category }),
       });
-
-      if (error) throw error;
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        throw new Error(json?.error || 'Erro ao criar tópico');
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['forum-topics-manage'] });
@@ -249,6 +256,7 @@ export function ForumManagement() {
               <Label htmlFor="description">Descrição</Label>
               <div className="flex items-center gap-2">
                 <VoiceRecorderButton
+                  language={localeToSpeechLanguage(getActiveLocale())}
                   onText={(text) =>
                     setDescription((prev) =>
                       [prev, text].filter((v) => v && v.trim().length > 0).join('\n\n')
@@ -270,7 +278,7 @@ export function ForumManagement() {
                       const resp = await apiFetch('/api/ai?handler=cleanup-text', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ title, description, language: 'pt-BR' }),
+                        body: JSON.stringify({ title, description, language: localeToOpenAiLanguageTag(getActiveLocale()) }),
                       });
                       const json = await resp.json().catch(() => ({}));
                       if (!resp.ok || !json?.cleaned) {

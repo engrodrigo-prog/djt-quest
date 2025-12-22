@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 import { Check, ChevronsUpDown } from "lucide-react";
 import registerBg from "@/assets/backgrounds/BG.webp";
 import { useI18n } from "@/contexts/I18nContext";
+import { getActiveLocale } from "@/lib/i18n/activeLocale";
 
 const buildRegisterSchema = (t: (key: string, params?: any) => string) =>
   z.object({
@@ -161,7 +162,7 @@ export default function Register() {
         const json = await resp.json().catch(() => ({}));
         const fromApi = Array.isArray(json?.bases) ? json.bases.map((x: any) => String(x || "").trim()).filter(Boolean) : [];
         const fromStatic = getOperationalBaseOptions(sigla) || [];
-        const merged = Array.from(new Set([...fromApi, ...fromStatic])).sort((a, b) => a.localeCompare(b, "pt-BR"));
+        const merged = Array.from(new Set([...fromApi, ...fromStatic])).sort((a, b) => a.localeCompare(b, getActiveLocale()));
         if (active) setBases(merged);
         if (active && merged.length && (!formData.operational_base || !merged.includes(formData.operational_base))) {
           // não forçar seleção se o usuário já digitou algo; só sugere quando vazio

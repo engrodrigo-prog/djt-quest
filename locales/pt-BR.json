@@ -33,7 +33,36 @@
     "defaultPasswordLabel": "Senha padrão:",
     "forgotPassword": "Esqueci minha senha",
     "enter": "Entrar",
-    "entering": "Entrando…"
+    "entering": "Entrando…",
+    "shareWhatsapp": "Compartilhar acesso pelo WhatsApp",
+    "shareWhatsappMessage": "Acesse o DJT Quest pelo link:",
+    "noAccount": "Não tem conta?",
+    "requestSignup": "Solicitar Cadastro",
+    "errors": {
+      "loginFailedTitle": "Não foi possível entrar",
+      "loginFailedDesc": "Verifique as credenciais e tente novamente",
+      "loginUnexpectedTitle": "Falha inesperada ao entrar",
+      "userNotFoundDetailed": "Usuário não encontrado. Verifique matrícula, nome ou e-mail."
+    },
+    "forgot": {
+      "title": "Solicitar reset de senha",
+      "description": "Informe sua matrícula ou email para pedir uma nova senha. Seu líder precisará aprovar o reset.",
+      "identifierLabel": "Matrícula ou email",
+      "identifierPlaceholder": "Ex.: 601555 ou seu.email@cpfl.com.br",
+      "reasonLabel": "Motivo (opcional)",
+      "reasonPlaceholder": "Descreva o motivo do reset",
+      "cancel": "Cancelar",
+      "submit": "Solicitar reset",
+      "submitting": "Enviando…",
+      "needIdentifier": "Informe sua matrícula ou email",
+      "requestSent": "Solicitação enviada! Aguarde aprovação do líder.",
+      "requestFailed": "Erro ao enviar solicitação",
+      "aiReviewTitle": "Motivo do reset de senha",
+      "aiReviewTooltip": "Revisar ortografia e pontuação (sem mudar conteúdo)",
+      "aiReviewAutoFail": "Falha na revisão automática",
+      "aiReviewSuccess": "Motivo revisado (ortografia e pontuação).",
+      "aiReviewFailed": "Não foi possível revisar agora."
+    }
   },
   "profile": {
     "changePasswordTitle": "Alterar senha",

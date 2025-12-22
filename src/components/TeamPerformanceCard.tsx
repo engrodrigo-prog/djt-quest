@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { TrendingUp, TrendingDown, Minus } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { getActiveLocale } from "@/lib/i18n/activeLocale";
 
 interface TeamModifier {
   team_modifier: number;
@@ -87,7 +88,7 @@ export const TeamPerformanceCard = () => {
         {teamData.last_modifier_update && (
           <p className="text-xs text-white/70">
             Última atualização:{" "}
-            {new Date(teamData.last_modifier_update).toLocaleDateString("pt-BR")}
+            {new Date(teamData.last_modifier_update).toLocaleDateString(getActiveLocale())}
           </p>
         )}
 

@@ -5,6 +5,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { getActiveLocale } from '@/lib/i18n/activeLocale';
 
 type SepbookPostRow = {
   id: string;
@@ -70,7 +71,7 @@ export function SepbookPostsCard() {
         {posts.map((p) => (
           <div key={p.id} className="rounded-md border p-3">
             <div className="flex items-center justify-between gap-3">
-              <p className="text-xs text-muted-foreground">{new Date(p.created_at).toLocaleString('pt-BR')}</p>
+              <p className="text-xs text-muted-foreground">{new Date(p.created_at).toLocaleString(getActiveLocale())}</p>
               <div className="flex items-center gap-2">
                 {p.repost_of && <Badge variant="secondary">Repost</Badge>}
                 <Badge variant="outline">♥ {Number(p.like_count || 0)}</Badge>
@@ -84,4 +85,3 @@ export function SepbookPostsCard() {
     </Card>
   );
 }
-

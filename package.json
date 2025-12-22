@@ -13,6 +13,8 @@
     "test": "node --test",
     "preview": "vite preview",
     "i18n:check": "node scripts/i18n-check.mjs",
+    "i18n:ai:fill": "node scripts/i18n-ai-fill.mjs",
+    "i18n:audit": "node scripts/i18n-audit.mjs",
     "import:reset": "node scripts/reset-and-import.mjs",
     "sync:operational-base": "node scripts/sync-operational-base.mjs",
     "fix:dob": "node scripts/backfill-date-of-birth.mjs",

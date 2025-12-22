@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Users, TrendingUp, Trophy, Calendar } from 'lucide-react';
 import { AvatarDisplay } from './AvatarDisplay';
+import { getActiveLocale } from '@/lib/i18n/activeLocale';
 
 interface TeamMember {
   id: string;
@@ -245,7 +246,7 @@ export function LeaderTeamDashboard() {
                         </Badge>
                       </div>
                       <p className="text-xs text-muted-foreground">
-                        {new Date(event.created_at).toLocaleDateString('pt-BR')}
+                        {new Date(event.created_at).toLocaleDateString(getActiveLocale())}
                       </p>
                     </div>
                     <p className="text-sm">{event.reason}</p>

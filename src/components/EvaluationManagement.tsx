@@ -8,6 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Clock, CheckCircle, AlertCircle, ExternalLink } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
+import { getActiveLocale } from "@/lib/i18n/activeLocale";
 
 interface EvaluationItem {
   id: string;
@@ -177,7 +178,7 @@ export default function EvaluationManagement() {
               )}
               <TableCell>{item.reviewer?.name || 'Não atribuído'}</TableCell>
               <TableCell>
-                {new Date(item.created_at).toLocaleDateString('pt-BR')}
+                {new Date(item.created_at).toLocaleDateString(getActiveLocale())}
               </TableCell>
               <TableCell>
                 <div className="flex gap-2">

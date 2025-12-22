@@ -17,8 +17,22 @@ import Navigation from '@/components/Navigation'
 import { Wand2, Share2, Volume2 } from 'lucide-react'
 import { buildAbsoluteAppUrl, openWhatsAppShare } from '@/lib/whatsappShare'
 import { useTts } from '@/lib/tts'
+import { getActiveLocale } from '@/lib/i18n/activeLocale'
+import { localeToOpenAiLanguageTag, localeToSpeechLanguage } from '@/lib/i18n/language'
+import { useI18n } from '@/contexts/I18nContext'
+import { translateTextsCached } from '@/lib/i18n/aiTranslate'
 
-interface Topic { id: string; title: string; description: string | null; status: string; chas_dimension: 'C'|'H'|'A'|'S'; quiz_specialties: string[] | null; tags: string[] | null }
+interface Topic {
+  id: string;
+  title: string;
+  description: string | null;
+  status: string;
+  chas_dimension: 'C'|'H'|'A'|'S';
+  quiz_specialties: string[] | null;
+  tags: string[] | null;
+  title_translations?: Record<string, string> | null;
+  description_translations?: Record<string, string> | null;
+}
 interface Post {
   id: string;
   user_id: string;
@@ -28,6 +42,7 @@ interface Post {
   ai_assessment: any;
   parent_post_id?: string | null;
   reply_to_user_id?: string | null;
+  translations?: Record<string, string> | null;
   author?: {
     name: string | null;
     sigla_area: string | null;
@@ -39,6 +54,7 @@ export default function ForumTopic() {
   const navigate = useNavigate()
   const { toast } = useToast()
   const { isLeader, studioAccess, user, userRole } = useAuth() as any
+  const { locale } = useI18n()
   const { ttsEnabled, isSpeaking, speak } = useTts()
   const [topic, setTopic] = useState<Topic | null>(null)
   const [posts, setPosts] = useState<Post[]>([])
@@ -60,7 +76,13 @@ export default function ForumTopic() {
   const [cleaningPostId, setCleaningPostId] = useState<string | null>(null)
   const [replyToPostId, setReplyToPostId] = useState<string | null>(null)
   const [replyToExcerpt, setReplyToExcerpt] = useState<string>('')
+  const [translatedTopic, setTranslatedTopic] = useState<{ title?: string; description?: string }>({})
+  const [translatedPosts, setTranslatedPosts] = useState<Record<string, string>>({})
+  const [translatedSummary, setTranslatedSummary] = useState<string | null>(null)
+  const [postLocalTranslations, setPostLocalTranslations] = useState<Record<string, string>>({})
+  const [isTranslating, setIsTranslating] = useState(false)
   const didScrollToHashRef = useRef(false)
+  const translatingRef = useRef(false)
 
   const speakText = useCallback(
     async (text: string) => {
@@ -85,7 +107,7 @@ export default function ForumTopic() {
       supabase.from('forum_topics').select('*').eq('id', id).maybeSingle(),
       supabase
         .from('forum_posts')
-        .select('id,user_id,content_md,payload,created_at,ai_assessment,parent_post_id,reply_to_user_id,author:profiles!forum_posts_author_id_fkey(name,sigla_area)')
+        .select('id,user_id,content_md,translations,payload,created_at,ai_assessment,parent_post_id,reply_to_user_id,author:profiles!forum_posts_author_id_fkey(name,sigla_area)')
         .eq('topic_id', id)
         .order('created_at', { ascending: true }),
       supabase.from('forum_compendia').select('*').eq('topic_id', id).maybeSingle(),
@@ -96,6 +118,83 @@ export default function ForumTopic() {
   }, [id])
 
   useEffect(() => { load() }, [load])
+
+  useEffect(() => {
+    if (!topic) return
+    const title = (topic as any)?.title_translations?.[locale] || topic.title
+    const desc = (topic as any)?.description_translations?.[locale] || topic.description || ''
+    setTranslatedTopic({ title, description: desc })
+  }, [locale, topic])
+
+  useEffect(() => {
+    if (!posts.length) {
+      setTranslatedPosts({})
+      return
+    }
+    const map: Record<string, string> = {}
+    posts.forEach((p) => {
+      const stored = (p as any)?.translations?.[locale]
+      if (stored) map[p.id] = stored
+    })
+    setTranslatedPosts(map)
+  }, [locale, posts])
+
+  useEffect(() => {
+    if (!compendium) {
+      setTranslatedSummary(null)
+      return
+    }
+    const stored = (compendium as any)?.summary_translations?.[locale]
+    setTranslatedSummary(stored || compendium.summary_md || null)
+  }, [compendium, locale])
+
+  useEffect(() => {
+    if (locale === 'pt-BR') {
+      setPostLocalTranslations({})
+      return
+    }
+    if (!topic) return
+
+    const missingTitle = !(topic as any)?.title_translations?.[locale]
+    const missingDesc =
+      !(topic as any)?.description_translations?.[locale] && typeof topic.description === 'string' && topic.description.trim().length > 0
+    const missingPosts = posts.filter((p) => !((p as any)?.translations?.[locale])).slice(0, 60)
+
+    let cancelled = false
+    ;(async () => {
+      try {
+        if (missingTitle) {
+          const tr = await translateTextsCached({ targetLocale: locale as any, texts: [topic.title] })
+          if (!cancelled) setTranslatedTopic((prev) => ({ ...prev, title: tr?.[0] || topic.title }))
+        }
+        if (missingDesc) {
+          const tr = await translateTextsCached({
+            targetLocale: locale as any,
+            texts: [topic.description || ''],
+          })
+          if (!cancelled) setTranslatedTopic((prev) => ({ ...prev, description: tr?.[0] || topic.description || '' }))
+        }
+        if (missingPosts.length) {
+          const trPosts = await translateTextsCached({
+            targetLocale: locale as any,
+            texts: missingPosts.map((p) => p.content_md || ''),
+          })
+          if (!cancelled) {
+            setPostLocalTranslations((prev) => ({
+              ...prev,
+              ...Object.fromEntries(missingPosts.map((p, i) => [p.id, trPosts[i] || p.content_md])),
+            }))
+          }
+        }
+      } catch {
+        // best-effort only
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [locale, posts, topic])
 
   useEffect(() => {
     if (!audioFile) {
@@ -150,6 +249,69 @@ export default function ForumTopic() {
     }
   }, [mentionQuery])
 
+  useEffect(() => {
+    if (!topic) return
+    const targetLocales: Array<'en' | 'zh-CN'> = ['en', 'zh-CN']
+    const cappedPosts = posts.slice(0, 200)
+    const needsTopic =
+      targetLocales.some((loc) => !((topic as any)?.title_translations?.[loc])) ||
+      targetLocales.some((loc) => !((topic as any)?.description_translations?.[loc]) && (topic.description || '').trim())
+    const needsPosts = cappedPosts.some((p) => targetLocales.some((loc) => !((p as any)?.translations?.[loc])))
+    const needsSummary =
+      Boolean(compendium?.summary_md) &&
+      targetLocales.some((loc) => !((compendium as any)?.summary_translations?.[loc]))
+
+    if (!(needsTopic || needsPosts || needsSummary)) return
+    if (translatingRef.current) return
+    translatingRef.current = true
+    setIsTranslating(true)
+
+    ;(async () => {
+      try {
+        const { data: session } = await supabase.auth.getSession()
+        const token = session.session?.access_token
+        if (!token) throw new Error('Not authenticated')
+        const resp = await fetch('/api/forum?handler=translate', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ topic_id: id, locales: targetLocales }),
+        })
+        const json = await resp.json().catch(() => ({}))
+        if (resp.ok) {
+          if (json.topic) {
+            setTopic((prev) =>
+              prev
+                ? ({
+                    ...prev,
+                    title_translations: json.topic.title_translations,
+                    description_translations: json.topic.description_translations,
+                  } as any)
+                : prev,
+            )
+          }
+          if (json.posts) {
+            setPosts((prev) =>
+              prev.map((p) => (json.posts[p.id] ? ({ ...p, translations: json.posts[p.id] } as any) : p)),
+            )
+          }
+          if (json.compendium?.summary_translations) {
+            setCompendium((prev) =>
+              prev ? { ...prev, summary_translations: json.compendium.summary_translations } : prev,
+            )
+          }
+        }
+      } catch (e) {
+        console.error('Erro ao traduzir conteúdo do fórum', e)
+      } finally {
+        translatingRef.current = false
+        setIsTranslating(false)
+      }
+    })()
+  }, [compendium, id, posts, topic])
+
   const handleTranscribe = async () => {
     if (!audioFile) return
     try {
@@ -159,7 +321,7 @@ export default function ForumTopic() {
       }
       const toBase64 = (f: File) => new Promise<string>((resolve, reject) => { const r = new FileReader(); r.onload = () => resolve(String(r.result)); r.onerror = reject; r.readAsDataURL(f) })
       const b64 = await toBase64(audioFile)
-      const resp = await fetch('/api/ai?handler=transcribe-audio', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ audioBase64: b64, mode:'organize', language:'pt' }) })
+      const resp = await fetch('/api/ai?handler=transcribe-audio', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ audioBase64: b64, mode:'organize', language: localeToSpeechLanguage(getActiveLocale()) }) })
       const j = await resp.json(); if (!resp.ok) throw new Error(j?.error || 'Falha na transcrição')
       setContent(prev => [prev, j.text || j.transcript].filter(Boolean).join('\n\n'))
       toast({ title: 'Áudio organizado e inserido no post' })
@@ -179,7 +341,7 @@ export default function ForumTopic() {
       const resp = await fetch('/api/ai?handler=cleanup-text', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: topic?.title || '', description: text, language: 'pt-BR' })
+        body: JSON.stringify({ title: topic?.title || '', description: text, language: localeToOpenAiLanguageTag(getActiveLocale()) })
       })
       const j = await resp.json().catch(() => ({}))
       if (!resp.ok || !j?.cleaned?.description) {
@@ -326,7 +488,7 @@ export default function ForumTopic() {
 
   const sendCompendiumToStudio = (kind: 'quiz' | 'desafio' | 'campanha') => {
     if (!topic) return
-    const summary = String(compendium?.summary_md || '')
+    const summary = String(translatedSummary || compendium?.summary_md || '')
     const draft = {
       kind,
       title: topic.title,
@@ -410,7 +572,7 @@ export default function ForumTopic() {
       const resp = await fetch('/api/ai?handler=cleanup-text', {
         method:'POST',
         headers:{ 'Content-Type':'application/json' },
-        body: JSON.stringify({ title: topic?.title || '', description: post.content_md, language: 'pt-BR' })
+        body: JSON.stringify({ title: topic?.title || '', description: post.content_md, language: localeToOpenAiLanguageTag(getActiveLocale()) })
       })
       const j = await resp.json().catch(()=>({}))
       const cleaned = j?.cleaned?.description
@@ -478,6 +640,10 @@ export default function ForumTopic() {
 
   if (!topic) return null
 
+  const topicTitle = translatedTopic.title || topic.title
+  const topicDescription = translatedTopic.description ?? topic.description ?? ''
+  const summaryText = translatedSummary || compendium?.summary_md || ''
+
   return (
     <div className="relative min-h-screen pb-40">
       <ThemedBackground theme="atitude" />
@@ -511,7 +677,7 @@ export default function ForumTopic() {
                             const resp = await fetch('/api/ai?handler=cleanup-text', {
                               method: 'POST',
                               headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({ title: textTitle, description: textDesc, language: 'pt-BR' })
+                              body: JSON.stringify({ title: textTitle, description: textDesc, language: localeToOpenAiLanguageTag(getActiveLocale()) })
                             })
                             const j = await resp.json().catch(() => ({}))
                             if (!resp.ok || !j?.cleaned) throw new Error(j?.error || 'Falha na revisão')
@@ -548,8 +714,13 @@ export default function ForumTopic() {
                   </div>
                 ) : (
                   <>
-                    <CardTitle className="text-2xl font-bold break-words">{topic.title}</CardTitle>
-                    <CardDescription className="whitespace-pre-line">{topic.description}</CardDescription>
+                    <CardTitle className="text-2xl font-bold break-words">{topicTitle}</CardTitle>
+                    <CardDescription className="whitespace-pre-line">{topicDescription}</CardDescription>
+                    {isTranslating && (
+                      <p className="text-[11px] text-muted-foreground">
+                        Gerando traduções para inglês e mandarim...
+                      </p>
+                    )}
                   </>
                 )}
               </div>
@@ -580,7 +751,7 @@ export default function ForumTopic() {
                       onClick={() => {
                         const url = buildAbsoluteAppUrl(`/forum/${encodeURIComponent(id)}`)
                         openWhatsAppShare({
-                          message: `Veja este fórum no DJT Quest:\n${topic.title}`,
+                          message: `Veja este fórum no DJT Quest:\n${topicTitle}`,
                           url,
                         })
                       }}
@@ -595,7 +766,7 @@ export default function ForumTopic() {
                       variant="ghost"
                       className="h-8 w-8"
                       disabled={isSpeaking}
-                      onClick={() => speakText([topic.title, topic.description || ''].filter(Boolean).join('\n\n'))}
+                      onClick={() => speakText([topicTitle, topicDescription || ''].filter(Boolean).join('\n\n'))}
                       title="Ouvir este fórum"
                       aria-label="Ouvir este fórum"
                     >
@@ -662,8 +833,8 @@ export default function ForumTopic() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              {compendium?.summary_md && (
-                <div className="text-sm whitespace-pre-wrap">{String(compendium.summary_md)}</div>
+              {summaryText && (
+                <div className="text-sm whitespace-pre-wrap">{String(summaryText)}</div>
               )}
 
               {Array.isArray(compendium?.key_learnings) && compendium.key_learnings.length > 0 && (
@@ -721,6 +892,7 @@ export default function ForumTopic() {
             .filter((p) => !p.parent_post_id)
             .map((p) => {
               const replies = posts.filter((r) => r.parent_post_id === p.id)
+              const postText = translatedPosts[p.id] || postLocalTranslations[p.id] || p.content_md
               const authorLabel = (() => {
                 const sigla = p.author?.sigla_area || ''
                 const name = p.author?.name || ''
@@ -746,7 +918,7 @@ export default function ForumTopic() {
                             const resp = await fetch('/api/ai?handler=cleanup-text', {
                               method:'POST',
                               headers:{ 'Content-Type':'application/json' },
-                              body: JSON.stringify({ title: topic?.title || '', description: source, language:'pt-BR' })
+                              body: JSON.stringify({ title: topic?.title || '', description: source, language: localeToOpenAiLanguageTag(getActiveLocale()) })
                             })
                             const j = await resp.json().catch(()=>({}))
                             const cleaned = j?.cleaned?.description
@@ -776,7 +948,7 @@ export default function ForumTopic() {
                       <p className="text-[11px] font-semibold text-primary">
                         {authorLabel}
                       </p>
-                      <div className="text-sm whitespace-pre-wrap">{p.content_md}</div>
+                      <div className="text-sm whitespace-pre-wrap">{postText}</div>
                     </div>
                     <div className="flex flex-col gap-1 items-end">
                       <Button
@@ -786,9 +958,9 @@ export default function ForumTopic() {
                           const url = buildAbsoluteAppUrl(
                             `/forum/${encodeURIComponent(id || '')}#post-${encodeURIComponent(p.id)}`,
                           )
-                          const preview = (p.content_md || '').trim().replace(/\s+/g, ' ').slice(0, 160)
+                          const preview = (postText || '').trim().replace(/\s+/g, ' ').slice(0, 160)
                           openWhatsAppShare({
-                            message: `Comentário no fórum:\n${topic?.title || ''}\n"${preview}${preview.length >= 160 ? '…' : ''}"`,
+                            message: `Comentário no fórum:\n${topicTitle}\n"${preview}${preview.length >= 160 ? '…' : ''}"`,
                             url,
                           })
                         }}
@@ -800,7 +972,7 @@ export default function ForumTopic() {
                         size="xs"
                         variant="ghost"
                         disabled={isSpeaking}
-                        onClick={() => speakText(p.content_md)}
+                        onClick={() => speakText(postText)}
                         title="Ouvir este comentário"
                         aria-label="Ouvir este comentário"
                       >
@@ -811,7 +983,7 @@ export default function ForumTopic() {
                         variant="ghost"
                         onClick={() => {
                           setReplyToPostId(p.id)
-                          setReplyToExcerpt(p.content_md.slice(0, 140))
+                          setReplyToExcerpt(postText.slice(0, 140))
                         }}
                       >
                         ↳ Responder
@@ -852,6 +1024,7 @@ export default function ForumTopic() {
                 {replies.length > 0 && (
                   <div className="mt-3 space-y-2 border-l border-border/40 pl-3">
                     {replies.map((r) => {
+                      const replyText = translatedPosts[r.id] || postLocalTranslations[r.id] || r.content_md
                       const rAuthorLabel = (() => {
                         const sigla = r.author?.sigla_area || ''
                         const name = r.author?.name || ''
@@ -866,7 +1039,7 @@ export default function ForumTopic() {
                             <span className="text-xs">↳ resposta</span>
                             <span>{rAuthorLabel}</span>
                           </p>
-                          <div>{r.content_md}</div>
+                          <div>{replyText}</div>
                           {(() => {
                             const urls =
                               ((r as any)?.payload?.attachments ||
@@ -884,9 +1057,9 @@ export default function ForumTopic() {
                               const url = buildAbsoluteAppUrl(
                                 `/forum/${encodeURIComponent(id || '')}#post-${encodeURIComponent(r.id)}`,
                               )
-                              const preview = (r.content_md || '').trim().replace(/\s+/g, ' ').slice(0, 160)
+                              const preview = (replyText || '').trim().replace(/\s+/g, ' ').slice(0, 160)
                               openWhatsAppShare({
-                                message: `Comentário no fórum:\n${topic?.title || ''}\n"${preview}${preview.length >= 160 ? '…' : ''}"`,
+                                message: `Comentário no fórum:\n${topicTitle}\n"${preview}${preview.length >= 160 ? '…' : ''}"`,
                                 url,
                               })
                             }}
@@ -898,7 +1071,7 @@ export default function ForumTopic() {
                             size="xs"
                             variant="ghost"
                             disabled={isSpeaking}
-                            onClick={() => speakText(r.content_md)}
+                            onClick={() => speakText(replyText)}
                             title="Ouvir esta resposta"
                             aria-label="Ouvir esta resposta"
                           >
@@ -909,7 +1082,7 @@ export default function ForumTopic() {
                             variant="ghost"
                             onClick={() => {
                               setReplyToPostId(r.id)
-                              setReplyToExcerpt(r.content_md.slice(0, 140))
+                              setReplyToExcerpt(replyText.slice(0, 140))
                             }}
                           >
                             ↳ Responder

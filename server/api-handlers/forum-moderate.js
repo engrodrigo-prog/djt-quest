@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { translateForumTexts, localesForAllTargets, mergeTranslations } from '../lib/forum-translations.js';
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY);
 const EDIT_ROLES = new Set(['admin', 'gerente_djt', 'gerente_divisao_djtx', 'coordenador_djtx']);
@@ -32,6 +33,7 @@ export default async function handler(req, res) {
         const canEdit = roleNames.some((r) => EDIT_ROLES.has(r));
         const canDeleteTopic = roleNames.some((r) => DELETE_TOPIC_ROLES.has(r));
         const { action, topic_id, post_id, update, content_md } = req.body || {};
+        const targetLocales = localesForAllTargets(req.body?.locales);
         if (!action)
             return res.status(400).json({ error: 'action required' });
         if (action === 'delete_post') {
@@ -83,6 +85,36 @@ export default async function handler(req, res) {
                 safe.quiz_specialties = update.quiz_specialties;
             if (typeof update.chas_dimension === 'string')
                 safe.chas_dimension = update.chas_dimension;
+            let titleTranslations = null;
+            let descTranslations = null;
+            if (safe.title || safe.description !== undefined) {
+                const { data: existing } = await admin
+                    .from('forum_topics')
+                    .select('title, description, title_translations, description_translations')
+                    .eq('id', topic_id)
+                    .maybeSingle();
+                if (safe.title) {
+                    titleTranslations = mergeTranslations(existing?.title_translations, { 'pt-BR': safe.title });
+                    try {
+                        const [map] = await translateForumTexts({ texts: [safe.title], targetLocales });
+                        titleTranslations = mergeTranslations(titleTranslations, map);
+                    }
+                    catch (_b) { }
+                    safe.title_translations = titleTranslations;
+                }
+                if (safe.description !== undefined) {
+                    const baseDesc = safe.description ?? (existing?.description ?? '');
+                    descTranslations = mergeTranslations(existing?.description_translations, { 'pt-BR': baseDesc });
+                    if (typeof baseDesc === 'string' && baseDesc.trim()) {
+                        try {
+                            const [map] = await translateForumTexts({ texts: [baseDesc], targetLocales });
+                            descTranslations = mergeTranslations(descTranslations, map);
+                        }
+                        catch (_c) { }
+                    }
+                    safe.description_translations = descTranslations;
+                }
+            }
             const { error } = await admin.from('forum_topics').update(safe).eq('id', topic_id);
             if (error)
                 return res.status(400).json({ error: error.message });
@@ -96,7 +128,7 @@ export default async function handler(req, res) {
                 return res.status(400).json({ error: 'content_md obrigatório' });
             const { data: post, error: postErr } = await admin
                 .from('forum_posts')
-                .select('id, user_id, topic_id')
+                .select('id, user_id, topic_id, translations')
                 .eq('id', post_id)
                 .maybeSingle();
             if (postErr)
@@ -107,14 +139,38 @@ export default async function handler(req, res) {
                 return res.status(403).json({ error: 'Sem permissão para editar este post' });
             }
             const { mentions, hashtags } = extractMentionsAndTags(text);
-            const { error: updErr } = await admin
-                .from('forum_posts')
-                .update({
-                content_md: text,
-                content: text,
-                tags: hashtags,
-            })
-                .eq('id', post_id);
+            let translations = mergeTranslations(post?.translations, { 'pt-BR': text });
+            try {
+                const [map] = await translateForumTexts({ texts: [text], targetLocales });
+                translations = mergeTranslations(translations, map);
+            }
+            catch (_c) { }
+            let updErr;
+            try {
+                const { error } = await admin
+                    .from('forum_posts')
+                    .update({
+                    content_md: text,
+                    content: text,
+                    tags: hashtags,
+                    translations,
+                })
+                    .eq('id', post_id);
+                updErr = error;
+                if (updErr && /column .*translations.* does not exist/i.test(updErr.message))
+                    throw updErr;
+            }
+            catch (_d) {
+                const { error } = await admin
+                    .from('forum_posts')
+                    .update({
+                    content_md: text,
+                    content: text,
+                    tags: hashtags,
+                })
+                    .eq('id', post_id);
+                updErr = error;
+            }
             if (updErr)
                 return res.status(400).json({ error: updErr.message });
             // Atualizar mentions best-effort

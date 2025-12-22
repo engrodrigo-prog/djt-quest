@@ -19,6 +19,8 @@ import { QuizQuestionsList } from "./QuizQuestionsList";
 import { AttachmentUploader } from "@/components/AttachmentUploader";
 import { VoiceRecorderButton } from "@/components/VoiceRecorderButton";
 import { CompendiumPicker } from "@/components/CompendiumPicker";
+import { getActiveLocale } from "@/lib/i18n/activeLocale";
+import { localeToOpenAiLanguageTag, localeToSpeechLanguage } from "@/lib/i18n/language";
 
 interface Campaign {
   id: string;
@@ -276,7 +278,7 @@ export const ChallengeForm = () => {
       const resp = await fetch("/api/ai?handler=cleanup-text", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: "", description: desc, language: "pt-BR" }),
+        body: JSON.stringify({ title: "", description: desc, language: localeToOpenAiLanguageTag(getActiveLocale()) }),
       });
       const json = await resp.json().catch(() => ({}));
       if (!resp.ok || !json?.cleaned?.description) {
@@ -396,6 +398,7 @@ export const ChallengeForm = () => {
                 <Label htmlFor="description">Descrição</Label>
                 <div className="flex items-center gap-2">
                   <VoiceRecorderButton
+                    language={localeToSpeechLanguage(getActiveLocale())}
                     onText={(text) => {
                       const current = (document.getElementById("description") as HTMLTextAreaElement | null)?.value || "";
                       const combined = [current, text].filter(Boolean).join("\n\n");

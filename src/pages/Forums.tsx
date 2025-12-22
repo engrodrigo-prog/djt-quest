@@ -12,8 +12,20 @@ import { Flame, Share2 } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
 import { buildAbsoluteAppUrl, openWhatsAppShare } from '@/lib/whatsappShare'
 import { useI18n } from '@/contexts/I18nContext'
+import { translateTextsCached } from '@/lib/i18n/aiTranslate'
 
-interface Topic { id: string; title: string; description: string | null; status: string; chas_dimension: 'C'|'H'|'A'|'S'; quiz_specialties: string[] | null; tags: string[] | null; created_at: string }
+interface Topic {
+  id: string;
+  title: string;
+  description: string | null;
+  status: string;
+  chas_dimension: 'C'|'H'|'A'|'S';
+  quiz_specialties: string[] | null;
+  tags: string[] | null;
+  created_at: string;
+  title_translations?: Record<string, string> | null;
+  description_translations?: Record<string, string> | null;
+}
 
 interface InsightItem {
   topic_id: string
@@ -26,7 +38,7 @@ interface InsightItem {
 
 export default function Forums() {
   const { isLeader, studioAccess } = useAuth()
-  const { t: tr } = useI18n()
+  const { locale, t: tr } = useI18n()
   const nav = useNavigate()
   const [topics, setTopics] = useState<Topic[]>([])
   const [q, setQ] = useState('')
@@ -34,6 +46,10 @@ export default function Forums() {
   const [trendingLoading, setTrendingLoading] = useState(false)
   const [trendingRange, setTrendingRange] = useState<'week'|'month'|'quarter'|'semester'|'year'>('week')
   const [trendingItems, setTrendingItems] = useState<InsightItem[]>([])
+  const [translatedTopicTitles, setTranslatedTopicTitles] = useState<Record<string, string>>({})
+  const [translatedTopicDescriptions, setTranslatedTopicDescriptions] = useState<Record<string, string>>({})
+  const [translatedTrendingTitles, setTranslatedTrendingTitles] = useState<Record<string, string>>({})
+  const [translatedTrendingSummaries, setTranslatedTrendingSummaries] = useState<Record<string, string>>({})
 
   const load = useCallback(async () => {
     const { data } = await supabase.from('forum_topics').select('*').order('created_at', { ascending: false }).limit(200)
@@ -41,6 +57,67 @@ export default function Forums() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  // Translate dynamic forum content (stored in PT-BR) for non-pt locales.
+  useEffect(() => {
+    if (!topics.length) return
+    if (locale === 'pt-BR') {
+      setTranslatedTopicTitles({})
+      setTranslatedTopicDescriptions({})
+      return
+    }
+
+    let cancelled = false
+    ;(async () => {
+      const subset = topics.slice(0, 60)
+      const presetTitles: Record<string, string> = {}
+      const presetDescs: Record<string, string> = {}
+      topics.forEach((t) => {
+        const existingTitle = (t as any)?.title_translations?.[locale]
+        const existingDesc = (t as any)?.description_translations?.[locale]
+        if (existingTitle) presetTitles[t.id] = existingTitle
+        if (existingDesc) presetDescs[t.id] = existingDesc
+      })
+
+      const missingTitles: Topic[] = subset.filter((t) => !presetTitles[t.id])
+      const missingDescs: Topic[] = subset.filter((t) => !presetDescs[t.id] && (t.description || '').trim())
+
+      try {
+        const [titleTr, descTr] = await Promise.all([
+          missingTitles.length
+            ? translateTextsCached({ targetLocale: locale as any, texts: missingTitles.map((t) => t.title || '') })
+            : Promise.resolve([]),
+          missingDescs.length
+            ? translateTextsCached({
+                targetLocale: locale as any,
+                texts: missingDescs.map((t) => t.description || ''),
+              })
+            : Promise.resolve([]),
+        ])
+
+        if (cancelled) return
+        setTranslatedTopicTitles({
+          ...presetTitles,
+          ...Object.fromEntries(missingTitles.map((t, i) => [t.id, (titleTr as any)[i] || t.title])),
+        })
+        setTranslatedTopicDescriptions({
+          ...presetDescs,
+          ...Object.fromEntries(
+            missingDescs.map((t, i) => [t.id, (descTr as any)[i] || (t.description || '')]),
+          ),
+        })
+      } catch {
+        if (!cancelled) {
+          setTranslatedTopicTitles(presetTitles)
+          setTranslatedTopicDescriptions(presetDescs)
+        }
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [locale, topics])
 
   // Ao entrar na área de fóruns, marcar menções como lidas e limpar badge global
   useEffect(() => {
@@ -68,7 +145,35 @@ export default function Forums() {
     }
   }, [])
 
-  const filtered = topics.filter(t => !q || t.title.toLowerCase().includes(q.toLowerCase()) || (t.tags||[]).some(tag => tag.includes(q.toLowerCase())))
+  const filtered = topics.filter(t => {
+    if (!q) return true
+    const needle = q.toLowerCase()
+    const title = (translatedTopicTitles[t.id] || t.title || '').toLowerCase()
+    return title.includes(needle) || (t.tags||[]).some(tag => String(tag || '').includes(needle))
+  })
+
+  // Translate the trending card content after it loads (best-effort).
+  useEffect(() => {
+    if (locale === 'pt-BR') return
+    if (!trendingItems.length) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const titles = trendingItems.map((x) => x.title || '')
+        const summaries = trendingItems.map((x) => x.summary || '')
+        const [titleTr, sumTr] = await Promise.all([
+          translateTextsCached({ targetLocale: locale as any, texts: titles }),
+          translateTextsCached({ targetLocale: locale as any, texts: summaries }),
+        ])
+        if (cancelled) return
+        setTranslatedTrendingTitles(Object.fromEntries(trendingItems.map((x, i) => [x.topic_id, titleTr[i] || x.title])))
+        setTranslatedTrendingSummaries(Object.fromEntries(trendingItems.map((x, i) => [x.topic_id, sumTr[i] || x.summary])))
+      } catch {
+        // silent fallback
+      }
+    })()
+    return () => { cancelled = true }
+  }, [locale, trendingItems])
 
   return (
     <div className="relative min-h-screen pb-40">
@@ -159,9 +264,9 @@ export default function Forums() {
                     >
                       <span className="flex-1 min-w-0">
                         <span className="font-semibold mr-1">#{idx+1}</span>
-                        <span className="font-medium">{ins.title}</span>
+                        <span className="font-medium">{translatedTrendingTitles[ins.topic_id] || ins.title}</span>
                         <span className="block text-[11px] text-amber-100/80 line-clamp-2 mt-0.5">
-                          {ins.summary}
+                          {translatedTrendingSummaries[ins.topic_id] || ins.summary}
                         </span>
                       </span>
                       <div className="ml-2 flex-shrink-0 flex items-center gap-1">
@@ -203,7 +308,7 @@ export default function Forums() {
             <Card key={t.id} className="cursor-pointer hover:-translate-y-1 transition" onClick={()=>nav(`/forum/${t.id}`)}>
               <CardHeader>
                 <div className="flex items-center justify-between gap-2">
-                  <CardTitle className="truncate">{t.title}</CardTitle>
+                  <CardTitle className="truncate">{translatedTopicTitles[t.id] || t.title}</CardTitle>
                   <div className="flex items-center gap-1 flex-shrink-0">
                     <Badge variant={t.status === 'closed' ? 'secondary' : 'default'}>
                       {t.status === 'closed'
@@ -230,7 +335,7 @@ export default function Forums() {
                     </Button>
                   </div>
                 </div>
-                <CardDescription className="line-clamp-2">{t.description}</CardDescription>
+                <CardDescription className="line-clamp-2">{(translatedTopicDescriptions[t.id] || t.description || '').trim()}</CardDescription>
                 <div className="flex flex-wrap gap-2 mt-2">
                   {t.quiz_specialties?.map(s => (<Badge key={s} variant="outline">{s}</Badge>))}
                   {t.tags?.slice(0,4).map(tag => (<Badge key={tag} className="bg-primary/10">#{tag}</Badge>))}

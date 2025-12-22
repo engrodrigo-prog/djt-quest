@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { translateForumTexts, localesForAllTargets } from '../lib/forum-translations.js';
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY);
 function extractMentionsAndTags(md) {
@@ -25,10 +26,20 @@ export default async function handler(req, res) {
         const uid = userData?.user?.id;
         if (!uid)
             return res.status(401).json({ error: 'Unauthorized' });
-        const { topic_id, content_md, payload = {}, parent_post_id = null, attachment_urls = [] } = req.body || {};
+        const { topic_id, content_md, payload = {}, parent_post_id = null, reply_to_user_id = null, attachment_urls = [] } = req.body || {};
         if (!topic_id || typeof content_md !== 'string' || content_md.trim().length < 1)
             return res.status(400).json({ error: 'Invalid payload' });
         const { mentions, hashtags } = extractMentionsAndTags(content_md);
+        const targetLocales = localesForAllTargets(req.body?.locales);
+        let translations = { 'pt-BR': content_md.trim() };
+        try {
+            const [map] = await translateForumTexts({ texts: [content_md.trim()], targetLocales });
+            if (map && typeof map === 'object')
+                translations = map;
+        }
+        catch (_a) {
+            // fallback keeps base locale only
+        }
         // Insert supporting both legacy (author_id, content) and new (user_id, content_md) schemas
         const insertPayload = {
             topic_id,
@@ -38,7 +49,9 @@ export default async function handler(req, res) {
             content: content_md.trim(), // legacy column with CHECK(LENGTH(content) >= 10)
             payload: { ...(payload || {}), images: Array.isArray(attachment_urls) ? attachment_urls : [] },
             parent_post_id,
+            reply_to_user_id,
             tags: hashtags,
+            translations,
         };
         // Try insert including legacy attachment_urls column; if it fails due to column missing, retry without it
         let post, error;
@@ -52,6 +65,8 @@ export default async function handler(req, res) {
             error = err;
             if (error && /column .*attachment_urls.* does not exist/i.test(error.message))
                 throw error;
+            if (error && /column .*translations.* does not exist/i.test(error.message))
+                throw error;
         }
         catch (_) {
             const { data, error: err } = await admin
@@ -61,6 +76,12 @@ export default async function handler(req, res) {
                 .single();
             post = data;
             error = err;
+            if (error && /column .*translations.* does not exist/i.test(error.message)) {
+                const { translations: _omit, ...rest } = insertPayload;
+                const { data: d2, error: err2 } = await admin.from('forum_posts').insert(rest).select().single();
+                post = d2;
+                error = err2;
+            }
         }
         if (error)
             return res.status(400).json({ error: error.message });

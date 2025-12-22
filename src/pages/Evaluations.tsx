@@ -10,6 +10,8 @@ import { Badge } from '@/components/ui/badge';
 import { Shield, Clock, CheckCircle, AlertCircle, Wand2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import Navigation from '@/components/Navigation';
+import { getActiveLocale } from '@/lib/i18n/activeLocale';
+import { localeToOpenAiLanguageTag } from '@/lib/i18n/language';
 
 interface PendingEvent {
   id: string;
@@ -321,7 +323,7 @@ const Evaluations = () => {
                           const resp = await fetch('/api/ai?handler=cleanup-text', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ title: 'Feedback positivo', description: text, language: 'pt-BR' }),
+                            body: JSON.stringify({ title: 'Feedback positivo', description: text, language: localeToOpenAiLanguageTag(getActiveLocale()) }),
                           });
                           const j = await resp.json().catch(() => ({}));
                           if (!resp.ok || !j?.cleaned?.description) {
@@ -377,7 +379,7 @@ const Evaluations = () => {
                           const resp = await fetch('/api/ai?handler=cleanup-text', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ title: 'Feedback construtivo', description: text, language: 'pt-BR' }),
+                            body: JSON.stringify({ title: 'Feedback construtivo', description: text, language: localeToOpenAiLanguageTag(getActiveLocale()) }),
                           });
                           const j = await resp.json().catch(() => ({}));
                           if (!resp.ok || !j?.cleaned?.description) {

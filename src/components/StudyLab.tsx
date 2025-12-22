@@ -14,6 +14,7 @@ import { BookOpenCheck, Link as LinkIcon, MessageCircle, AlertCircle, Trash2 } f
 import { AttachmentUploader } from "@/components/AttachmentUploader";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { TipDialogButton } from "@/components/TipDialogButton";
+import { getActiveLocale } from "@/lib/i18n/activeLocale";
 
 interface StudySource {
   id: string;
@@ -1043,7 +1044,7 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
                               {s.title?.trim() || deriveTitleFromUrl(s.url || "")}
                             </p>
                             <p className="text-[11px] text-white/70">
-                              {new Date(s.created_at).toLocaleString("pt-BR")}
+                              {new Date(s.created_at).toLocaleString(getActiveLocale())}
                             </p>
                             {statusBadge(s)}
                           </div>
@@ -1125,7 +1126,7 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
                                 {s.title?.trim() || deriveTitleFromUrl(s.url || "")}
                               </p>
                               <p className="text-[11px] text-white/70">
-                                {new Date(s.created_at).toLocaleString("pt-BR")}
+                                {new Date(s.created_at).toLocaleString(getActiveLocale())}
                               </p>
                               {statusBadge(s)}
                             </div>

@@ -9,6 +9,7 @@ import Navigation from "@/components/Navigation";
 import { useToast } from "@/hooks/use-toast";
 import { Target, Hash, MessageSquare, Zap, ArrowLeft, Share2 } from "lucide-react";
 import { buildAbsoluteAppUrl, openWhatsAppShare } from "@/lib/whatsappShare";
+import { getActiveLocale } from "@/lib/i18n/activeLocale";
 
 interface Campaign {
   id: string;
@@ -204,12 +205,12 @@ export default function CampaignDetail() {
                 </p>
                 {campaign.start_date && campaign.end_date && (
                   <p className="text-[11px] text-muted-foreground">
-                    {new Date(campaign.start_date).toLocaleDateString("pt-BR", {
+                    {new Date(campaign.start_date).toLocaleDateString(getActiveLocale(), {
                       day: "2-digit",
                       month: "short",
                     })}{" "}
                     -{" "}
-                    {new Date(campaign.end_date).toLocaleDateString("pt-BR", {
+                    {new Date(campaign.end_date).toLocaleDateString(getActiveLocale(), {
                       day: "2-digit",
                       month: "short",
                     })}
@@ -363,7 +364,7 @@ export default function CampaignDetail() {
               {posts.map((p) => (
                 <div key={p.id} className="p-2 rounded-md border">
                   <p className="text-[11px] text-muted-foreground mb-1">
-                    {new Date(p.created_at).toLocaleString("pt-BR")}
+                    {new Date(p.created_at).toLocaleString(getActiveLocale())}
                   </p>
                   <p className="text-sm line-clamp-3 whitespace-pre-wrap">
                     {p.content_md}

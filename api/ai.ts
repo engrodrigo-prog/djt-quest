@@ -14,6 +14,7 @@ import aiQuizMilhao from '../server/api-handlers/ai-quiz-milhao.js';
 import aiQuizBurini from '../server/api-handlers/ai-quiz-burini.js';
 import aiStudyQuiz from '../server/api-handlers/ai-study-quiz.js';
 import aiStudyChat from '../server/api-handlers/ai-study-chat.js';
+import aiTranslateText from '../server/api-handlers/ai-translate-text.js';
 
 type Handler = (req: VercelRequest, res: VercelResponse) => any | Promise<any>;
 
@@ -31,6 +32,8 @@ const handlers: Record<string, Handler> = {
   'transcribe-audio': transcribeAudio,
   // Texto: limpeza ortográfica/pontuação (usado em fórum, quizzes, etc.)
   'cleanup-text': forumCleanupText,
+  // Tradução (conteúdo dinâmico do banco)
+  'translate-text': aiTranslateText,
   // Sugerir hashtags (IA premium, JSON)
   'suggest-hashtags': suggestHashtags,
 };

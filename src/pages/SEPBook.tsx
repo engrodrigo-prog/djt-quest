@@ -14,6 +14,8 @@ import { MessageSquare, Heart, Trash2, MapPin, Wand2, Send, Flame, Plus, Hash, P
 import { VoiceRecorderButton } from "@/components/VoiceRecorderButton";
 import { buildAbsoluteAppUrl, openWhatsAppShare } from "@/lib/whatsappShare";
 import { useTts } from "@/lib/tts";
+import { getActiveLocale } from "@/lib/i18n/activeLocale";
+import { localeToOpenAiLanguageTag } from "@/lib/i18n/language";
 
 type SepPostRepost = {
   id: string;
@@ -208,7 +210,7 @@ export default function SEPBook() {
       const bSame = myTeam && (b.sigla_area || "").toLowerCase() === myTeam;
       if (aSame && !bSame) return -1;
       if (!aSame && bSame) return 1;
-      return a.name.localeCompare(b.name, "pt-BR", { sensitivity: "base" });
+      return a.name.localeCompare(b.name, getActiveLocale(), { sensitivity: "base" });
     });
   };
 
@@ -574,7 +576,7 @@ export default function SEPBook() {
       const resp = await fetch("/api/ai?handler=cleanup-text", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: "Publicação SEPBook", description: text, language: "pt-BR" }),
+        body: JSON.stringify({ title: "Publicação SEPBook", description: text, language: localeToOpenAiLanguageTag(getActiveLocale()) }),
       });
       const j = await resp.json().catch(() => ({}));
       if (!resp.ok || !j?.cleaned?.description) {
@@ -783,7 +785,7 @@ export default function SEPBook() {
   const cleanPostWithIA = async (post: SepPost) => {
     setCleaningPostId(post.id);
     try {
-      const body = { title: "Publicação SEPBook", description: post.content_md, language: "pt-BR" };
+      const body = { title: "Publicação SEPBook", description: post.content_md, language: localeToOpenAiLanguageTag(getActiveLocale()) };
       const resp = await fetch("/api/ai?handler=cleanup-text", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1345,7 +1347,7 @@ export default function SEPBook() {
                     <CardTitle className="text-sm">{formatName(p.author_name)}</CardTitle>
                     <CardDescription className="text-xs">
                       {(p.author_team || "DJT")}{p.author_base ? ` • ${p.author_base}` : ""} •{" "}
-                      {new Date(p.created_at).toLocaleString("pt-BR")}
+                      {new Date(p.created_at).toLocaleString(getActiveLocale())}
                     </CardDescription>
                   </div>
                 </div>
@@ -1422,7 +1424,7 @@ export default function SEPBook() {
                             const resp = await fetch("/api/ai?handler=cleanup-text", {
                               method: "POST",
                               headers: { "Content-Type": "application/json" },
-                              body: JSON.stringify({ title: "Publicação SEPBook (edição)", description: source, language: "pt-BR" }),
+                              body: JSON.stringify({ title: "Publicação SEPBook (edição)", description: source, language: localeToOpenAiLanguageTag(getActiveLocale()) }),
                             });
                             const j = await resp.json().catch(() => ({}));
                             const cleaned = j?.cleaned?.description;

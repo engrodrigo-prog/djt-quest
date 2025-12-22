@@ -9,6 +9,8 @@ import { Textarea } from '@/components/ui/textarea'
 import { Progress } from '@/components/ui/progress'
 import { toast } from 'sonner'
 import { apiFetch } from '@/lib/api'
+import { getActiveLocale } from '@/lib/i18n/activeLocale'
+import { localeToOpenAiLanguageTag } from '@/lib/i18n/language'
 
 interface Challenge { id: string; title: string; type: string }
 const WRONG_COUNT = 4;
@@ -153,7 +155,7 @@ export const AiQuizGenerator = ({ defaultChallengeId }: { defaultChallengeId?: s
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ topic, difficulty, language: 'pt-BR' })
+        body: JSON.stringify({ topic, difficulty, language: localeToOpenAiLanguageTag(getActiveLocale()) })
       })
       const json = await resp.json()
       if (!resp.ok) throw new Error(json?.error || 'Falha na IA')
@@ -203,7 +205,7 @@ export const AiQuizGenerator = ({ defaultChallengeId }: { defaultChallengeId?: s
         .join('\n')
       const body = {
         mode: 'milhao',
-        language: 'pt-BR',
+        language: localeToOpenAiLanguageTag(getActiveLocale()),
         topic,
         context,
         specialties,

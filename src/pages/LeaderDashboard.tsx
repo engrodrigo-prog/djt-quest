@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { TeamTierProgressCard } from "@/components/TeamTierProgressCard";
 import { ProfileDropdown } from "@/components/ProfileDropdown";
 import { fetchTeamNames } from "@/lib/teamLookup";
+import { getActiveLocale } from "@/lib/i18n/activeLocale";
 
 interface TeamStats {
   total_members: number;
@@ -206,7 +207,7 @@ export default function LeaderDashboard() {
     if (memberIds && memberIds.length > 0) {
       const { data } = await supabase
         .from('forum_topics')
-        .select('id, title, posts_count, last_post_at')
+        .select('id, title, posts_count, last_post_at, title_translations')
         .eq('is_active', true)
         .order('last_post_at', { ascending: false })
         .limit(5);
@@ -626,26 +627,29 @@ export default function LeaderDashboard() {
                   Nenhum fórum ativo
                 </p>
               ) : (
-                forums.map((forum) => (
-                  <div 
-                    key={forum.id} 
-                    className="flex items-center justify-between p-3 border border-white/30 rounded-lg hover:bg-white/10 cursor-pointer transition-colors"
-                    onClick={() => navigate(`/forum/${forum.id}`)}
-                  >
-                    <div className="flex items-center gap-3">
-                      <MessageSquare className="h-4 w-4 text-white/70" />
-                      <div>
-                        <p className="font-medium text-white">{forum.title}</p>
-                        <p className="text-sm text-white/70">
-                          {forum.posts_count} posts
-                        </p>
+                forums.map((forum) => {
+                  const displayTitle = (forum as any)?.title_translations?.[getActiveLocale()] || forum.title;
+                  return (
+                    <div 
+                      key={forum.id} 
+                      className="flex items-center justify-between p-3 border border-white/30 rounded-lg hover:bg-white/10 cursor-pointer transition-colors"
+                      onClick={() => navigate(`/forum/${forum.id}`)}
+                    >
+                      <div className="flex items-center gap-3">
+                        <MessageSquare className="h-4 w-4 text-white/70" />
+                        <div>
+                          <p className="font-medium text-white">{displayTitle}</p>
+                          <p className="text-sm text-white/70">
+                            {forum.posts_count} posts
+                          </p>
+                        </div>
                       </div>
+                      <Badge variant="outline" className="border-white/50 text-white">
+                        {new Date(forum.last_post_at).toLocaleDateString(getActiveLocale())}
+                      </Badge>
                     </div>
-                    <Badge variant="outline" className="border-white/50 text-white">
-                      {new Date(forum.last_post_at).toLocaleDateString('pt-BR')}
-                    </Badge>
-                  </div>
-                ))
+                  );
+                })
               )}
             </CardContent>
           </Card>

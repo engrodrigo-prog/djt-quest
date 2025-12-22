@@ -4,6 +4,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Wand2 } from "lucide-react";
+import { getActiveLocale } from "@/lib/i18n/activeLocale";
+import { localeToOpenAiLanguageTag } from "@/lib/i18n/language";
 
 type RangeKey = "30" | "60" | "180" | "365";
 
@@ -221,7 +223,7 @@ export const CampaignManagement = () => {
                                 const resp = await fetch("/api/ai?handler=cleanup-text", {
                                   method: "POST",
                                   headers: { "Content-Type": "application/json" },
-                                  body: JSON.stringify({ title: "Descrição da campanha", description: source, language: "pt-BR" }),
+                                  body: JSON.stringify({ title: "Descrição da campanha", description: source, language: localeToOpenAiLanguageTag(getActiveLocale()) }),
                                 });
                                 const j = await resp.json().catch(() => ({}));
                                 const cleaned = j?.cleaned?.description;
@@ -252,9 +254,9 @@ export const CampaignManagement = () => {
                     )}
                     {c.start_date && !isEditing && (
                       <p className="text-[10px] text-blue-200/80 mt-1">
-                        {new Date(c.start_date).toLocaleDateString("pt-BR")}{" "}
+                        {new Date(c.start_date).toLocaleDateString(getActiveLocale())}{" "}
                         {c.end_date
-                          ? `– ${new Date(c.end_date).toLocaleDateString("pt-BR")}`
+                          ? `– ${new Date(c.end_date).toLocaleDateString(getActiveLocale())}`
                           : ""}
                       </p>
                     )}

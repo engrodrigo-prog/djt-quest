@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { TierBadge } from '@/components/TierBadge';
 import { getTierInfo, getNextTierLevel, canRequestTierProgression, getNextTierPrefix } from '@/lib/constants/tiers';
 import { ArrowUp, Lock } from 'lucide-react';
+import { getActiveLocale } from '@/lib/i18n/activeLocale';
 
 interface TierProgressCardProps {
   tierCode: string;
@@ -47,7 +48,7 @@ export const TierProgressCard = ({
               <p className="font-semibold text-destructive">Cooldown Ativo</p>
               <p className="text-sm text-destructive/80">
                 Você foi rebaixado por incidente de segurança. 
-                Progressão bloqueada até {new Date(cooldownUntil).toLocaleDateString('pt-BR')}.
+                Progressão bloqueada até {new Date(cooldownUntil).toLocaleDateString(getActiveLocale())}.
               </p>
             </div>
           </div>

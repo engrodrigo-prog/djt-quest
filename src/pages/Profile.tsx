@@ -30,6 +30,7 @@ import { MyCreatedQuizzesCard } from '@/components/profile/MyCreatedQuizzesCard'
 import { fetchTeamNames } from '@/lib/teamLookup';
 import { apiFetch } from '@/lib/api';
 import { Skeleton } from '@/components/ui/skeleton';
+import { getActiveLocale } from '@/lib/i18n/activeLocale';
 
 type AvatarVariant = {
   url?: string | null;
@@ -770,7 +771,7 @@ function ProfileContent() {
                             {userBadge.badge.description}
                           </CardDescription>
                           <p className="text-xs text-muted-foreground mt-2">
-                            Conquistado em {new Date(userBadge.earned_at).toLocaleDateString('pt-BR')}
+                            Conquistado em {new Date(userBadge.earned_at).toLocaleDateString(getActiveLocale())}
                           </p>
                         </div>
                       </div>

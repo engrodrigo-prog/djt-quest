@@ -6,6 +6,8 @@ import { cn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { supabase } from "@/integrations/supabase/client";
+import { getActiveLocale } from "@/lib/i18n/activeLocale";
+import { localeToSpeechLanguage } from "@/lib/i18n/language";
 
 interface VoiceRecorderButtonProps {
   onText: (text: string) => void;
@@ -27,9 +29,9 @@ const pickSupportedMime = () => {
     "audio/mp4",
   ];
   if (typeof MediaRecorder === "undefined") return null;
-  // @ts-ignore
+  // @ts-expect-error MediaRecorder typing differs across lib.dom versions
   if (typeof MediaRecorder.isTypeSupported !== "function") return null;
-  // @ts-ignore
+  // @ts-expect-error MediaRecorder typing differs across lib.dom versions
   for (const mt of candidates) if (MediaRecorder.isTypeSupported(mt)) return mt;
   return null;
 };
@@ -64,7 +66,7 @@ export function VoiceRecorderButton({
   onText,
   size = "sm",
   mode = "organize",
-  language = "pt",
+  language = localeToSpeechLanguage(getActiveLocale()),
   maxSeconds = 45,
   className,
   label = "Falar",
@@ -234,8 +236,9 @@ export function VoiceRecorderButton({
           variant: "destructive",
         });
       } finally {
-        if (runId !== transcribeRunIdRef.current) return;
-        setTranscribing(false);
+        if (runId === transcribeRunIdRef.current) {
+          setTranscribing(false);
+        }
       }
     },
     [confirmBeforeInsert, language, mode, onText, resetReview, toast],

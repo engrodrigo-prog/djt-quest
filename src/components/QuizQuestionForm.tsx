@@ -14,6 +14,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { quizQuestionSchema, difficultyLevels, type QuizQuestionFormData, type DifficultyLevel } from "@/lib/validations/quiz";
 import { apiFetch } from "@/lib/api";
 import { VoiceRecorderButton } from "@/components/VoiceRecorderButton";
+import { getActiveLocale } from "@/lib/i18n/activeLocale";
+import { localeToOpenAiLanguageTag, localeToSpeechLanguage } from "@/lib/i18n/language";
 
 interface QuizQuestionFormProps {
   challengeId: string;
@@ -103,7 +105,7 @@ export function QuizQuestionForm({ challengeId, onQuestionAdded }: QuizQuestionF
         question: payload.question_text,
         correct: correct.option_text,
         difficulty: payload.difficulty_level,
-        language: 'pt-BR',
+        language: localeToOpenAiLanguageTag(getActiveLocale()),
         count: missing,
       }),
     });
@@ -163,7 +165,7 @@ export function QuizQuestionForm({ challengeId, onQuestionAdded }: QuizQuestionF
           question: current.question_text,
           correct: correct.option_text,
           difficulty: current.difficulty_level,
-          language: 'pt-BR',
+          language: localeToOpenAiLanguageTag(getActiveLocale()),
           count: missing,
         }),
       });
@@ -239,7 +241,7 @@ export function QuizQuestionForm({ challengeId, onQuestionAdded }: QuizQuestionF
       const resp = await apiFetch("/api/ai?handler=cleanup-text", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: "", description: current, language: "pt-BR" }),
+        body: JSON.stringify({ title: "", description: current, language: localeToOpenAiLanguageTag(getActiveLocale()) }),
       });
       const json = await resp.json().catch(() => ({}));
       if (!resp.ok || !json?.cleaned?.description) {
@@ -292,6 +294,7 @@ export function QuizQuestionForm({ challengeId, onQuestionAdded }: QuizQuestionF
               <div className="flex items-center gap-2">
                 <VoiceRecorderButton
                   size="sm"
+                  language={localeToSpeechLanguage(getActiveLocale())}
                   onText={(text) => {
                     const current = watch();
                     reset({ ...current, question_text: [current.question_text, text].filter(Boolean).join("\n\n") });

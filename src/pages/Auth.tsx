@@ -18,6 +18,7 @@ import { apiFetch } from "@/lib/api";
 import { buildAbsoluteAppUrl, openWhatsAppShare } from "@/lib/whatsappShare";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SUPPORTED_LOCALES, useI18n } from "@/contexts/I18nContext";
+import { localeToOpenAiLanguageTag } from "@/lib/i18n/language";
 
 interface UserOption {
   id: string;
@@ -95,8 +96,8 @@ const Auth = () => {
 
       if (error) {
         console.error("Login error:", error);
-        toast.error("Não foi possível entrar", {
-          description: error.message ?? "Verifique as credenciais e tente novamente",
+        toast.error(t("auth.errors.loginFailedTitle"), {
+          description: error.message ?? t("auth.errors.loginFailedDesc"),
         });
         return;
       }
@@ -119,13 +120,13 @@ const Auth = () => {
       }
     } catch (error) {
       console.error("Login error:", error);
-      toast.error("Falha inesperada ao entrar", {
+      toast.error(t("auth.errors.loginUnexpectedTitle"), {
         description: error instanceof Error ? error.message : undefined,
       });
     } finally {
       setLoading(false);
     }
-  }, [navigate, password, refreshUserSession, signIn, resolveRedirect]);
+  }, [navigate, password, refreshUserSession, signIn, resolveRedirect, t]);
 
   const selectUser = useCallback((user: UserOption) => {
     setSelectedUserId(user.id);
@@ -335,7 +336,7 @@ const Auth = () => {
 
   const handleForgotSubmit = async () => {
     if (!resetIdentifier.trim()) {
-      toast.error("Informe sua matrícula ou email");
+      toast.error(t("auth.forgot.needIdentifier"));
       return;
     }
     setResetLoading(true);
@@ -346,13 +347,13 @@ const Auth = () => {
         body: JSON.stringify({ identifier: resetIdentifier, reason: resetReason }),
       });
       const json = await response.json();
-      if (!response.ok) throw new Error(json?.error || 'Falha ao enviar solicitação');
-      toast.success('Solicitação enviada! Aguarde aprovação do líder.');
+      if (!response.ok) throw new Error(json?.error || t("auth.forgot.requestFailed"));
+      toast.success(t("auth.forgot.requestSent"));
       setResetIdentifier('');
       setResetReason('');
       setForgotOpen(false);
     } catch (error: any) {
-      toast.error(error?.message || 'Erro ao enviar solicitação');
+      toast.error(error?.message || t("auth.forgot.requestFailed"));
     } finally {
       setResetLoading(false);
     }
@@ -445,7 +446,7 @@ const Auth = () => {
                           const resolved = await resolveUserFromQuery();
                           const candidate = resolved || (filteredUsers.length === 1 ? filteredUsers[0] : null);
                           if (!candidate) {
-                            toast.error('Usuário não encontrado. Verifique matrícula, nome ou e-mail.');
+                            toast.error(t("auth.errors.userNotFoundDetailed"));
                             return;
                           }
                           selectUser(candidate);
@@ -545,21 +546,21 @@ const Auth = () => {
               className="w-full mt-1 text-sm bg-white text-slate-900 border-slate-300 hover:bg-slate-50"
               onClick={() => {
                 openWhatsAppShare({
-                  message: "Acesse o DJT Quest pelo link:",
+                  message: t("auth.shareWhatsappMessage"),
                   url: buildAbsoluteAppUrl("/auth"),
                 });
               }}
             >
-              Compartilhar acesso pelo WhatsApp
+              {t("auth.shareWhatsapp")}
             </Button>
 
             <div className="text-center text-sm mt-4">
-              <span className="text-slate-600">Não tem conta? </span>
+              <span className="text-slate-600">{t("auth.noAccount")} </span>
               <Link 
                 to="/register" 
                 className="text-primary hover:underline font-medium"
               >
-                Solicitar Cadastro
+                {t("auth.requestSignup")}
               </Link>
             </div>
           </form>
@@ -575,24 +576,22 @@ const Auth = () => {
       }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Solicitar reset de senha</DialogTitle>
-            <DialogDescription>
-              Informe sua matrícula ou email para pedir uma nova senha. Seu líder precisará aprovar o reset.
-            </DialogDescription>
+            <DialogTitle>{t("auth.forgot.title")}</DialogTitle>
+            <DialogDescription>{t("auth.forgot.description")}</DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <div className="space-y-2">
-              <Label htmlFor="reset-identifier">Matrícula ou email</Label>
+              <Label htmlFor="reset-identifier">{t("auth.forgot.identifierLabel")}</Label>
               <Input
                 id="reset-identifier"
-                placeholder="Ex.: 601555 ou seu.email@cpfl.com.br"
+                placeholder={t("auth.forgot.identifierPlaceholder")}
                 value={resetIdentifier}
                 onChange={(e) => setResetIdentifier(e.target.value)}
               />
             </div>
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <Label htmlFor="reset-reason">Motivo (opcional)</Label>
+                <Label htmlFor="reset-reason">{t("auth.forgot.reasonLabel")}</Label>
                 <Button
                   type="button"
                   size="icon"
@@ -605,26 +604,26 @@ const Auth = () => {
                       const resp = await apiFetch("/api/ai?handler=cleanup-text", {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ title: "Motivo do reset de senha", description: text, language: "pt-BR" }),
+                        body: JSON.stringify({ title: t("auth.forgot.aiReviewTitle"), description: text, language: localeToOpenAiLanguageTag(locale) }),
                       });
                       const json = await resp.json().catch(() => ({}));
                       if (!resp.ok || !json?.cleaned?.description) {
-                        throw new Error(json?.error || "Falha na revisão automática");
+                        throw new Error(json?.error || t("auth.forgot.aiReviewAutoFail"));
                       }
                       setResetReason(String(json.cleaned.description || text));
-                      toast.success("Motivo revisado (ortografia e pontuação).");
+                      toast.success(t("auth.forgot.aiReviewSuccess"));
                     } catch (e: any) {
-                      toast.error(e?.message || "Não foi possível revisar agora.");
+                      toast.error(e?.message || t("auth.forgot.aiReviewFailed"));
                     }
                   }}
-                  title="Revisar ortografia e pontuação (sem mudar conteúdo)"
+                  title={t("auth.forgot.aiReviewTooltip")}
                 >
                   <Wand2 className="h-4 w-4" />
                 </Button>
               </div>
               <Textarea
                 id="reset-reason"
-                placeholder="Descreva o motivo do reset"
+                placeholder={t("auth.forgot.reasonPlaceholder")}
                 value={resetReason}
                 onChange={(e) => setResetReason(e.target.value)}
                 rows={3}
@@ -632,9 +631,9 @@ const Auth = () => {
             </div>
           </div>
           <DialogFooter className="mt-4">
-            <Button variant="outline" onClick={() => setForgotOpen(false)}>Cancelar</Button>
+            <Button variant="outline" onClick={() => setForgotOpen(false)}>{t("auth.forgot.cancel")}</Button>
             <Button onClick={handleForgotSubmit} disabled={resetLoading}>
-              {resetLoading ? 'Enviando...' : 'Solicitar reset'}
+              {resetLoading ? t("auth.forgot.submitting") : t("auth.forgot.submit")}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -1,6 +1,7 @@
 // @ts-nocheck
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { createClient } from '@supabase/supabase-js'
+import { translateForumTexts, localesForAllTargets, mergeTranslations } from '../lib/forum-translations.js'
 
 const SUPABASE_URL = process.env.SUPABASE_URL as string
 const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY) as string
@@ -36,6 +37,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const canDeleteTopic = roleNames.some((r) => DELETE_TOPIC_ROLES.has(r))
 
     const { action, topic_id, post_id, update, content_md } = req.body || {}
+    const targetLocales = localesForAllTargets((req.body as any)?.locales)
     if (!action) return res.status(400).json({ error: 'action required' })
 
     if (action === 'delete_post') {
@@ -150,7 +152,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       const { data: post, error: postErr } = await admin
         .from('forum_posts')
-        .select('id, user_id, topic_id')
+        .select('id, user_id, topic_id, translations')
         .eq('id', post_id)
         .maybeSingle()
       if (postErr) return res.status(400).json({ error: postErr.message })
@@ -162,15 +164,39 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       const { mentions, hashtags } = extractMentionsAndTags(text)
 
-      const { error } = await admin
-        .from('forum_posts')
-        .update({
-          content_md: text,
-          content: text,
-          tags: hashtags,
-        } as any)
-        .eq('id', post_id)
-      if (error) return res.status(400).json({ error: error.message })
+      let translations: any = mergeTranslations((post as any)?.translations, { 'pt-BR': text })
+      try {
+        const [map] = await translateForumTexts({ texts: [text], targetLocales })
+        translations = mergeTranslations(translations, map as any)
+      } catch {
+        // keep merged fallback
+      }
+
+      let updateError
+      try {
+        const { error } = await admin
+          .from('forum_posts')
+          .update({
+            content_md: text,
+            content: text,
+            tags: hashtags,
+            translations,
+          } as any)
+          .eq('id', post_id)
+        updateError = error
+        if (updateError && /column .*translations.* does not exist/i.test(updateError.message)) throw updateError
+      } catch (_) {
+        const { error } = await admin
+          .from('forum_posts')
+          .update({
+            content_md: text,
+            content: text,
+            tags: hashtags,
+          } as any)
+          .eq('id', post_id)
+        updateError = error
+      }
+      if (updateError) return res.status(400).json({ error: updateError.message })
 
       // Atualizar mentions best-effort: limpa antigas e recria
       try {
@@ -205,6 +231,34 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (Array.isArray(update.tags)) safe.tags = update.tags
       if (Array.isArray(update.quiz_specialties)) safe.quiz_specialties = update.quiz_specialties
       if (typeof update.chas_dimension === 'string') safe.chas_dimension = update.chas_dimension
+      let topicTranslations: any = null
+      let descTranslations: any = null
+      if (safe.title || safe.description) {
+        const { data: existing } = await admin
+          .from('forum_topics')
+          .select('title, description, title_translations, description_translations')
+          .eq('id', topic_id)
+          .maybeSingle()
+        if (safe.title) {
+          topicTranslations = mergeTranslations((existing as any)?.title_translations, { 'pt-BR': safe.title })
+          try {
+            const [map] = await translateForumTexts({ texts: [safe.title], targetLocales })
+            topicTranslations = mergeTranslations(topicTranslations, map as any)
+          } catch {}
+          safe.title_translations = topicTranslations
+        }
+        if (safe.description !== undefined) {
+          const baseDesc = safe.description ?? (existing as any)?.description ?? ''
+          descTranslations = mergeTranslations((existing as any)?.description_translations, { 'pt-BR': baseDesc })
+          if (typeof baseDesc === 'string' && baseDesc.trim()) {
+            try {
+              const [map] = await translateForumTexts({ texts: [baseDesc], targetLocales })
+              descTranslations = mergeTranslations(descTranslations, map as any)
+            } catch {}
+          }
+          safe.description_translations = descTranslations
+        }
+      }
       const { error } = await admin.from('forum_topics').update(safe).eq('id', topic_id)
       if (error) return res.status(400).json({ error: error.message })
       return res.status(200).json({ success: true })

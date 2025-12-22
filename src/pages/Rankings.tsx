@@ -9,6 +9,7 @@ import { Trophy, Users, Building2, Award, Shield, Percent } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { useI18n } from '@/contexts/I18nContext';
+import { getActiveLocale } from '@/lib/i18n/activeLocale';
 
 interface IndividualRanking {
   rank: number;
@@ -371,7 +372,7 @@ function Rankings() {
           quizXp: quizXpByLeader[p.id] || 0,
           score: (completedByReviewer[p.id] || 0) * LEADER_EVAL_POINTS + (quizXpByLeader[p.id] || 0),
         }))
-        .sort((a, b) => b.score - a.score || b.completed - a.completed || b.quizXp - a.quizXp || String(a.name).localeCompare(String(b.name), 'pt-BR'))
+        .sort((a, b) => b.score - a.score || b.completed - a.completed || b.quizXp - a.quizXp || String(a.name).localeCompare(String(b.name), getActiveLocale()))
         .map((p, i) => ({ ...p, rank: i + 1 }));
       setLeaderRankings(sorted);
     } catch (error) {

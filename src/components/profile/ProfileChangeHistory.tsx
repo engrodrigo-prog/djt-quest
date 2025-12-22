@@ -3,6 +3,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import { getActiveLocale } from '@/lib/i18n/activeLocale';
 
 interface ChangeRequest {
   id: string;
@@ -69,7 +70,7 @@ export function ProfileChangeHistory() {
             </p>
             <p className="text-foreground">{req.new_value}</p>
             <p className="text-[10px] text-muted-foreground">
-              Enviado em {new Date(req.created_at).toLocaleString('pt-BR')}
+              Enviado em {new Date(req.created_at).toLocaleString(getActiveLocale())}
             </p>
           </div>
         ))}

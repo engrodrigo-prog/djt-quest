@@ -11,6 +11,7 @@ import { Switch } from "@/components/ui/switch";
 import { CheckCircle, XCircle, Clock, Mail, Phone, MapPin, Hash } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { apiFetch } from "@/lib/api";
+import { getActiveLocale } from "@/lib/i18n/activeLocale";
 
 interface PendingRegistration {
   id: string;
@@ -393,7 +394,7 @@ export function PendingRegistrationsManager() {
                   {registration.date_of_birth && (
                     <div className="flex items-center gap-2">
                       <Clock className="h-4 w-4 text-muted-foreground" />
-                      <span>Nasc.: {new Date(`${registration.date_of_birth}T00:00:00`).toLocaleDateString("pt-BR")}</span>
+                      <span>Nasc.: {new Date(`${registration.date_of_birth}T00:00:00`).toLocaleDateString(getActiveLocale())}</span>
                     </div>
                   )}
                   {registration.telefone && (

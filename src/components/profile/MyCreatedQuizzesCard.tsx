@@ -5,6 +5,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { getActiveLocale } from '@/lib/i18n/activeLocale';
 
 type MyQuizRow = {
   id: string;
@@ -15,7 +16,7 @@ type MyQuizRow = {
   approved_at: string | null;
 };
 
-const fmt = (s?: string | null) => (s ? new Date(s).toLocaleDateString('pt-BR') : '—');
+const fmt = (s?: string | null) => (s ? new Date(s).toLocaleDateString(getActiveLocale()) : '—');
 
 export function MyCreatedQuizzesCard() {
   const { user, isContentCurator, userRole } = useAuth();

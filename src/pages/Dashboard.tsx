@@ -124,7 +124,7 @@ const Dashboard = () => {
             .not('submitted_at', 'is', null),
           supabase
             .from('forum_topics')
-            .select('id,title,description,posts_count,last_post_at,created_at,is_locked,is_active')
+            .select('id,title,description,posts_count,last_post_at,created_at,is_locked,is_active,title_translations,description_translations')
             .eq('is_active', true)
             .order('last_post_at', { ascending: false })
             .limit(6)
@@ -607,52 +607,56 @@ const Dashboard = () => {
               <CardDescription className="text-white/80">{tr("dashboard.openForumsDescription")}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-2">
-              {openForums.slice(0,4).map((topic) => (
-                <div
-                  key={topic.id}
-                  className="flex items-center justify-between p-3 border border-white/30 rounded-lg hover:bg-white/10 cursor-pointer gap-3"
-                  onClick={() => navigate(`/forum/${topic.id}`)}
-                >
-                  <div className="min-w-0 flex-1">
-                    <p className="font-medium truncate text-white">{topic.title}</p>
-                    <p className="text-xs text-white/70 truncate">{topic.description}</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Badge variant="outline" className="border-white/50 text-white">
-                      {tr("dashboard.forumsPosts", { count: topic.posts_count || 0 })}
-                    </Badge>
-                    <button
-                      type="button"
-                      className="p-1 rounded-full hover:bg-white/10 text-white/90"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        const url = buildAbsoluteAppUrl(`/forum/${encodeURIComponent(topic.id)}`);
-                        openWhatsAppShare({
-                          message: tr("dashboard.forumShareMessage", { title: topic.title }),
-                          url,
-                        });
-                      }}
-                      aria-label={tr("dashboard.forumShareAria")}
-                      title={tr("dashboard.shareWhatsApp")}
-                    >
-                      <Share2 className="h-4 w-4" />
-                    </button>
-                    {canDeleteContent && (
+              {openForums.slice(0,4).map((topic) => {
+                const displayTitle = (topic as any)?.title_translations?.[locale] || topic.title;
+                const displayDesc = (topic as any)?.description_translations?.[locale] || topic.description;
+                return (
+                  <div
+                    key={topic.id}
+                    className="flex items-center justify-between p-3 border border-white/30 rounded-lg hover:bg-white/10 cursor-pointer gap-3"
+                    onClick={() => navigate(`/forum/${topic.id}`)}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="font-medium truncate text-white">{displayTitle}</p>
+                      <p className="text-xs text-white/70 truncate">{displayDesc}</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline" className="border-white/50 text-white">
+                        {tr("dashboard.forumsPosts", { count: topic.posts_count || 0 })}
+                      </Badge>
                       <button
                         type="button"
-                        className="p-1 rounded-full hover:bg-destructive/20 text-destructive"
+                        className="p-1 rounded-full hover:bg-white/10 text-white/90"
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleDeleteForumFromDashboard(topic.id, topic.title);
+                          const url = buildAbsoluteAppUrl(`/forum/${encodeURIComponent(topic.id)}`);
+                          openWhatsAppShare({
+                            message: tr("dashboard.forumShareMessage", { title: displayTitle }),
+                            url,
+                          });
                         }}
-                        aria-label={tr("dashboard.forumDeleteAria")}
+                        aria-label={tr("dashboard.forumShareAria")}
+                        title={tr("dashboard.shareWhatsApp")}
                       >
-                        <Trash2 className="h-4 w-4" />
+                        <Share2 className="h-4 w-4" />
                       </button>
-                    )}
+                      {canDeleteContent && (
+                        <button
+                          type="button"
+                          className="p-1 rounded-full hover:bg-destructive/20 text-destructive"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteForumFromDashboard(topic.id, displayTitle);
+                          }}
+                          aria-label={tr("dashboard.forumDeleteAria")}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
               <div className="pt-2 flex justify-end">
                 <Button variant="ghost" size="sm" onClick={() => navigate('/forums')}>{tr("dashboard.forumsViewAll")}</Button>
               </div>

@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Loader2, Mail, User, CheckCircle, XCircle } from 'lucide-react';
 import { fetchTeamNames } from '@/lib/teamLookup';
 import { apiFetch } from '@/lib/api';
+import { getActiveLocale } from '@/lib/i18n/activeLocale';
 
 interface PasswordResetRequest {
   id: string;
@@ -157,7 +158,7 @@ export function PasswordResetManager({ embedded = false }: { embedded?: boolean 
                       <p className="text-xs text-muted-foreground">Equipe: {request.user.team.name}</p>
                     )}
                   </div>
-                  <Badge variant="outline">Solicitado em {new Date(request.requested_at).toLocaleString('pt-BR')}</Badge>
+                  <Badge variant="outline">Solicitado em {new Date(request.requested_at).toLocaleString(getActiveLocale())}</Badge>
                 </div>
 
                 {request.reason && (
@@ -218,7 +219,7 @@ export function PasswordResetManager({ embedded = false }: { embedded?: boolean 
                   </Badge>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Processado em {request.processed_at ? new Date(request.processed_at).toLocaleString('pt-BR') : '-'}
+                  Processado em {request.processed_at ? new Date(request.processed_at).toLocaleString(getActiveLocale()) : '-'}
                 </p>
                 {request.reviewer_notes && (
                   <p className="text-sm">Notas: {request.reviewer_notes}</p>

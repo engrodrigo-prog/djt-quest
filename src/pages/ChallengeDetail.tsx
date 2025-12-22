@@ -16,6 +16,8 @@ import { QuizPlayer } from '@/components/QuizPlayer';
 import { HelpInfo } from '@/components/HelpInfo';
 import { VoiceRecorderButton } from '@/components/VoiceRecorderButton';
 import { buildAbsoluteAppUrl, openWhatsAppShare } from '@/lib/whatsappShare';
+import { getActiveLocale } from '@/lib/i18n/activeLocale';
+import { localeToOpenAiLanguageTag, localeToSpeechLanguage } from '@/lib/i18n/language';
 
 interface Challenge {
   id: string;
@@ -636,7 +638,7 @@ const ChallengeDetail = () => {
                         const resp = await fetch('/api/ai?handler=cleanup-text', {
                           method: 'POST',
                           headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ title: 'Descrição da ação', description: text, language: 'pt-BR' }),
+                          body: JSON.stringify({ title: 'Descrição da ação', description: text, language: localeToOpenAiLanguageTag(getActiveLocale()) }),
                         });
                         const json = await resp.json().catch(() => ({}));
                         if (!resp.ok || !json?.cleaned?.description) throw new Error(json?.error || 'Falha na revisão automática');
@@ -700,7 +702,7 @@ const ChallengeDetail = () => {
                           const resp = await fetch('/api/ai?handler=transcribe-audio', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ audioBase64: b64, mode: 'organize', language: 'pt' })
+                            body: JSON.stringify({ audioBase64: b64, mode: 'organize', language: localeToSpeechLanguage(getActiveLocale()) })
                           });
                           const json = await resp.json().catch(() => ({}));
                           if (!resp.ok) throw new Error(json?.error || 'Falha na transcrição');

@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { apiFetch } from '@/lib/api';
+import { getActiveLocale } from '@/lib/i18n/activeLocale';
 
 interface QuizHistoryRow {
   id: string;
@@ -244,7 +245,7 @@ export function QuizHistory() {
                   <p className="font-semibold text-sm">{q.title}</p>
                   <p className="text-xs text-muted-foreground">
                     {q.answeredCount}/{total} respondidas • {correct}/{total} corretas • XP {xp}{' '}
-                    {lastAt ? `• ${new Date(lastAt).toLocaleDateString('pt-BR')}` : ''}
+                    {lastAt ? `• ${new Date(lastAt).toLocaleDateString(getActiveLocale())}` : ''}
                   </p>
                 </div>
                 <Badge variant={correct === total ? 'default' : 'secondary'}>

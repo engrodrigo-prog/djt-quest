@@ -15,6 +15,7 @@ import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from 'recharts';
 import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart';
+import { getActiveLocale } from '@/lib/i18n/activeLocale';
 
 type Scope = 'team' | 'coord' | 'division' | 'all';
 type Chas = 'C' | 'H' | 'A' | 'S';
@@ -673,7 +674,7 @@ export function ReportsHub() {
                         </TableCell>
                         <TableCell className="text-right">{q.answeredCount}</TableCell>
                         <TableCell className="text-right">{q.accuracyPct == null ? '—' : `${q.accuracyPct}%`}</TableCell>
-                        <TableCell>{q.lastAnsweredAt ? new Date(q.lastAnsweredAt).toLocaleString('pt-BR') : '—'}</TableCell>
+                        <TableCell>{q.lastAnsweredAt ? new Date(q.lastAnsweredAt).toLocaleString(getActiveLocale()) : '—'}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>

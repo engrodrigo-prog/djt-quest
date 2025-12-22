@@ -33,7 +33,36 @@
     "defaultPasswordLabel": "默认密码：",
     "forgotPassword": "忘记密码",
     "enter": "登录",
-    "entering": "正在登录…"
+    "entering": "正在登录…",
+    "shareWhatsapp": "通过WhatsApp分享访问权限",
+    "shareWhatsappMessage": "通过链接访问DJT Quest：",
+    "noAccount": "没有账户？",
+    "requestSignup": "申请注册",
+    "errors": {
+      "loginFailedTitle": "登录失败",
+      "loginFailedDesc": "请检查凭证并重试",
+      "loginUnexpectedTitle": "登录时发生意外错误",
+      "userNotFoundDetailed": "未找到用户。请检查工号、姓名或电子邮件。"
+    },
+    "forgot": {
+      "title": "申请重置密码",
+      "description": "请输入您的工号或电子邮件以申请新密码。您的主管需要批准重置。",
+      "identifierLabel": "工号或电子邮件",
+      "identifierPlaceholder": "例如：601555 或 seu.email@cpfl.com.br",
+      "reasonLabel": "原因（可选）",
+      "reasonPlaceholder": "描述重置原因",
+      "cancel": "取消",
+      "submit": "申请重置",
+      "submitting": "发送中…",
+      "needIdentifier": "请输入您的工号或电子邮件",
+      "requestSent": "申请已发送！请等待主管批准。",
+      "requestFailed": "发送申请时出错",
+      "aiReviewTitle": "密码重置原因",
+      "aiReviewTooltip": "检查拼写和标点（不更改内容）",
+      "aiReviewAutoFail": "自动审核失败",
+      "aiReviewSuccess": "原因已审核（拼写和标点）。",
+      "aiReviewFailed": "暂时无法审核。"
+    }
   },
   "profile": {
     "changePasswordTitle": "修改密码",

@@ -9,6 +9,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { apiFetch } from "@/lib/api";
 import { toast } from "sonner";
+import { getActiveLocale } from "@/lib/i18n/activeLocale";
 
 type StudySourceRow = {
   id: string;
@@ -567,7 +568,7 @@ export const StudioMaintenance = () => {
                 {items.map((it) => {
                   const checked = Boolean(selected[it.id]);
                   const title = (it.title || it.url || it.id).toString();
-                  const created = it.created_at ? new Date(it.created_at).toLocaleString("pt-BR") : "-";
+                  const created = it.created_at ? new Date(it.created_at).toLocaleString(getActiveLocale()) : "-";
                   const status = it.ingest_status || "ok";
                   return (
                     <TableRow key={it.id} className="border-white/20">

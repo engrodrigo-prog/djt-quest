@@ -1,0 +1,124 @@
+import OpenAI from "openai";
+
+const SUPPORTED_LOCALES = ["pt-BR", "en", "zh-CN"];
+const BASE_LOCALE = "pt-BR";
+const DEFAULT_TARGET_LOCALES = ["en", "zh-CN"];
+
+const client = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
+
+const pickModel = () =>
+  process.env.OPENAI_MODEL_FAST ||
+  process.env.OPENAI_MODEL_PREMIUM ||
+  process.env.OPENAI_TEXT_MODEL ||
+  "gpt-5.2-fast";
+
+const chunkArray = (arr, size) => {
+  const out = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+};
+
+const fallbackMap = (locales, text) => {
+  const map = {};
+  for (const loc of locales) {
+    map[loc] = text || "";
+  }
+  if (!map[BASE_LOCALE]) map[BASE_LOCALE] = text || "";
+  return map;
+};
+
+const normalizeLocales = (raw) => {
+  if (!raw) return [...DEFAULT_TARGET_LOCALES];
+  if (typeof raw === "string") {
+    return raw
+      .split(",")
+      .map((v) => v.trim())
+      .filter((v) => SUPPORTED_LOCALES.includes(v));
+  }
+  if (Array.isArray(raw)) {
+    return raw.map((v) => String(v || "").trim()).filter((v) => SUPPORTED_LOCALES.includes(v));
+  }
+  return [...DEFAULT_TARGET_LOCALES];
+};
+
+export async function translateForumTexts(params) {
+  const texts = Array.isArray(params?.texts) ? params.texts.map((t) => String(t ?? "")) : [];
+  const targetLocales = normalizeLocales(params?.targetLocales);
+  const locales = Array.from(new Set([BASE_LOCALE, ...targetLocales]));
+  const maxPerBatch = Math.max(3, Math.min(12, Number(params?.maxPerBatch || 10)));
+
+  const output = texts.map((txt) => fallbackMap(locales, txt));
+  const tasks = texts
+    .map((text, idx) => ({ idx, text: String(text || "").slice(0, 6000).trim() }))
+    .filter((t) => t.text.length > 0);
+
+  if (!tasks.length) return output;
+  if (!client) return output;
+
+  const prompt =
+    `Você traduz textos do fórum da DJT Quest para múltiplos idiomas (${locales.join(", ")}).\n` +
+    `Regras:\n` +
+    `- Preserve markdown, hashtags (#tag), menções (@pessoa ou @equipe) e emojis.\n` +
+    `- Mantenha o sentido técnico/profissional; não acrescente comentários.\n` +
+    `- Se o texto já estiver em algum idioma alvo, reutilize-o (sem inventar tradução literal).\n` +
+    `Retorne SOMENTE JSON: {"translations":[{ "${locales.join('":"...","')}" : "..." }]} no mesmo tamanho e ordem.`;
+
+  for (const batch of chunkArray(tasks, maxPerBatch)) {
+    try {
+      const completion = await client.chat.completions.create({
+        model: pickModel(),
+        messages: [
+          { role: "system", content: prompt },
+          { role: "user", content: JSON.stringify({ locales, texts: batch.map((b) => b.text) }) },
+        ],
+        response_format: { type: "json_object" },
+        temperature: 0.2,
+        max_tokens: 3500,
+      });
+
+      let parsed = {};
+      try {
+        parsed = JSON.parse(completion.choices?.[0]?.message?.content || "{}");
+      } catch {
+        parsed = {};
+      }
+      const translations = Array.isArray(parsed?.translations) ? parsed.translations : [];
+      batch.forEach((task, idx) => {
+        const candidate = translations[idx] || {};
+        const merged = {};
+        for (const loc of locales) {
+          const val = typeof candidate[loc] === "string" ? candidate[loc].trim() : "";
+          merged[loc] = val || task.text || "";
+        }
+        output[task.idx] = merged;
+      });
+    } catch (e) {
+      // fallback handled by default output
+      console.error("translateForumTexts batch failed", e?.message || e);
+    }
+  }
+
+  return output;
+}
+
+export function mergeTranslations(existing, next) {
+  const cur = typeof existing === "object" && existing !== null ? existing : {};
+  const out = { ...cur };
+  if (typeof next !== "object" || next === null) return out;
+  for (const key of Object.keys(next)) {
+    const value = next[key];
+    if (typeof value === "string" && value.trim()) {
+      out[key] = value;
+    }
+  }
+  return out;
+}
+
+export function localesForAllTargets(raw) {
+  const target = normalizeLocales(raw);
+  const set = new Set([BASE_LOCALE, ...DEFAULT_TARGET_LOCALES, ...target]);
+  return Array.from(set).filter((loc) => SUPPORTED_LOCALES.includes(loc));
+}
+
+export const FORUM_SUPPORTED_LOCALES = SUPPORTED_LOCALES;
+export const FORUM_BASE_LOCALE = BASE_LOCALE;
