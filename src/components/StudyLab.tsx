@@ -17,6 +17,7 @@ import { TipDialogButton } from "@/components/TipDialogButton";
 import { getActiveLocale } from "@/lib/i18n/activeLocale";
 import { ForumKbThemeMenu } from "@/components/ForumKbThemeMenu";
 import type { ForumKbSelection } from "@/components/ForumKbThemeSelector";
+import { useNavigate } from "react-router-dom";
 
 interface StudySource {
   id: string;
@@ -101,7 +102,8 @@ const normalizeScope = (raw: unknown): StudyScope => {
 };
 
 export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean }) => {
-  const { user, isLeader } = useAuth();
+  const { user, isLeader, studioAccess } = useAuth();
+  const navigate = useNavigate();
   const [sources, setSources] = useState<StudySource[]>([]);
   const [loadingSources, setLoadingSources] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -1201,6 +1203,19 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
                       onCheckedChange={(v) => handleSetPublished(selectedSource.id, v)}
                     />
                   </div>
+                )}
+                {studioAccess && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="border-white/40 text-white"
+                    onClick={() => {
+                      navigate(`/studio?module=quiz&seed_source=${selectedSource.id}`);
+                    }}
+                  >
+                    Criar quiz
+                  </Button>
                 )}
                 {selectedSource.url && (
                   <Button asChild size="sm" variant="outline" className="border-white/40 text-white">

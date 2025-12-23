@@ -34,7 +34,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (authErr || !userResp?.user) return res.status(401).json({ error: 'Unauthorized' })
     const userId = userResp.user.id
 
-    const { challengeId, question_text, difficulty_level, options } = req.body || {}
+    const { challengeId, question_text, difficulty_level, options, skip_proofread } = req.body || {}
     if (!challengeId || !question_text || !difficulty_level || !Array.isArray(options)) {
       return res.status(400).json({ error: 'Campos obrigatórios: challengeId, question_text, difficulty_level, options[]' })
     }
@@ -42,30 +42,47 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Revisão ortográfica (IA) - apenas escrita/acentos; preserva o conteúdo.
     let revisedQuestionText = String(question_text || '')
     let revisedOptions = options
-    try {
-      const strings: string[] = [String(question_text || '')]
-      for (const opt of options) {
-        strings.push(String(opt?.option_text || ''))
-        if (opt?.explanation) strings.push(String(opt.explanation || ''))
-      }
-      const { output } = await proofreadPtBrStrings({ strings })
-      let cursor = 0
-      revisedQuestionText = output[cursor++] ?? revisedQuestionText
-      revisedOptions = options.map((opt: any) => {
-        const option_text = output[cursor++] ?? String(opt?.option_text || '')
-        let explanation = opt?.explanation
-        if (opt?.explanation) {
-          explanation = output[cursor++] ?? String(opt.explanation || '')
+    if (!skip_proofread) {
+      try {
+        const strings: string[] = [String(question_text || '')]
+        for (const opt of options) {
+          strings.push(String(opt?.option_text || ''))
+          if (opt?.explanation) strings.push(String(opt.explanation || ''))
         }
-        return { ...opt, option_text, explanation }
-      })
-    } catch {
-      // ignore
+        const { output } = await proofreadPtBrStrings({ strings })
+        let cursor = 0
+        revisedQuestionText = output[cursor++] ?? revisedQuestionText
+        revisedOptions = options.map((opt: any) => {
+          const option_text = output[cursor++] ?? String(opt?.option_text || '')
+          let explanation = opt?.explanation
+          if (opt?.explanation) {
+            explanation = output[cursor++] ?? String(opt.explanation || '')
+          }
+          return { ...opt, option_text, explanation }
+        })
+      } catch {
+        // ignore
+      }
     }
 
     const dl = String(difficulty_level) as keyof typeof XP_BY_LEVEL
     const xp = XP_BY_LEVEL[dl]
     if (!xp) return res.status(400).json({ error: 'difficulty_level inválido' })
+
+    // Ordenação estável: coloca a pergunta no final do quiz
+    let nextOrderIndex = 0
+    try {
+      const { data: last } = await supabaseAdmin
+        .from('quiz_questions')
+        .select('order_index')
+        .eq('challenge_id', challengeId)
+        .order('order_index', { ascending: false })
+        .limit(1)
+      const max = Array.isArray(last) && last.length ? Number((last[0] as any)?.order_index) : NaN
+      nextOrderIndex = (Number.isFinite(max) ? max : -1) + 1
+    } catch {
+      nextOrderIndex = 0
+    }
 
     const { data: question, error: qErr } = await supabaseAdmin
       .from('quiz_questions')
@@ -75,6 +92,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         // OBS: precisa respeitar o CHECK do banco (basico/intermediario/avancado/especialista)
         difficulty_level: dl,
         xp_value: xp,
+        order_index: nextOrderIndex,
         created_by: userId,
       })
       .select()

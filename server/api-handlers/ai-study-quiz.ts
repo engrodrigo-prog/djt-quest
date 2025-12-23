@@ -247,6 +247,30 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     };
 
     const currentUserId = await getUserId();
+    let isLeaderOrStaff = false;
+    if (admin && currentUserId) {
+      try {
+        const [{ data: profile }, { data: rolesRows }] = await Promise.all([
+          admin.from("profiles").select("studio_access, is_leader").eq("id", currentUserId).maybeSingle(),
+          admin.from("user_roles").select("role").eq("user_id", currentUserId),
+        ]);
+        const roleSet = new Set((rolesRows || []).map((r: any) => String(r?.role || "").trim()).filter(Boolean));
+        const STAFF = new Set([
+          "admin",
+          "gerente_djt",
+          "gerente_divisao_djtx",
+          "coordenador_djtx",
+          "content_curator",
+          "lider_equipe",
+        ]);
+        isLeaderOrStaff =
+          Boolean(profile?.studio_access) ||
+          Boolean(profile?.is_leader) ||
+          Array.from(roleSet).some((r) => STAFF.has(r));
+      } catch {
+        isLeaderOrStaff = false;
+      }
+    }
 
     const stripHtml = (html: string) =>
       html
@@ -378,11 +402,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (Array.isArray(source_ids) && source_ids.length && admin) {
+      if (!currentUserId) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+
       const { data } = await admin
         .from("study_sources")
-        .select("title, full_text, summary")
+        .select("id, user_id, scope, published, title, full_text, summary")
         .in("id", source_ids as string[]);
-      for (const row of data || []) {
+      const rows = Array.isArray(data) ? data : [];
+      const allowed = rows.filter((row: any) => {
+        if (isLeaderOrStaff) return true;
+        if (String(row?.user_id || "") === String(currentUserId)) return true;
+        const scope = String(row?.scope || "user").toLowerCase();
+        const published = Boolean(row?.published);
+        return scope === "org" && published;
+      });
+
+      if (!allowed.length) {
+        return res.status(403).json({ error: "Você não tem acesso às fontes selecionadas do StudyLab." });
+      }
+
+      for (const row of allowed) {
         const text = (row.full_text || row.summary || "").toString();
         if (text.trim().length > 0) {
           items.push({ title: row.title || "Fonte", text });

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import { HelpCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
@@ -17,6 +18,8 @@ import { QuizQuestionsList } from './QuizQuestionsList';
 import { AiQuizGenerator } from './AiQuizGenerator';
 import { apiFetch } from '@/lib/api';
 import { CompendiumPicker } from '@/components/CompendiumPicker';
+import { getActiveLocale } from '@/lib/i18n/activeLocale';
+import { localeToOpenAiLanguageTag } from '@/lib/i18n/language';
 
 const quizSchema = z.object({
   title: z.string().min(3, "Título deve ter no mínimo 3 caracteres"),
@@ -40,6 +43,15 @@ export function QuizCreationWizard() {
   const [isSubmittingForCuration, setIsSubmittingForCuration] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [compOpen, setCompOpen] = useState(false);
+  const [studySources, setStudySources] = useState<any[]>([]);
+  const [baseSourceId, setBaseSourceId] = useState<string>('');
+  const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([]);
+  const [sourceSearch, setSourceSearch] = useState('');
+  const [autoQuestionCount, setAutoQuestionCount] = useState<number>(10);
+  const [autoProofread, setAutoProofread] = useState(getActiveLocale() === 'pt-BR');
+  const [autoGenerating, setAutoGenerating] = useState(false);
+  const [quizMeta, setQuizMeta] = useState<{ title: string; description: string }>({ title: '', description: '' });
+  const location = useLocation();
   const navigate = useNavigate();
 
   const { register, handleSubmit, formState: { errors }, setValue } = useForm<QuizFormData>({
@@ -73,6 +85,47 @@ export function QuizCreationWizard() {
     }
   }, [setValue]);
 
+  // Load StudyLab sources (best-effort; table may be absent in older DBs)
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const columnsV2 = 'id,title,kind,url,summary,ingest_status,created_at';
+        const columnsV1 = 'id,title,kind,url,summary,created_at';
+        let res = await supabase
+          .from('study_sources')
+          .select(columnsV2)
+          .order('created_at', { ascending: false })
+          .limit(80);
+        if (res.error && /column .*ingest_status/i.test(String(res.error.message || res.error))) {
+          res = await supabase
+            .from('study_sources')
+            .select(columnsV1)
+            .order('created_at', { ascending: false })
+            .limit(80);
+        }
+        if (cancelled) return;
+        if (!res.error && Array.isArray(res.data)) {
+          setStudySources(res.data as any[]);
+        }
+      } catch {
+        if (!cancelled) setStudySources([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Seed from URL query (?seed_source=<id>)
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const seed = String(params.get('seed_source') || '').trim();
+    if (!seed) return;
+    setBaseSourceId((prev) => (prev ? prev : seed));
+    setSelectedSourceIds((prev) => (prev.includes(seed) ? prev : [seed, ...prev].slice(0, 12)));
+  }, [location.search]);
+
   const onSubmit = async (data: QuizFormData) => {
     setIsSubmitting(true);
     try {
@@ -93,6 +146,7 @@ export function QuizCreationWizard() {
         if (!resp.ok) throw new Error(String(json?.error || "Erro ao criar quiz"));
         const created = (json as any)?.quiz;
         if (!created?.id) throw new Error("Resposta inesperada ao criar quiz");
+        setQuizMeta({ title: data.title, description: data.description || '' });
         setQuizId(created.id);
         toast.success("Quiz criado! Agora adicione as perguntas.");
         return;
@@ -132,6 +186,7 @@ export function QuizCreationWizard() {
       }
 
       setQuizId(challenge.id);
+      setQuizMeta({ title: data.title, description: data.description || '' });
       toast.success("Quiz criado! Agora adicione as perguntas.");
     } catch (error) {
       console.error("Error creating quiz:", error);
@@ -143,6 +198,129 @@ export function QuizCreationWizard() {
 
   const handleQuestionAdded = () => {
     setRefreshKey(prev => prev + 1);
+  };
+
+  const applyBaseSource = () => {
+    if (!baseSourceId) return;
+    const src = studySources.find((s: any) => String(s.id) === String(baseSourceId));
+    if (!src) {
+      toast.error('Fonte do StudyLab não encontrada.');
+      return;
+    }
+    const title = String(src.title || '').trim();
+    const summary = String(src.summary || '').trim();
+    const url = String(src.url || '').trim();
+    if (title) {
+      setValue('title', `Quiz: ${title}`.replace(/^Quiz:\s*/i, 'Quiz: '), { shouldValidate: true, shouldDirty: true });
+    }
+    if (summary || url) {
+      setValue('description', (summary || url).slice(0, 1200), { shouldValidate: true, shouldDirty: true });
+    }
+    setSelectedSourceIds((prev) => (prev.includes(String(src.id)) ? prev : [String(src.id), ...prev].slice(0, 12)));
+    toast.success('Base do StudyLab aplicada ao quiz.');
+  };
+
+  const normalizeDifficultyLevel = (raw: any): 'basico' | 'intermediario' | 'avancado' | 'especialista' => {
+    const s = String(raw || '').trim().toLowerCase();
+    if (!s) return 'intermediario';
+    if (s === 'basico' || s === 'básico' || s === 'basica' || s === 'básica' || s === 'basic') return 'basico';
+    if (s === 'intermediario' || s === 'intermediário' || s === 'intermediaria' || s === 'intermediária' || s === 'intermediate')
+      return 'intermediario';
+    if (s === 'avancado' || s === 'avançado' || s === 'avancada' || s === 'avançada' || s === 'advanced') return 'avancado';
+    if (s === 'especialista' || s === 'expert' || s === 'expertise') return 'especialista';
+    return 'intermediario';
+  };
+
+  const handleGenerateFromStudyLab = async () => {
+    if (!quizId) return;
+    const sourceIds = Array.from(new Set(selectedSourceIds)).filter(Boolean).slice(0, 12);
+    if (!sourceIds.length) {
+      toast.error('Selecione ao menos 1 fonte do StudyLab.');
+      return;
+    }
+
+    const count = Math.max(3, Math.min(20, Number(autoQuestionCount || 10)));
+    setAutoGenerating(true);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) throw new Error('Não autenticado');
+
+      const resp = await apiFetch('/api/ai?handler=study-quiz', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          mode: 'standard',
+          language: localeToOpenAiLanguageTag(getActiveLocale()),
+          topic: quizMeta.title,
+          context: quizMeta.description,
+          question_count: count,
+          source_ids: sourceIds,
+        }),
+      });
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(json?.error || 'Falha ao gerar perguntas');
+      const questions = Array.isArray((json as any)?.questions)
+        ? (json as any).questions
+        : Array.isArray((json as any)?.questoes)
+          ? (json as any).questoes
+          : [];
+      if (!questions.length) throw new Error('A IA não retornou perguntas.');
+
+      let ok = 0;
+      let skipped = 0;
+      for (const q of questions) {
+        const questionText = String(q?.question_text || q?.enunciado || '').trim();
+        const optionsObj = q?.options || q?.alternativas || {};
+        const correctLetter = String(q?.correct_letter || q?.correta || '').trim().toUpperCase();
+        const explanation = String(q?.explanation || '').trim();
+        if (!questionText || !optionsObj || typeof optionsObj !== 'object') {
+          skipped++;
+          continue;
+        }
+
+        const letters = ['A', 'B', 'C', 'D'] as const;
+        const options = letters
+          .map((L) => ({
+            option_text: String((optionsObj as any)[L] || '').trim(),
+            is_correct: L === correctLetter,
+            explanation: L === correctLetter ? explanation : '',
+          }))
+          .filter((o) => o.option_text.length > 0);
+
+        // Require at least 4 options and a correct one
+        if (options.length < 4 || !options.some((o) => o.is_correct)) {
+          skipped++;
+          continue;
+        }
+
+        const difficulty = normalizeDifficultyLevel(q?.difficulty_level || q?.difficulty);
+
+        const create = await apiFetch('/api/admin?handler=studio-create-quiz-question', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({
+            challengeId: quizId,
+            question_text: questionText,
+            difficulty_level: difficulty,
+            options,
+            ...(autoProofread ? {} : { skip_proofread: true }),
+          }),
+        });
+        const createdJson = await create.json().catch(() => ({}));
+        if (!create.ok) {
+          throw new Error(createdJson?.error || 'Falha ao inserir pergunta no quiz');
+        }
+        ok++;
+      }
+
+      handleQuestionAdded();
+      toast.success(`Perguntas inseridas: ${ok}${skipped ? ` • ignoradas: ${skipped}` : ''}`);
+    } catch (e: any) {
+      toast.error(e?.message || 'Falha ao gerar perguntas');
+    } finally {
+      setAutoGenerating(false);
+    }
   };
 
   const submitForCuration = async () => {
@@ -218,6 +396,37 @@ export function QuizCreationWizard() {
               {errors.title && (
                 <p className="text-sm text-destructive">{errors.title.message}</p>
               )}
+            </div>
+
+            <div className="rounded-lg border border-dashed border-border bg-muted/20 p-4 space-y-3">
+              <div className="flex items-start justify-between gap-3 flex-wrap">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold">Base do StudyLab (opcional)</p>
+                  <p className="text-[11px] text-muted-foreground">
+                    Selecione um material que você subiu (URL PDF, arquivo, etc.) para pré-preencher e usar como base na geração de perguntas.
+                  </p>
+                </div>
+                <Button type="button" variant="outline" size="sm" disabled={!baseSourceId} onClick={applyBaseSource}>
+                  Aplicar
+                </Button>
+              </div>
+
+              <Select value={baseSourceId} onValueChange={setBaseSourceId}>
+                <SelectTrigger>
+                  <SelectValue placeholder={studySources.length ? "Selecionar fonte do StudyLab" : "Nenhuma fonte disponível"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {studySources.map((s: any) => (
+                    <SelectItem key={s.id} value={s.id}>
+                      {String(s.title || '').trim() || 'Fonte sem título'}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <p className="text-[11px] text-muted-foreground">
+                Dica: após criar o quiz, use a seção “Gerar perguntas (IA) a partir do StudyLab” para inserir perguntas automaticamente.
+              </p>
             </div>
 
             <div className="space-y-2">
@@ -323,6 +532,111 @@ export function QuizCreationWizard() {
       <QuizQuestionsList key={refreshKey} challengeId={quizId} onUpdate={handleQuestionAdded} />
       
       <QuizQuestionForm challengeId={quizId} onQuestionAdded={handleQuestionAdded} />
+
+      <Card className="border-emerald-500/30 bg-emerald-500/5">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <HelpCircle className="h-5 w-5 text-emerald-400" />
+            Gerar Perguntas (IA) a partir do StudyLab
+          </CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Use materiais enviados (ex.: manual em PDF via URL) como base. As perguntas são inseridas automaticamente neste quiz para revisão e curadoria.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label>Buscar fonte</Label>
+            <Input value={sourceSearch} onChange={(e) => setSourceSearch(e.target.value)} placeholder="Filtrar por título/URL…" />
+          </div>
+
+          <div className="space-y-2 rounded-md border border-border p-3 bg-muted/30">
+            <p className="text-[11px] text-muted-foreground">Selecione uma ou mais fontes do StudyLab.</p>
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 max-h-56 overflow-y-auto">
+              {studySources
+                .filter((s: any) => {
+                  const q = sourceSearch.trim().toLowerCase();
+                  if (!q) return true;
+                  const hay = [s?.title, s?.url, s?.summary].filter(Boolean).join(" ").toLowerCase();
+                  return hay.includes(q);
+                })
+                .map((s: any) => {
+                  const checked = selectedSourceIds.includes(s.id);
+                  const ingest = String(s.ingest_status || "").toLowerCase();
+                  const ingestLabel = ingest === "pending" ? "analisando…" : ingest === "failed" ? "falhou" : "";
+                  return (
+                    <label
+                      key={s.id}
+                      className={`flex items-start gap-2 text-sm cursor-pointer rounded-md border px-3 py-2 transition ${
+                        checked ? 'border-primary bg-primary/10 text-primary-foreground' : 'border-border bg-background'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        className="accent-primary mt-1"
+                        checked={checked}
+                        onChange={(e) => {
+                          setSelectedSourceIds((prev) =>
+                            e.target.checked ? Array.from(new Set([...prev, s.id])) : prev.filter((id) => id !== s.id)
+                          );
+                        }}
+                      />
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium line-clamp-2">{String(s.title || '').trim() || 'Fonte sem título'}</p>
+                        <p className="text-[11px] text-muted-foreground line-clamp-1">
+                          {s.kind ? String(s.kind).toUpperCase() : 'FONTE'}{ingestLabel ? ` • ${ingestLabel}` : ''}
+                        </p>
+                      </div>
+                    </label>
+                  );
+                })}
+
+              {studySources.length === 0 && (
+                <p className="text-xs text-muted-foreground col-span-full">
+                  Nenhuma fonte encontrada. Envie materiais no StudyLab (URL ou arquivo) e tente novamente.
+                </p>
+              )}
+            </div>
+
+            {selectedSourceIds.length > 0 && (
+              <Button type="button" variant="outline" size="sm" className="text-xs" onClick={() => setSelectedSourceIds([])}>
+                Limpar seleção ({selectedSourceIds.length})
+              </Button>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+            <div className="space-y-2">
+              <Label>Quantidade</Label>
+              <Input
+                type="number"
+                min={3}
+                max={20}
+                value={autoQuestionCount}
+                onChange={(e) => setAutoQuestionCount(Number(e.target.value) || 10)}
+              />
+              <p className="text-[11px] text-muted-foreground">Sugestão: 5 a 15 perguntas por manual.</p>
+            </div>
+            <div className="space-y-2 md:col-span-1">
+              <Label>Revisão (PT-BR)</Label>
+              <div className="flex items-center justify-between rounded-md border border-border bg-background/50 px-3 py-2">
+                <p className="text-[11px] text-muted-foreground">Corrigir escrita/acentos</p>
+                <Switch checked={autoProofread} onCheckedChange={setAutoProofread} />
+              </div>
+              <p className="text-[11px] text-muted-foreground">Desative para inglês/zh-CN ou para acelerar.</p>
+            </div>
+            <div className="md:col-span-1">
+              <Button
+                type="button"
+                className="w-full"
+                disabled={autoGenerating || selectedSourceIds.length === 0}
+                onClick={handleGenerateFromStudyLab}
+              >
+                {autoGenerating ? "Gerando e inserindo..." : "Gerar e inserir perguntas"}
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       <Card className="border-purple-500/30 bg-purple-500/5">
         <CardHeader>

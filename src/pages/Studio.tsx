@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft } from 'lucide-react';
@@ -31,6 +31,7 @@ const Studio = () => {
   const { loading, studioAccess, userRole, roleOverride } = useAuth();
   const { t } = useI18n();
   const [selectedModule, setSelectedModule] = useState<string | null>(null);
+  const location = useLocation();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -39,6 +40,41 @@ const Studio = () => {
       navigate('/studio/curadoria', { replace: true });
     }
   }, [loading, studioAccess, userRole, navigate]);
+
+  useEffect(() => {
+    if (loading) return;
+    if (!studioAccess) return;
+    if (userRole === 'content_curator') return;
+
+    const params = new URLSearchParams(location.search);
+    const moduleParam = (params.get('module') || '').trim();
+    if (!moduleParam) return;
+
+    const allowed = new Set([
+      'content',
+      'campaigns',
+      'campaigns-manage',
+      'quiz',
+      'quiz-manage',
+      'challenges',
+      'challenges-manage',
+      'performance',
+      'ai-quiz',
+      'study-lab',
+      'maintenance',
+      'team-bonus',
+      'evaluations',
+      'user-approvals',
+      'forums',
+      'forums-manage',
+      'reports',
+      'system',
+      'admin',
+    ]);
+
+    if (!allowed.has(moduleParam)) return;
+    setSelectedModule(moduleParam);
+  }, [loading, location.search, studioAccess, userRole]);
 
   if (loading) {
     return (
