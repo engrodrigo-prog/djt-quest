@@ -60,23 +60,17 @@ const Dashboard = () => {
   const loadedForUserRef = useRef<string | null>(null);
 
   useEffect(() => {
-    console.log('🏠 Dashboard: user changed', user?.id);
-    
     const loadData = async () => {
       if (!user) {
-        console.log('🏠 Dashboard: no user, skipping load');
         return;
       }
 
       // Avoid double load in React StrictMode/dev
       if (loadedForUserRef.current === user.id) {
-        console.log('🏠 Dashboard: already loaded for user, skipping');
         return;
       }
       loadedForUserRef.current = user.id;
 
-      console.log('🏠 Dashboard: starting data load');
-      
       // Safety timeout - force end loading after 5s
       const timeoutId = setTimeout(() => {
         console.error('⏱️ Dashboard: timeout reached - forcing loading to false');
@@ -235,7 +229,6 @@ const Dashboard = () => {
           setCompletedQuizIds(completed);
         }
         
-        console.log('🏠 Dashboard: data loaded successfully');
       } catch (error) {
         console.error("Error loading data:", error);
       } finally {

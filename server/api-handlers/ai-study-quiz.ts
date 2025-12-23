@@ -349,34 +349,48 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       specialtiesList.length ? `Especialidades: ${specialtiesList.join(", ")}` : "",
       contextText ? `Contexto: ${contextText}` : "",
       instructionsText ? `Instruções: ${instructionsText}` : "",
-      forumKbFocus ? `Foco (fórum): ${forumKbFocus}` : "",
-      forumKbTags.length ? `Hashtags (fórum): ${forumKbTags.map((t: string) => `#${t}`).join(" ")}` : "",
+      forumKbFocus ? `Foco (base de conhecimento): ${forumKbFocus}` : "",
+      forumKbTags.length ? `Hashtags (base de conhecimento): ${forumKbTags.map((t: string) => `#${t}`).join(" ")}` : "",
     ].filter(Boolean);
 
     if (contextualSeedParts.length && items.length === 0) {
       items.push({ title: "Contexto do usuário", text: contextualSeedParts.join("\n") });
     }
 
-    // Base de conhecimento do Fórum (por hashtags) como fontes adicionais
+    // Base de conhecimento (por hashtags) como fontes adicionais
     if (admin && forumKbTags.length) {
       try {
-        const { data } = await admin
-          .from("forum_knowledge_base")
-          .select("title, post_id, content, content_html, hashtags, likes_count, is_solution, is_featured")
-          .overlaps("hashtags", forumKbTags as any)
-          .order("is_solution", { ascending: false })
-          .order("likes_count", { ascending: false })
-          .limit(8);
-
-        const rows = Array.isArray(data) ? data : [];
+        let rows: any[] = [];
+        try {
+          const { data, error } = await admin
+            .from("knowledge_base")
+            .select("source_type, title, post_id, source_id, content, content_html, hashtags, likes_count, is_solution, is_featured, kind, url")
+            .overlaps("hashtags", forumKbTags as any)
+            .order("is_solution", { ascending: false })
+            .order("likes_count", { ascending: false })
+            .limit(8);
+          if (error) throw error;
+          rows = Array.isArray(data) ? data : [];
+        } catch {
+          const { data } = await admin
+            .from("forum_knowledge_base")
+            .select("title, post_id, content, content_html, hashtags, likes_count, is_solution, is_featured")
+            .overlaps("hashtags", forumKbTags as any)
+            .order("is_solution", { ascending: false })
+            .order("likes_count", { ascending: false })
+            .limit(8);
+          rows = Array.isArray(data) ? data : [];
+        }
         for (const row of rows) {
-          const title = (row?.title || "").toString().trim() || "Tópico do Fórum";
+          const title = (row?.title || "").toString().trim() || "Base de Conhecimento";
+          const sourceType = String(row?.source_type || "forum").toLowerCase();
           const raw = (row?.content || "").toString().trim();
           const html = (row?.content_html || "").toString().trim();
           const text = raw || (html ? stripHtml(html) : "");
           if (!text.trim()) continue;
           const hashtags = Array.isArray(row?.hashtags) ? row.hashtags.slice(0, 10).map((h: any) => `#${h}`) : [];
           const flags = [
+            sourceType === "study" ? "StudyLab" : "",
             row?.is_solution ? "solução" : "",
             row?.is_featured ? "destaque" : "",
             Number(row?.likes_count || 0) > 0 ? `${Number(row.likes_count)} curtidas` : "",
@@ -385,6 +399,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             .join(" • ");
           const header = [
             forumKbFocus ? `Foco: ${forumKbFocus}` : "",
+            sourceType === "study" ? "Origem: StudyLab" : "",
             flags ? `Sinais: ${flags}` : "",
             hashtags.length ? `Hashtags: ${hashtags.join(" ")}` : "",
           ]
@@ -392,7 +407,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             .join("\n");
 
           items.push({
-            title: `Fórum: ${title}`,
+            title: sourceType === "study" ? `StudyLab: ${title}` : `Fórum: ${title}`,
             text: `${header ? `${header}\n\n` : ""}${text.slice(0, 2000)}`,
           });
         }

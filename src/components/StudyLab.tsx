@@ -1347,9 +1347,9 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
               <div className="rounded-lg border border-white/20 bg-white/5 p-3 space-y-3">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="text-xs font-semibold text-white">Temas do Fórum (GPTs)</p>
+                    <p className="text-xs font-semibold text-white">Temas da Base de Conhecimento (GPTs)</p>
                     <p className="text-[11px] text-white/70">
-                      Selecione um tema/subtema (até 3 níveis) para focar o Oráculo e puxar trechos do fórum como contexto.
+                      Selecione um tema/subtema (até 3 níveis) para focar o Oráculo e puxar trechos do fórum e do StudyLab como contexto.
                     </p>
                   </div>
                   <div className="flex items-center gap-2 rounded-md border border-white/20 bg-black/20 px-2 py-1">
@@ -1393,7 +1393,7 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
                   </div>
                 ) : (
                   <p className="text-[11px] text-white/70">
-                    Dica: use hashtags consistentes no fórum (ex.: <span className="text-white/90">#protecao_transformadores_shutdown</span>) para melhorar este menu.
+                    Dica: use hashtags consistentes no fórum e no StudyLab (ex.: <span className="text-white/90">#protecao_transformadores_shutdown</span>) para melhorar este menu.
                   </p>
                 )}
               </div>
@@ -1459,7 +1459,7 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
                 {oracleMode
                   ? "O Oráculo busca no catálogo e no compêndio, e também usa o histórico desta conversa."
                   : "A IA prioriza o material selecionado no catálogo e o histórico desta conversa."}
-                {kbEnabled && kbSelection?.tags?.length ? " (com foco adicional no tema selecionado do fórum)" : ""}
+                {kbEnabled && kbSelection?.tags?.length ? " (com foco adicional no tema selecionado na base de conhecimento)" : ""}
               </p>
             </div>
           </div>

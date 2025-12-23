@@ -624,9 +624,9 @@ export const AiQuizGenerator = ({ defaultChallengeId }: { defaultChallengeId?: s
             <div className="space-y-3 rounded-md border border-border p-3 bg-muted/20">
               <div className="flex items-start justify-between gap-3 flex-wrap">
                 <div className="min-w-0">
-                  <p className="text-sm font-medium">Base do Fórum por hashtags (contexto)</p>
+                  <p className="text-sm font-medium">Base de conhecimento por hashtags (Fórum + StudyLab)</p>
                   <p className="text-[11px] text-muted-foreground">
-                    Selecione temas/subtemas já usados no fórum para puxar trechos relevantes como fonte adicional do quiz.
+                    Selecione temas/subtemas já usados na base de conhecimento para puxar trechos relevantes como fonte adicional do quiz.
                   </p>
                 </div>
                 <div className="flex items-center gap-2 rounded-md border border-border bg-background/50 px-3 py-2">
@@ -645,7 +645,7 @@ export const AiQuizGenerator = ({ defaultChallengeId }: { defaultChallengeId?: s
                 <ForumKbThemeSelector maxTags={20} onChange={setKbSelection} />
               ) : (
                 <p className="text-[11px] text-muted-foreground">
-                  Ative para selecionar um tema e incluir o contexto do fórum na geração.
+                  Ative para selecionar um tema e incluir o contexto da base de conhecimento na geração.
                 </p>
               )}
             </div>

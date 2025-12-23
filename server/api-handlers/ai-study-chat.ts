@@ -25,6 +25,62 @@ function chooseModel(preferPremium = false) {
   return pick;
 }
 
+const normalizeHashtagTag = (raw: string) => {
+  const base = String(raw || "").trim().replace(/^#+/, "");
+  if (!base) return "";
+  const ascii = base
+    .normalize("NFD")
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0300-\u036f]/g, "");
+  const cleaned = ascii.replace(/[^a-zA-Z0-9_.-]+/g, "_").replace(/^_+|_+$/g, "").toLowerCase();
+  if (cleaned.length < 3 || cleaned.length > 50) return "";
+  return cleaned;
+};
+
+const extractHashtagsFromText = (text: string) => {
+  const matches = Array.from(String(text || "").matchAll(/#([A-Za-z0-9_.-]+)/g)).map((m) => m[1]);
+  const tags = matches.map(normalizeHashtagTag).filter(Boolean);
+  return Array.from(new Set(tags)).slice(0, 24);
+};
+
+const mergeHashtags = (...groups: Array<string[] | null | undefined>) => {
+  const out = new Set<string>();
+  for (const group of groups) {
+    for (const raw of group || []) {
+      const tag = normalizeHashtagTag(raw);
+      if (tag) out.add(tag);
+    }
+  }
+  return Array.from(out).slice(0, 24);
+};
+
+const replaceStudySourceHashtags = async (admin: any, sourceId: string, tags: string[]) => {
+  if (!admin || !sourceId || !tags.length) return;
+  try {
+    const { data, error } = await admin
+      .from("forum_hashtags")
+      .upsert(tags.map((tag) => ({ tag })), { onConflict: "tag" })
+      .select("id, tag");
+    if (error) throw error;
+    const rows = Array.isArray(data) ? data : [];
+    if (!rows.length) return;
+    const ids = rows.map((r: any) => r?.id).filter(Boolean);
+    if (!ids.length) return;
+
+    try {
+      await admin.from("study_source_hashtags").delete().eq("source_id", sourceId);
+    } catch {
+      // ignore
+    }
+
+    await admin.from("study_source_hashtags").insert(
+      ids.map((hashtag_id: string) => ({ source_id: sourceId, hashtag_id })),
+    );
+  } catch {
+    // best-effort
+  }
+};
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === "OPTIONS") return res.status(204).send("");
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
@@ -323,6 +379,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             '  "title": "...",\n' +
             '  "summary": "...",\n' +
             '  "topic": "LINHAS",\n' +
+            '  "hashtags": ["#tag1", "#tag2"],\n' +
             '  "aprendizados": ["..."],\n' +
             '  "cuidados": ["..."],\n' +
             '  "mudancas": ["..."]\n' +
@@ -330,16 +387,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             "- title: título curto.\n" +
             "- summary: 2 a 4 frases, em português.\n" +
             `- topic: escolha UMA categoria entre: ${allowedTopics.join(", ")}.\n` +
+            "- hashtags: 4 a 8 hashtags curtas (sem espaços), use termos do material.\n" +
             "- aprendizados/cuidados/mudancas: 3 a 7 itens cada (use [] se não tiver evidência no texto/formulário).\n" +
             "- NÃO invente detalhes que não estejam no material ou no formulário.\n\n" +
             incidentContext +
             "### Material\n" +
             baseMaterial
           : "Leia o material abaixo e responda APENAS em JSON no formato " +
-            "{\"title\": \"...\", \"summary\": \"...\", \"topic\": \"LINHAS\"}.\n" +
+            "{\"title\": \"...\", \"summary\": \"...\", \"topic\": \"LINHAS\", \"hashtags\": [\"#tag1\", \"#tag2\"]}.\n" +
             "- title: título curto, sem siglas de GED.\n" +
             "- summary: resumo em 2 a 4 frases, em português.\n" +
-            `- topic: escolha UMA categoria entre: ${allowedTopics.join(", ")}.\n\n` +
+            `- topic: escolha UMA categoria entre: ${allowedTopics.join(", ")}.\n` +
+            "- hashtags: 4 a 8 hashtags curtas (sem espaços), use termos do material.\n\n" +
             baseMaterial;
 
         const resp = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -425,13 +484,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             ? parsed.mudancas.map((x: any) => String(x || "").trim()).filter(Boolean).slice(0, 12)
             : [];
 
+          const aiTags = Array.isArray(parsed?.hashtags)
+            ? parsed.hashtags.map((x: any) => String(x || "").trim()).filter(Boolean)
+            : [];
+          const explicitTags = extractHashtagsFromText([newTitle, newSummary, trimmed].filter(Boolean).join(" "));
+          const topicTag = topic ? normalizeHashtagTag(topic) : "";
+          const prevTags = Array.isArray(prevMeta?.tags) ? prevMeta.tags : [];
+          const mergedTags = mergeHashtags(
+            prevTags,
+            aiTags,
+            explicitTags,
+            topicTag ? [topicTag] : [],
+          );
+
           const nextMeta = supportsMetadata
             ? {
                 ...(prevMeta && typeof prevMeta === "object" ? prevMeta : {}),
+                ...(mergedTags.length ? { tags: mergedTags } : {}),
                 ai: {
                   ...((prevMeta && typeof prevMeta === "object" ? prevMeta.ai : null) || {}),
                   ingested_at: new Date().toISOString(),
                   ...(topic ? { topic } : {}),
+                  ...(mergedTags.length ? { tags: mergedTags } : {}),
                   ...(isIncident
                     ? {
                         incident: {
@@ -459,6 +533,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               ...(nextMeta ? { metadata: nextMeta } : {}),
             })
             .eq("id", source_id);
+
+          if (mergedTags.length) {
+            await replaceStudySourceHashtags(admin, source_id, mergedTags);
+          }
 
           return res.status(200).json({
             success: true,
@@ -496,7 +574,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     const focusHint = forumKbFocus
-      ? `\n\nFoco do usuário (temas do fórum): ${forumKbFocus}\n- Priorize esse foco ao responder e ao sugerir próximos passos.`
+      ? `\n\nFoco do usuário (temas da base de conhecimento): ${forumKbFocus}\n- Priorize esse foco ao responder e ao sugerir próximos passos.`
       : "";
 
     const system =
@@ -665,16 +743,28 @@ Formato da saída:
       let forumKbRows: any[] = [];
       if (forumKbTags.length) {
         try {
-          const { data } = await admin
-            .from("forum_knowledge_base")
-            .select("title, post_id, content, content_html, hashtags, likes_count, is_solution, is_featured")
+          const { data, error } = await admin
+            .from("knowledge_base")
+            .select("source_type, title, post_id, source_id, content, content_html, hashtags, likes_count, is_solution, is_featured, kind, url")
             .overlaps("hashtags", forumKbTags as any)
             .order("is_solution", { ascending: false })
             .order("likes_count", { ascending: false })
             .limit(120);
+          if (error) throw error;
           forumKbRows = Array.isArray(data) ? data : [];
         } catch {
-          forumKbRows = [];
+          try {
+            const { data } = await admin
+              .from("forum_knowledge_base")
+              .select("title, post_id, content, content_html, hashtags, likes_count, is_solution, is_featured")
+              .overlaps("hashtags", forumKbTags as any)
+              .order("is_solution", { ascending: false })
+              .order("likes_count", { ascending: false })
+              .limit(120);
+            forumKbRows = Array.isArray(data) ? data : [];
+          } catch {
+            forumKbRows = [];
+          }
         }
       }
 
@@ -742,13 +832,15 @@ Formato da saída:
 
       if (rankedForumKb.length) {
         contextParts.push(
-          "### Fórum (base por hashtags)\n" +
+          "### Base de Conhecimento (hashtags)\n" +
             rankedForumKb
               .map((x, idx) => {
                 const row = x.row || {};
                 const title = String(row.title || `Tópico ${idx + 1}`);
+                const sourceType = String(row.source_type || "forum").toLowerCase();
                 const hashtags = Array.isArray(row.hashtags) ? row.hashtags.slice(0, 8).map((h: any) => `#${h}`) : [];
                 const flags = [
+                  sourceType === "study" ? "StudyLab" : "",
                   row.is_solution ? "solução" : "",
                   row.is_featured ? "destaque" : "",
                   Number(row.likes_count || 0) > 0 ? `${Number(row.likes_count)} curtidas` : "",
@@ -785,23 +877,38 @@ Formato da saída:
 
       if (admin && forumKbTags.length) {
         try {
-          const { data } = await admin
-            .from("forum_knowledge_base")
-            .select("title, post_id, content, content_html, hashtags, likes_count, is_solution, is_featured")
-            .overlaps("hashtags", forumKbTags as any)
-            .order("is_solution", { ascending: false })
-            .order("likes_count", { ascending: false })
-            .limit(8);
-          const rows = Array.isArray(data) ? data : [];
+          let rows: any[] = [];
+          try {
+            const { data, error } = await admin
+              .from("knowledge_base")
+              .select("source_type, title, post_id, source_id, content, content_html, hashtags, likes_count, is_solution, is_featured, kind, url")
+              .overlaps("hashtags", forumKbTags as any)
+              .order("is_solution", { ascending: false })
+              .order("likes_count", { ascending: false })
+              .limit(8);
+            if (error) throw error;
+            rows = Array.isArray(data) ? data : [];
+          } catch {
+            const { data } = await admin
+              .from("forum_knowledge_base")
+              .select("title, post_id, content, content_html, hashtags, likes_count, is_solution, is_featured")
+              .overlaps("hashtags", forumKbTags as any)
+              .order("is_solution", { ascending: false })
+              .order("likes_count", { ascending: false })
+              .limit(8);
+            rows = Array.isArray(data) ? data : [];
+          }
           if (rows.length) {
             const context = rows
               .map((row, idx) => {
                 const title = String(row?.title || `Tópico ${idx + 1}`);
+                const sourceType = String(row?.source_type || "forum").toLowerCase();
                 const raw = String(row?.content || "").trim();
                 const html = String(row?.content_html || "").trim();
                 const text = raw || (html ? stripHtml(html) : "");
                 const hashtags = Array.isArray(row?.hashtags) ? row.hashtags.slice(0, 8).map((h: any) => `#${h}`) : [];
                 const flags = [
+                  sourceType === "study" ? "StudyLab" : "",
                   row?.is_solution ? "solução" : "",
                   row?.is_featured ? "destaque" : "",
                   Number(row?.likes_count || 0) > 0 ? `${Number(row.likes_count)} curtidas` : "",
@@ -819,7 +926,7 @@ Formato da saída:
               .join("\n");
             openaiMessages.push({
               role: "system",
-              content: `A seguir estão trechos do fórum (base por hashtags) para usar como contexto adicional:\n\n${context}`,
+              content: `A seguir estão trechos da base de conhecimento (hashtags) para usar como contexto adicional:\n\n${context}`,
             });
           }
         } catch {

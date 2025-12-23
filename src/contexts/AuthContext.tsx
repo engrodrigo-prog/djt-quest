@@ -374,7 +374,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         // Clear cache if user changed
         if (session?.user.id !== previousUserId && previousUserId) {
-          console.log('🔄 User changed, clearing cache');
           localStorage.removeItem(CACHE_KEY);
         }
 
@@ -387,11 +386,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           tryTrackAccess(session.access_token, session.user?.id, 'session');
           fetchUserSession(session)
             .then((authData) => {
-              console.log('👤 AuthContext: role check', { oldRole, newRole: authData?.role, hasShownWelcome: welcomeRef.current });
-
               if (oldRole === 'colaborador' && authData?.role && authData.role.includes('gerente') && !welcomeRef.current) {
                 setHasShownWelcome(true);
-                console.log('🎉 AuthContext: Triggering welcome toast');
                 setTimeout(() => {
                   window.dispatchEvent(new CustomEvent('show-studio-welcome'));
                 }, 1000);

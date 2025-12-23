@@ -92,7 +92,7 @@ export function ForumKbThemeMenu({
 
       {!loading && filtered.length === 0 && (
         <p className="text-[11px] text-white/70">
-          Nenhuma hashtag encontrada. Use # nos fóruns para alimentar esta base.
+          Nenhuma hashtag encontrada. Use # nos fóruns e no StudyLab para alimentar esta base.
         </p>
       )}
 
@@ -198,4 +198,3 @@ export function ForumKbThemeMenu({
     </div>
   );
 }
-

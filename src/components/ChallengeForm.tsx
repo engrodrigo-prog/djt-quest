@@ -474,9 +474,9 @@ export const ChallengeForm = () => {
             <div className="rounded-lg border border-dashed border-border bg-muted/20 p-4 space-y-3">
               <div className="flex items-start justify-between gap-3 flex-wrap">
                 <div className="min-w-0">
-                  <p className="text-sm font-semibold">Base de conhecimento do Fórum (hashtags)</p>
+                  <p className="text-sm font-semibold">Base de conhecimento (Fórum + StudyLab)</p>
                   <p className="text-[11px] text-muted-foreground">
-                    Selecione um tema/subtema (até 3 níveis) para puxar trechos relevantes do fórum e usar como contexto na criação do desafio.
+                    Selecione um tema/subtema (até 3 níveis) para puxar trechos relevantes e usar como contexto na criação do desafio.
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
@@ -488,7 +488,7 @@ export const ChallengeForm = () => {
                     onClick={() => {
                       if (!kbSelection?.label) return;
                       setValue("theme", kbSelection.label.slice(0, 120), { shouldValidate: true });
-                      toast({ title: "Tema preenchido a partir do fórum" });
+                      toast({ title: "Tema preenchido a partir da base de conhecimento" });
                     }}
                   >
                     Aplicar tema
@@ -531,15 +531,16 @@ export const ChallengeForm = () => {
                   <p className="text-xs text-muted-foreground">Carregando trechos…</p>
                 ) : kbSelection?.tags?.length && kbSnippets.length === 0 ? (
                   <p className="text-xs text-muted-foreground">
-                    Nenhum trecho encontrado na base do fórum para essas hashtags (a base usa posts curados/destaques).
+                    Nenhum trecho encontrado na base de conhecimento para essas hashtags (usa fórum curado e StudyLab).
                   </p>
                 ) : (
                   kbSnippets.length > 0 && (
                     <div className="space-y-2">
                       <p className="text-xs font-semibold">Trechos sugeridos</p>
                       <div className="space-y-2">
-                        {kbSnippets.map((s) => {
+                      {kbSnippets.map((s) => {
                           const flags = [
+                            s.sourceType === "study" ? "StudyLab" : "",
                             s.isSolution ? "solução" : "",
                             s.isFeatured ? "destaque" : "",
                             s.likesCount ? `${s.likesCount} curtidas` : "",
@@ -571,7 +572,7 @@ export const ChallengeForm = () => {
                           if (!kbSelection?.label || !kbSnippets.length) return;
                           const header = [
                             "---",
-                            `Contexto do Fórum: ${kbSelection.label}`,
+                            `Contexto da Base de Conhecimento: ${kbSelection.label}`,
                             kbSelection.tags.length ? `Hashtags: ${kbSelection.tags.slice(0, 10).map((t) => `#${t}`).join(" ")}` : "",
                             "",
                           ]
@@ -584,7 +585,7 @@ export const ChallengeForm = () => {
                           const current = String(descriptionValue || "").trim();
                           const next = [current, header, ...lines].filter(Boolean).join("\n\n");
                           setValue("description", next, { shouldValidate: true });
-                          toast({ title: "Contexto do fórum inserido na descrição" });
+                          toast({ title: "Contexto da base de conhecimento inserido na descrição" });
                         }}
                       >
                         Inserir trechos na descrição
