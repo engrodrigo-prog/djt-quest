@@ -10,6 +10,7 @@ import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Plus, Target as TargetIcon, Wand2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { challengeSchema, type ChallengeFormData } from "@/lib/validations/challenge";
@@ -21,6 +22,8 @@ import { VoiceRecorderButton } from "@/components/VoiceRecorderButton";
 import { CompendiumPicker } from "@/components/CompendiumPicker";
 import { getActiveLocale } from "@/lib/i18n/activeLocale";
 import { localeToOpenAiLanguageTag, localeToSpeechLanguage } from "@/lib/i18n/language";
+import { ForumKbThemeSelector, type ForumKbSelection } from "@/components/ForumKbThemeSelector";
+import { fetchForumKbSnippets, type ForumKbSnippet } from "@/lib/forum/fetchKbSnippets";
 
 interface Campaign {
   id: string;
@@ -63,6 +66,9 @@ export const ChallengeForm = () => {
   const [newCampaign, setNewCampaign] = useState({ title: '', description: '', start: '', end: '' });
   const [coverUrl, setCoverUrl] = useState<string | null>(null);
   const [compOpen, setCompOpen] = useState(false);
+  const [kbSelection, setKbSelection] = useState<ForumKbSelection | null>(null);
+  const [kbSnippets, setKbSnippets] = useState<ForumKbSnippet[]>([]);
+  const [kbLoading, setKbLoading] = useState(false);
 
   const {
     register,
@@ -89,10 +95,34 @@ export const ChallengeForm = () => {
   const rewardMode = watch("reward_mode") || "fixed_xp";
   const requireTwoLeaderEval = watch("require_two_leader_eval");
   const evidenceRequired = watch("evidence_required");
+  const descriptionValue = watch("description") as any;
 
   useEffect(() => {
     loadData();
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const key = kbSelection?.tags?.join("|") || "";
+    if (!key) {
+      setKbSnippets([]);
+      return;
+    }
+    setKbLoading(true);
+    fetchForumKbSnippets({ tags: kbSelection!.tags, limit: 6 })
+      .then((rows) => {
+        if (!cancelled) setKbSnippets(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setKbSnippets([]);
+      })
+      .finally(() => {
+        if (!cancelled) setKbLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [kbSelection?.tags?.join("|")]);
 
   // Prefill from Forum Insights draft (desafio)
   useEffect(() => {
@@ -439,6 +469,130 @@ export const ChallengeForm = () => {
               {errors.theme && (
                 <p className="text-sm text-destructive mt-1">{String(errors.theme.message)}</p>
               )}
+            </div>
+
+            <div className="rounded-lg border border-dashed border-border bg-muted/20 p-4 space-y-3">
+              <div className="flex items-start justify-between gap-3 flex-wrap">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold">Base de conhecimento do Fórum (hashtags)</p>
+                  <p className="text-[11px] text-muted-foreground">
+                    Selecione um tema/subtema (até 3 níveis) para puxar trechos relevantes do fórum e usar como contexto na criação do desafio.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={!kbSelection?.label}
+                    onClick={() => {
+                      if (!kbSelection?.label) return;
+                      setValue("theme", kbSelection.label.slice(0, 120), { shouldValidate: true });
+                      toast({ title: "Tema preenchido a partir do fórum" });
+                    }}
+                  >
+                    Aplicar tema
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={!kbSelection?.tags?.length}
+                    onClick={() => {
+                      if (!kbSelection?.tags?.length) return;
+                      const current = String(descriptionValue || "").trim();
+                      const hashLine = kbSelection.tags
+                        .slice(0, 10)
+                        .map((t) => `#${t}`)
+                        .join(" ");
+                      const next = [current, hashLine].filter(Boolean).join("\n\n");
+                      setValue("description", next, { shouldValidate: true });
+                      toast({ title: "Hashtags adicionadas à descrição" });
+                    }}
+                  >
+                    Inserir # na descrição
+                  </Button>
+                </div>
+              </div>
+
+              <ForumKbThemeSelector
+                maxTags={20}
+                onChange={(sel) => {
+                  setKbSelection(sel);
+                }}
+              />
+
+              <div className="space-y-2">
+                <p className="text-[11px] text-muted-foreground">
+                  {kbSelection?.label ? `Foco: ${kbSelection.label}` : "Escolha um foco para ver trechos."}
+                </p>
+
+                {kbLoading ? (
+                  <p className="text-xs text-muted-foreground">Carregando trechos…</p>
+                ) : kbSelection?.tags?.length && kbSnippets.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    Nenhum trecho encontrado na base do fórum para essas hashtags (a base usa posts curados/destaques).
+                  </p>
+                ) : (
+                  kbSnippets.length > 0 && (
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold">Trechos sugeridos</p>
+                      <div className="space-y-2">
+                        {kbSnippets.map((s) => {
+                          const flags = [
+                            s.isSolution ? "solução" : "",
+                            s.isFeatured ? "destaque" : "",
+                            s.likesCount ? `${s.likesCount} curtidas` : "",
+                          ]
+                            .filter(Boolean)
+                            .join(" • ");
+                          const excerpt = String(s.content || "").replace(/\s+/g, " ").trim().slice(0, 220);
+                          return (
+                            <div key={s.postId} className="rounded-md border border-border bg-background/60 p-3 space-y-1">
+                              <div className="flex items-center justify-between gap-2">
+                                <p className="text-sm font-medium truncate">{s.topicTitle}</p>
+                                {flags && (
+                                  <Badge variant="outline" className="text-[10px]">
+                                    {flags}
+                                  </Badge>
+                                )}
+                              </div>
+                              {excerpt && <p className="text-xs text-muted-foreground">{excerpt}{excerpt.length >= 220 ? "…" : ""}</p>}
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={!kbSnippets.length || !kbSelection?.label}
+                        onClick={() => {
+                          if (!kbSelection?.label || !kbSnippets.length) return;
+                          const header = [
+                            "---",
+                            `Contexto do Fórum: ${kbSelection.label}`,
+                            kbSelection.tags.length ? `Hashtags: ${kbSelection.tags.slice(0, 10).map((t) => `#${t}`).join(" ")}` : "",
+                            "",
+                          ]
+                            .filter(Boolean)
+                            .join("\n");
+                          const lines = kbSnippets.map((s) => {
+                            const ex = String(s.content || "").replace(/\s+/g, " ").trim().slice(0, 320);
+                            return `- ${s.topicTitle}: ${ex}${ex.length >= 320 ? "…" : ""}`;
+                          });
+                          const current = String(descriptionValue || "").trim();
+                          const next = [current, header, ...lines].filter(Boolean).join("\n\n");
+                          setValue("description", next, { shouldValidate: true });
+                          toast({ title: "Contexto do fórum inserido na descrição" });
+                        }}
+                      >
+                        Inserir trechos na descrição
+                      </Button>
+                    </div>
+                  )
+                )}
+              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-4">

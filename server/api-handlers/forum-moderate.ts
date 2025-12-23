@@ -17,6 +17,48 @@ function extractMentionsAndTags(md: string) {
   return { mentions, hashtags }
 }
 
+async function replacePostHashtags(admin: any, postId: string, rawTags: string[]) {
+  const tags = Array.from(
+    new Set((rawTags || []).map((t) => String(t || '').trim().replace(/^#+/, '').toLowerCase()).filter(Boolean)),
+  )
+    .filter((t) => t.length >= 3 && t.length <= 50)
+    .slice(0, 24)
+  if (!postId) return
+
+  try {
+    await admin.from('forum_post_hashtags').delete().eq('post_id', postId)
+  } catch {}
+
+  if (!tags.length) return
+
+  try {
+    let rows: any[] = []
+    try {
+      const up = await admin
+        .from('forum_hashtags')
+        .upsert(tags.map((tag) => ({ tag })), { onConflict: 'tag' })
+        .select('id, tag')
+      if (up.error) throw up.error
+      rows = Array.isArray(up.data) ? up.data : []
+    } catch {
+      const sel = await admin.from('forum_hashtags').select('id, tag').in('tag', tags)
+      rows = Array.isArray(sel.data) ? sel.data : []
+    }
+
+    const ids = rows.map((r: any) => r?.id).filter(Boolean)
+    if (!ids.length) return
+
+    await admin
+      .from('forum_post_hashtags')
+      .upsert(
+        ids.map((hashtag_id: string) => ({ post_id: postId, hashtag_id })),
+        { onConflict: 'post_id,hashtag_id' },
+      )
+  } catch {
+    // ignore
+  }
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === 'OPTIONS') return res.status(204).send('')
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
@@ -197,6 +239,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         updateError = error
       }
       if (updateError) return res.status(400).json({ error: updateError.message })
+
+      // Sync hashtags into knowledge base join table (best-effort)
+      try {
+        await replacePostHashtags(admin, post_id, hashtags)
+      } catch {}
 
       // Atualizar mentions best-effort: limpa antigas e recria
       try {

@@ -7,10 +7,12 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { Progress } from '@/components/ui/progress'
+import { Switch } from '@/components/ui/switch'
 import { toast } from 'sonner'
 import { apiFetch } from '@/lib/api'
 import { getActiveLocale } from '@/lib/i18n/activeLocale'
 import { localeToOpenAiLanguageTag } from '@/lib/i18n/language'
+import { ForumKbThemeSelector, type ForumKbSelection } from '@/components/ForumKbThemeSelector'
 
 interface Challenge { id: string; title: string; type: string }
 const WRONG_COUNT = 4;
@@ -57,6 +59,8 @@ export const AiQuizGenerator = ({ defaultChallengeId }: { defaultChallengeId?: s
   const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([])
   const [datasetText, setDatasetText] = useState("")
   const [datasetTitle, setDatasetTitle] = useState("")
+  const [kbEnabled, setKbEnabled] = useState(false)
+  const [kbSelection, setKbSelection] = useState<ForumKbSelection | null>(null)
   const [isGeneratingQuiz, setIsGeneratingQuiz] = useState(false)
   const [generationProgress, setGenerationProgress] = useState(0)
   const [generationStatus, setGenerationStatus] = useState<string | null>(null)
@@ -179,12 +183,13 @@ export const AiQuizGenerator = ({ defaultChallengeId }: { defaultChallengeId?: s
   const generateFullQuiz = async () => {
     const hasDataset = datasetText.trim().length > 0
     const hasSources = selectedSourceIds.length > 0
+    const hasKb = Boolean(kbEnabled && kbSelection?.tags?.length)
 
-    if (!topic.trim() && !context.trim() && !hasDataset && !hasSources) {
+    if (!topic.trim() && !context.trim() && !hasDataset && !hasSources && !hasKb) {
       toast('Informe ao menos um tema ou contexto (ou cole um dataset) para gerar o Quiz do Milhão.')
       return
     }
-    if (!hasDataset && !hasSources) {
+    if (!hasDataset && !hasSources && !hasKb) {
       toast.message('Gerando sem base de estudo', {
         description: 'As perguntas serão mais gerais. Para aderência máxima a normas/padrões internos, cole trechos ou selecione fontes.',
       })
@@ -211,6 +216,7 @@ export const AiQuizGenerator = ({ defaultChallengeId }: { defaultChallengeId?: s
         specialties,
         instructions,
         source_ids: selectedSourceIds,
+        ...(hasKb ? { kb_tags: kbSelection!.tags, kb_focus: kbSelection!.label } : {}),
         sources: hasDataset
           ? [{
               title: datasetTitle || topic || 'Base de estudo deste quiz',
@@ -614,6 +620,35 @@ export const AiQuizGenerator = ({ defaultChallengeId }: { defaultChallengeId?: s
                 )}
               </div>
             )}
+
+            <div className="space-y-3 rounded-md border border-border p-3 bg-muted/20">
+              <div className="flex items-start justify-between gap-3 flex-wrap">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">Base do Fórum por hashtags (contexto)</p>
+                  <p className="text-[11px] text-muted-foreground">
+                    Selecione temas/subtemas já usados no fórum para puxar trechos relevantes como fonte adicional do quiz.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 rounded-md border border-border bg-background/50 px-3 py-2">
+                  <p className="text-[11px] text-muted-foreground">Usar</p>
+                  <Switch
+                    checked={kbEnabled}
+                    onCheckedChange={(v) => {
+                      setKbEnabled(v);
+                      if (!v) setKbSelection(null);
+                    }}
+                  />
+                </div>
+              </div>
+
+              {kbEnabled ? (
+                <ForumKbThemeSelector maxTags={20} onChange={setKbSelection} />
+              ) : (
+                <p className="text-[11px] text-muted-foreground">
+                  Ative para selecionar um tema e incluir o contexto do fórum na geração.
+                </p>
+              )}
+            </div>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div className="space-y-2">

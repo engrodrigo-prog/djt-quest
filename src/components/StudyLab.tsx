@@ -15,6 +15,8 @@ import { AttachmentUploader } from "@/components/AttachmentUploader";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { TipDialogButton } from "@/components/TipDialogButton";
 import { getActiveLocale } from "@/lib/i18n/activeLocale";
+import { ForumKbThemeMenu } from "@/components/ForumKbThemeMenu";
+import type { ForumKbSelection } from "@/components/ForumKbThemeSelector";
 
 interface StudySource {
   id: string;
@@ -122,6 +124,8 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
   const [oracleMode, setOracleMode] = useState(true);
   const [showUploader, setShowUploader] = useState(false);
   const [polling, setPolling] = useState(false);
+  const [kbEnabled, setKbEnabled] = useState(false);
+  const [kbSelection, setKbSelection] = useState<ForumKbSelection | null>(null);
 
   useEffect(() => {
     if (showUploader) {
@@ -652,6 +656,10 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
         body: JSON.stringify({
           mode: oracleMode ? "oracle" : "study",
           ...(oracleMode ? {} : { source_id: selectedSourceId }),
+          language: getActiveLocale(),
+          ...(kbEnabled && kbSelection?.tags?.length
+            ? { kb_tags: kbSelection.tags, kb_focus: kbSelection.label }
+            : {}),
           messages: nextMessages,
         }),
       });
@@ -1319,68 +1327,126 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
           </div>
         </CardHeader>
         <CardContent className="space-y-6 text-white">
-
-          <div className="space-y-3">
-            <div className="flex items-center justify-between gap-3 flex-wrap">
-              <Label className="text-white">Pergunta</Label>
-              <div className="flex items-center gap-2 rounded-md border border-white/20 bg-white/5 px-3 py-2">
-                <div className="min-w-0">
-                  <p className="text-xs font-medium text-white">Modo Oráculo</p>
-                  <p className="text-[11px] text-white/70">
-                    {oracleMode ? "Busca em toda a base" : "Somente no material selecionado"}
-                  </p>
-                </div>
-                <Switch checked={oracleMode} onCheckedChange={setOracleMode} />
-              </div>
-            </div>
-            <div className="border border-white/20 rounded-md p-3 max-h-72 overflow-y-auto bg-white/5 text-sm">
-              {chatMessages.length === 0 && (
-                <p className="text-white/70 text-xs">
-                  {oracleMode
-                    ? "Pergunte qualquer coisa sobre os temas da sua área. O Oráculo busca nos materiais e traz um resumo prático (com referências)."
-                    : "Selecione um material no catálogo acima e pergunte sobre ele. A IA usa o conteúdo selecionado como contexto."}
-                </p>
-              )}
-              {chatMessages.map((m, idx) => (
-                <div key={idx} className={`mb-2 flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-                  <div
-                    className={`px-3 py-2 rounded-2xl max-w-[80%] ${
-                      m.role === "user" ? "bg-primary text-primary-foreground" : "bg-white/20 text-white"
-                    } text-xs whitespace-pre-line`}
-                  >
-                    {m.content}
+          <div className="grid grid-cols-1 md:grid-cols-[340px_1fr] gap-4">
+            <div className="space-y-3">
+              <div className="rounded-lg border border-white/20 bg-white/5 p-3 space-y-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold text-white">Temas do Fórum (GPTs)</p>
+                    <p className="text-[11px] text-white/70">
+                      Selecione um tema/subtema (até 3 níveis) para focar o Oráculo e puxar trechos do fórum como contexto.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 rounded-md border border-white/20 bg-black/20 px-2 py-1">
+                    <p className="text-[11px] text-white/70">Usar</p>
+                    <Switch checked={kbEnabled} onCheckedChange={setKbEnabled} />
                   </div>
                 </div>
-              ))}
+
+                <ForumKbThemeMenu
+                  selected={kbSelection}
+                  maxTags={20}
+                  onSelect={(next) => {
+                    setKbSelection(next);
+                    if (next) setKbEnabled(true);
+                  }}
+                />
+
+                {kbSelection?.tags?.length ? (
+                  <div className="flex items-center justify-between gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs border-white/30 text-white"
+                      onClick={() => setKbSelection(null)}
+                    >
+                      Limpar foco
+                    </Button>
+                    <div className="flex flex-wrap justify-end gap-1">
+                      {kbSelection.tags.slice(0, 6).map((t) => (
+                        <Badge key={t} variant="outline" className="text-[10px] border-white/30 text-white/85">
+                          #{t}
+                        </Badge>
+                      ))}
+                      {kbSelection.tags.length > 6 && (
+                        <Badge variant="outline" className="text-[10px] border-white/30 text-white/85">
+                          +{kbSelection.tags.length - 6}
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-white/70">
+                    Dica: use hashtags consistentes no fórum (ex.: <span className="text-white/90">#protecao_transformadores_shutdown</span>) para melhorar este menu.
+                  </p>
+                )}
+              </div>
             </div>
-            <div className="flex gap-2">
-              <Input
-                placeholder={
-                  oracleMode
-                    ? "Ex.: qual modo de falha mais comum em telecom? O que devo checar primeiro?"
-                    : selectedSource
-                      ? `Pergunte sobre: ${selectedSource.title}`
-                      : "Selecione um material para perguntar"
-                }
-                value={chatInput}
-                onChange={(e) => setChatInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    handleChatSend();
+
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <Label className="text-white">Pergunta</Label>
+                <div className="flex items-center gap-2 rounded-md border border-white/20 bg-white/5 px-3 py-2">
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium text-white">Modo Oráculo</p>
+                    <p className="text-[11px] text-white/70">
+                      {oracleMode ? "Busca em toda a base" : "Somente no material selecionado"}
+                    </p>
+                  </div>
+                  <Switch checked={oracleMode} onCheckedChange={setOracleMode} />
+                </div>
+              </div>
+              <div className="border border-white/20 rounded-md p-3 max-h-72 overflow-y-auto bg-white/5 text-sm">
+                {chatMessages.length === 0 && (
+                  <p className="text-white/70 text-xs">
+                    {oracleMode
+                      ? "Pergunte qualquer coisa sobre os temas da sua área. O Oráculo busca nos materiais e traz um resumo prático (com referências)."
+                      : "Selecione um material no catálogo acima e pergunte sobre ele. A IA usa o conteúdo selecionado como contexto."}
+                  </p>
+                )}
+                {chatMessages.map((m, idx) => (
+                  <div key={idx} className={`mb-2 flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+                    <div
+                      className={`px-3 py-2 rounded-2xl max-w-[80%] ${
+                        m.role === "user" ? "bg-primary text-primary-foreground" : "bg-white/20 text-white"
+                      } text-xs whitespace-pre-line`}
+                    >
+                      {m.content}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <Input
+                  placeholder={
+                    oracleMode
+                      ? "Ex.: qual modo de falha mais comum em telecom? O que devo checar primeiro?"
+                      : selectedSource
+                        ? `Pergunte sobre: ${selectedSource.title}`
+                        : "Selecione um material para perguntar"
                   }
-                }}
-              />
-              <Button type="button" onClick={handleChatSend} disabled={chatLoading || !chatInput.trim()}>
-                {chatLoading ? "Pensando..." : "Enviar"}
-              </Button>
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      handleChatSend();
+                    }
+                  }}
+                />
+                <Button type="button" onClick={handleChatSend} disabled={chatLoading || !chatInput.trim()}>
+                  {chatLoading ? "Pensando..." : "Enviar"}
+                </Button>
+              </div>
+              {chatError && <p className="text-sm text-destructive">Erro: {chatError}</p>}
+              <p className="text-[11px] text-white/70">
+                {oracleMode
+                  ? "O Oráculo busca no catálogo e no compêndio, e também usa o histórico desta conversa."
+                  : "A IA prioriza o material selecionado no catálogo e o histórico desta conversa."}
+                {kbEnabled && kbSelection?.tags?.length ? " (com foco adicional no tema selecionado do fórum)" : ""}
+              </p>
             </div>
-            {chatError && <p className="text-sm text-destructive">Erro: {chatError}</p>}
-            <p className="text-[11px] text-white/70">
-              {oracleMode
-                ? "O Oráculo busca no catálogo e no compêndio, e também usa o histórico desta conversa."
-                : "A IA prioriza o material selecionado no catálogo e o histórico desta conversa."}
-            </p>
           </div>
         </CardContent>
       </Card>

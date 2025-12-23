@@ -219,6 +219,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       sources = [],
       source_ids = [],
       source_urls = [],
+      kb_tags = [],
+      kb_focus = "",
       mode = "standard",
       question_count = 5,
       language = "pt-BR",
@@ -272,6 +274,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const topicText = (topic || "").toString().trim();
     const contextText = (context || "").toString().trim();
     const instructionsText = (instructions || "").toString().trim();
+    const forumKbTagsRaw = Array.isArray(kb_tags)
+      ? kb_tags
+      : typeof kb_tags === "string"
+        ? kb_tags.split(",")
+        : [];
+    const forumKbTags = Array.from(
+      new Set(
+        forumKbTagsRaw
+          .map((t: any) => (t ?? "").toString().trim().replace(/^#+/, "").toLowerCase())
+          .filter((t: string) => t.length > 0),
+      ),
+    ).slice(0, 24);
+    const forumKbFocus = (kb_focus || "").toString().trim().slice(0, 140);
     const specialtiesList = Array.isArray(specialties)
       ? (specialties as any[])
           .map((s) => (s ?? "").toString().trim())
@@ -285,7 +300,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       (Array.isArray(source_urls) && source_urls.length > 0) ||
       Boolean(topicText) ||
       Boolean(contextText) ||
-      Boolean(instructionsText);
+      Boolean(instructionsText) ||
+      forumKbTags.length > 0;
 
     if (!hasAnyInput) {
       return res.status(400).json({ error: "Informe um tema/contexto, uma URL, ou fontes válidas." });
@@ -309,10 +325,56 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       specialtiesList.length ? `Especialidades: ${specialtiesList.join(", ")}` : "",
       contextText ? `Contexto: ${contextText}` : "",
       instructionsText ? `Instruções: ${instructionsText}` : "",
+      forumKbFocus ? `Foco (fórum): ${forumKbFocus}` : "",
+      forumKbTags.length ? `Hashtags (fórum): ${forumKbTags.map((t: string) => `#${t}`).join(" ")}` : "",
     ].filter(Boolean);
 
     if (contextualSeedParts.length && items.length === 0) {
-      items.push({ title: "Instruções do usuário", text: contextualSeedParts.join("\n") });
+      items.push({ title: "Contexto do usuário", text: contextualSeedParts.join("\n") });
+    }
+
+    // Base de conhecimento do Fórum (por hashtags) como fontes adicionais
+    if (admin && forumKbTags.length) {
+      try {
+        const { data } = await admin
+          .from("forum_knowledge_base")
+          .select("title, post_id, content, content_html, hashtags, likes_count, is_solution, is_featured")
+          .overlaps("hashtags", forumKbTags as any)
+          .order("is_solution", { ascending: false })
+          .order("likes_count", { ascending: false })
+          .limit(8);
+
+        const rows = Array.isArray(data) ? data : [];
+        for (const row of rows) {
+          const title = (row?.title || "").toString().trim() || "Tópico do Fórum";
+          const raw = (row?.content || "").toString().trim();
+          const html = (row?.content_html || "").toString().trim();
+          const text = raw || (html ? stripHtml(html) : "");
+          if (!text.trim()) continue;
+          const hashtags = Array.isArray(row?.hashtags) ? row.hashtags.slice(0, 10).map((h: any) => `#${h}`) : [];
+          const flags = [
+            row?.is_solution ? "solução" : "",
+            row?.is_featured ? "destaque" : "",
+            Number(row?.likes_count || 0) > 0 ? `${Number(row.likes_count)} curtidas` : "",
+          ]
+            .filter(Boolean)
+            .join(" • ");
+          const header = [
+            forumKbFocus ? `Foco: ${forumKbFocus}` : "",
+            flags ? `Sinais: ${flags}` : "",
+            hashtags.length ? `Hashtags: ${hashtags.join(" ")}` : "",
+          ]
+            .filter(Boolean)
+            .join("\n");
+
+          items.push({
+            title: `Fórum: ${title}`,
+            text: `${header ? `${header}\n\n` : ""}${text.slice(0, 2000)}`,
+          });
+        }
+      } catch {
+        // best-effort
+      }
     }
 
     if (Array.isArray(source_ids) && source_ids.length && admin) {
@@ -396,7 +458,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       Boolean(primaryUrl) ||
       (Array.isArray(source_ids) && source_ids.length > 0) ||
       (Array.isArray(source_urls) && source_urls.length > 0) ||
-      (Array.isArray(sources) && sources.length > 0);
+      (Array.isArray(sources) && sources.length > 0) ||
+      forumKbTags.length > 0;
 
     const systemWithSources = `Você é um gerador de quizzes técnicos para treinamento profissional no setor elétrico brasileiro (CPFL, SEP, subtransmissão, segurança, proteção, telecom).
 Você receberá um conjunto de textos de estudo (fontes), e sua tarefa é criar um quiz COMPLETAMENTE baseado nesses materiais.
@@ -510,11 +573,17 @@ Retorne APENAS JSON válido (sem markdown), no formato:
 
     const system = hasReferenceSources ? systemWithSources : systemWithoutSources;
 
+    const userPreferences = contextualSeedParts.join("\n");
     const userMessage = {
       role: "user",
       content: `Idioma: ${language}
 Tipo de quiz: ${isMilhao ? "Quiz do Milhão (10 níveis)" : "Quiz rápido"}
 Quantidade desejada de perguntas: ${question_count}
+${
+  userPreferences
+    ? `\nPreferências do usuário (não são fonte de fatos; use apenas as Fontes para conteúdo técnico):\n${userPreferences}\n`
+    : ""
+}
 
 Conteúdo de estudo:
 ${joinedContext}`,

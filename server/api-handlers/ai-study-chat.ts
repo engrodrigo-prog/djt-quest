@@ -37,7 +37,29 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         ? createClient(SUPABASE_URL, SERVICE_KEY, { auth: { autoRefreshToken: false, persistSession: false } })
         : null;
 
-    const { messages = [], question = "", source_id = null, language = "pt-BR", mode = "study" } = req.body || {};
+    const {
+      messages = [],
+      question = "",
+      source_id = null,
+      language = "pt-BR",
+      mode = "study",
+      kb_tags = [],
+      kb_focus = "",
+    } = req.body || {};
+
+    const forumKbTagsRaw = Array.isArray(kb_tags)
+      ? kb_tags
+      : typeof kb_tags === "string"
+        ? kb_tags.split(",")
+        : [];
+    const forumKbTags = Array.from(
+      new Set(
+        forumKbTagsRaw
+          .map((t: any) => (t ?? "").toString().trim().replace(/^#+/, "").toLowerCase())
+          .filter((t: string) => t.length > 0),
+      ),
+    ).slice(0, 24);
+    const forumKbFocus = (kb_focus || "").toString().trim().slice(0, 140);
 
     let joinedContext = "";
     let sourceRow: any = null;
@@ -473,6 +495,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ error: "Mensagens inválidas" });
     }
 
+    const focusHint = forumKbFocus
+      ? `\n\nFoco do usuário (temas do fórum): ${forumKbFocus}\n- Priorize esse foco ao responder e ao sugerir próximos passos.`
+      : "";
+
     const system =
       mode === "oracle"
         ? `Você é o Oráculo de Conhecimento do DJT Quest.
@@ -483,6 +509,7 @@ Regras:
 - Se a resposta depender de uma informação que NÃO aparece na base enviada, deixe isso explícito e responda de forma geral (sem inventar detalhes).
 - Quando usar a base, cite rapidamente de onde veio: título da fonte/ocorrência.
 - Sugira 1 a 3 próximos passos (ex.: “quer que eu gere perguntas de quiz sobre isso?”).
+${focusHint}
 
 Formato:
 - Responda em ${language}, em texto livre, com quebras de linha amigáveis.
@@ -496,6 +523,7 @@ Seu objetivo:
 - Sempre deixe explícito na resposta quando estiver usando um material específico, por exemplo: "Com base no material de estudo sobre X..." ou "No documento selecionado, vemos que...".
 - Se algo não estiver nas fontes, deixe claro que a informação não aparece no material e responda de forma geral sem inventar detalhes específicos.
 - Sugira, quando fizer sentido, 1 a 3 perguntas extras para o colaborador praticar em cima do tema.
+${focusHint}
 
 Formato da saída:
 - Responda em ${language}, em texto livre, com quebras de linha amigáveis.
@@ -633,6 +661,36 @@ Formato da saída:
         .sort((a, b) => b.score - a.score)
         .slice(0, 5);
 
+      // 3) Fórum (base por hashtags)
+      let forumKbRows: any[] = [];
+      if (forumKbTags.length) {
+        try {
+          const { data } = await admin
+            .from("forum_knowledge_base")
+            .select("title, post_id, content, content_html, hashtags, likes_count, is_solution, is_featured")
+            .overlaps("hashtags", forumKbTags as any)
+            .order("is_solution", { ascending: false })
+            .order("likes_count", { ascending: false })
+            .limit(120);
+          forumKbRows = Array.isArray(data) ? data : [];
+        } catch {
+          forumKbRows = [];
+        }
+      }
+
+      const rankedForumKb = forumKbRows
+        .map((row) => {
+          const title = String(row?.title || "").trim();
+          const raw = String(row?.content || "").trim();
+          const html = String(row?.content_html || "").trim();
+          const text = raw || (html ? stripHtml(html) : "");
+          const hay = [title, text, ...(Array.isArray(row?.hashtags) ? row.hashtags : [])].filter(Boolean).join(" ");
+          return { row, text, score: keywords.length ? scoreText(hay, keywords) : 0 };
+        })
+        .filter((x) => (keywords.length ? x.score > 0 : true))
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 6);
+
       const contextParts: string[] = [];
       if (rankedSources.length) {
         contextParts.push(
@@ -682,6 +740,33 @@ Formato da saída:
         );
       }
 
+      if (rankedForumKb.length) {
+        contextParts.push(
+          "### Fórum (base por hashtags)\n" +
+            rankedForumKb
+              .map((x, idx) => {
+                const row = x.row || {};
+                const title = String(row.title || `Tópico ${idx + 1}`);
+                const hashtags = Array.isArray(row.hashtags) ? row.hashtags.slice(0, 8).map((h: any) => `#${h}`) : [];
+                const flags = [
+                  row.is_solution ? "solução" : "",
+                  row.is_featured ? "destaque" : "",
+                  Number(row.likes_count || 0) > 0 ? `${Number(row.likes_count)} curtidas` : "",
+                ]
+                  .filter(Boolean)
+                  .join(" • ");
+                const excerpt = String(x.text || "").slice(0, 1600);
+                return (
+                  `- ${title}\n` +
+                  (flags ? `  ${flags}\n` : "") +
+                  (hashtags.length ? `  ${hashtags.join(" ")}\n` : "") +
+                  (excerpt ? `  Trecho: ${excerpt}\n` : "")
+                );
+              })
+              .join("\n")
+        );
+      }
+
       if (contextParts.length) {
         openaiMessages.push({
           role: "system",
@@ -690,11 +775,57 @@ Formato da saída:
           )}`,
         });
       }
-    } else if (joinedContext) {
-      openaiMessages.push({
-        role: "system",
-        content: `Abaixo estão os materiais de estudo do usuário. Use-os como base principal:\n\n${joinedContext}`,
-      });
+    } else {
+      if (joinedContext) {
+        openaiMessages.push({
+          role: "system",
+          content: `Abaixo estão os materiais de estudo do usuário. Use-os como base principal:\n\n${joinedContext}`,
+        });
+      }
+
+      if (admin && forumKbTags.length) {
+        try {
+          const { data } = await admin
+            .from("forum_knowledge_base")
+            .select("title, post_id, content, content_html, hashtags, likes_count, is_solution, is_featured")
+            .overlaps("hashtags", forumKbTags as any)
+            .order("is_solution", { ascending: false })
+            .order("likes_count", { ascending: false })
+            .limit(8);
+          const rows = Array.isArray(data) ? data : [];
+          if (rows.length) {
+            const context = rows
+              .map((row, idx) => {
+                const title = String(row?.title || `Tópico ${idx + 1}`);
+                const raw = String(row?.content || "").trim();
+                const html = String(row?.content_html || "").trim();
+                const text = raw || (html ? stripHtml(html) : "");
+                const hashtags = Array.isArray(row?.hashtags) ? row.hashtags.slice(0, 8).map((h: any) => `#${h}`) : [];
+                const flags = [
+                  row?.is_solution ? "solução" : "",
+                  row?.is_featured ? "destaque" : "",
+                  Number(row?.likes_count || 0) > 0 ? `${Number(row.likes_count)} curtidas` : "",
+                ]
+                  .filter(Boolean)
+                  .join(" • ");
+                const excerpt = text ? text.slice(0, 1500) : "";
+                return (
+                  `- ${title}\n` +
+                  (flags ? `  ${flags}\n` : "") +
+                  (hashtags.length ? `  ${hashtags.join(" ")}\n` : "") +
+                  (excerpt ? `  Trecho: ${excerpt}\n` : "")
+                );
+              })
+              .join("\n");
+            openaiMessages.push({
+              role: "system",
+              content: `A seguir estão trechos do fórum (base por hashtags) para usar como contexto adicional:\n\n${context}`,
+            });
+          }
+        } catch {
+          // ignore
+        }
+      }
     }
 
     for (const m of normalizedMessages) {
