@@ -69,7 +69,15 @@ export default function LeaderDashboard() {
   const showChallengesTab = false;
   const [forums, setForums] = useState<ForumTopic[]>([]);
   const [topMembers, setTopMembers] = useState<TeamMember[]>([]);
-  const [userProfile, setUserProfile] = useState<{ name: string; avatar_url: string | null; team: { name: string } | null; tier: string; matricula?: string | null; email?: string | null } | null>(null);
+  const [userProfile, setUserProfile] = useState<{
+    name: string;
+    avatar_url: string | null;
+    avatar_thumbnail_url?: string | null;
+    team: { name: string } | null;
+    tier: string;
+    matricula?: string | null;
+    email?: string | null;
+  } | null>(null);
   // Por padrão, líder não entra na soma do time (regras do jogo).
   // Para testes do admin (601555), é possível incluir o líder nos cálculos localmente.
   const [includeLeadersInTeamStats, setIncludeLeadersInTeamStats] = useState<boolean>(() => {
@@ -92,7 +100,7 @@ export default function LeaderDashboard() {
     
     const { data, error } = await supabase
       .from("profiles")
-      .select("name, tier, avatar_url, team_id, matricula, email")
+      .select("name, tier, avatar_url, avatar_thumbnail_url, team_id, matricula, email")
       .eq("id", user.id)
       .single();
     
@@ -108,6 +116,7 @@ export default function LeaderDashboard() {
       }
       setUserProfile({
         ...data,
+        avatar_thumbnail_url: (data as any)?.avatar_thumbnail_url || null,
         team: teamName ? { name: teamName } : null,
       } as any);
     }

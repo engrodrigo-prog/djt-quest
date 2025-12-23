@@ -519,6 +519,7 @@ const Dashboard = () => {
                 profile={{
                   name: profile.name,
                   avatar_url: profile.avatar_url,
+                  avatar_thumbnail_url: (profile as any)?.avatar_thumbnail_url || null,
                   team: profile.team,
                   tier: profile.tier,
                   matricula: (profile as any)?.matricula || null,

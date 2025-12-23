@@ -25,6 +25,7 @@ interface ProfileDropdownProps {
   profile: {
     name: string;
     avatar_url: string | null;
+    avatar_thumbnail_url?: string | null;
     team?: { name: string } | null;
     tier: string;
     matricula?: string | null;
@@ -40,6 +41,7 @@ export const ProfileDropdown = ({ profile, isLeader, onSignOut }: ProfileDropdow
   const { locale, setLocale, t } = useI18n();
   const { enabled: sfxFeatureEnabled, muted: sfxMuted, volume: sfxVolume, setMuted: setSfxMuted, setVolume: setSfxVolume } = useSfx();
   const { enabled: ttsFeatureEnabled, ttsEnabled, voiceGender, rate, volume: ttsVolume, setTtsEnabled, setVoiceGender, setRate, setVolume: setTtsVolume } = useTts();
+  const avatarUrl = profile.avatar_thumbnail_url || profile.avatar_url;
   const canImpersonate =
     profile?.matricula === "601555" ||
     (profile?.email || "").toLowerCase() === "rodrigonasc@cpfl.com.br";
@@ -69,7 +71,7 @@ export const ProfileDropdown = ({ profile, isLeader, onSignOut }: ProfileDropdow
           aria-label={t("profile.menu.open")}
         >
           <AvatarDisplay 
-            avatarUrl={profile.avatar_url} 
+            avatarUrl={avatarUrl} 
             name={profile.name} 
             size="sm" 
           />
@@ -81,7 +83,7 @@ export const ProfileDropdown = ({ profile, isLeader, onSignOut }: ProfileDropdow
         <DropdownMenuLabel>
           <div className="flex items-center gap-3">
             <AvatarDisplay 
-              avatarUrl={profile.avatar_url} 
+              avatarUrl={avatarUrl} 
               name={profile.name} 
               size="md" 
             />

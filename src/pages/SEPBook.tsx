@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useLocation as useRouterLocation } from "react-router-dom";
+import { useLocation as useRouterLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -76,6 +76,7 @@ export default function SEPBook() {
   const { user, profile, isLeader } = useAuth();
   const { toast } = useToast();
   const { ttsEnabled, isSpeaking, speak } = useTts();
+  const navigate = useNavigate();
   const routerLocation = useRouterLocation();
   const [content, setContent] = useState("");
   const [attachments, setAttachments] = useState<string[]>([]);
@@ -235,7 +236,42 @@ export default function SEPBook() {
       });
       const json = await resp.json();
       if (!resp.ok) throw new Error(json?.error || "Falha ao carregar feed");
-      setPosts(json.items || []);
+      const items = Array.isArray(json.items) ? (json.items as any[]) : [];
+      const campaignIds = Array.from(
+        new Set(
+          items
+            .flatMap((p) => [p?.campaign_id, p?.repost?.campaign_id].filter(Boolean))
+            .map((x) => String(x)),
+        ),
+      ).slice(0, 200);
+
+      let campaignMap = new Map<string, { id: string; title: string | null }>();
+      if (campaignIds.length) {
+        try {
+          const { data } = await supabase.from("campaigns").select("id,title").in("id", campaignIds);
+          (data || []).forEach((c: any) => {
+            if (!c?.id) return;
+            campaignMap.set(String(c.id), { id: String(c.id), title: c.title ?? null });
+          });
+        } catch {
+          campaignMap = new Map();
+        }
+      }
+
+      const enriched = items.map((p: any) => {
+        const cid = p?.campaign_id ? String(p.campaign_id) : null;
+        const campaign = cid && campaignMap.has(cid) ? campaignMap.get(cid) : null;
+        const repost = p?.repost
+          ? (() => {
+              const rcid = p?.repost?.campaign_id ? String(p.repost.campaign_id) : null;
+              const rcampaign = rcid && campaignMap.has(rcid) ? campaignMap.get(rcid) : null;
+              return { ...p.repost, campaign: rcampaign ?? null };
+            })()
+          : null;
+        return { ...p, campaign, repost };
+      });
+
+      setPosts(enriched as any);
       if (json?.meta?.warning) {
         console.warn("SEPBook feed warning:", json.meta.warning);
       }
@@ -1392,9 +1428,15 @@ export default function SEPBook() {
                 {(p.campaign || (p.participants && p.participants.length > 0)) && (
                   <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
                     {p.campaign && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary">
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary hover:bg-primary/15 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                        onClick={() => navigate(`/campaign/${encodeURIComponent(p.campaign!.id)}`)}
+                        title="Abrir campanha"
+                        aria-label="Abrir campanha"
+                      >
                         <span className="font-semibold">Campanha:</span> {p.campaign.title || "Sem título"}
-                      </span>
+                      </button>
                     )}
                     {p.participants && p.participants.length > 0 && (
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-300">

@@ -69,7 +69,14 @@ export function SepbookPostsCard() {
         {loading && <p className="text-sm text-muted-foreground">Carregando…</p>}
         {!loading && posts.length === 0 && <p className="text-sm text-muted-foreground">Você ainda não publicou no SEPBook.</p>}
         {posts.map((p) => (
-          <div key={p.id} className="rounded-md border p-3">
+          <button
+            key={p.id}
+            type="button"
+            className="rounded-md border p-3 text-left hover:bg-accent/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            onClick={() => navigate(`/sepbook#post-${encodeURIComponent(p.id)}`)}
+            aria-label="Abrir publicação no SEPBook"
+            title="Abrir no SEPBook"
+          >
             <div className="flex items-center justify-between gap-3">
               <p className="text-xs text-muted-foreground">{new Date(p.created_at).toLocaleString(getActiveLocale())}</p>
               <div className="flex items-center gap-2">
@@ -79,7 +86,7 @@ export function SepbookPostsCard() {
               </div>
             </div>
             <p className="text-sm mt-2">{snippet(p.content_md || '', 180) || (p.repost_of ? 'Repost sem comentário.' : '—')}</p>
-          </div>
+          </button>
         ))}
       </CardContent>
     </Card>

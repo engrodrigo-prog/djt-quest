@@ -375,6 +375,15 @@ export default function CampaignDetail() {
                       <MessageSquare className="h-3 w-3" />
                       {p.comment_count || 0}
                     </span>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 px-2 text-[11px]"
+                      onClick={() => navigate(`/sepbook#post-${encodeURIComponent(p.id)}`)}
+                      title="Abrir no SEPBook"
+                    >
+                      Abrir
+                    </Button>
                     <button
                       type="button"
                       className="ml-auto inline-flex items-center justify-center h-7 w-7 rounded-full border border-border/50 hover:bg-accent"
