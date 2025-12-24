@@ -28,7 +28,8 @@ const STORAGE_RATE = "djt_tts_rate";
 const STORAGE_VOLUME = "djt_tts_volume";
 
 const DEFAULTS = {
-  enabled: false,
+  // Prefer "on" by default (only plays on explicit user click).
+  enabled: true,
   voiceGender: "male" as TtsVoiceGender,
   rate: 1,
   volume: 1,
@@ -94,6 +95,7 @@ export function TtsProvider({ children }: { children: React.ReactNode }) {
 
   const initial = useMemo(() => safeReadFromStorage(), []);
   const [unlocked, setUnlocked] = useState(false);
+  const unlockedRef = useRef(false);
   const [ttsEnabled, setTtsEnabledState] = useState(initial.ttsEnabled);
   const [voiceGender, setVoiceGenderState] = useState<TtsVoiceGender>(initial.voiceGender);
   const [rate, setRateState] = useState(initial.rate);
@@ -102,11 +104,15 @@ export function TtsProvider({ children }: { children: React.ReactNode }) {
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
 
   // Unlock autoplay after first user gesture (never play before that).
   useEffect(() => {
     if (!enabled) return;
-    const unlock = () => setUnlocked(true);
+    const unlock = () => {
+      unlockedRef.current = true;
+      setUnlocked(true);
+    };
     window.addEventListener("pointerdown", unlock, { capture: true, once: true });
     window.addEventListener("keydown", unlock, { capture: true, once: true });
     return () => {
@@ -157,6 +163,14 @@ export function TtsProvider({ children }: { children: React.ReactNode }) {
         /* ignore */
       }
     }
+    try {
+      if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+      }
+      utteranceRef.current = null;
+    } catch {
+      /* ignore */
+    }
     if (isSpeaking) {
       setIsSpeaking(false);
       window.dispatchEvent(new CustomEvent("tts:end"));
@@ -170,7 +184,10 @@ export function TtsProvider({ children }: { children: React.ReactNode }) {
       const text = String(rawText || "").trim();
       if (!enabled) return;
       if (!ttsEnabled) return;
-      if (!unlocked) return;
+      const isUnlocked = unlocked || unlockedRef.current;
+      if (!isUnlocked) {
+        throw new Error("Interaja com a página (toque/clique) para habilitar o áudio.");
+      }
       if (!text) return;
 
       stop();
@@ -185,30 +202,93 @@ export function TtsProvider({ children }: { children: React.ReactNode }) {
         const token = session?.access_token;
         if (!token) throw new Error("Unauthorized");
 
-        const resp = await fetch("/api/tts", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            text,
-            locale,
-            voiceGender,
-            rate,
-          }),
-          signal: ctl.signal,
-        });
+        let url = "";
+        let serverError: any = null;
+        try {
+          const resp = await fetch("/api/tts", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              text,
+              locale,
+              voiceGender,
+              rate,
+            }),
+            signal: ctl.signal,
+          });
 
-        const json = await resp.json().catch(() => ({}));
-        if (!resp.ok) throw new Error(json?.error || "TTS failed");
-        let url = String(json?.url || "").trim();
-        if (!url) {
-          const b64 = String(json?.audioBase64 || json?.audio_base64 || "").trim();
-          const mime = String(json?.mime || "audio/mpeg").trim() || "audio/mpeg";
-          if (b64) url = `data:${mime};base64,${b64}`;
+          const json = await resp.json().catch(() => ({}));
+          if (!resp.ok) throw new Error(json?.error || "TTS failed");
+          url = String(json?.url || "").trim();
+          if (!url) {
+            const b64 = String(json?.audioBase64 || json?.audio_base64 || "").trim();
+            const mime = String(json?.mime || "audio/mpeg").trim() || "audio/mpeg";
+            if (b64) url = `data:${mime};base64,${b64}`;
+          }
+          if (!url) throw new Error("TTS missing url");
+        } catch (e: any) {
+          serverError = e;
+          url = "";
         }
-        if (!url) throw new Error("TTS missing url");
+
+        // Prefer server audio when available; fallback to SpeechSynthesis (no server key required).
+        if (!url) {
+          if (typeof window === "undefined" || !("speechSynthesis" in window)) {
+            throw serverError || new Error("TTS indisponível neste navegador.");
+          }
+          const synth = window.speechSynthesis;
+
+          const waitForVoices = async () => {
+            const v = synth.getVoices();
+            if (v && v.length) return v;
+            await new Promise<void>((resolve) => {
+              let done = false;
+              const on = () => {
+                if (done) return;
+                done = true;
+                resolve();
+              };
+              synth.addEventListener?.("voiceschanged", on as any, { once: true } as any);
+              setTimeout(on, 350);
+            });
+            return synth.getVoices();
+          };
+
+          const voices = await waitForVoices();
+          const targetLocale = String(locale || "").toLowerCase();
+          const preferredLang = targetLocale === "en" ? "en" : targetLocale;
+          const byLang = voices.filter((v) => String(v.lang || "").toLowerCase().startsWith(preferredLang));
+          const pool = byLang.length ? byLang : voices;
+          const isFemale = String(voiceGender || "").toLowerCase() === "female";
+          const genderNeedle = isFemale ? "female" : "male";
+          const voice =
+            pool.find((v) => String((v as any)?.gender || "").toLowerCase() === genderNeedle) ||
+            pool.find((v) => new RegExp(genderNeedle, "i").test(String(v.name || ""))) ||
+            pool.find((v) => String(v.lang || "").toLowerCase().startsWith(preferredLang)) ||
+            pool[0];
+
+          const utter = new SpeechSynthesisUtterance(text);
+          utteranceRef.current = utter;
+          if (voice) utter.voice = voice;
+          if (voice?.lang) utter.lang = voice.lang;
+          utter.rate = clamp(rate, 0.25, 2);
+          utter.volume = clamp(volume, 0, 1);
+          utter.onend = () => {
+            setIsSpeaking(false);
+            utteranceRef.current = null;
+            window.dispatchEvent(new CustomEvent("tts:end"));
+          };
+          utter.onerror = () => {
+            setIsSpeaking(false);
+            utteranceRef.current = null;
+            window.dispatchEvent(new CustomEvent("tts:end"));
+          };
+          synth.speak(utter);
+          return;
+        }
 
         const audio = audioRef.current || new Audio();
         audioRef.current = audio;

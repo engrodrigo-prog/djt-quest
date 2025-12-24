@@ -949,16 +949,16 @@ export default function ForumTopic() {
                     {permissionLabel}
                   </span>
                 </div>
-                <div className="flex flex-wrap justify-end gap-2">
-                  <Button
-                    size="xs"
-                    variant="outline"
-                    onClick={() => navigate(`/forums/insights?topic_id=${encodeURIComponent(id || '')}`)}
-                    disabled={!id}
-                    className="text-[11px]"
-                  >
-                    {tr('forums.topThemesButton')}
-                  </Button>
+	                <div className="flex flex-wrap justify-end gap-2.5 p-1.5 rounded-lg border border-white/10 bg-black/20">
+	                  <Button
+	                    size="sm"
+	                    variant="outline"
+	                    onClick={() => navigate(`/forums/insights?topic_id=${encodeURIComponent(id || '')}`)}
+	                    disabled={!id}
+	                    className="h-8 px-3 text-[11px]"
+	                  >
+	                    {tr('forums.topThemesButton')}
+	                  </Button>
                   {id && (
                     <Button
                       size="icon"
@@ -989,48 +989,48 @@ export default function ForumTopic() {
                       <Volume2 className="h-4 w-4" />
                     </Button>
                   )}
-                  {isLeaderMod && topic.status !== 'closed' && (
-                    <Button size="xs" onClick={handleClose} className="text-[11px]">
-                      {tr('forumTopic.actions.closeAndCurate')}
-                    </Button>
-                  )}
-                  {isLeaderMod && !editing && (
-                    <Button
-                      size="xs"
-                      variant="outline"
-                      onClick={() => {
-                        setEditing(true)
-                        setEditTitle(topic.title)
-                        setEditDesc(topic.description || '')
-                      }}
-                      className="text-[11px]"
-                    >
-                      {tr('forumTopic.actions.edit')}
-                    </Button>
-                  )}
-                  {isLeaderMod && (
-                    <>
-                      <Button
-                        size="xs"
-                        variant="outline"
-                        onClick={handleClearTopic}
-                        className="text-[11px]"
-                      >
-                        {tr('forumTopic.actions.clear')}
-                      </Button>
-                      {canDeleteTopic && (
-                        <Button
-                          size="xs"
-                          variant="destructive"
-                          onClick={handleDeleteTopic}
-                          className="text-[11px]"
-                        >
-                          {tr('forumTopic.actions.delete')}
-                        </Button>
-                      )}
-                    </>
-                  )}
-                </div>
+	                  {isLeaderMod && topic.status !== 'closed' && (
+	                    <Button size="sm" onClick={handleClose} className="h-8 px-3 text-[11px]">
+	                      {tr('forumTopic.actions.closeAndCurate')}
+	                    </Button>
+	                  )}
+	                  {isLeaderMod && !editing && (
+	                    <Button
+	                      size="sm"
+	                      variant="outline"
+	                      onClick={() => {
+	                        setEditing(true)
+	                        setEditTitle(topic.title)
+	                        setEditDesc(topic.description || '')
+	                      }}
+	                      className="h-8 px-3 text-[11px]"
+	                    >
+	                      {tr('forumTopic.actions.edit')}
+	                    </Button>
+	                  )}
+	                  {isLeaderMod && (
+	                    <>
+	                      <Button
+	                        size="sm"
+	                        variant="outline"
+	                        onClick={handleClearTopic}
+	                        className="h-8 px-3 text-[11px]"
+	                      >
+	                        {tr('forumTopic.actions.clear')}
+	                      </Button>
+	                      {canDeleteTopic && (
+	                        <Button
+	                          size="sm"
+	                          variant="destructive"
+	                          onClick={handleDeleteTopic}
+	                          className="h-8 px-3 text-[11px]"
+	                        >
+	                          {tr('forumTopic.actions.delete')}
+	                        </Button>
+	                      )}
+	                    </>
+	                  )}
+	                </div>
               </div>
             </div>
             <div className="flex flex-wrap gap-2 mt-2">
