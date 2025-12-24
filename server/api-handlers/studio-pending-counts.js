@@ -32,7 +32,17 @@ export default async function handler(req, res) {
     if (req.method !== 'GET')
         return res.status(405).json({ error: 'Method not allowed' });
     try {
-        const emptyPayload = { approvals: 0, passwordResets: 0, evaluations: 0, leadershipAssignments: 0, forumMentions: 0, registrations: 0 };
+    const emptyPayload = {
+        approvals: 0,
+        passwordResets: 0,
+        evaluations: 0,
+        leadershipAssignments: 0,
+        forumMentions: 0,
+        registrations: 0,
+        notifications: 0,
+        campaigns: 0,
+        quizzesPending: 0,
+    };
         if (!SUPABASE_URL || (!SERVICE_ROLE_KEY && !PUBLIC_KEY)) {
             return res.status(200).json(emptyPayload);
         }
@@ -90,12 +100,14 @@ export default async function handler(req, res) {
             isLeader = (roles || []).some((r) => LEADER_ROLES.has(r.role));
         }
         catch { }
+        let userProfile = null;
         try {
             const { data: p } = await admin
                 .from('profiles')
-                .select('team_id, sigla_area, operational_base, is_leader')
+                .select('team_id, sigla_area, operational_base, is_leader, coord_id, division_id')
                 .eq('id', userId)
                 .maybeSingle();
+            userProfile = p || null;
             leaderScope = {
                 team_id: p?.team_id || null,
                 sigla_area: p?.sigla_area || null,
@@ -150,10 +162,106 @@ export default async function handler(req, res) {
                 catch { }
             }
         }
-        return res.status(200).json({ approvals, passwordResets, evaluations, leadershipAssignments, forumMentions, registrations: pendingRegistrations });
+
+        // Notificações gerais (mentions, avaliações, etc.) via tabela notifications
+        const notifications = await safeCount(
+            admin.from('notifications').eq('user_id', userId).eq('read', false)
+        );
+
+        // Campanhas ativas (vigentes por data) — filtradas por alvo de time/coord/div se houver
+        let campaigns = 0;
+        try {
+            const now = new Date().toISOString();
+            const { data: campaignRows } = await admin
+                .from('campaigns')
+                .select('id, is_active, start_date, end_date, target_team_ids, target_coord_ids, target_div_ids');
+
+            const teamId = userProfile?.team_id ? String(userProfile.team_id) : null;
+            const coordId = userProfile?.coord_id ? String(userProfile.coord_id) : null;
+            const divId = userProfile?.division_id ? String(userProfile.division_id) : null;
+
+            campaigns = (campaignRows || []).filter((c) => {
+                if (!c?.is_active) return false;
+                const startOk = !c.start_date || c.start_date <= now;
+                const endOk = !c.end_date || c.end_date >= now;
+                if (!startOk || !endOk) return false;
+                const targetsTeam = Array.isArray(c.target_team_ids) && c.target_team_ids.length;
+                const targetsCoord = Array.isArray(c.target_coord_ids) && c.target_coord_ids.length;
+                const targetsDiv = Array.isArray(c.target_div_ids) && c.target_div_ids.length;
+                const matchTeam = !targetsTeam || (teamId && c.target_team_ids.map(String).includes(teamId));
+                const matchCoord = !targetsCoord || (coordId && c.target_coord_ids.map(String).includes(coordId));
+                const matchDiv = !targetsDiv || (divId && c.target_div_ids.map(String).includes(divId));
+                return matchTeam && matchCoord && matchDiv;
+            }).length;
+        }
+        catch { campaigns = 0; }
+
+        // Quizzes pendentes: desafios do tipo quiz, ativos, sem tentativa submetida
+        let quizzesPending = 0;
+        try {
+            const now = new Date().toISOString();
+            const { data: quizChallenges } = await admin
+                .from('challenges')
+                .select('id, type, status, start_date, end_date, target_team_ids, target_coord_ids, target_div_ids');
+
+            const { data: attempts } = await admin
+                .from('quiz_attempts')
+                .select('challenge_id, submitted_at')
+                .eq('user_id', userId);
+            const completed = new Set(
+                (attempts || [])
+                    .filter((a) => a.submitted_at)
+                    .map((a) => String(a.challenge_id))
+            );
+
+            const teamId = userProfile?.team_id ? String(userProfile.team_id) : null;
+            const coordId = userProfile?.coord_id ? String(userProfile.coord_id) : null;
+            const divId = userProfile?.division_id ? String(userProfile.division_id) : null;
+
+            quizzesPending = (quizChallenges || []).filter((c) => {
+                const type = String(c?.type || '').toLowerCase();
+                if (!type.includes('quiz')) return false;
+                const status = String(c?.status || 'active').toLowerCase();
+                if (status === 'closed' || status === 'canceled' || status === 'cancelled') return false;
+                const startOk = !c.start_date || c.start_date <= now;
+                const endOk = !c.end_date || c.end_date >= now;
+                if (!startOk || !endOk) return false;
+                const targetsTeam = Array.isArray(c.target_team_ids) && c.target_team_ids.length;
+                const targetsCoord = Array.isArray(c.target_coord_ids) && c.target_coord_ids.length;
+                const targetsDiv = Array.isArray(c.target_div_ids) && c.target_div_ids.length;
+                const matchTeam = !targetsTeam || (teamId && c.target_team_ids.map(String).includes(teamId));
+                const matchCoord = !targetsCoord || (coordId && c.target_coord_ids.map(String).includes(coordId));
+                const matchDiv = !targetsDiv || (divId && c.target_div_ids.map(String).includes(divId));
+                if (!matchTeam || !matchCoord || !matchDiv) return false;
+                return !completed.has(String(c.id || ''));
+            }).length;
+        }
+        catch { quizzesPending = 0; }
+
+        return res.status(200).json({
+            approvals,
+            passwordResets,
+            evaluations,
+            leadershipAssignments,
+            forumMentions,
+            registrations: pendingRegistrations,
+            notifications,
+            campaigns,
+            quizzesPending,
+        });
     }
     catch (err) {
-        return res.status(200).json({ approvals: 0, passwordResets: 0, evaluations: 0, leadershipAssignments: 0, forumMentions: 0, registrations: 0 });
+        return res.status(200).json({
+            approvals: 0,
+            passwordResets: 0,
+            evaluations: 0,
+            leadershipAssignments: 0,
+            forumMentions: 0,
+            registrations: 0,
+            notifications: 0,
+            campaigns: 0,
+            quizzesPending: 0,
+        });
     }
 }
 export const config = { api: { bodyParser: false } };

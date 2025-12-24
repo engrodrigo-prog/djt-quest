@@ -31,6 +31,8 @@ const Navigation = () => {
   const [studioBadge, setStudioBadge] = useState(0);
   const [evalBadge, setEvalBadge] = useState(0);
   const [forumBadge, setForumBadge] = useState(0);
+  const [notifBadge, setNotifBadge] = useState(0);
+  const [homeBadge, setHomeBadge] = useState(0);
   const [sepbookNew, setSepbookNew] = useState(0);
   const [sepbookMentions, setSepbookMentions] = useState(0);
   const barRef = useRef<HTMLDivElement | null>(null);
@@ -89,8 +91,11 @@ const Navigation = () => {
         const passwordResets = json?.passwordResets || 0;
         const registrations = json?.registrations || 0;
         const evaluations = json?.evaluations || 0;
-	        const leadershipAssignments = json?.leadershipAssignments || 0;
-	        const forumMentions = json?.forumMentions || 0;
+        const leadershipAssignments = json?.leadershipAssignments || 0;
+        const forumMentions = json?.forumMentions || 0;
+        const notifications = json?.notifications || 0;
+        const campaigns = json?.campaigns || 0;
+        const quizzesPending = json?.quizzesPending || 0;
 	        const evalTotal = evaluations + leadershipAssignments;
           let sepNew = 0;
           let sepMentions = 0;
@@ -112,6 +117,8 @@ const Navigation = () => {
 	        setStudioBadge(studioAccess ? approvals + passwordResets + registrations + evaluations : 0);
 	        setEvalBadge(isLeader ? evalTotal : 0);
 	        setForumBadge(forumMentions);
+          setNotifBadge(notifications);
+          setHomeBadge(Math.max(0, campaigns + quizzesPending));
 	        setSepbookNew(sepNew);
 	        setSepbookMentions(sepMentions);
 
@@ -119,6 +126,9 @@ const Navigation = () => {
             (studioAccess ? approvals + passwordResets + registrations + evaluations : 0) +
             (isLeader ? evalTotal : 0) +
             forumMentions +
+            notifications +
+            campaigns +
+            quizzesPending +
             sepNew +
             sepMentions;
           const prevTotal = notifTotalRef.current;
@@ -126,11 +136,13 @@ const Navigation = () => {
           if (prevTotal != null && nextTotal > prevTotal) {
             playSfxRef.current("notification");
           }
-	      } catch {
-	        if (!active) return;
-	        setStudioBadge(0);
-	        setEvalBadge(0);
+      } catch {
+        if (!active) return;
+        setStudioBadge(0);
+        setEvalBadge(0);
         setForumBadge(0);
+        setNotifBadge(0);
+        setHomeBadge(0);
         setSepbookNew(0);
         setSepbookMentions(0);
       }
@@ -218,6 +230,11 @@ const Navigation = () => {
             <span className="absolute inset-[3px] rounded-2xl overflow-hidden">
               <img src={iconHome} alt={t("nav.dashboard")} className="w-full h-full object-cover" />
             </span>
+            {homeBadge > 0 && (
+              <span className={badgeClass(true)} style={{ zIndex: 5 }}>
+                {homeBadge > 99 ? '99+' : homeBadge}
+              </span>
+            )}
           </span>
           <span className={labelClass(isActive('/dashboard'))} title={t("nav.dashboard")}>{t("nav.dashboard")}</span>
         </Button>
@@ -359,6 +376,11 @@ const Navigation = () => {
             <span className="absolute inset-[3px] rounded-2xl overflow-hidden">
               <img src={iconProfile} alt={t("nav.profile")} className="w-full h-full object-cover" />
             </span>
+            {notifBadge > 0 && (
+              <span className={badgeClass(true)} style={{ zIndex: 5 }}>
+                {notifBadge > 99 ? '99+' : notifBadge}
+              </span>
+            )}
           </span>
           <span className={labelClass(isActive('/profile'))} title={t("nav.profile")}>{t("nav.profile")}</span>
         </Button>
