@@ -105,7 +105,9 @@ export default function ForumTopic() {
 
   const speakText = useCallback(
     async (text: string) => {
-      const cleaned = String(text || '').trim()
+      const cleaned = String(text || '')
+        .replace(/#[\\w\\-]+/g, '') // remove hashtags
+        .trim()
       if (!cleaned) return
       if (!ttsEnabled) {
         toast({ title: tr('forumTopic.toast.enableTtsTitle') })
@@ -672,8 +674,9 @@ export default function ForumTopic() {
   }
 
   const isLeaderMod = Boolean(isLeader && studioAccess)
-  const canDeleteTopic = typeof userRole === 'string' && (userRole.includes('admin') || userRole.includes('gerente_djt') || userRole.includes('gerente_divisao_djtx'))
-  const permissionLabel = canDeleteTopic
+  const isAdmin = typeof userRole === 'string' && userRole.includes('admin')
+  const canDeleteTopic = isAdmin || userRole?.includes?.('gerente_djt') || userRole?.includes?.('gerente_divisao_djtx')
+  const permissionLabel = isAdmin
     ? tr('forumTopic.permission.admin')
     : isLeaderMod
       ? tr('forumTopic.permission.moderator')
@@ -1238,7 +1241,7 @@ export default function ForumTopic() {
 	                                {tr('forumTopic.post.reviewAi')}
 	                              </DropdownMenuItem>
 	                            )}
-	                            {(isLeaderMod || p.user_id === user?.id) && (
+	                            {(isAdmin || p.user_id === user?.id) && (
 	                              <>
 	                                <DropdownMenuItem onClick={() => startEditPost(p)}>
 	                                  <Pencil className="h-4 w-4 mr-2" />
@@ -1249,8 +1252,8 @@ export default function ForumTopic() {
 	                                  className="text-destructive focus:text-destructive"
 	                                >
 	                                  <Trash2 className="h-4 w-4 mr-2" />
-	                                  {tr('forumTopic.actions.delete')}
-	                                </DropdownMenuItem>
+	                                    {tr('forumTopic.actions.delete')}
+	                                  </DropdownMenuItem>
 	                              </>
 	                            )}
 	                          </DropdownMenuContent>
@@ -1338,7 +1341,7 @@ export default function ForumTopic() {
 	                              <Reply className="h-4 w-4" />
 	                              {tr('forumTopic.actions.reply')}
 	                            </Button>
-	                            {(isLeaderMod || r.user_id === user?.id) && (
+	                            {(isAdmin || r.user_id === user?.id) && (
 	                              <DropdownMenu>
 	                                <DropdownMenuTrigger asChild>
 	                                  <Button type="button" size="icon" variant="ghost" className="h-9 w-9" aria-label="Mais ações">
