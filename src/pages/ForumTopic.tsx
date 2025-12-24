@@ -90,6 +90,16 @@ export default function ForumTopic() {
   const didScrollToHashRef = useRef(false)
   const translatingRef = useRef(false)
 
+  const topicTitle = translatedTopic.title || topic?.title || ''
+  const topicDescription = translatedTopic.description ?? topic?.description ?? ''
+  const summaryText = translatedSummary || compendium?.summary_md || ''
+  const statusLabel =
+    topic?.status === 'closed'
+      ? tr('forums.status.closed')
+      : topic?.status === 'open'
+        ? tr('forums.status.open')
+        : topic?.status || ''
+
   const sharePostToWhatsApp = useCallback(
     (postId: string, postText: string) => {
       const url = buildAbsoluteAppUrl(`/forum/${encodeURIComponent(id || '')}#post-${encodeURIComponent(postId)}`)
@@ -105,8 +115,11 @@ export default function ForumTopic() {
 
   const speakText = useCallback(
     async (text: string) => {
-      const cleaned = String(text || '')
-        .replace(/#[\\w\\-]+/g, '') // remove hashtags
+      const raw = String(text || '')
+      const hashIndex = raw.search(/(^|\\s)#[\\w\\-]+/)
+      const trimmed = hashIndex >= 0 ? raw.slice(0, hashIndex) : raw
+      const cleaned = trimmed
+        .replace(/#[\\w\\-]+/g, '')
         .trim()
       if (!cleaned) return
       if (!ttsEnabled) {
@@ -862,16 +875,6 @@ export default function ForumTopic() {
   }
 
   if (!topic) return null
-
-  const topicTitle = translatedTopic.title || topic.title
-  const topicDescription = translatedTopic.description ?? topic.description ?? ''
-  const summaryText = translatedSummary || compendium?.summary_md || ''
-  const statusLabel =
-    topic.status === 'closed'
-      ? tr('forums.status.closed')
-      : topic.status === 'open'
-        ? tr('forums.status.open')
-        : topic.status
 
   return (
     <div className="relative min-h-screen pb-40">
