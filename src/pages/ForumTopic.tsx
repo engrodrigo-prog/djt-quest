@@ -14,13 +14,14 @@ import { AttachmentUploader } from '@/components/AttachmentUploader'
 import { AttachmentViewer } from '@/components/AttachmentViewer'
 import { VoiceRecorderButton } from '@/components/VoiceRecorderButton'
 import Navigation from '@/components/Navigation'
-import { Wand2, Share2, Volume2 } from 'lucide-react'
+import { MoreVertical, Share2, Volume2, Wand2, Trash2, Pencil, Reply } from 'lucide-react'
 import { buildAbsoluteAppUrl, openWhatsAppShare } from '@/lib/whatsappShare'
 import { useTts } from '@/lib/tts'
 import { getActiveLocale } from '@/lib/i18n/activeLocale'
 import { localeToOpenAiLanguageTag, localeToSpeechLanguage } from '@/lib/i18n/language'
 import { useI18n } from '@/contexts/I18nContext'
 import { translateTextsCached } from '@/lib/i18n/aiTranslate'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 
 interface Topic {
   id: string;
@@ -88,6 +89,19 @@ export default function ForumTopic() {
   const pendingCursorRef = useRef<number | null>(null)
   const didScrollToHashRef = useRef(false)
   const translatingRef = useRef(false)
+
+  const sharePostToWhatsApp = useCallback(
+    (postId: string, postText: string) => {
+      const url = buildAbsoluteAppUrl(`/forum/${encodeURIComponent(id || '')}#post-${encodeURIComponent(postId)}`)
+      const preview = (postText || '').trim().replace(/\s+/g, ' ').slice(0, 160)
+      const previewText = `${preview}${preview.length >= 160 ? '…' : ''}`
+      openWhatsAppShare({
+        message: tr('forumTopic.post.shareMessage', { title: topicTitle, preview: previewText }),
+        url,
+      })
+    },
+    [id, openWhatsAppShare, topicTitle, tr],
+  )
 
   const speakText = useCallback(
     async (text: string) => {
@@ -1163,72 +1177,88 @@ export default function ForumTopic() {
                     </div>
                   </div>
                 ) : (
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex-1 space-y-1">
-                      <p className="text-[11px] font-semibold text-primary">
-                        {authorLabel}
-                      </p>
-                      <div className="text-sm whitespace-pre-wrap">{postText}</div>
-                    </div>
-                    <div className="flex flex-col gap-1 items-end">
-                      <Button
-                        size="xs"
-                        variant="ghost"
-                        onClick={() => {
-                          const url = buildAbsoluteAppUrl(
-                            `/forum/${encodeURIComponent(id || '')}#post-${encodeURIComponent(p.id)}`,
-                          )
-                          const preview = (postText || '').trim().replace(/\s+/g, ' ').slice(0, 160)
-                          const previewText = `${preview}${preview.length >= 160 ? '…' : ''}`
-                          openWhatsAppShare({
-                            message: tr('forumTopic.post.shareMessage', { title: topicTitle, preview: previewText }),
-                            url,
-                          })
-                        }}
-                        title={tr('forumTopic.post.shareAria')}
-                      >
-                        <Share2 className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        size="xs"
-                        variant="ghost"
-                        disabled={isSpeaking}
-                        onClick={() => speakText(postText)}
-                        title={tr('forumTopic.post.listenAria')}
-                        aria-label={tr('forumTopic.post.listenAria')}
-                      >
-                        <Volume2 className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        size="xs"
-                        variant="ghost"
-                        onClick={() => {
-                          setReplyToPostId(p.id)
-                          setReplyToExcerpt(postText.slice(0, 140))
-                        }}
-                      >
-                        {tr('forumTopic.actions.reply')}
-                      </Button>
-                      {(isLeaderMod || p.user_id === user?.id) && (
-                        <>
-                          <Button size="xs" variant="outline" onClick={()=>startEditPost(p)}>{tr('forumTopic.actions.edit')}</Button>
-                          <Button size="xs" variant="destructive" onClick={()=>handleDeletePost(p.id)}>{tr('forumTopic.actions.delete')}</Button>
-                        </>
-                      )}
-                      {isLeaderMod && (
-                        <Button
-                          size="xs"
-                          variant="ghost"
-                          onClick={() => handleCleanExistingPost(p)}
-                          disabled={cleaningPostId === p.id}
-                        >
-                          <Wand2 className="h-4 w-4 mr-1" />
-                          {tr('forumTopic.post.reviewAi')}
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                )}
+	                  <div className="flex items-start justify-between gap-3">
+	                    <div className="flex-1 min-w-0 space-y-1">
+	                      <p className="text-[11px] font-semibold text-primary">
+	                        {authorLabel}
+	                      </p>
+	                      <div className="text-sm whitespace-pre-wrap break-words">{postText}</div>
+	                    </div>
+	                    <div className="shrink-0">
+	                      <div className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-black/20 p-1.5">
+	                        <Button
+	                          type="button"
+	                          size="icon"
+	                          variant="ghost"
+	                          className="h-9 w-9"
+	                          onClick={() => sharePostToWhatsApp(p.id, postText)}
+	                          title={tr('forumTopic.post.shareAria')}
+	                          aria-label={tr('forumTopic.post.shareAria')}
+	                        >
+	                          <Share2 className="h-4 w-4" />
+	                        </Button>
+	                        <Button
+	                          type="button"
+	                          size="icon"
+	                          variant="ghost"
+	                          className="h-9 w-9"
+	                          disabled={isSpeaking}
+	                          onClick={() => speakText(postText)}
+	                          title={tr('forumTopic.post.listenAria')}
+	                          aria-label={tr('forumTopic.post.listenAria')}
+	                        >
+	                          <Volume2 className="h-4 w-4" />
+	                        </Button>
+	                        <Button
+	                          type="button"
+	                          size="sm"
+	                          variant="outline"
+	                          className="h-9 px-3 text-[11px]"
+	                          onClick={() => {
+	                            setReplyToPostId(p.id)
+	                            setReplyToExcerpt(postText.slice(0, 140))
+	                          }}
+	                        >
+	                          <Reply className="h-4 w-4" />
+	                          {tr('forumTopic.actions.reply')}
+	                        </Button>
+	                        <DropdownMenu>
+	                          <DropdownMenuTrigger asChild>
+	                            <Button type="button" size="icon" variant="ghost" className="h-9 w-9" aria-label="Mais ações">
+	                              <MoreVertical className="h-4 w-4" />
+	                            </Button>
+	                          </DropdownMenuTrigger>
+	                          <DropdownMenuContent align="end" className="min-w-[190px]">
+	                            {isLeaderMod && (
+	                              <DropdownMenuItem
+	                                onClick={() => handleCleanExistingPost(p)}
+	                                disabled={cleaningPostId === p.id}
+	                              >
+	                                <Wand2 className="h-4 w-4 mr-2" />
+	                                {tr('forumTopic.post.reviewAi')}
+	                              </DropdownMenuItem>
+	                            )}
+	                            {(isLeaderMod || p.user_id === user?.id) && (
+	                              <>
+	                                <DropdownMenuItem onClick={() => startEditPost(p)}>
+	                                  <Pencil className="h-4 w-4 mr-2" />
+	                                  {tr('forumTopic.actions.edit')}
+	                                </DropdownMenuItem>
+	                                <DropdownMenuItem
+	                                  onClick={() => handleDeletePost(p.id)}
+	                                  className="text-destructive focus:text-destructive"
+	                                >
+	                                  <Trash2 className="h-4 w-4 mr-2" />
+	                                  {tr('forumTopic.actions.delete')}
+	                                </DropdownMenuItem>
+	                              </>
+	                            )}
+	                          </DropdownMenuContent>
+	                        </DropdownMenu>
+	                      </div>
+	                    </div>
+	                  </div>
+	                )}
                 {(() => {
                   const urls =
                     ((p as any)?.payload?.attachments ||
@@ -1254,70 +1284,86 @@ export default function ForumTopic() {
                         return name || tr('forumTopic.author.fallback')
                       })()
                       return (
-                      <div key={r.id} id={`post-${r.id}`} className="flex items-start justify-between gap-2 text-sm text-muted-foreground">
-                        <div className="whitespace-pre-wrap flex-1 space-y-1">
-                          <p className="text-[11px] font-semibold text-muted-foreground flex items-center gap-1">
-                            <span className="text-xs">{tr('forumTopic.reply.label')}</span>
-                            <span>{rAuthorLabel}</span>
-                          </p>
-                          <div>{replyText}</div>
-                          {(() => {
-                            const urls =
-                              ((r as any)?.payload?.attachments ||
-                                (r as any)?.payload?.images ||
-                                (r as any)?.attachment_urls) as string[] | undefined;
-                            if (!Array.isArray(urls) || urls.length === 0) return null;
-                            return <AttachmentViewer urls={urls} postId={r.id} />;
-                          })()}
-                        </div>
-                        <div className="flex flex-col gap-1 items-end">
-                          <Button
-                            size="xs"
-                            variant="ghost"
-                            onClick={() => {
-                              const url = buildAbsoluteAppUrl(
-                                `/forum/${encodeURIComponent(id || '')}#post-${encodeURIComponent(r.id)}`,
-                              )
-                              const preview = (replyText || '').trim().replace(/\s+/g, ' ').slice(0, 160)
-                              const previewText = `${preview}${preview.length >= 160 ? '…' : ''}`
-                              openWhatsAppShare({
-                                message: tr('forumTopic.post.shareMessage', { title: topicTitle, preview: previewText }),
-                                url,
-                              })
-                            }}
-                            title={tr('forumTopic.post.shareAria')}
-                          >
-                            <Share2 className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            size="xs"
-                            variant="ghost"
-                            disabled={isSpeaking}
-                            onClick={() => speakText(replyText)}
-                            title={tr('forumTopic.reply.listenAria')}
-                            aria-label={tr('forumTopic.reply.listenAria')}
-                          >
-                            <Volume2 className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            size="xs"
-                            variant="ghost"
-                            onClick={() => {
-                              setReplyToPostId(r.id)
-                              setReplyToExcerpt(replyText.slice(0, 140))
-                            }}
-                          >
-                            {tr('forumTopic.actions.reply')}
-                          </Button>
-                          {(isLeaderMod || r.user_id === user?.id) && (
-                            <>
-                              <Button size="xs" variant="outline" onClick={()=>startEditPost(r)}>{tr('forumTopic.actions.edit')}</Button>
-                              <Button size="xs" variant="destructive" onClick={()=>handleDeletePost(r.id)}>{tr('forumTopic.actions.delete')}</Button>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                      );
+	                      <div key={r.id} id={`post-${r.id}`} className="flex items-start justify-between gap-3 text-sm text-muted-foreground">
+	                        <div className="whitespace-pre-wrap flex-1 min-w-0 space-y-1">
+	                          <p className="text-[11px] font-semibold text-muted-foreground flex items-center gap-1">
+	                            <span className="text-xs">{tr('forumTopic.reply.label')}</span>
+	                            <span>{rAuthorLabel}</span>
+	                          </p>
+	                          <div className="break-words">{replyText}</div>
+	                          {(() => {
+	                            const urls =
+	                              ((r as any)?.payload?.attachments ||
+	                                (r as any)?.payload?.images ||
+	                                (r as any)?.attachment_urls) as string[] | undefined;
+	                            if (!Array.isArray(urls) || urls.length === 0) return null;
+	                            return <AttachmentViewer urls={urls} postId={r.id} />;
+	                          })()}
+	                        </div>
+	                        <div className="shrink-0">
+	                          <div className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-black/20 p-1.5">
+	                            <Button
+	                              type="button"
+	                              size="icon"
+	                              variant="ghost"
+	                              className="h-9 w-9"
+	                              onClick={() => sharePostToWhatsApp(r.id, replyText)}
+	                              title={tr('forumTopic.post.shareAria')}
+	                              aria-label={tr('forumTopic.post.shareAria')}
+	                            >
+	                              <Share2 className="h-4 w-4" />
+	                            </Button>
+	                            <Button
+	                              type="button"
+	                              size="icon"
+	                              variant="ghost"
+	                              className="h-9 w-9"
+	                              disabled={isSpeaking}
+	                              onClick={() => speakText(replyText)}
+	                              title={tr('forumTopic.reply.listenAria')}
+	                              aria-label={tr('forumTopic.reply.listenAria')}
+	                            >
+	                              <Volume2 className="h-4 w-4" />
+	                            </Button>
+	                            <Button
+	                              type="button"
+	                              size="sm"
+	                              variant="outline"
+	                              className="h-9 px-3 text-[11px]"
+	                              onClick={() => {
+	                                setReplyToPostId(r.id)
+	                                setReplyToExcerpt(replyText.slice(0, 140))
+	                              }}
+	                            >
+	                              <Reply className="h-4 w-4" />
+	                              {tr('forumTopic.actions.reply')}
+	                            </Button>
+	                            {(isLeaderMod || r.user_id === user?.id) && (
+	                              <DropdownMenu>
+	                                <DropdownMenuTrigger asChild>
+	                                  <Button type="button" size="icon" variant="ghost" className="h-9 w-9" aria-label="Mais ações">
+	                                    <MoreVertical className="h-4 w-4" />
+	                                  </Button>
+	                                </DropdownMenuTrigger>
+	                                <DropdownMenuContent align="end" className="min-w-[190px]">
+	                                  <DropdownMenuItem onClick={() => startEditPost(r)}>
+	                                    <Pencil className="h-4 w-4 mr-2" />
+	                                    {tr('forumTopic.actions.edit')}
+	                                  </DropdownMenuItem>
+	                                  <DropdownMenuItem
+	                                    onClick={() => handleDeletePost(r.id)}
+	                                    className="text-destructive focus:text-destructive"
+	                                  >
+	                                    <Trash2 className="h-4 w-4 mr-2" />
+	                                    {tr('forumTopic.actions.delete')}
+	                                  </DropdownMenuItem>
+	                                </DropdownMenuContent>
+	                              </DropdownMenu>
+	                            )}
+	                          </div>
+	                        </div>
+	                      </div>
+	                      );
                     })}
                   </div>
                 )}
@@ -1347,15 +1393,16 @@ export default function ForumTopic() {
                         <span className="font-semibold mr-1">{tr('forumTopic.newPost.replyTargetLabel')}:</span>
                         {replyToExcerpt || '...'}
                       </span>
-                      <Button
-                        type="button"
-                        size="xs"
-                        variant="ghost"
-                        onClick={() => {
-                          setReplyToPostId(null)
-                          setReplyToExcerpt('')
-                        }}
-                      >
+	                      <Button
+	                        type="button"
+	                        size="sm"
+	                        variant="ghost"
+	                        className="h-7 px-2 text-[11px]"
+	                        onClick={() => {
+	                          setReplyToPostId(null)
+	                          setReplyToExcerpt('')
+	                        }}
+	                      >
                         {tr('forumTopic.actions.cancelReply')}
                       </Button>
                     </div>

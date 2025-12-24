@@ -12,11 +12,16 @@ type TtsContextValue = {
   rate: number; // 0.25..2
   volume: number; // 0..1
   isSpeaking: boolean;
+  isPaused: boolean;
+  currentText: string | null;
   setTtsEnabled: (next: boolean) => void;
   setVoiceGender: (next: TtsVoiceGender) => void;
   setRate: (next: number) => void;
   setVolume: (next: number) => void;
   speak: (text: string) => Promise<void>;
+  pause: () => void;
+  resume: () => void;
+  togglePause: () => void;
   stop: () => void;
 };
 
@@ -31,7 +36,7 @@ const DEFAULTS = {
   // Prefer "on" by default (only plays on explicit user click).
   enabled: true,
   voiceGender: "male" as TtsVoiceGender,
-  rate: 1,
+  rate: 1.1,
   volume: 1,
 };
 
@@ -101,6 +106,8 @@ export function TtsProvider({ children }: { children: React.ReactNode }) {
   const [rate, setRateState] = useState(initial.rate);
   const [volume, setVolumeState] = useState(initial.volume);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const [currentText, setCurrentText] = useState<string | null>(null);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -171,6 +178,8 @@ export function TtsProvider({ children }: { children: React.ReactNode }) {
     } catch {
       /* ignore */
     }
+    setIsPaused(false);
+    setCurrentText(null);
     if (isSpeaking) {
       setIsSpeaking(false);
       window.dispatchEvent(new CustomEvent("tts:end"));
@@ -178,6 +187,58 @@ export function TtsProvider({ children }: { children: React.ReactNode }) {
   }, [isSpeaking]);
 
   useEffect(() => () => stop(), [stop]);
+
+  const pause = useCallback(() => {
+    try {
+      const audio = audioRef.current;
+      if (audio && !audio.paused) {
+        audio.pause();
+        setIsPaused(true);
+        window.dispatchEvent(new CustomEvent("tts:pause"));
+        return;
+      }
+    } catch {
+      /* ignore */
+    }
+    try {
+      if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        window.speechSynthesis.pause();
+        setIsPaused(true);
+        window.dispatchEvent(new CustomEvent("tts:pause"));
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const resume = useCallback(() => {
+    try {
+      const audio = audioRef.current;
+      if (audio && audio.paused && audio.src) {
+        void audio.play();
+        setIsPaused(false);
+        window.dispatchEvent(new CustomEvent("tts:resume"));
+        return;
+      }
+    } catch {
+      /* ignore */
+    }
+    try {
+      if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        window.speechSynthesis.resume();
+        setIsPaused(false);
+        window.dispatchEvent(new CustomEvent("tts:resume"));
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const togglePause = useCallback(() => {
+    if (!isSpeaking) return;
+    if (isPaused) resume();
+    else pause();
+  }, [isPaused, isSpeaking, pause, resume]);
 
   const speak = useCallback(
     async (rawText: string) => {
@@ -197,6 +258,8 @@ export function TtsProvider({ children }: { children: React.ReactNode }) {
       window.dispatchEvent(new CustomEvent("tts:start"));
 
       setIsSpeaking(true);
+      setIsPaused(false);
+      setCurrentText(text);
       try {
         const { data: { session } } = await supabase.auth.getSession();
         const token = session?.access_token;
@@ -275,14 +338,17 @@ export function TtsProvider({ children }: { children: React.ReactNode }) {
           if (voice) utter.voice = voice;
           if (voice?.lang) utter.lang = voice.lang;
           utter.rate = clamp(rate, 0.25, 2);
+          utter.pitch = 1.05;
           utter.volume = clamp(volume, 0, 1);
           utter.onend = () => {
             setIsSpeaking(false);
+            setIsPaused(false);
             utteranceRef.current = null;
             window.dispatchEvent(new CustomEvent("tts:end"));
           };
           utter.onerror = () => {
             setIsSpeaking(false);
+            setIsPaused(false);
             utteranceRef.current = null;
             window.dispatchEvent(new CustomEvent("tts:end"));
           };
@@ -296,16 +362,20 @@ export function TtsProvider({ children }: { children: React.ReactNode }) {
         audio.src = url;
 
         await audio.play();
+        setIsPaused(false);
         audio.onended = () => {
           setIsSpeaking(false);
+          setIsPaused(false);
           window.dispatchEvent(new CustomEvent("tts:end"));
         };
         audio.onerror = () => {
           setIsSpeaking(false);
+          setIsPaused(false);
           window.dispatchEvent(new CustomEvent("tts:end"));
         };
       } catch (e) {
         setIsSpeaking(false);
+        setIsPaused(false);
         window.dispatchEvent(new CustomEvent("tts:end"));
         throw e;
       } finally {
@@ -359,14 +429,38 @@ export function TtsProvider({ children }: { children: React.ReactNode }) {
       rate,
       volume,
       isSpeaking,
+      isPaused,
+      currentText,
       setTtsEnabled,
       setVoiceGender,
       setRate,
       setVolume,
       speak,
+      pause,
+      resume,
+      togglePause,
       stop,
     }),
-    [enabled, isSpeaking, rate, speak, stop, ttsEnabled, unlocked, voiceGender, volume, setTtsEnabled, setVoiceGender, setRate, setVolume],
+    [
+      enabled,
+      unlocked,
+      ttsEnabled,
+      voiceGender,
+      rate,
+      volume,
+      isSpeaking,
+      isPaused,
+      currentText,
+      setTtsEnabled,
+      setVoiceGender,
+      setRate,
+      setVolume,
+      speak,
+      pause,
+      resume,
+      togglePause,
+      stop,
+    ],
   );
 
   return <TtsContext.Provider value={value}>{children}</TtsContext.Provider>;

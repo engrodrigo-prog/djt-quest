@@ -9,6 +9,7 @@ import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { I18nProvider, useI18n } from "./contexts/I18nContext";
 import { SfxProvider } from "@/lib/sfx";
 import { TtsProvider } from "@/lib/tts";
+import { TtsPlayerBar } from "@/components/TtsPlayerBar";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { CompleteProfile } from "./components/CompleteProfile";
 import { STUDIO_ALLOWED_ROLES } from "../shared/rbac.js";
@@ -70,6 +71,7 @@ const App = () => (
           <I18nProvider>
             <SfxProvider>
               <TtsProvider>
+                <TtsPlayerBar />
                 <StudioWelcomeToast />
                 <Suspense
                   fallback={
