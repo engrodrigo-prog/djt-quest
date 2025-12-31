@@ -4,7 +4,11 @@ import { createClient } from "@supabase/supabase-js";
 import { assertDjtQuestServerEnv } from "../server/env-guard.js";
 
 const SUPABASE_URL = process.env.SUPABASE_URL as string;
-const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY) as string;
+const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY as string | undefined;
+const ANON_KEY = (process.env.SUPABASE_ANON_KEY ||
+  process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+  process.env.VITE_SUPABASE_ANON_KEY) as string;
+const SERVICE_KEY = (SERVICE_ROLE_KEY || ANON_KEY) as string;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
 const OPENAI_MODEL_PREMIUM =
   process.env.OPENAI_MODEL_PREMIUM || process.env.OPENAI_MODEL_OVERRIDE || "gpt-4o";
@@ -54,15 +58,45 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     assertDjtQuestServerEnv({ requireSupabaseUrl: false });
-    if (!SUPABASE_URL || !SERVICE_KEY)
-      return res.status(500).json({ error: "Missing Supabase config" });
-    const admin = createClient(SUPABASE_URL, SERVICE_KEY, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    });
+    if (!SUPABASE_URL || !SERVICE_KEY) {
+      const { key, from, to } = resolveRange(String(req.query.range || "week"));
+      return res.status(200).json({
+        range: key,
+        from,
+        to,
+        tags: [],
+        ai: null,
+        meta: { warning: "Supabase não configurado no servidor (SUPABASE_URL/SUPABASE_*_KEY)." },
+      });
+    }
+    const admin = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { autoRefreshToken: false, persistSession: false } });
+
+    const authHeader = req.headers["authorization"] as string | undefined;
+    const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : undefined;
+    const authed =
+      token && ANON_KEY
+        ? createClient(SUPABASE_URL, ANON_KEY, {
+            auth: { autoRefreshToken: false, persistSession: false },
+            global: { headers: { Authorization: `Bearer ${token}` } },
+          })
+        : null;
 
     const { key, from, to } = resolveRange(String(req.query.range || "week"));
 
-    const { data: posts, error } = await admin
+    if (!SERVICE_ROLE_KEY && !authed) {
+      return res.status(200).json({
+        range: key,
+        from,
+        to,
+        tags: [],
+        ai: null,
+        meta: { warning: "Autenticação ausente para calcular trending (env sem SUPABASE_SERVICE_ROLE_KEY)." },
+      });
+    }
+
+    const reader = SERVICE_ROLE_KEY ? admin : (authed || admin);
+
+    const { data: posts, error } = await reader
       .from("sepbook_posts")
       .select("id, content_md, like_count, created_at")
       .gte("created_at", from)
@@ -78,7 +112,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           meta: { warning: "Tabela sepbook_posts ausente." },
         });
       }
-      return res.status(400).json({ error: error.message });
+      if (/(row level security|rls|permission denied|not authorized)/i.test(String(error.message || ""))) {
+        return res.status(200).json({
+          range: key,
+          from,
+          to,
+          tags: [],
+          ai: null,
+          meta: { warning: "Permissão insuficiente para ler posts do SEPBook (RLS)." },
+        });
+      }
+      return res.status(200).json({
+        range: key,
+        from,
+        to,
+        tags: [],
+        ai: null,
+        meta: { warning: "Falha ao carregar trending topics do SEPBook." },
+      });
     }
 
     const tagMap: Record<

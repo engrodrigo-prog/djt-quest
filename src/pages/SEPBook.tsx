@@ -341,13 +341,20 @@ export default function SEPBook() {
   const fetchTrending = async (range: typeof trendRange) => {
     setTrendingLoading(true);
     try {
-      const resp = await fetch(`/api/sepbook-trending?range=${encodeURIComponent(range)}`);
+      const { data: session } = await supabase.auth.getSession();
+      const token = session.session?.access_token;
+      const resp = await fetch(`/api/sepbook-trending?range=${encodeURIComponent(range)}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
       const json = await resp.json();
       if (!resp.ok) throw new Error(json?.error || "Falha ao carregar trending topics");
       const tags = json.tags || [];
       setTrendingTags(tags);
       setTrendingTagsAll(tags);
       setTrendingAI(json.ai?.items || json.ai || null);
+      if (json?.meta?.warning) {
+        console.warn("SEPBook trending warning:", json.meta.warning);
+      }
     } catch (e: any) {
       toast({
         title: "Erro ao carregar trending topics",
@@ -411,10 +418,15 @@ export default function SEPBook() {
   useEffect(() => {
     (async () => {
       try {
-        const resp = await fetch("/api/sepbook-tags");
+        const { data: session } = await supabase.auth.getSession();
+        const token = session.session?.access_token;
+        const resp = await fetch("/api/sepbook-tags", { headers: token ? { Authorization: `Bearer ${token}` } : {} });
         const json = await resp.json();
         if (!resp.ok) throw new Error(json?.error || "Falha ao carregar tags sugeridas");
         setTagsSuggestions(json.items || []);
+        if (json?.meta?.warning) {
+          console.warn("SEPBook tags warning:", json.meta.warning);
+        }
       } catch (e) {
         console.warn("SEPBook: falha ao carregar tags de campanhas/desafios");
       }

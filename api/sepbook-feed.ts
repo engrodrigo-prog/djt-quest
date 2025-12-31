@@ -4,7 +4,11 @@ import { createClient } from "@supabase/supabase-js";
 import { assertDjtQuestServerEnv } from "../server/env-guard.js";
 
 const SUPABASE_URL = process.env.SUPABASE_URL as string;
-const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY) as string;
+const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY as string | undefined;
+const ANON_KEY = (process.env.SUPABASE_ANON_KEY ||
+  process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+  process.env.VITE_SUPABASE_ANON_KEY) as string;
+const SERVICE_KEY = (SERVICE_ROLE_KEY || ANON_KEY) as string;
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === "OPTIONS") return res.status(204).send("");
@@ -19,19 +23,40 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     if (!SUPABASE_URL || !SERVICE_KEY) {
       // Sem config de backend: devolve feed vazio para não quebrar o cliente
-      return res.status(200).json({ items: [] });
+      return res.status(200).json({ items: [], meta: { warning: "Supabase não configurado no servidor (SUPABASE_URL/SUPABASE_*_KEY)." } });
     }
     const admin = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { autoRefreshToken: false, persistSession: false } });
 
     const authHeader = req.headers["authorization"] as string | undefined;
     const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : undefined;
+    const authed =
+      token && ANON_KEY
+        ? createClient(SUPABASE_URL, ANON_KEY, {
+            auth: { autoRefreshToken: false, persistSession: false },
+            global: { headers: { Authorization: `Bearer ${token}` } },
+          })
+        : null;
     let currentUserId: string | null = null;
-    if (token) {
+    if (authed) {
+      try {
+        const { data, error } = await authed.auth.getUser();
+        if (!error) currentUserId = data?.user?.id || null;
+      } catch {}
+    } else if (token) {
       try {
         const { data } = await admin.auth.getUser(token);
         currentUserId = data?.user?.id || null;
       } catch {}
     }
+
+    if (!SERVICE_ROLE_KEY && !authed) {
+      return res.status(200).json({
+        items: [],
+        meta: { warning: "Autenticação ausente para carregar o SEPBook (env sem SUPABASE_SERVICE_ROLE_KEY)." },
+      });
+    }
+
+    const reader = SERVICE_ROLE_KEY ? admin : (authed || admin);
 
     let posts: any[] = [];
     try {
@@ -49,9 +74,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           )
         `;
 
+      const minimalSelect = `
+          id, user_id, content_md, attachments, like_count, comment_count, created_at, location_label, campaign_id, challenge_id, group_label, repost_of
+        `;
+
       let data: any[] | null = null;
       let error: any = null;
-      const attempt = await admin
+      const attempt = await reader
         .from("sepbook_posts")
         .select(selectWithRepost)
         .order("created_at", { ascending: false })
@@ -59,7 +88,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       data = attempt.data as any;
       error = attempt.error as any;
       if (error && /repost_of|sepbook_posts_repost_of_fkey/i.test(String(error.message || ""))) {
-        const fallback = await admin
+        const fallback = await reader
           .from("sepbook_posts")
           .select(baseSelect)
           .order("created_at", { ascending: false })
@@ -67,12 +96,33 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         data = fallback.data as any;
         error = fallback.error as any;
       }
+      if (
+        error &&
+        /(sepbook_post_participants|permission denied|row level security|rls)/i.test(String(error.message || ""))
+      ) {
+        const fallback2 = await reader
+          .from("sepbook_posts")
+          .select(minimalSelect)
+          .order("created_at", { ascending: false })
+          .limit(50);
+        data = fallback2.data as any;
+        error = fallback2.error as any;
+      }
       if (error) {
         // Se a tabela ainda não existir (migração não aplicada), devolve lista vazia com aviso opcional
         if (/sepbook_posts/i.test(error.message) && /relation|table.*does not exist/i.test(error.message)) {
           return res
             .status(200)
             .json({ items: [], meta: { warning: "Tabela sepbook_posts ausente. Aplique a migração supabase/migrations/20251115153000_sepbook.sql." } });
+        }
+        if (/(row level security|rls|permission denied|not authorized)/i.test(String(error.message || ""))) {
+          return res.status(200).json({
+            items: [],
+            meta: {
+              warning:
+                "Permissão insuficiente para ler o SEPBook (RLS). Configure políticas de leitura no Supabase ou defina SUPABASE_SERVICE_ROLE_KEY no Vercel.",
+            },
+          });
         }
         // Outro erro de banco: devolve feed vazio para não quebrar a UI
         return res.status(200).json({ items: [], meta: { warning: "Falha ao carregar SEPBook. Tente novamente mais tarde." } });
@@ -89,20 +139,33 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           .flatMap((p) => [p.user_id, p?.repost?.user_id].filter(Boolean))
       ),
     );
-    const { data: profiles } = await admin
-      .from("profiles")
-      .select("id, name, sigla_area, avatar_url, operational_base")
-      .in("id", userIds.length ? userIds : ["00000000-0000-0000-0000-000000000000"]);
+    let profiles: any[] = [];
+    try {
+      const resp = await reader
+        .from("profiles")
+        .select("id, name, sigla_area, avatar_url, operational_base")
+        .in("id", userIds.length ? userIds : ["00000000-0000-0000-0000-000000000000"]);
+      profiles = (resp.data as any[]) || [];
+    } catch {
+      profiles = [];
+    }
 
     let myLikes: any[] = [];
     if (currentUserId) {
       const postIds = (posts || []).map((p) => p.id);
-      const { data: likes } = await admin
-        .from("sepbook_likes")
-        .select("post_id")
-        .eq("user_id", currentUserId)
-        .in("post_id", postIds.length ? postIds : ["00000000-0000-0000-0000-000000000000"]);
-      myLikes = likes || [];
+      try {
+        const likeReader = SERVICE_ROLE_KEY ? admin : authed;
+        if (likeReader) {
+          const { data: likes } = await likeReader
+            .from("sepbook_likes")
+            .select("post_id")
+            .eq("user_id", currentUserId)
+            .in("post_id", postIds.length ? postIds : ["00000000-0000-0000-0000-000000000000"]);
+          myLikes = likes || [];
+        }
+      } catch {
+        myLikes = [];
+      }
     }
 
     const likedSet = new Set<string>(myLikes.map((l) => l.post_id));
