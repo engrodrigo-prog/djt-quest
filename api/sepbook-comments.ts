@@ -2,13 +2,18 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { createClient } from "@supabase/supabase-js";
 import { recomputeSepbookMentionsForPost } from "./sepbook-mentions";
-import { assertDjtQuestServerEnv } from "../server/env-guard.js";
+import { assertDjtQuestServerEnv, DJT_QUEST_SUPABASE_HOST } from "../server/env-guard.js";
+import { getSupabaseUrlFromEnv } from "../server/lib/supabase-url.js";
 
-const SUPABASE_URL = process.env.SUPABASE_URL as string;
+const SUPABASE_URL =
+  getSupabaseUrlFromEnv(process.env, { expectedHostname: DJT_QUEST_SUPABASE_HOST, allowLocal: true }) ||
+  (process.env.SUPABASE_URL as string);
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY as string | undefined;
 const ANON_KEY = (process.env.SUPABASE_ANON_KEY ||
   process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
-  process.env.VITE_SUPABASE_ANON_KEY) as string;
+  process.env.VITE_SUPABASE_ANON_KEY ||
+  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY ||
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) as string;
 const SERVICE_KEY = (SERVICE_ROLE_KEY || ANON_KEY) as string;
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -20,24 +25,50 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const admin = createClient(SUPABASE_URL, SERVICE_KEY, {
       auth: { autoRefreshToken: false, persistSession: false },
     });
+    const authHeader = req.headers["authorization"] as string | undefined;
+    const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : undefined;
+    const authed =
+      token && ANON_KEY
+        ? createClient(SUPABASE_URL, ANON_KEY, {
+            auth: { autoRefreshToken: false, persistSession: false },
+            global: { headers: { Authorization: `Bearer ${token}` } },
+          })
+        : null;
 
     if (req.method === "GET") {
       const postId = String(req.query.post_id || "").trim();
       if (!postId) return res.status(400).json({ error: "post_id required" });
+      if (!SERVICE_ROLE_KEY && !authed) return res.status(401).json({ error: "Unauthorized" });
 
-      const { data, error } = await admin
+      const reader = SERVICE_ROLE_KEY ? admin : authed;
+      const { data, error } = await reader
         .from("sepbook_comments")
         .select("id, post_id, user_id, content_md, created_at")
         .eq("post_id", postId)
         .order("created_at", { ascending: true })
         .limit(100);
-      if (error) return res.status(400).json({ error: error.message });
+      if (error) {
+        const msg = String(error.message || "");
+        if (/(row level security|rls|permission denied|not authorized)/i.test(msg)) {
+          return res.status(403).json({
+            error:
+              "Permissão insuficiente para ler comentários (RLS). Configure políticas de leitura no Supabase ou defina SUPABASE_SERVICE_ROLE_KEY no Vercel.",
+          });
+        }
+        return res.status(400).json({ error: error.message });
+      }
 
       const userIds = Array.from(new Set((data || []).map((c) => c.user_id)));
-      const { data: profiles } = await admin
-        .from("profiles")
-        .select("id, name, sigla_area, avatar_url, operational_base")
-        .in("id", userIds.length ? userIds : ["00000000-0000-0000-0000-000000000000"]);
+      let profiles: any[] = [];
+      try {
+        const profResp = await reader
+          .from("profiles")
+          .select("id, name, sigla_area, avatar_url, operational_base")
+          .in("id", userIds.length ? userIds : ["00000000-0000-0000-0000-000000000000"]);
+        profiles = (profResp.data as any[]) || [];
+      } catch {
+        profiles = [];
+      }
 
       const profileMap = new Map<string, { name: string; sigla_area: string | null; avatar_url: string | null; operational_base: string | null }>();
       (profiles || []).forEach((p) => {
@@ -63,16 +94,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (req.method === "POST") {
-      const authHeader = req.headers["authorization"] as string | undefined;
       if (!authHeader?.startsWith("Bearer ")) return res.status(401).json({ error: "Unauthorized" });
-      const token = authHeader.slice(7);
-      const authed = createClient(SUPABASE_URL, ANON_KEY || SERVICE_KEY, {
-        auth: { autoRefreshToken: false, persistSession: false },
-        global: { headers: { Authorization: `Bearer ${token}` } },
-      });
-      const { data: userData, error: authErr } = await authed.auth.getUser();
-      if (authErr) return res.status(401).json({ error: "Unauthorized" });
-      const uid = userData?.user?.id;
+      let uid: string | null = null;
+      if (SERVICE_ROLE_KEY) {
+        try {
+          const { data: userData, error: authErr } = await admin.auth.getUser(token);
+          if (!authErr) uid = userData?.user?.id || null;
+        } catch {
+          uid = null;
+        }
+      } else if (authed) {
+        const { data: userData, error: authErr } = await authed.auth.getUser();
+        if (authErr) return res.status(401).json({ error: "Unauthorized" });
+        uid = userData?.user?.id || null;
+      } else {
+        return res.status(500).json({ error: "Missing Supabase anon key" });
+      }
       if (!uid) return res.status(401).json({ error: "Unauthorized" });
 
       const { post_id, content_md } = req.body || {};
@@ -80,13 +117,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const text = String(content_md || "").trim();
       if (!postId || text.length < 2) return res.status(400).json({ error: "post_id e texto obrigatórios" });
 
-      const { data: profile } = await authed
+      const profileReader = SERVICE_ROLE_KEY ? admin : authed;
+      const { data: profile } = await profileReader
         .from("profiles")
         .select("name, sigla_area")
         .eq("id", uid)
         .maybeSingle();
 
-      const { data, error } = await authed
+      const writer = SERVICE_ROLE_KEY ? admin : authed;
+      const { data, error } = await writer
         .from("sepbook_comments")
         .insert({
           post_id: postId,
@@ -98,7 +137,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (error) {
         const message = error.message || "Falha ao comentar";
         if (message.toLowerCase().includes("row level security") || message.toLowerCase().includes("rls")) {
-          return res.status(500).json({
+          return res.status(403).json({
             error:
               "RLS bloqueou a criação do comentário. Aplique a migração supabase/migrations/20251218190000_sepbook_rls_write_policies.sql.",
           });
