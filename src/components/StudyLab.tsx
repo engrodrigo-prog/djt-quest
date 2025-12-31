@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { LibraryBig, MessageCircle, Plus, Wand2 } from "lucide-react";
+import { LibraryBig, MessageCircle, Plus } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -195,11 +195,6 @@ export const StudyLab = () => {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [kbEnabled, setKbEnabled] = useState(false);
   const [kbSelection, setKbSelection] = useState<ForumKbSelection | null>(null);
-
-  const [bulkIngesting, setBulkIngesting] = useState(false);
-  const [bulkDone, setBulkDone] = useState(0);
-  const [bulkTotal, setBulkTotal] = useState(0);
-  const [bulkError, setBulkError] = useState<string | null>(null);
 
   useEffect(() => {
     if (uploadOpen) insertedUrlsRef.current.clear();
@@ -449,66 +444,6 @@ export const StudyLab = () => {
     }
     return out;
   }, [allSources]);
-
-  const needsCataloging = useMemo(() => {
-    return (sources || []).filter((s) => {
-      if (!s || isFixedSource(s)) return false;
-      if (s.ingest_status !== "ok") return true;
-      if (!s.title?.trim() || !s.summary?.trim()) return true;
-      const meta = s.metadata && typeof s.metadata === "object" ? s.metadata : null;
-      const outline = meta?.ai?.outline || meta?.outline;
-      if (!Array.isArray(outline) || outline.length === 0) return true;
-      return false;
-    });
-  }, [sources]);
-
-  const runBulkCataloging = async (maxToProcess = 80) => {
-    if (!user) {
-      toast("Faça login para catalogar materiais.");
-      return;
-    }
-    if (bulkIngesting) return;
-
-    const ids = needsCataloging
-      .map((s) => s.id)
-      .filter((id) => id && id !== FIXED_RULES_ID)
-      .slice(0, Math.max(0, maxToProcess));
-    if (!ids.length) {
-      toast.success("Tudo já está catalogado.");
-      return;
-    }
-
-    setBulkIngesting(true);
-    setBulkError(null);
-    setBulkDone(0);
-    setBulkTotal(ids.length);
-
-    const concurrency = 2;
-    let idx = 0;
-    const worker = async () => {
-      while (idx < ids.length) {
-        const current = ids[idx++];
-        try {
-          await apiFetch("/api/ai?handler=study-chat", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ mode: "ingest", source_id: current }),
-          });
-        } catch (e: any) {
-          setBulkError(e?.message || "Falha ao catalogar alguns materiais.");
-        } finally {
-          setBulkDone((n) => n + 1);
-        }
-      }
-    };
-
-    try {
-      await Promise.all(Array.from({ length: concurrency }, () => worker()));
-      await fetchSources();
-    } finally {
-      setBulkIngesting(false);
-    }
-  };
 
   const handleFilesUploaded = async (urls: string[]) => {
     if (!user || !urls.length) return;
@@ -781,43 +716,15 @@ export const StudyLab = () => {
         </div>
       </div>
 
-      {(ingesting || bulkIngesting) && (
+      {ingesting && (
         <Card>
           <CardContent className="pt-6 space-y-2">
             <div className="flex items-center justify-between gap-3">
-              <p className="text-sm font-medium">{bulkIngesting ? "Catalogando materiais..." : "Analisando materiais..."}</p>
-              {bulkIngesting && (
-                <p className="text-xs text-muted-foreground">
-                  {bulkDone}/{bulkTotal}
-                </p>
-              )}
+              <p className="text-sm font-medium">Analisando materiais...</p>
             </div>
             <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-              <div
-                className="h-full bg-primary transition-all"
-                style={{
-                  width: bulkIngesting ? `${Math.round((bulkDone / Math.max(1, bulkTotal)) * 100)}%` : "50%",
-                }}
-              />
+              <div className="h-full w-1/2 bg-primary animate-pulse" />
             </div>
-            {bulkError && <p className="text-xs text-destructive">{bulkError}</p>}
-          </CardContent>
-        </Card>
-      )}
-
-      {!bulkIngesting && needsCataloging.length > 0 && (
-        <Card>
-          <CardContent className="pt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="space-y-1">
-              <p className="text-sm font-medium">Há {needsCataloging.length} materiais sem catálogo completo.</p>
-              <p className="text-xs text-muted-foreground">
-                A IA pode renomear, gerar resumo, hashtags e índice (sumário) para navegação.
-              </p>
-            </div>
-            <Button type="button" onClick={() => runBulkCataloging(80)}>
-              <Wand2 className="mr-2 h-4 w-4" />
-              Catalogar agora
-            </Button>
           </CardContent>
         </Card>
       )}
@@ -954,10 +861,6 @@ export const StudyLab = () => {
           <div className="mt-4 space-y-3">
             <div className="flex gap-2">
               <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar por título, resumo, tags, tema…" />
-              <Button type="button" variant="outline" onClick={() => runBulkCataloging(80)} disabled={bulkIngesting || !needsCataloging.length}>
-                <Wand2 className="mr-2 h-4 w-4" />
-                Catalogar
-              </Button>
             </div>
 
             <div className="grid grid-cols-3 gap-2">
@@ -1291,4 +1194,3 @@ export const StudyLab = () => {
     </div>
   );
 };
-

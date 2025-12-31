@@ -300,6 +300,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       kb_focus = "",
       use_web = false,
     } = req.body || {};
+    const allowDevIngest =
+      mode === "ingest" &&
+      process.env.DJT_ALLOW_DEV_INGEST === "1" &&
+      process.env.NODE_ENV !== "production" &&
+      process.env.VERCEL_ENV !== "production";
 
     const forumKbTagsRaw = Array.isArray(kb_tags)
       ? kb_tags
@@ -459,6 +464,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const scope = (sourceRow.scope || "user").toString().toLowerCase();
         const published = Boolean(sourceRow.published);
         const canRead =
+          allowDevIngest ||
           Boolean(uid && sourceRow.user_id && sourceRow.user_id === uid) ||
           (scope === "org" && (published || isLeaderOrStaff));
         if (canRead) {
@@ -615,30 +621,36 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             "- questions: 4 a 8 perguntas com 4 alternativas (use [] se o material for insuficiente).\n\n" +
             baseMaterial;
 
+        const wantsStrictJson = !/^gpt-5/i.test(String(model || ""));
+        const requestBody: any = {
+          model,
+          messages: [
+            {
+              role: "system",
+              content:
+                isIncident
+                  ? "Você resume e extrai aprendizados de Relatórios de Ocorrência no setor elétrico (CPFL). Gere título, resumo, assunto, aprendizados, cuidados e mudanças."
+                  : "Você resume e classifica materiais de estudo técnicos (setor elétrico CPFL). Gere um título curto, um resumo objetivo e uma categoria de assunto.",
+            },
+            {
+              role: "user",
+              content: userContent,
+            },
+          ],
+          temperature: 0.4,
+          max_completion_tokens: isIncident ? 500 : 300,
+        };
+        if (wantsStrictJson) {
+          requestBody.response_format = { type: "json_object" };
+        }
+
         const resp = await fetch("https://api.openai.com/v1/chat/completions", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${OPENAI_API_KEY}`,
           },
-          body: JSON.stringify({
-            model,
-            messages: [
-              {
-                role: "system",
-                content:
-                  isIncident
-                    ? "Você resume e extrai aprendizados de Relatórios de Ocorrência no setor elétrico (CPFL). Gere título, resumo, assunto, aprendizados, cuidados e mudanças."
-                    : "Você resume e classifica materiais de estudo técnicos (setor elétrico CPFL). Gere um título curto, um resumo objetivo e uma categoria de assunto.",
-              },
-              {
-                role: "user",
-                content: userContent,
-              },
-            ],
-            temperature: 0.4,
-            max_completion_tokens: isIncident ? 500 : 300,
-          }),
+          body: JSON.stringify(requestBody),
         });
 
         if (!resp.ok) {
@@ -659,14 +671,63 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         } else {
           const data = await resp.json().catch(() => null);
           const content = data?.choices?.[0]?.message?.content || "";
-          let parsed: any = null;
-          try {
-            parsed = JSON.parse(content);
-          } catch {
-            const match = content.match?.(/\{[\s\S]*\}/);
-            if (match) {
-              parsed = JSON.parse(match[0]);
+          const tryParse = (raw: string) => {
+            try {
+              return JSON.parse(raw);
+            } catch {
+              return null;
             }
+          };
+          const repairJson = async (raw: string) => {
+            try {
+              const repairModel = chooseModel(false);
+              const repairBody: any = {
+                model: repairModel,
+                temperature: 0,
+                max_completion_tokens: 400,
+                messages: [
+                  {
+                    role: "system",
+                    content:
+                      "Você corrige JSON malformado e devolve APENAS um JSON válido seguindo o mesmo esquema esperado.",
+                  },
+                  {
+                    role: "user",
+                    content: raw.slice(0, 6000),
+                  },
+                ],
+              };
+              if (!/^gpt-5/i.test(String(repairModel || ""))) {
+                repairBody.response_format = { type: "json_object" };
+              }
+              const repairResp = await fetch("https://api.openai.com/v1/chat/completions", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${OPENAI_API_KEY}`,
+                },
+                body: JSON.stringify(repairBody),
+              });
+              if (!repairResp.ok) return null;
+              const repairData = await repairResp.json().catch(() => null);
+              const repairContent = repairData?.choices?.[0]?.message?.content || "";
+              let repaired = tryParse(repairContent);
+              if (!repaired) {
+                const match = repairContent.match?.(/\{[\s\S]*\}/);
+                if (match) repaired = tryParse(match[0]);
+              }
+              return repaired;
+            } catch {
+              return null;
+            }
+          };
+          let parsed: any = tryParse(content);
+          if (!parsed) {
+            const match = content.match?.(/\{[\s\S]*\}/);
+            if (match) parsed = tryParse(match[0]);
+          }
+          if (!parsed && content) {
+            parsed = await repairJson(content);
           }
 
           if (!parsed || typeof parsed !== "object") {
