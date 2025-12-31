@@ -1,25 +1,31 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
-import { Textarea } from "@/components/ui/textarea";
-import { Switch } from "@/components/ui/switch";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useNavigate } from "react-router-dom";
+import { toast } from "sonner";
+import { LibraryBig, MessageCircle, Plus, Wand2 } from "lucide-react";
+
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
-import { toast } from "sonner";
-import { BookOpenCheck, Link as LinkIcon, MessageCircle, AlertCircle, Trash2 } from "lucide-react";
-import { AttachmentUploader } from "@/components/AttachmentUploader";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { TipDialogButton } from "@/components/TipDialogButton";
+
+import { apiFetch } from "@/lib/api";
 import { getActiveLocale } from "@/lib/i18n/activeLocale";
+
+import { AttachmentUploader } from "@/components/AttachmentUploader";
 import { ForumKbThemeMenu } from "@/components/ForumKbThemeMenu";
 import type { ForumKbSelection } from "@/components/ForumKbThemeSelector";
-import { useNavigate } from "react-router-dom";
+import { TipDialogButton } from "@/components/TipDialogButton";
+
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
+
 import { DJT_RULES_ARTICLE } from "../../shared/djt-rules";
-import { apiFetch } from "@/lib/api";
 
 interface StudySource {
   id: string;
@@ -97,6 +103,7 @@ const EMPTY_INCIDENT: IncidentForm = {
 
 const PRIVATE_TTL_DAYS = 7;
 const FIXED_RULES_ID = "fixed:djt-quest-rules";
+
 const FIXED_SOURCES: StudySource[] = [
   {
     id: FIXED_RULES_ID,
@@ -137,129 +144,116 @@ const normalizeScope = (raw: unknown): StudyScope => {
   return s === "org" ? "org" : "user";
 };
 
+const normalizeTopic = (raw: unknown) => (raw || "").toString().trim().toUpperCase().replace(/\s+/g, "_");
+
+const TOPIC_LABELS: Record<string, string> = {
+  LINHAS: "Linhas de Transmissão",
+  SUBESTACOES: "Subestações",
+  PROCEDIMENTOS: "Procedimentos",
+  PROTECAO: "Proteção",
+  AUTOMACAO: "Automação",
+  TELECOM: "Telecom",
+  SEGURANCA_DO_TRABALHO: "Segurança do Trabalho",
+  OUTROS: "Outros assuntos",
+};
+
 export const StudyLab = () => {
   const { user, studioAccess } = useAuth();
   const navigate = useNavigate();
+
   const [sources, setSources] = useState<StudySource[]>([]);
   const [loadingSources, setLoadingSources] = useState(false);
   const [adding, setAdding] = useState(false);
   const [ingesting, setIngesting] = useState(false);
 
-  const [url, setUrl] = useState("");
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
+
+  const [catalogOpen, setCatalogOpen] = useState(false);
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [catalogTab, setCatalogTab] = useState<"tree" | "list">("tree");
+
   const [search, setSearch] = useState("");
   const [visibilityFilter, setVisibilityFilter] = useState<"all" | "public" | "private">("all");
   const [categoryFilter, setCategoryFilter] = useState<StudyCategory | "ALL">("ALL");
+  const [topicFilter, setTopicFilter] = useState<string>("ALL");
 
   const [newCategory, setNewCategory] = useState<StudyCategory>("OUTROS");
   const [newVisibility, setNewVisibility] = useState<"public" | "private">("public");
   const [incident, setIncident] = useState<IncidentForm>(EMPTY_INCIDENT);
-  const insertedUrlsRef = useRef<Set<string>>(new Set());
+  const [url, setUrl] = useState("");
+
   const purgeDoneRef = useRef(false);
+  const insertedUrlsRef = useRef<Set<string>>(new Set());
 
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
+
   const [oracleMode, setOracleMode] = useState(true);
   const [useWeb, setUseWeb] = useState(true);
-  const [showUploader, setShowUploader] = useState(false);
-  const [polling, setPolling] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [kbEnabled, setKbEnabled] = useState(false);
   const [kbSelection, setKbSelection] = useState<ForumKbSelection | null>(null);
 
-  useEffect(() => {
-    if (showUploader) {
-      insertedUrlsRef.current.clear();
-    }
-  }, [showUploader]);
-
-  // default: publico, com opcao de tornar temporario (privado)
-
-  const fetchSources = async () => {
-    if (!user) return;
-    try {
-      setLoadingSources(true);
-      if (!purgeDoneRef.current) {
-        purgeDoneRef.current = true;
-        try {
-          await apiFetch("/api/study?handler=purge-expired", { method: "POST" });
-        } catch {
-          // best-effort
-        }
-      }
-      const columnsV2 =
-        "id, user_id, title, kind, url, storage_path, summary, ingest_status, ingested_at, ingest_error, topic, category, scope, published, metadata, is_persistent, expires_at, access_count, created_at, last_used_at";
-      const columnsV1 =
-        "id, user_id, title, kind, url, storage_path, summary, ingest_status, ingested_at, ingest_error, topic, is_persistent, created_at, last_used_at";
-
-      let data: any[] | null = null;
-      let error: any = null;
-
-      const v2 = await supabase.from("study_sources").select(columnsV2).order("created_at", { ascending: false });
-      data = v2.data as any[] | null;
-      error = v2.error;
-
-      // Backward-compat: se ainda não migrou a tabela, tenta sem colunas novas
-      if (error && /column .*?(category|scope|published|metadata|expires_at|access_count)/i.test(String(error.message || error))) {
-        const v1 = await supabase.from("study_sources").select(columnsV1).order("created_at", { ascending: false });
-        data = v1.data as any[] | null;
-        error = v1.error;
-      }
-
-      if (error) throw error;
-      const normalized = await normalizeSources((data || []) as StudySource[]);
-      setSources(normalized);
-      if (!selectedSourceId && normalized.length) {
-        setSelectedSourceId(normalized[0].id);
-      }
-    } catch (e: any) {
-      const msg = e?.message || "";
-      if (typeof msg === "string" && msg.toLowerCase().includes("study_sources")) {
-        setSources([]);
-      } else {
-        console.warn("StudyLab: erro ao carregar fontes", msg || e);
-      }
-    } finally {
-      setLoadingSources(false);
-    }
-  };
+  const [bulkIngesting, setBulkIngesting] = useState(false);
+  const [bulkDone, setBulkDone] = useState(0);
+  const [bulkTotal, setBulkTotal] = useState(0);
+  const [bulkError, setBulkError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchSources();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user]);
-
-  // Auto-refresh enquanto houver materiais em pendente
-  useEffect(() => {
-    const hasPending = sources.some((s) => s.ingest_status === "pending");
-    if (!hasPending) {
-      setPolling(false);
-      return;
-    }
-    setPolling(true);
-    const id = setInterval(() => {
-      fetchSources();
-    }, 8000);
-    return () => clearInterval(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sources.length, sources.map((s) => s.ingest_status).join(",")]);
-
-  const fixedSources = FIXED_SOURCES;
+    if (uploadOpen) insertedUrlsRef.current.clear();
+  }, [uploadOpen]);
 
   const isFixedSource = (s: StudySource) => s.id === FIXED_RULES_ID;
   const isPublicSource = (s: StudySource) => normalizeScope(s.scope) === "org" && s.published !== false;
   const isPrivateSource = (s: StudySource) => normalizeScope(s.scope) === "user" || s.published === false;
 
-  const selectedSource = useMemo(
-    () => [...fixedSources, ...sources].find((s) => s.id === selectedSourceId) || null,
-    [selectedSourceId, sources, fixedSources]
-  );
+  const displaySummary = (s: StudySource) => s.summary?.trim() || s.url || "Sem resumo";
 
-  const effectiveScope: StudyScope = newVisibility === "public" ? "org" : "user";
-  const effectivePublished = effectiveScope === "org";
-  const effectiveExpiresAt =
-    effectiveScope === "user" ? new Date(Date.now() + PRIVATE_TTL_DAYS * 24 * 60 * 60 * 1000).toISOString() : null;
+  const renderOutline = (nodes: any[], depth = 0): JSX.Element | null => {
+    if (!Array.isArray(nodes) || nodes.length === 0) return null;
+    return (
+      <ul className={`space-y-1 ${depth > 0 ? "ml-4" : ""}`}>
+        {nodes.map((node, idx) => {
+          const title = String(node?.title || "").trim();
+          if (!title) return null;
+          return (
+            <li key={`${depth}-${idx}`} className="text-xs text-muted-foreground">
+              <span className="text-foreground/90">{title}</span>
+              {renderOutline(node?.children, depth + 1)}
+            </li>
+          );
+        })}
+      </ul>
+    );
+  };
+
+  const statusBadge = (s: StudySource) => {
+    if (s.ingest_status === "ok") return null;
+    if (s.ingest_status === "pending") {
+      return (
+        <Badge variant="outline" className="text-[10px]">
+          analisando…
+        </Badge>
+      );
+    }
+    if (s.ingest_status === "failed") {
+      return (
+        <Badge variant="outline" className="text-[10px] border-red-400 text-red-500">
+          falhou
+        </Badge>
+      );
+    }
+    return null;
+  };
+
+  const validateBeforeInsert = (category: StudyCategory) => {
+    if (category !== "RELATORIO_OCORRENCIA") return null;
+    if (!incident.ocorrido.trim()) return "Relatório de ocorrência: descreva o que aconteceu.";
+    if (!incident.causaRaizModoFalha.trim()) return "Relatório de ocorrência: informe causa raiz e/ou modo de falha.";
+    return null;
+  };
 
   const buildInsertMetadata = (category: StudyCategory) => {
     if (category !== "RELATORIO_OCORRENCIA") return {};
@@ -270,19 +264,11 @@ export const StudyLab = () => {
       acoes_corretivas_preventivas: incident.acoesCorretivasPreventivas?.trim() || null,
       mudancas_implementadas: incident.mudancasImplementadas?.trim() || null,
     };
-    // remove chaves nulas para não poluir JSON
     const cleaned: Record<string, string> = {};
     for (const [k, v] of Object.entries(payload)) {
       if (typeof v === "string" && v.trim()) cleaned[k] = v.trim();
     }
     return cleaned && Object.keys(cleaned).length ? { incident: cleaned } : { incident: {} };
-  };
-
-  const validateBeforeInsert = (category: StudyCategory) => {
-    if (category !== "RELATORIO_OCORRENCIA") return null;
-    if (!incident.ocorrido.trim()) return "Relatório de ocorrência: descreva o que aconteceu.";
-    if (!incident.causaRaizModoFalha.trim()) return "Relatório de ocorrência: informe causa raiz e/ou modo de falha.";
-    return null;
   };
 
   const deriveTitleFromUrl = (link: string) => {
@@ -291,15 +277,13 @@ export const StudyLab = () => {
       const host = parsed.hostname.replace(/^www\./, "");
       const lastSegment = parsed.pathname.split("/").filter(Boolean).pop() || "";
       if (!lastSegment) return host;
-      // Tenta extrair um nome amigável de arquivos como "GED-22 - Ocupação de Faixa de Linha de Transmissão_0.pdf"
       const cleaned = lastSegment
         .replace(/\.[^.]+$/, "")
         .replace(/[_\-]+/g, " ")
         .replace(/\s{2,}/g, " ")
         .trim();
       if (!cleaned) return host;
-      const pretty = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
-      return `${pretty}`;
+      return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
     } catch {
       return link;
     }
@@ -335,17 +319,11 @@ export const StudyLab = () => {
       let summary = s.summary;
 
       if (!title?.trim()) {
-        title =
-          s.kind === "file"
-            ? deriveTitleFromFile(s.url || s.storage_path || "Documento")
-            : deriveTitleFromUrl(s.url || "");
+        title = s.kind === "file" ? deriveTitleFromFile(s.url || s.storage_path || "Documento") : deriveTitleFromUrl(s.url || "");
       }
 
       if (!summary?.trim()) {
-        summary =
-          s.kind === "file"
-            ? deriveSummaryFromFile(s.url || s.storage_path || "")
-            : deriveSummaryFromUrl(s.url || "");
+        summary = s.kind === "file" ? deriveSummaryFromFile(s.url || s.storage_path || "") : deriveSummaryFromUrl(s.url || "");
       }
 
       if ((title !== s.title || summary !== s.summary) && user && s.user_id === user.id) {
@@ -359,24 +337,182 @@ export const StudyLab = () => {
       try {
         await supabase.from("study_sources").upsert(updates as any);
       } catch {
-        /* se falhar, seguimos com dados normalizados apenas em memória */
+        // best-effort
       }
     }
 
     return normalized;
   };
 
-  const extractFileInfo = (url: string) => {
-    const name = url.split("/").pop() || url;
-    const base = name.replace(/\.[^.]+$/, "").replace(/[_\-]+/g, " ");
-    return {
-      title: base.charAt(0).toUpperCase() + base.slice(1),
-      summary: deriveSummaryFromFile(url),
+  const fetchSources = async () => {
+    if (!user) return;
+    try {
+      setLoadingSources(true);
+      if (!purgeDoneRef.current) {
+        purgeDoneRef.current = true;
+        try {
+          await apiFetch("/api/study?handler=purge-expired", { method: "POST" });
+        } catch {
+          // best-effort
+        }
+      }
+
+      const columnsV2 =
+        "id, user_id, title, kind, url, storage_path, summary, ingest_status, ingested_at, ingest_error, topic, category, scope, published, metadata, is_persistent, expires_at, access_count, created_at, last_used_at";
+      const columnsV1 =
+        "id, user_id, title, kind, url, storage_path, summary, ingest_status, ingested_at, ingest_error, topic, is_persistent, created_at, last_used_at";
+
+      let data: any[] | null = null;
+      let error: any = null;
+
+      const v2 = await supabase.from("study_sources").select(columnsV2).order("created_at", { ascending: false });
+      data = v2.data as any[] | null;
+      error = v2.error;
+
+      if (error && /column .*?(category|scope|published|metadata|expires_at|access_count)/i.test(String(error.message || error))) {
+        const v1 = await supabase.from("study_sources").select(columnsV1).order("created_at", { ascending: false });
+        data = v1.data as any[] | null;
+        error = v1.error;
+      }
+
+      if (error) throw error;
+      const normalized = await normalizeSources((data || []) as StudySource[]);
+      setSources(normalized);
+    } catch (e: any) {
+      const msg = e?.message || "";
+      if (typeof msg === "string" && msg.toLowerCase().includes("study_sources")) {
+        setSources([]);
+      } else {
+        console.warn("StudyLab: erro ao carregar fontes", msg || e);
+      }
+    } finally {
+      setLoadingSources(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchSources();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
+
+  const allSources = useMemo(() => [...FIXED_SOURCES, ...sources], [sources]);
+  const selectedSource = useMemo(
+    () => allSources.find((s) => s.id === selectedSourceId) || null,
+    [allSources, selectedSourceId],
+  );
+
+  const matchesSearch = (s: StudySource, q: string) => {
+    const meta = s.metadata && typeof s.metadata === "object" ? s.metadata : null;
+    const tags = Array.isArray(meta?.tags) ? meta.tags : Array.isArray(meta?.ai?.tags) ? meta.ai.tags : [];
+    const hay = [
+      s.title || "",
+      s.summary || "",
+      s.url || "",
+      normalizeCategory(s.category),
+      s.topic || "",
+      TOPIC_LABELS[normalizeTopic(s.topic)] || "",
+      tags.join(" "),
+    ]
+      .join(" ")
+      .toLowerCase();
+    return hay.includes(q);
+  };
+
+  const visibleSources = useMemo(() => {
+    const now = Date.now();
+    const q = search.trim().toLowerCase();
+    return allSources.filter((s) => {
+      if (!isFixedSource(s) && s.expires_at) {
+        const exp = Date.parse(String(s.expires_at));
+        if (Number.isFinite(exp) && exp <= now) return false;
+      }
+      if (visibilityFilter === "public" && !isFixedSource(s) && !isPublicSource(s)) return false;
+      if (visibilityFilter === "private") {
+        if (!user) return false;
+        if (!isPrivateSource(s) || s.user_id !== user.id) return false;
+      }
+      if (categoryFilter !== "ALL" && normalizeCategory(s.category) !== categoryFilter) return false;
+      if (topicFilter !== "ALL" && normalizeTopic(s.topic) !== topicFilter) return false;
+      if (q && !matchesSearch(s, q)) return false;
+      return true;
+    });
+  }, [allSources, categoryFilter, isPrivateSource, isPublicSource, search, topicFilter, user, visibilityFilter]);
+
+  const topicsByCategory = useMemo(() => {
+    const out: Record<string, Record<string, number>> = {};
+    for (const s of allSources) {
+      if (!s || isFixedSource(s)) continue;
+      const cat = normalizeCategory(s.category);
+      const topic = normalizeTopic(s.topic || "OUTROS") || "OUTROS";
+      if (!out[cat]) out[cat] = {};
+      out[cat][topic] = (out[cat][topic] || 0) + 1;
+    }
+    return out;
+  }, [allSources]);
+
+  const needsCataloging = useMemo(() => {
+    return (sources || []).filter((s) => {
+      if (!s || isFixedSource(s)) return false;
+      if (s.ingest_status !== "ok") return true;
+      if (!s.title?.trim() || !s.summary?.trim()) return true;
+      const meta = s.metadata && typeof s.metadata === "object" ? s.metadata : null;
+      const outline = meta?.ai?.outline || meta?.outline;
+      if (!Array.isArray(outline) || outline.length === 0) return true;
+      return false;
+    });
+  }, [sources]);
+
+  const runBulkCataloging = async (maxToProcess = 80) => {
+    if (!user) {
+      toast("Faça login para catalogar materiais.");
+      return;
+    }
+    if (bulkIngesting) return;
+
+    const ids = needsCataloging
+      .map((s) => s.id)
+      .filter((id) => id && id !== FIXED_RULES_ID)
+      .slice(0, Math.max(0, maxToProcess));
+    if (!ids.length) {
+      toast.success("Tudo já está catalogado.");
+      return;
+    }
+
+    setBulkIngesting(true);
+    setBulkError(null);
+    setBulkDone(0);
+    setBulkTotal(ids.length);
+
+    const concurrency = 2;
+    let idx = 0;
+    const worker = async () => {
+      while (idx < ids.length) {
+        const current = ids[idx++];
+        try {
+          await apiFetch("/api/ai?handler=study-chat", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ mode: "ingest", source_id: current }),
+          });
+        } catch (e: any) {
+          setBulkError(e?.message || "Falha ao catalogar alguns materiais.");
+        } finally {
+          setBulkDone((n) => n + 1);
+        }
+      }
     };
+
+    try {
+      await Promise.all(Array.from({ length: concurrency }, () => worker()));
+      await fetchSources();
+    } finally {
+      setBulkIngesting(false);
+    }
   };
 
   const handleFilesUploaded = async (urls: string[]) => {
     if (!user || !urls.length) return;
+
     const category = normalizeCategory(newCategory);
     const validationError = validateBeforeInsert(category);
     if (validationError) {
@@ -387,21 +523,25 @@ export const StudyLab = () => {
     const existingUrls = new Set((sources || []).map((s) => s.url).filter(Boolean) as string[]);
     const freshUrls = urls.filter((u) => u && !existingUrls.has(u) && !insertedUrlsRef.current.has(u));
     if (!freshUrls.length) return;
-
-    // Evita duplicar em chamadas repetidas do AttachmentUploader (ele reemite a lista completa)
     for (const u of freshUrls) insertedUrlsRef.current.add(u);
 
     setAdding(true);
     try {
+      const effectiveScope: StudyScope = newVisibility === "public" ? "org" : "user";
+      const effectivePublished = effectiveScope === "org";
+      const effectiveExpiresAt =
+        effectiveScope === "user" ? new Date(Date.now() + PRIVATE_TTL_DAYS * 24 * 60 * 60 * 1000).toISOString() : null;
+
       const metadata = buildInsertMetadata(category);
       const inserts = freshUrls.map((u) => {
-        const info = extractFileInfo(u);
+        const title = deriveTitleFromFile(u);
+        const summary = deriveSummaryFromFile(u);
         return {
           user_id: user.id,
-          title: info.title,
+          title,
           kind: "file",
           url: u,
-          summary: info.summary,
+          summary,
           ingest_status: "pending",
           is_persistent: effectiveScope === "org",
           last_used_at: new Date().toISOString(),
@@ -425,7 +565,6 @@ export const StudyLab = () => {
       data = v2.data as any[] | null;
       error = v2.error;
 
-      // Backward-compat: tabela ainda sem colunas novas
       if (error && /column .*?(category|scope|published|metadata|expires_at|access_count)/i.test(String(error.message || error))) {
         const legacyInserts = inserts.map(({ category: _c, scope: _s, published: _p, metadata: _m, expires_at: _e, ...rest }) => rest);
         const v1 = await supabase.from("study_sources").insert(legacyInserts as any).select(selectV1);
@@ -439,128 +578,30 @@ export const StudyLab = () => {
         setSources((prev) => [...list, ...prev]);
         setSelectedSourceId(list[0]?.id || selectedSourceId);
 
-        // Disparar ingestão IA para cada novo documento
+        setIngesting(true);
         try {
-          const { data: session } = await supabase.auth.getSession();
-          const token = session.session?.access_token;
-          if (token) {
-            setIngesting(true);
-            await Promise.all(
-              list.map((s) =>
-                apiFetch("/api/ai?handler=study-chat", {
-                  method: "POST",
-                  headers: {
-                    "Content-Type": "application/json",
-                    Authorization: `Bearer ${token}`,
-                  },
-                  body: JSON.stringify({ mode: "ingest", source_id: s.id }),
-                }).catch(() => undefined)
-              )
-            );
-            // recarrega catálogo com títulos/resumos/categorias atualizados
-            fetchSources();
-          }
-        } catch {
-          // ingestão é best-effort; chat ainda faz fallback se faltar full_text
+          await Promise.all(
+            list.map((s) =>
+              apiFetch("/api/ai?handler=study-chat", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ mode: "ingest", source_id: s.id }),
+              }).catch(() => undefined),
+            ),
+          );
+          await fetchSources();
         } finally {
           setIngesting(false);
         }
 
-        toast.success("Documentos adicionados e enviados para análise da IA.");
+        toast.success("Documentos adicionados. A IA está catalogando.");
+        setUploadOpen(false);
       }
     } catch (e: any) {
       for (const u of freshUrls) insertedUrlsRef.current.delete(u);
       toast.error(e?.message || "Não foi possível adicionar o documento.");
     } finally {
       setAdding(false);
-    }
-  };
-
-  const handleSelectSource = async (id: string) => {
-    setSelectedSourceId(id);
-    if (id === FIXED_RULES_ID) return;
-    try {
-      await supabase.rpc("increment_study_source_access", { p_source_id: id });
-    } catch {
-      /* silencioso; não bloqueia UI */
-    }
-  };
-
-  const handleDeleteSource = async (id: string) => {
-    if (!user) {
-      toast("Faça login para gerenciar materiais.");
-      return;
-    }
-    if (id === FIXED_RULES_ID) return;
-    const confirmed = window.confirm("Remover este material da sua base de estudos?");
-    if (!confirmed) return;
-    try {
-      const { error } = await supabase.from("study_sources").delete().eq("id", id);
-      if (error) throw error;
-      setSources((prev) => {
-        const updated = prev.filter((s) => s.id !== id);
-        if (selectedSourceId === id) {
-          const next =
-            updated.find((s) => s.user_id === user.id) ||
-            updated[0] ||
-            null;
-          setSelectedSourceId(next ? next.id : null);
-        }
-        return updated;
-      });
-      toast.success("Material removido do StudyLab.");
-    } catch (e: any) {
-      toast.error(e?.message || "Não foi possível remover o material.");
-    }
-  };
-
-  const handleReprocess = async (id: string) => {
-    if (!user) {
-      toast("Faça login para reprocessar materiais.");
-      return;
-    }
-    try {
-      setIngesting(true);
-	      const { data: session } = await supabase.auth.getSession();
-	      const token = session.session?.access_token;
-	      if (token) {
-	        await apiFetch("/api/ai?handler=study-chat", {
-	          method: "POST",
-	          headers: {
-	            "Content-Type": "application/json",
-	            Authorization: `Bearer ${token}`,
-	          },
-	          body: JSON.stringify({ mode: "ingest", source_id: id }),
-	        }).catch(() => undefined);
-	        await fetchSources();
-      }
-    } catch (e: any) {
-      toast.error(e?.message || "Não foi possível reprocessar agora.");
-    } finally {
-      setIngesting(false);
-    }
-  };
-
-  const handleSetVisibility = async (id: string, visibility: "public" | "private") => {
-    if (!user) {
-      toast("Faça login para gerenciar visibilidade.");
-      return;
-    }
-    const updates =
-      visibility === "public"
-        ? { scope: "org", published: true, expires_at: null }
-        : {
-            scope: "user",
-            published: false,
-            expires_at: new Date(Date.now() + PRIVATE_TTL_DAYS * 24 * 60 * 60 * 1000).toISOString(),
-          };
-    try {
-      const { error } = await supabase.from("study_sources").update(updates).eq("id", id);
-      if (error) throw error;
-      setSources((prev) => prev.map((s) => (s.id === id ? { ...s, ...updates } : s)));
-      toast.success(visibility === "public" ? "Material publicado para todos." : "Material mantido privado por 7 dias.");
-    } catch (e: any) {
-      toast.error(e?.message || "Não foi possível atualizar a visibilidade.");
     }
   };
 
@@ -574,29 +615,28 @@ export const StudyLab = () => {
       toast.error("Cole uma URL antes de adicionar.");
       return;
     }
+
     const category = normalizeCategory(newCategory);
     const validationError = validateBeforeInsert(category);
     if (validationError) {
       toast.error(validationError);
       return;
     }
+
     setAdding(true);
     try {
-      const finalTitle = deriveTitleFromUrl(link);
-      const finalDesc = deriveSummaryFromUrl(link);
+      const effectiveScope: StudyScope = newVisibility === "public" ? "org" : "user";
+      const effectivePublished = effectiveScope === "org";
+      const effectiveExpiresAt =
+        effectiveScope === "user" ? new Date(Date.now() + PRIVATE_TTL_DAYS * 24 * 60 * 60 * 1000).toISOString() : null;
       const metadata = buildInsertMetadata(category);
-
-      const selectV2 =
-        "id, user_id, title, kind, url, storage_path, summary, ingest_status, ingested_at, ingest_error, topic, category, scope, published, metadata, is_persistent, expires_at, access_count, created_at, last_used_at";
-      const selectV1 =
-        "id, user_id, title, kind, url, storage_path, summary, ingest_status, ingested_at, ingest_error, topic, is_persistent, created_at, last_used_at";
 
       const payload = {
         user_id: user.id,
-        title: finalTitle,
+        title: deriveTitleFromUrl(link),
         kind: "url",
         url: link,
-        summary: finalDesc,
+        summary: deriveSummaryFromUrl(link),
         ingest_status: "pending",
         is_persistent: effectiveScope === "org",
         last_used_at: new Date().toISOString(),
@@ -607,6 +647,11 @@ export const StudyLab = () => {
         metadata,
       };
 
+      const selectV2 =
+        "id, user_id, title, kind, url, storage_path, summary, ingest_status, ingested_at, ingest_error, topic, category, scope, published, metadata, is_persistent, expires_at, access_count, created_at, last_used_at";
+      const selectV1 =
+        "id, user_id, title, kind, url, storage_path, summary, ingest_status, ingested_at, ingest_error, topic, is_persistent, created_at, last_used_at";
+
       let data: any = null;
       let error: any = null;
 
@@ -614,7 +659,6 @@ export const StudyLab = () => {
       data = v2.data as any;
       error = v2.error;
 
-      // Backward-compat
       if (error && /column .*?(category|scope|published|metadata|expires_at|access_count)/i.test(String(error.message || error))) {
         const { category: _c, scope: _s, published: _p, metadata: _m, expires_at: _e, ...legacyPayload } = payload as any;
         const v1 = await supabase.from("study_sources").insert(legacyPayload).select(selectV1).maybeSingle();
@@ -628,33 +672,22 @@ export const StudyLab = () => {
         setSources((prev) => [created, ...prev]);
         setSelectedSourceId(created.id);
 
-        // Ingestão IA imediata para a URL
+        setIngesting(true);
         try {
-          const { data: session } = await supabase.auth.getSession();
-          const token = session.session?.access_token;
-	          if (token) {
-	            setIngesting(true);
-	            await apiFetch("/api/ai?handler=study-chat", {
-	              method: "POST",
-	              headers: {
-	                "Content-Type": "application/json",
-	                Authorization: `Bearer ${token}`,
-	              },
-	              body: JSON.stringify({ mode: "ingest", source_id: created.id }),
-	            }).catch(() => undefined);
-	            // recarrega catálogo com novo título/resumo/categoria gerados
-            fetchSources();
-          }
-        } catch {
-          // se falhar, chat ainda tenta enriquecer depois
+          await apiFetch("/api/ai?handler=study-chat", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ mode: "ingest", source_id: created.id }),
+          }).catch(() => undefined);
+          await fetchSources();
         } finally {
           setIngesting(false);
         }
 
-        toast.success("Material adicionado e analisado pela IA.");
+        toast.success("Material adicionado. A IA está catalogando.");
       }
       setUrl("");
-      setShowUploader(false);
+      setUploadOpen(false);
     } catch (e: any) {
       toast.error(e?.message || "Não foi possível adicionar o material.");
     } finally {
@@ -669,37 +702,20 @@ export const StudyLab = () => {
       toast("Faça login para usar o chat de estudos.");
       return;
     }
+
     if (!oracleMode) {
       if (!selectedSourceId) {
-        toast.error("Selecione um material da lista para conversar sobre ele.");
+        toast.error("Selecione um material no catálogo para conversar sobre ele.");
+        setCatalogOpen(true);
         return;
       }
       if (selectedSourceId === FIXED_RULES_ID) {
-        toast.error("Use o Modo Oráculo para perguntar sobre o artigo fixo.");
+        toast.error("Use o Oráculo para perguntar sobre o artigo fixo.");
         return;
       }
       const sel = sources.find((s) => s.id === selectedSourceId);
       if (sel && sel.ingest_status === "failed") {
-        toast.error("Curadoria do material falhou. Reprocessando agora...");
-        setIngesting(true);
-        try {
-          const { data: session } = await supabase.auth.getSession();
-          const token = session.session?.access_token;
-          if (token) {
-            await apiFetch("/api/ai?handler=study-chat", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${token}`,
-              },
-              body: JSON.stringify({ mode: "ingest", source_id: sel.id }),
-            }).catch(() => undefined);
-            await fetchSources();
-          }
-        } finally {
-          setIngesting(false);
-        }
-        toast.error("Tente novamente após a curadoria.");
+        toast.error("Curadoria do material falhou. Tente catalogar novamente no Catálogo.");
         return;
       }
     }
@@ -711,29 +727,21 @@ export const StudyLab = () => {
     setChatError(null);
 
     try {
-      const { data: session } = await supabase.auth.getSession();
-      const token = session.session?.access_token;
       const resp = await apiFetch("/api/ai?handler=study-chat", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           mode: oracleMode ? "oracle" : "study",
           ...(oracleMode ? {} : { source_id: selectedSourceId }),
           language: getActiveLocale(),
           ...(oracleMode ? { use_web: useWeb } : {}),
-          ...(kbEnabled && kbSelection?.tags?.length
-            ? { kb_tags: kbSelection.tags, kb_focus: kbSelection.label }
-            : {}),
+          ...(kbEnabled && kbSelection?.tags?.length ? { kb_tags: kbSelection.tags, kb_focus: kbSelection.label } : {}),
           messages: nextMessages,
         }),
       });
       const json = await resp.json().catch(() => ({} as any));
       if (!resp.ok || json?.success === false) {
-        const err = json?.error || "Falha no chat de estudos";
-        setChatError(err);
+        setChatError(json?.error || "Falha no chat de estudos");
         return;
       }
       const answer = json.answer || json.content || "";
@@ -742,14 +750,6 @@ export const StudyLab = () => {
         return;
       }
       setChatMessages((prev) => [...prev, { role: "assistant", content: answer }]);
-      // Atualiza último uso para manter ativo
-      try {
-        if (!oracleMode && selectedSourceId && selectedSourceId !== FIXED_RULES_ID) {
-          await supabase.rpc("increment_study_source_access", { p_source_id: selectedSourceId });
-        }
-      } catch {
-        /* silencioso */
-      }
     } catch (e: any) {
       toast(`Erro no chat de estudos: ${e?.message || e}`);
     } finally {
@@ -757,826 +757,538 @@ export const StudyLab = () => {
     }
   };
 
-  const displaySummary = (s: StudySource) => s.summary?.trim() || s.url || "Sem resumo";
-  const formatExpiry = (s: StudySource) => {
-    if (!s.expires_at) return "";
-    const exp = Date.parse(String(s.expires_at));
-    if (!Number.isFinite(exp)) return "";
-    const diffDays = Math.ceil((exp - Date.now()) / (1000 * 60 * 60 * 24));
-    if (diffDays <= 0) return "Expirado";
-    return `Expira em ${diffDays} dia${diffDays === 1 ? "" : "s"}`;
-  };
-  const renderOutline = (nodes: any[], depth = 0): JSX.Element | null => {
-    if (!Array.isArray(nodes) || nodes.length === 0) return null;
-    return (
-      <ul className={`space-y-1 ${depth > 0 ? "ml-4" : ""}`}>
-        {nodes.map((node, idx) => {
-          const title = String(node?.title || "").trim();
-          if (!title) return null;
-          return (
-            <li key={`${depth}-${idx}`} className="text-xs text-white/80">
-              <span className="font-medium text-white/90">{title}</span>
-              {renderOutline(node?.children, depth + 1)}
-            </li>
-          );
-        })}
-      </ul>
-    );
-  };
-  const statusBadge = (s: StudySource) => {
-    if (s.ingest_status === "ok") return null;
-    if (s.ingest_status === "pending")
-      return (
-        <div className="inline-flex items-center gap-1">
-          <span className="inline-flex h-2 w-2 rounded-full bg-amber-300 animate-pulse" aria-hidden />
-          <Badge variant="outline" className="text-[10px] border-amber-400 text-amber-200 bg-amber-400/10">
-            analisando com IA...
-          </Badge>
+  return (
+    <div className="mx-auto max-w-5xl space-y-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-semibold tracking-tight">StudyLab</h1>
+            <TipDialogButton tipId="studylab-oracle" ariaLabel="Entenda o StudyLab" />
+          </div>
+          <p className="text-sm text-muted-foreground">
+            Um chat para perguntar + um lugar simples para subir materiais. O catálogo fica no botão “Catálogo”.
+          </p>
         </div>
-      );
-    if (s.ingest_status === "failed")
-      return (
-        <div className="inline-flex items-center gap-2">
-          <Badge variant="outline" className="text-[10px] border-red-400 text-red-200 bg-red-500/10">
-            falhou
-          </Badge>
-          <Button
-            type="button"
-            size="xs"
-            variant="outline"
-            className="h-6 text-[11px] border-white/40 text-white"
-            onClick={(e) => {
-              e.stopPropagation();
-              handleReprocess(s.id);
-            }}
-          >
-            Tentar novamente
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" variant="outline" onClick={() => setCatalogOpen(true)}>
+            <LibraryBig className="mr-2 h-4 w-4" />
+            Catálogo
+          </Button>
+          <Button type="button" onClick={() => setUploadOpen(true)}>
+            <Plus className="mr-2 h-4 w-4" />
+            Adicionar
           </Button>
         </div>
-      );
-    return null;
-  };
+      </div>
 
-  const TOPIC_LABELS: Record<string, string> = {
-    LINHAS: "Linhas de Transmissão",
-    SUBESTACOES: "Subestações",
-    PROCEDIMENTOS: "Procedimentos",
-    PROTECAO: "Proteção",
-    AUTOMACAO: "Automação",
-    TELECOM: "Telecom",
-    SEGURANCA_DO_TRABALHO: "Segurança do Trabalho",
-    OUTROS: "Outros assuntos",
-  };
-
-  const canManageSource = (s: StudySource) => {
-    if (!user) return false;
-    if (isFixedSource(s)) return false;
-    return s.user_id === user.id;
-  };
-
-  const matchesSearch = (s: StudySource, q: string) => {
-    const meta = s.metadata && typeof s.metadata === "object" ? s.metadata : null;
-    const tags = Array.isArray(meta?.tags) ? meta.tags : Array.isArray(meta?.ai?.tags) ? meta.ai.tags : [];
-    const hay = [
-      s.title || "",
-      s.summary || "",
-      s.url || "",
-      normalizeCategory(s.category),
-      s.topic || "",
-      TOPIC_LABELS[(s.topic || "").toUpperCase().replace(/\s+/g, "_")] || "",
-      tags.join(" "),
-    ]
-      .join(" ")
-      .toLowerCase();
-    return hay.includes(q);
-  };
-
-  const allSources = useMemo(() => [...fixedSources, ...sources], [fixedSources, sources]);
-  const q = search.trim().toLowerCase();
-  const visibleSources = useMemo(() => {
-    const now = Date.now();
-    return allSources.filter((s) => {
-      if (!isFixedSource(s) && s.expires_at) {
-        const exp = Date.parse(String(s.expires_at));
-        if (Number.isFinite(exp) && exp <= now) return false;
-      }
-      if (visibilityFilter === "public" && !isFixedSource(s) && !isPublicSource(s)) return false;
-      if (visibilityFilter === "private") {
-        if (!user) return false;
-        if (!isPrivateSource(s) || s.user_id !== user.id) return false;
-      }
-      if (categoryFilter !== "ALL" && normalizeCategory(s.category) !== categoryFilter) return false;
-      if (q && !matchesSearch(s, q)) return false;
-      return true;
-    });
-  }, [allSources, visibilityFilter, categoryFilter, q, user]);
-
-  const groupedSources = useMemo(() => {
-    const groups: Partial<Record<StudyCategory, StudySource[]>> = {};
-    for (const s of visibleSources) {
-      const key = normalizeCategory(s.category);
-      if (!groups[key]) groups[key] = [];
-      groups[key]!.push(s);
-    }
-    return groups;
-  }, [visibleSources]);
-
-  // Se o usuário filtrou/ocultou a seleção atual, seleciona o primeiro item visível.
-  useEffect(() => {
-    if (!visibleSources.length) {
-      if (selectedSourceId) setSelectedSourceId(null);
-      return;
-    }
-    if (!selectedSourceId) {
-      setSelectedSourceId(visibleSources[0].id);
-      return;
-    }
-    if (!visibleSources.some((s) => s.id === selectedSourceId)) {
-      setSelectedSourceId(visibleSources[0].id);
-    }
-  }, [selectedSourceId, visibleSources]);
-
-  return (
-    <div className="space-y-6">
-      {ingesting && (
-        <div className="rounded-md border border-white/30 bg-white/5 px-4 py-2 flex items-center gap-3 text-xs text-white">
-          <span className="inline-flex h-3 w-3 rounded-full bg-primary animate-pulse" aria-hidden />
-          <div className="flex-1">
-            <p className="font-medium">Importando e analisando conteúdo...</p>
-            <div className="mt-1 h-1.5 w-full rounded-full bg-white/10 overflow-hidden">
-              <div className="h-full w-2/3 bg-primary/80 animate-pulse" />
+      {(ingesting || bulkIngesting) && (
+        <Card>
+          <CardContent className="pt-6 space-y-2">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm font-medium">{bulkIngesting ? "Catalogando materiais..." : "Analisando materiais..."}</p>
+              {bulkIngesting && (
+                <p className="text-xs text-muted-foreground">
+                  {bulkDone}/{bulkTotal}
+                </p>
+              )}
             </div>
-          </div>
-        </div>
+            <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full bg-primary transition-all"
+                style={{
+                  width: bulkIngesting ? `${Math.round((bulkDone / Math.max(1, bulkTotal)) * 100)}%` : "50%",
+                }}
+              />
+            </div>
+            {bulkError && <p className="text-xs text-destructive">{bulkError}</p>}
+          </CardContent>
+        </Card>
       )}
 
-      <Card className="bg-white/5 border border-white/20 text-white backdrop-blur-md shadow-lg">
-        <CardHeader>
-          <CardTitle className="text-white">StudyLab • Enciclopédia viva</CardTitle>
-          <CardDescription className="text-white/80">
-            Use como compendio tecnico: busca interna + pesquisa online, relatorios de ocorrencias da subtransmissao, procedimentos, GEDs e arquivos enviados.
-          </CardDescription>
+      {!bulkIngesting && needsCataloging.length > 0 && (
+        <Card>
+          <CardContent className="pt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="space-y-1">
+              <p className="text-sm font-medium">Há {needsCataloging.length} materiais sem catálogo completo.</p>
+              <p className="text-xs text-muted-foreground">
+                A IA pode renomear, gerar resumo, hashtags e índice (sumário) para navegação.
+              </p>
+            </div>
+            <Button type="button" onClick={() => runBulkCataloging(80)}>
+              <Wand2 className="mr-2 h-4 w-4" />
+              Catalogar agora
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      <Card>
+        <CardHeader className="space-y-2">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="space-y-0.5">
+              <CardTitle className="text-base flex items-center gap-2">
+                <MessageCircle className="h-4 w-4" />
+                Chat
+              </CardTitle>
+              <CardDescription>
+                {oracleMode
+                  ? "Oráculo: busca na sua base + catálogo público."
+                  : selectedSource
+                    ? `Material: ${selectedSource.title}`
+                    : "Selecione um material no catálogo."}
+              </CardDescription>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Select
+                value={oracleMode ? "oracle" : "source"}
+                onValueChange={(v) => {
+                  if (v === "oracle") {
+                    setOracleMode(true);
+                  } else {
+                    setOracleMode(false);
+                    if (!selectedSourceId || selectedSourceId === FIXED_RULES_ID) setCatalogOpen(true);
+                  }
+                }}
+              >
+                <SelectTrigger className="h-9 w-[220px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="oracle">Oráculo (toda a base)</SelectItem>
+                  <SelectItem value="source">Material específico</SelectItem>
+                </SelectContent>
+              </Select>
+              {!oracleMode && (
+                <Button type="button" variant="outline" size="sm" onClick={() => setCatalogOpen(true)}>
+                  Escolher material
+                </Button>
+              )}
+              <Button type="button" variant="ghost" size="sm" onClick={() => setShowAdvanced((s) => !s)}>
+                {showAdvanced ? "Ocultar ajustes" : "Ajustes"}
+              </Button>
+            </div>
+          </div>
+
+          {showAdvanced && (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="flex items-center justify-between rounded-md border p-3">
+                <div>
+                  <p className="text-sm font-medium">Pesquisa online</p>
+                  <p className="text-xs text-muted-foreground">Usa web + base (apenas no Oráculo).</p>
+                </div>
+                <Switch checked={useWeb} onCheckedChange={setUseWeb} disabled={!oracleMode} />
+              </div>
+              <div className="flex items-center justify-between rounded-md border p-3">
+                <div>
+                  <p className="text-sm font-medium">Foco por hashtags</p>
+                  <p className="text-xs text-muted-foreground">Ajuda o Oráculo a priorizar temas.</p>
+                </div>
+                <Switch checked={kbEnabled} onCheckedChange={setKbEnabled} />
+              </div>
+              {kbEnabled && (
+                <div className="sm:col-span-2 rounded-md border p-3">
+                  <ForumKbThemeMenu selection={kbSelection} onSelect={setKbSelection} />
+                </div>
+              )}
+            </div>
+          )}
         </CardHeader>
-        <CardContent className="text-sm text-white/90 space-y-2">
-          <ul className="list-disc pl-5 space-y-1">
-            <li>Conteúdo público fica disponível para todos no StudyLab.</li>
-            <li>Conteúdo privado é temporário e expira em até {PRIVATE_TTL_DAYS} dias.</li>
-            <li>O Oráculo combina base interna e web (quando habilitado) para respostas rápidas.</li>
-          </ul>
+
+        <CardContent className="space-y-3">
+          <div className="h-[360px] overflow-y-auto rounded-md border bg-muted/30 p-3">
+            {chatMessages.length === 0 && (
+              <p className="text-sm text-muted-foreground">
+                {oracleMode
+                  ? "Pergunte qualquer coisa. O Oráculo responde usando sua base (e web se ativado)."
+                  : "Escolha um material no catálogo e pergunte sobre ele."}
+              </p>
+            )}
+            {chatMessages.map((m, idx) => (
+              <div key={idx} className={`mb-2 flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+                <div
+                  className={[
+                    "max-w-[85%] rounded-2xl px-3 py-2 text-sm whitespace-pre-line",
+                    m.role === "user" ? "bg-primary text-primary-foreground" : "bg-background border",
+                  ].join(" ")}
+                >
+                  {m.content}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex gap-2">
+            <Textarea
+              value={chatInput}
+              onChange={(e) => setChatInput(e.target.value)}
+              placeholder={
+                oracleMode
+                  ? "Digite sua pergunta…"
+                  : selectedSource
+                    ? `Pergunte sobre: ${selectedSource.title}`
+                    : "Selecione um material para perguntar"
+              }
+              rows={2}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  handleChatSend();
+                }
+              }}
+            />
+            <Button type="button" onClick={handleChatSend} disabled={chatLoading || !chatInput.trim()}>
+              {chatLoading ? "Pensando..." : "Enviar"}
+            </Button>
+          </div>
+          {chatError && <p className="text-sm text-destructive">Erro: {chatError}</p>}
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 lg:grid-cols-[320px_1fr]">
-        <div className="space-y-4">
-          <Card className="bg-white/5 border border-white/20 text-white backdrop-blur-md shadow-lg">
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <MessageCircle className="h-4 w-4 text-primary" />
-            <CardTitle className="text-white">Catálogo StudyLab</CardTitle>
-            <TipDialogButton
-              tipId="studylab-oracle"
-              ariaLabel="Entenda o StudyLab"
-              className="inline-flex items-center justify-center rounded-full border border-white/20 bg-black/20 p-1 text-blue-100/80 hover:bg-black/30 hover:text-blue-50"
-            />
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button type="button" aria-label="Observação" className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-white/30 text-white/80 hover:border-white/60">
-                    <AlertCircle className="h-4 w-4" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Materiais privados expiram em até {PRIVATE_TTL_DAYS} dias.</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-            <div className="flex-1" />
-            <Button
-              type="button"
-              variant={showUploader ? "secondary" : "default"}
-              className={showUploader ? "text-white bg-primary hover:bg-primary/90" : "border-white/40 text-white bg-primary/80 hover:bg-primary"}
-              onClick={() => setShowUploader((v) => !v)}
-            >
-              {showUploader ? "Fechar" : "Adicionar material"}
-            </Button>
-          </div>
-          <CardDescription className="text-white/80">
-            Arquivos publicos entram no compendio. Privados ficam disponiveis apenas para voce por {PRIVATE_TTL_DAYS} dias.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4 max-h-[720px] overflow-y-auto text-white">
-          {showUploader && (
-            <div className="rounded-lg border border-white/20 bg-white/5 p-4 space-y-4">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-2">
-                  <Label className="text-white">Catalogar como</Label>
-                  <Select value={newCategory} onValueChange={(v) => setNewCategory(normalizeCategory(v))}>
-                    <SelectTrigger className="text-white">
-                      <SelectValue placeholder="Selecione..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {CATEGORY_ORDER.map((c) => (
-                        <SelectItem key={c} value={c}>
-                          {CATEGORY_LABELS[c]}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-white">Visibilidade</Label>
-                  <Select value={newVisibility} onValueChange={(v) => setNewVisibility(v as "public" | "private")}>
-                    <SelectTrigger className="text-white">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="public">Publico (para todos)</SelectItem>
-                      <SelectItem value="private">Privado (expira em {PRIVATE_TTL_DAYS} dias)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  {newVisibility === "private" && (
-                    <p className="text-[11px] text-white/70">
-                      Privado serve para consultas temporarias e some automaticamente apos {PRIVATE_TTL_DAYS} dias.
-                    </p>
-                  )}
-                </div>
-              </div>
+      <Sheet open={catalogOpen} onOpenChange={setCatalogOpen}>
+        <SheetContent side="right" className="w-full sm:max-w-lg">
+          <SheetHeader>
+            <SheetTitle>Catálogo</SheetTitle>
+            <SheetDescription>Pesquise por árvore (categoria/tema) ou lista. Clique para usar no chat.</SheetDescription>
+          </SheetHeader>
 
-              {newCategory === "RELATORIO_OCORRENCIA" && (
-                <div className="rounded-md border border-white/20 bg-white/5 p-3 space-y-3">
-                  <p className="text-xs text-white/80">
-                    Relatório de ocorrência: responda (até 5) para capturar causas, modos de falha e aprendizados.
-                  </p>
-                  <div className="grid gap-3">
-                    <div className="space-y-1">
-                      <Label className="text-white">1) O que aconteceu? *</Label>
-                      <Textarea
-                        value={incident.ocorrido}
-                        onChange={(e) => setIncident((prev) => ({ ...prev, ocorrido: e.target.value }))}
-                        rows={3}
-                        placeholder="Contexto, sequência do evento, condição encontrada..."
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-white">2) Causa raiz e/ou modo de falha? *</Label>
-                      <Textarea
-                        value={incident.causaRaizModoFalha}
-                        onChange={(e) => setIncident((prev) => ({ ...prev, causaRaizModoFalha: e.target.value }))}
-                        rows={3}
-                        placeholder="Modo de falha, causa raiz (5 porquês), fator humano/processo/equipamento..."
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-white">3) Barreiras/cuidado que poderiam evitar?</Label>
-                      <Textarea
-                        value={incident.barreirasCuidados}
-                        onChange={(e) => setIncident((prev) => ({ ...prev, barreirasCuidados: e.target.value }))}
-                        rows={3}
-                        placeholder="Procedimentos, checagens, EPIs, bloqueios, configuração, redundância..."
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-white">4) Ações corretivas e preventivas (CAPA)</Label>
-                      <Textarea
-                        value={incident.acoesCorretivasPreventivas}
-                        onChange={(e) => setIncident((prev) => ({ ...prev, acoesCorretivasPreventivas: e.target.value }))}
-                        rows={3}
-                        placeholder="O que foi feito para corrigir e para evitar repetição..."
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-white">5) O que mudou para não repetir?</Label>
-                      <Textarea
-                        value={incident.mudancasImplementadas}
-                        onChange={(e) => setIncident((prev) => ({ ...prev, mudancasImplementadas: e.target.value }))}
-                        rows={3}
-                        placeholder="Mudança em processo, proteção/automação, treinamento, parametrização, ferramentas..."
-                      />
-                    </div>
-                  </div>
-                </div>
-              )}
-              <div className="space-y-2">
-                <Label htmlFor="study-url" className="text-white">URL do material</Label>
-                <div className="flex flex-col gap-2 sm:flex-row">
-                  <Input
-                    id="study-url"
-                    type="url"
-                    value={url}
-                    onChange={(e) => setUrl(e.target.value)}
-                    placeholder="https://artigo-ou-video..."
-                    className="flex-1"
-                  />
-                  <Button onClick={handleAddSource} disabled={adding || !url.trim()}>
-                    <LinkIcon className="h-4 w-4 mr-2" />
-                    {adding ? "Adicionando..." : "Adicionar"}
-                  </Button>
-                </div>
+          <div className="mt-4 space-y-3">
+            <div className="flex gap-2">
+              <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar por título, resumo, tags, tema…" />
+              <Button type="button" variant="outline" onClick={() => runBulkCataloging(80)} disabled={bulkIngesting || !needsCataloging.length}>
+                <Wand2 className="mr-2 h-4 w-4" />
+                Catalogar
+              </Button>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2">
+              <div className="space-y-1">
+                <Label className="text-xs">Visibilidade</Label>
+                <Select value={visibilityFilter} onValueChange={(v) => setVisibilityFilter(v as any)}>
+                  <SelectTrigger className="h-9">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos</SelectItem>
+                    <SelectItem value="public">Públicos</SelectItem>
+                    <SelectItem value="private">Privados (meus)</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
-              <div className="space-y-2">
-                <Label className="text-white">Ou envie um arquivo (PDF, Word, imagem, TXT, JSON, Excel)</Label>
-                <AttachmentUploader
-                  onAttachmentsChange={handleFilesUploaded}
-                  maxFiles={newCategory === "RELATORIO_OCORRENCIA" ? 1 : 3}
-                  maxSizeMB={20}
-                  bucket="evidence"
-                  pathPrefix="study"
-                  acceptMimeTypes={[
-                    "application/pdf",
-                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                    "application/vnd.ms-excel",
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    "text/plain",
-                    "application/json",
-                    "text/csv",
-                    "image/jpeg",
-                    "image/png",
-                    "image/webp",
-                  ]}
-                  maxVideoSeconds={0}
-                />
-                <p className="text-xs text-white/80">
-                  Materiais privados expiram em {PRIVATE_TTL_DAYS} dias. Publicos permanecem no compendio.
-                </p>
+              <div className="space-y-1">
+                <Label className="text-xs">Categoria</Label>
+                <Select value={categoryFilter} onValueChange={(v) => setCategoryFilter(v as any)}>
+                  <SelectTrigger className="h-9">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ALL">Todas</SelectItem>
+                    {CATEGORY_ORDER.map((c) => (
+                      <SelectItem key={c} value={c}>
+                        {CATEGORY_LABELS[c]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Tema</Label>
+                <Select value={topicFilter} onValueChange={(v) => setTopicFilter(v)}>
+                  <SelectTrigger className="h-9">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ALL">Todos</SelectItem>
+                    {Object.keys(TOPIC_LABELS).map((k) => (
+                      <SelectItem key={k} value={k}>
+                        {TOPIC_LABELS[k]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
-          )}
-          <div className="space-y-1">
-            <Label htmlFor="study-search" className="text-white text-xs">Buscar</Label>
-            <Input
-              id="study-search"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Buscar por titulo, resumo, categoria ou tema..."
-              className="text-white placeholder:text-white/50"
-            />
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-1">
-              <Label className="text-white text-xs">Visibilidade</Label>
-              <Select value={visibilityFilter} onValueChange={(v) => setVisibilityFilter(v as any)}>
-                <SelectTrigger className="text-white">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos</SelectItem>
-                  <SelectItem value="public">Publicos</SelectItem>
-                  <SelectItem value="private">Privados (meus)</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1">
-              <Label className="text-white text-xs">Categoria</Label>
-              <Select value={categoryFilter} onValueChange={(v) => setCategoryFilter(v as any)}>
-                <SelectTrigger className="text-white">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ALL">Todas</SelectItem>
-                  {CATEGORY_ORDER.map((c) => (
-                    <SelectItem key={c} value={c}>
-                      {CATEGORY_LABELS[c]}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <div className="space-y-2">
-            <p className="text-xs font-semibold text-white/80">Materiais</p>
-            {loadingSources && <p className="text-sm text-white/70">Carregando a base...</p>}
-            {!loadingSources && visibleSources.length === 0 && (
-              <p className="text-sm text-white/70">Nenhum material encontrado com esses filtros.</p>
-            )}
-            {CATEGORY_ORDER.map((cat) => {
-              const items = groupedSources[cat];
-              if (!items || !items.length) return null;
-              return (
-                <div key={cat} className="space-y-1">
-                  <p className="mt-2 text-[11px] font-semibold uppercase tracking-wide text-white/60">
-                    {CATEGORY_LABELS[cat]}
-                  </p>
-                  {items.map((s) => {
-                    const isActive = s.id === selectedSourceId;
-                    const topicKey = (s.topic || "").toUpperCase().replace(/\s+/g, "_");
-                    const topicLabel = topicKey ? (TOPIC_LABELS[topicKey] || s.topic || "") : "";
-                    const isPublic = isPublicSource(s) || isFixedSource(s);
-                    const visibilityLabel = isFixedSource(s) ? "FIXO" : isPublic ? "PUBLICO" : "PRIVADO";
-                    const expiryText = !isPublic ? formatExpiry(s) : "";
+
+            <Tabs value={catalogTab} onValueChange={(v) => setCatalogTab(v as any)}>
+              <TabsList className="w-full">
+                <TabsTrigger value="tree" className="flex-1">
+                  Árvore
+                </TabsTrigger>
+                <TabsTrigger value="list" className="flex-1">
+                  Lista ({visibleSources.length})
+                </TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="tree">
+                <div className="space-y-3">
+                  {CATEGORY_ORDER.map((cat) => {
+                    const topics = topicsByCategory[cat] || {};
+                    const topicEntries = Object.entries(topics).sort((a, b) => b[1] - a[1]);
+                    const total = Object.values(topics).reduce((acc, n) => acc + n, 0);
+                    if (!total) return null;
                     return (
-                      <div
-                        key={s.id}
-                        role="button"
-                        tabIndex={0}
-                        className={`w-full text-left rounded-md border px-3 py-2 transition-colors cursor-pointer ${
-                          isActive
-                            ? "border-primary/80 bg-primary/20"
-                            : "border-white/30 bg-white/5 hover:border-primary/40"
-                        }`}
-                        onClick={() => handleSelectSource(s.id)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            handleSelectSource(s.id);
-                          }
-                        }}
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <div>
-                            <p className="font-semibold leading-tight text-white">
-                              {s.title?.trim() || deriveTitleFromUrl(s.url || "")}
-                            </p>
-                            <p className="text-[11px] text-white/70">
-                              {new Date(s.created_at).toLocaleString(getActiveLocale())}
-                              {expiryText ? ` • ${expiryText}` : ""}
-                            </p>
-                            {statusBadge(s)}
-                          </div>
-                          <div className="flex items-center gap-1 flex-wrap justify-end">
-                            <Badge variant="outline" className="text-[10px] border-white/50 text-white">
-                              {visibilityLabel}
-                            </Badge>
-                            {topicLabel && (
-                              <Badge variant="outline" className="text-[10px] border-white/50 text-white/90">
-                                {topicLabel}
-                              </Badge>
-                            )}
-                            <Badge variant="outline" className="text-[10px] border-white/50 text-white">
-                              {s.kind.toUpperCase()}
-                            </Badge>
-                            {canManageSource(s) && (
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleDeleteSource(s.id);
-                                }}
-                                className="inline-flex h-6 w-6 items-center justify-center rounded-full text-white/70 hover:text-red-400 hover:bg-white/10 transition-colors"
-                                aria-label="Remover material de estudo"
-                              >
-                                <Trash2 className="h-3 w-3" />
-                              </button>
-                            )}
-                          </div>
+                      <div key={cat} className="rounded-md border p-3 space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-sm font-medium">{CATEGORY_LABELS[cat]}</p>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setCategoryFilter(cat);
+                              setTopicFilter("ALL");
+                              setCatalogTab("list");
+                            }}
+                          >
+                            Ver ({total})
+                          </Button>
                         </div>
-                        <p className="text-sm text-white mt-1 line-clamp-2">{displaySummary(s)}</p>
+                        <div className="flex flex-wrap gap-2">
+                          {topicEntries.map(([topicKey, count]) => (
+                            <Button
+                              key={`${cat}:${topicKey}`}
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-8"
+                              onClick={() => {
+                                setCategoryFilter(cat);
+                                setTopicFilter(topicKey);
+                                setCatalogTab("list");
+                              }}
+                            >
+                              {TOPIC_LABELS[topicKey] || topicKey}{" "}
+                              <span className="ml-1 text-muted-foreground">({count})</span>
+                            </Button>
+                          ))}
+                        </div>
                       </div>
                     );
                   })}
                 </div>
-              );
-            })}
-          </div>
-        </CardContent>
-      </Card>
+              </TabsContent>
 
-      </div>
-      <div className="space-y-4">
-      {selectedSource ? (
-        <Card className="bg-white/5 border border-white/20 text-white shadow-xl backdrop-blur-md">
-          <CardHeader className="space-y-1">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <CardTitle className="text-lg text-white truncate">{selectedSource.title}</CardTitle>
-                <CardDescription className="text-white/80">
-                  {normalizeCategory(selectedSource.category) in CATEGORY_LABELS
-                    ? CATEGORY_LABELS[normalizeCategory(selectedSource.category)]
-                    : "Outros"}
-                  {selectedSource.topic ? ` • ${TOPIC_LABELS[(selectedSource.topic || "").toUpperCase().replace(/\\s+/g, "_")] || selectedSource.topic}` : ""}
-                  {!isPublicSource(selectedSource) && !isFixedSource(selectedSource) && formatExpiry(selectedSource)
-                    ? ` • ${formatExpiry(selectedSource)}`
-                    : ""}
-                </CardDescription>
-              </div>
-              <div className="flex items-center gap-2 flex-wrap">
-                {canManageSource(selectedSource) && !isFixedSource(selectedSource) && (
-                  <div className="flex items-center gap-2 rounded-md border border-white/20 bg-white/5 px-3 py-2">
-                    <p className="text-xs text-white/80">Visibilidade</p>
-                    <Select
-                      value={isPublicSource(selectedSource) ? "public" : "private"}
-                      onValueChange={(v) => handleSetVisibility(selectedSource.id, v as "public" | "private")}
-                    >
-                      <SelectTrigger className="h-7 text-[11px] text-white">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="public">Publico</SelectItem>
-                        <SelectItem value="private">Privado</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
-                {studioAccess && selectedSource.id !== FIXED_RULES_ID && (
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    className="border-white/40 text-white"
-                    onClick={() => {
-                      navigate(`/studio?module=quiz&seed_source=${selectedSource.id}`);
-                    }}
-                  >
-                    Criar quiz
-                  </Button>
-                )}
-                {selectedSource.url && (
-                  <Button asChild size="sm" variant="outline" className="border-white/40 text-white">
-                    <a href={selectedSource.url} target="_blank" rel="noreferrer">
-                      Abrir
-                    </a>
-                  </Button>
-                )}
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4 text-white">
-            {selectedSource.summary && (
-              <p className="text-sm text-white/90 whitespace-pre-line">{selectedSource.summary}</p>
-            )}
-
-            {(() => {
-              const meta = selectedSource.metadata && typeof selectedSource.metadata === "object" ? selectedSource.metadata : null;
-              const fixedBody = meta?.fixed_body ? String(meta.fixed_body) : "";
-              const outline = meta?.ai?.outline || meta?.outline || [];
-              if (!fixedBody && (!Array.isArray(outline) || outline.length === 0)) return null;
-              return (
-                <div className="rounded-md border border-white/20 bg-white/5 p-3 space-y-3">
-                  {fixedBody && (
-                    <div>
-                      <p className="text-xs font-semibold text-white/80">Artigo fixo</p>
-                      <p className="text-sm text-white/90 whitespace-pre-line mt-1">{fixedBody}</p>
-                    </div>
+              <TabsContent value="list">
+                <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
+                  {loadingSources && <p className="text-sm text-muted-foreground">Carregando catálogo…</p>}
+                  {!loadingSources && visibleSources.length === 0 && (
+                    <p className="text-sm text-muted-foreground">Nenhum material encontrado com esses filtros.</p>
                   )}
-                  {Array.isArray(outline) && outline.length > 0 && (
-                    <div>
-                      <p className="text-xs font-semibold text-white/80">Sumario</p>
-                      <div className="mt-2">{renderOutline(outline)}</div>
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
-
-            {(() => {
-              const meta = selectedSource.metadata && typeof selectedSource.metadata === "object" ? selectedSource.metadata : null;
-              const incident = meta?.incident && typeof meta.incident === "object" ? meta.incident : null;
-              const aiIncident = meta?.ai?.incident && typeof meta.ai.incident === "object" ? meta.ai.incident : null;
-              const category = normalizeCategory(selectedSource.category);
-              if (category !== "RELATORIO_OCORRENCIA" && !incident && !aiIncident) return null;
-
-              const bullets = (arr: any) =>
-                Array.isArray(arr) ? arr.map((x) => String(x || "").trim()).filter(Boolean) : [];
-
-              const aprendizados = bullets(aiIncident?.aprendizados);
-              const cuidados = bullets(aiIncident?.cuidados);
-              const mudancas = bullets(aiIncident?.mudancas);
-
-              return (
-                <div className="space-y-4">
-                  {incident && (
-                    <div className="rounded-md border border-white/20 bg-white/5 p-3 space-y-2">
-                      <p className="text-xs font-semibold text-white/80">Relatório de Ocorrência (formulário)</p>
-                      {incident.ocorrido && (
-                        <p className="text-sm text-white/90 whitespace-pre-line">
-                          <span className="text-white/70">Ocorrido: </span>
-                          {String(incident.ocorrido)}
-                        </p>
-                      )}
-                      {incident.causa_raiz_modo_falha && (
-                        <p className="text-sm text-white/90 whitespace-pre-line">
-                          <span className="text-white/70">Causa raiz / modo de falha: </span>
-                          {String(incident.causa_raiz_modo_falha)}
-                        </p>
-                      )}
-                      {incident.barreiras_cuidados && (
-                        <p className="text-sm text-white/90 whitespace-pre-line">
-                          <span className="text-white/70">Barreiras / cuidados: </span>
-                          {String(incident.barreiras_cuidados)}
-                        </p>
-                      )}
-                      {incident.acoes_corretivas_preventivas && (
-                        <p className="text-sm text-white/90 whitespace-pre-line">
-                          <span className="text-white/70">Ações (CAPA): </span>
-                          {String(incident.acoes_corretivas_preventivas)}
-                        </p>
-                      )}
-                      {incident.mudancas_implementadas && (
-                        <p className="text-sm text-white/90 whitespace-pre-line">
-                          <span className="text-white/70">Mudanças implementadas: </span>
-                          {String(incident.mudancas_implementadas)}
-                        </p>
-                      )}
-                    </div>
-                  )}
-
-                  {(aprendizados.length || cuidados.length || mudancas.length) && (
-                    <div className="rounded-md border border-white/20 bg-white/5 p-3 space-y-3">
-                      <p className="text-xs font-semibold text-white/80">Insights (IA)</p>
-                      {aprendizados.length > 0 && (
-                        <div className="space-y-1">
-                          <p className="text-xs text-white/70">Aprendizados</p>
-                          <ul className="list-disc pl-5 text-sm text-white/90 space-y-1">
-                            {aprendizados.map((t, i) => (
-                              <li key={`apr-${i}`}>{t}</li>
-                            ))}
-                          </ul>
+                  {visibleSources.map((s) => {
+                    const active = s.id === selectedSourceId;
+                    const isPublic = isPublicSource(s) || isFixedSource(s);
+                    const visibilityLabel = isFixedSource(s) ? "FIXO" : isPublic ? "PÚBLICO" : "PRIVADO";
+                    const topicKey = normalizeTopic(s.topic);
+                    const topicLabel = topicKey ? TOPIC_LABELS[topicKey] || topicKey : "";
+                    return (
+                      <button
+                        key={s.id}
+                        type="button"
+                        className={[
+                          "w-full rounded-md border p-3 text-left transition-colors",
+                          active ? "border-primary bg-primary/5" : "hover:bg-muted/40",
+                        ].join(" ")}
+                        onClick={() => {
+                          setSelectedSourceId(s.id);
+                          setCatalogOpen(false);
+                          if (s.id !== FIXED_RULES_ID) setOracleMode(false);
+                        }}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="font-medium truncate">{s.title?.trim() || "Sem título"}</p>
+                            <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">{displaySummary(s)}</p>
+                            <div className="mt-2 flex flex-wrap items-center gap-2">
+                              <Badge variant="outline" className="text-[10px]">
+                                {visibilityLabel}
+                              </Badge>
+                              <Badge variant="outline" className="text-[10px]">
+                                {CATEGORY_LABELS[normalizeCategory(s.category)] || "Outros"}
+                              </Badge>
+                              {topicLabel && (
+                                <Badge variant="outline" className="text-[10px]">
+                                  {topicLabel}
+                                </Badge>
+                              )}
+                              {statusBadge(s)}
+                            </div>
+                          </div>
+                          {s.url && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                window.open(s.url!, "_blank", "noreferrer");
+                              }}
+                            >
+                              Abrir
+                            </Button>
+                          )}
                         </div>
-                      )}
-                      {cuidados.length > 0 && (
-                        <div className="space-y-1">
-                          <p className="text-xs text-white/70">Cuidados / barreiras</p>
-                          <ul className="list-disc pl-5 text-sm text-white/90 space-y-1">
-                            {cuidados.map((t, i) => (
-                              <li key={`cui-${i}`}>{t}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                      {mudancas.length > 0 && (
-                        <div className="space-y-1">
-                          <p className="text-xs text-white/70">Mudanças</p>
-                          <ul className="list-disc pl-5 text-sm text-white/90 space-y-1">
-                            {mudancas.map((t, i) => (
-                              <li key={`mud-${i}`}>{t}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                    </div>
-                  )}
+                      </button>
+                    );
+                  })}
                 </div>
-              );
-            })()}
-          </CardContent>
-        </Card>
-      ) : (
-        <Card className="bg-white/5 border border-white/20 text-white shadow-xl backdrop-blur-md">
-          <CardHeader>
-            <CardTitle className="text-white">Selecione um artigo</CardTitle>
-            <CardDescription className="text-white/80">
-              Escolha um material no catalogo para ver resumo, sumario e metadados.
-            </CardDescription>
-          </CardHeader>
-        </Card>
-      )}
+              </TabsContent>
+            </Tabs>
 
-      {/* Chat de Estudos */}
-      <Card className="bg-white/5 border border-white/20 text-white shadow-xl backdrop-blur-md">
-        <CardHeader className="flex flex-col gap-1">
-          <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-lg bg-primary/20 flex items-center justify-center">
-              <BookOpenCheck className="h-6 w-6 text-primary" />
-            </div>
-            <div>
-              <CardTitle className="text-2xl font-semibold leading-tight text-white">Oráculo (perguntas e respostas)</CardTitle>
-              <CardDescription className="text-white/80">
-                Pergunte e receba respostas com base nos seus materiais, no catalogo publico e no Compendio de Ocorrencias.
-              </CardDescription>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-6 text-white">
-          <div className="grid grid-cols-1 md:grid-cols-[340px_1fr] gap-4">
-            <div className="space-y-3">
-              <div className="rounded-lg border border-white/20 bg-white/5 p-3 space-y-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-xs font-semibold text-white">Temas da Base de Conhecimento (GPTs)</p>
-                    <p className="text-[11px] text-white/70">
-                      Selecione um tema/subtema (até 3 níveis) para focar o Oráculo e puxar trechos do fórum e do StudyLab como contexto.
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2 rounded-md border border-white/20 bg-black/20 px-2 py-1">
-                    <p className="text-[11px] text-white/70">Usar</p>
-                    <Switch checked={kbEnabled} onCheckedChange={setKbEnabled} />
-                  </div>
-                </div>
-
-                <ForumKbThemeMenu
-                  selected={kbSelection}
-                  maxTags={20}
-                  onSelect={(next) => {
-                    setKbSelection(next);
-                    if (next) setKbEnabled(true);
-                  }}
-                />
-
-                {kbSelection?.tags?.length ? (
-                  <div className="flex items-center justify-between gap-2">
+            {selectedSource && (
+              <div className="rounded-md border p-3 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-medium">Índice</p>
+                  {studioAccess && selectedSource.id !== FIXED_RULES_ID && (
                     <Button
                       type="button"
                       variant="outline"
                       size="sm"
-                      className="h-7 text-xs border-white/30 text-white"
-                      onClick={() => setKbSelection(null)}
+                      onClick={() => navigate(`/studio?module=quiz&seed_source=${selectedSource.id}`)}
                     >
-                      Limpar foco
+                      Criar quiz
                     </Button>
-                    <div className="flex flex-wrap justify-end gap-1">
-                      {kbSelection.tags.slice(0, 6).map((t) => (
-                        <Badge key={t} variant="outline" className="text-[10px] border-white/30 text-white/85">
-                          #{t}
-                        </Badge>
-                      ))}
-                      {kbSelection.tags.length > 6 && (
-                        <Badge variant="outline" className="text-[10px] border-white/30 text-white/85">
-                          +{kbSelection.tags.length - 6}
-                        </Badge>
-                      )}
-                    </div>
-                  </div>
-                ) : (
-                  <p className="text-[11px] text-white/70">
-                    Dica: use hashtags consistentes no fórum e no StudyLab (ex.: <span className="text-white/90">#protecao_transformadores_shutdown</span>) para melhorar este menu.
+                  )}
+                </div>
+                {selectedSource.summary && (
+                  <p className="text-xs text-muted-foreground whitespace-pre-line">{selectedSource.summary}</p>
+                )}
+                {(() => {
+                  const meta = selectedSource.metadata && typeof selectedSource.metadata === "object" ? selectedSource.metadata : null;
+                  const outline = meta?.ai?.outline || meta?.outline || [];
+                  if (!Array.isArray(outline) || outline.length === 0) return null;
+                  return <div className="mt-2">{renderOutline(outline)}</div>;
+                })()}
+              </div>
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      <Sheet open={uploadOpen} onOpenChange={setUploadOpen}>
+        <SheetContent side="right" className="w-full sm:max-w-lg">
+          <SheetHeader>
+            <SheetTitle>Adicionar material</SheetTitle>
+            <SheetDescription>Envie um arquivo ou URL. A IA cria título, resumo e índice.</SheetDescription>
+          </SheetHeader>
+
+          <div className="mt-4 space-y-4">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Catalogar como</Label>
+                <Select value={newCategory} onValueChange={(v) => setNewCategory(normalizeCategory(v))}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CATEGORY_ORDER.map((c) => (
+                      <SelectItem key={c} value={c}>
+                        {CATEGORY_LABELS[c]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Visibilidade</Label>
+                <Select value={newVisibility} onValueChange={(v) => setNewVisibility(v as any)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="public">Público (para todos)</SelectItem>
+                    <SelectItem value="private">Privado (expira em {PRIVATE_TTL_DAYS} dias)</SelectItem>
+                  </SelectContent>
+                </Select>
+                {newVisibility === "private" && (
+                  <p className="text-xs text-muted-foreground">
+                    Materiais privados expiram automaticamente após {PRIVATE_TTL_DAYS} dias.
                   </p>
                 )}
               </div>
             </div>
 
-            <div className="space-y-3">
-              <div className="flex items-center justify-between gap-3 flex-wrap">
-                <Label className="text-white">Pergunta</Label>
-                <div className="flex flex-wrap items-center gap-2">
-                  <div className="flex items-center gap-2 rounded-md border border-white/20 bg-white/5 px-3 py-2">
-                    <div className="min-w-0">
-                      <p className="text-xs font-medium text-white">Modo Oráculo</p>
-                      <p className="text-[11px] text-white/70">
-                        {oracleMode ? "Busca em toda a base" : "Somente no material selecionado"}
-                      </p>
-                    </div>
-                    <Switch checked={oracleMode} onCheckedChange={setOracleMode} />
+            {newCategory === "RELATORIO_OCORRENCIA" && (
+              <div className="rounded-md border p-3 space-y-3">
+                <p className="text-sm font-medium">Relatório de ocorrência</p>
+                <p className="text-xs text-muted-foreground">Preencha o mínimo e envie o material/URL para a IA catalogar.</p>
+                <div className="grid gap-3">
+                  <div className="space-y-1">
+                    <Label>1) O que aconteceu? *</Label>
+                    <Textarea value={incident.ocorrido} onChange={(e) => setIncident((p) => ({ ...p, ocorrido: e.target.value }))} rows={3} />
                   </div>
-                  <div className="flex items-center gap-2 rounded-md border border-white/20 bg-white/5 px-3 py-2">
-                    <div className="min-w-0">
-                      <p className="text-xs font-medium text-white">Pesquisa online</p>
-                      <p className="text-[11px] text-white/70">
-                        {useWeb ? "Ativa (web + base)" : "Desligada"}
-                      </p>
-                    </div>
-                    <Switch checked={useWeb} onCheckedChange={setUseWeb} disabled={!oracleMode} />
+                  <div className="space-y-1">
+                    <Label>2) Causa raiz e/ou modo de falha? *</Label>
+                    <Textarea
+                      value={incident.causaRaizModoFalha}
+                      onChange={(e) => setIncident((p) => ({ ...p, causaRaizModoFalha: e.target.value }))}
+                      rows={3}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>3) Barreiras/cuidado que poderiam evitar?</Label>
+                    <Textarea
+                      value={incident.barreirasCuidados}
+                      onChange={(e) => setIncident((p) => ({ ...p, barreirasCuidados: e.target.value }))}
+                      rows={3}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>4) Ações corretivas e preventivas (CAPA)</Label>
+                    <Textarea
+                      value={incident.acoesCorretivasPreventivas}
+                      onChange={(e) => setIncident((p) => ({ ...p, acoesCorretivasPreventivas: e.target.value }))}
+                      rows={3}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>5) O que mudou para não repetir?</Label>
+                    <Textarea
+                      value={incident.mudancasImplementadas}
+                      onChange={(e) => setIncident((p) => ({ ...p, mudancasImplementadas: e.target.value }))}
+                      rows={3}
+                    />
                   </div>
                 </div>
               </div>
-              <div className="border border-white/20 rounded-md p-3 max-h-72 overflow-y-auto bg-white/5 text-sm">
-                {chatMessages.length === 0 && (
-                  <p className="text-white/70 text-xs">
-                    {oracleMode
-                      ? useWeb
-                        ? "Pergunte qualquer coisa sobre os temas da sua area. O Oraculo busca nos materiais e na web e traz um resumo pratico (com referencias)."
-                        : "Pergunte qualquer coisa sobre os temas da sua area. O Oraculo busca nos materiais e traz um resumo pratico."
-                      : "Selecione um material no catálogo acima e pergunte sobre ele. A IA usa o conteúdo selecionado como contexto."}
-                  </p>
-                )}
-                {chatMessages.map((m, idx) => (
-                  <div key={idx} className={`mb-2 flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-                    <div
-                      className={`px-3 py-2 rounded-2xl max-w-[80%] ${
-                        m.role === "user" ? "bg-primary text-primary-foreground" : "bg-white/20 text-white"
-                      } text-xs whitespace-pre-line`}
-                    >
-                      {m.content}
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <div className="flex gap-2">
-                <Input
-                  placeholder={
-                    oracleMode
-                      ? "Ex.: qual modo de falha mais comum em telecom? O que devo checar primeiro?"
-                      : selectedSource
-                        ? `Pergunte sobre: ${selectedSource.title}`
-                        : "Selecione um material para perguntar"
-                  }
-                  value={chatInput}
-                  onChange={(e) => setChatInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault();
-                      handleChatSend();
-                    }
-                  }}
-                />
-                <Button type="button" onClick={handleChatSend} disabled={chatLoading || !chatInput.trim()}>
-                  {chatLoading ? "Pensando..." : "Enviar"}
+            )}
+
+            <div className="space-y-2">
+              <Label htmlFor="study-url">URL do material</Label>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Input id="study-url" type="url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://artigo-ou-video..." className="flex-1" />
+                <Button type="button" onClick={handleAddSource} disabled={adding || !url.trim()}>
+                  {adding ? "Adicionando..." : "Adicionar"}
                 </Button>
               </div>
-              {chatError && <p className="text-sm text-destructive">Erro: {chatError}</p>}
-              <p className="text-[11px] text-white/70">
-                {oracleMode
-                  ? useWeb
-                    ? "O Oráculo busca no catálogo, no compendio e na web, e tambem usa o historico desta conversa."
-                    : "O Oráculo busca no catálogo e no compendio, e também usa o histórico desta conversa."
-                  : "A IA prioriza o material selecionado no catálogo e o histórico desta conversa."}
-                {kbEnabled && kbSelection?.tags?.length ? " (com foco adicional no tema selecionado na base de conhecimento)" : ""}
-              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Ou envie um arquivo</Label>
+              <AttachmentUploader
+                onAttachmentsChange={handleFilesUploaded}
+                maxFiles={newCategory === "RELATORIO_OCORRENCIA" ? 1 : 3}
+                maxSizeMB={20}
+                bucket="evidence"
+                pathPrefix="study"
+                acceptMimeTypes={[
+                  "application/pdf",
+                  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                  "application/vnd.ms-excel",
+                  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                  "text/plain",
+                  "application/json",
+                  "text/csv",
+                  "image/jpeg",
+                  "image/png",
+                  "image/webp",
+                ]}
+                maxVideoSeconds={0}
+              />
+              <p className="text-xs text-muted-foreground">Após enviar, a IA gera título/resumo/índice e você encontra no Catálogo.</p>
             </div>
           </div>
-        </CardContent>
-      </Card>
-
-      </div>
-    </div>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 };
+
