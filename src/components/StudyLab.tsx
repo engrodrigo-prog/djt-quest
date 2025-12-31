@@ -97,6 +97,35 @@ const EMPTY_INCIDENT: IncidentForm = {
 
 const PRIVATE_TTL_DAYS = 7;
 const FIXED_RULES_ID = "fixed:djt-quest-rules";
+const FIXED_SOURCES: StudySource[] = [
+  {
+    id: FIXED_RULES_ID,
+    user_id: "system",
+    title: DJT_RULES_ARTICLE.title,
+    kind: "text",
+    url: null,
+    storage_path: null,
+    summary: DJT_RULES_ARTICLE.summary,
+    ingest_status: "ok",
+    ingested_at: null,
+    ingest_error: null,
+    topic: "OUTROS",
+    category: "OUTROS",
+    scope: "org",
+    published: true,
+    metadata: {
+      fixed: true,
+      fixed_body: DJT_RULES_ARTICLE.body,
+      ai: { outline: DJT_RULES_ARTICLE.outline },
+      tags: DJT_RULES_ARTICLE.tags,
+    },
+    is_persistent: true,
+    created_at: "2025-01-01T00:00:00Z",
+    last_used_at: null,
+    expires_at: null,
+    access_count: 0,
+  },
+];
 
 const normalizeCategory = (raw: unknown): StudyCategory => {
   const s = (raw || "").toString().trim().toUpperCase().replace(/\s+/g, "_");
@@ -215,6 +244,12 @@ export const StudyLab = () => {
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sources.length, sources.map((s) => s.ingest_status).join(",")]);
+
+  const fixedSources = FIXED_SOURCES;
+
+  const isFixedSource = (s: StudySource) => s.id === FIXED_RULES_ID;
+  const isPublicSource = (s: StudySource) => normalizeScope(s.scope) === "org" && s.published !== false;
+  const isPrivateSource = (s: StudySource) => normalizeScope(s.scope) === "user" || s.published === false;
 
   const selectedSource = useMemo(
     () => [...fixedSources, ...sources].find((s) => s.id === selectedSourceId) || null,
@@ -412,7 +447,7 @@ export const StudyLab = () => {
             setIngesting(true);
             await Promise.all(
               list.map((s) =>
-                fetch("/api/ai?handler=study-chat", {
+                apiFetch("/api/ai?handler=study-chat", {
                   method: "POST",
                   headers: {
                     "Content-Type": "application/json",
@@ -486,18 +521,18 @@ export const StudyLab = () => {
     }
     try {
       setIngesting(true);
-      const { data: session } = await supabase.auth.getSession();
-      const token = session.session?.access_token;
-      if (token) {
-        await fetch("/api/ai?handler=study-chat", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ mode: "ingest", source_id: id }),
-        }).catch(() => undefined);
-        await fetchSources();
+	      const { data: session } = await supabase.auth.getSession();
+	      const token = session.session?.access_token;
+	      if (token) {
+	        await apiFetch("/api/ai?handler=study-chat", {
+	          method: "POST",
+	          headers: {
+	            "Content-Type": "application/json",
+	            Authorization: `Bearer ${token}`,
+	          },
+	          body: JSON.stringify({ mode: "ingest", source_id: id }),
+	        }).catch(() => undefined);
+	        await fetchSources();
       }
     } catch (e: any) {
       toast.error(e?.message || "Não foi possível reprocessar agora.");
@@ -597,17 +632,17 @@ export const StudyLab = () => {
         try {
           const { data: session } = await supabase.auth.getSession();
           const token = session.session?.access_token;
-          if (token) {
-            setIngesting(true);
-            await fetch("/api/ai?handler=study-chat", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${token}`,
-              },
-              body: JSON.stringify({ mode: "ingest", source_id: created.id }),
-            }).catch(() => undefined);
-            // recarrega catálogo com novo título/resumo/categoria gerados
+	          if (token) {
+	            setIngesting(true);
+	            await apiFetch("/api/ai?handler=study-chat", {
+	              method: "POST",
+	              headers: {
+	                "Content-Type": "application/json",
+	                Authorization: `Bearer ${token}`,
+	              },
+	              body: JSON.stringify({ mode: "ingest", source_id: created.id }),
+	            }).catch(() => undefined);
+	            // recarrega catálogo com novo título/resumo/categoria gerados
             fetchSources();
           }
         } catch {
@@ -651,7 +686,7 @@ export const StudyLab = () => {
           const { data: session } = await supabase.auth.getSession();
           const token = session.session?.access_token;
           if (token) {
-            await fetch("/api/ai?handler=study-chat", {
+            await apiFetch("/api/ai?handler=study-chat", {
               method: "POST",
               headers: {
                 "Content-Type": "application/json",
@@ -678,7 +713,7 @@ export const StudyLab = () => {
     try {
       const { data: session } = await supabase.auth.getSession();
       const token = session.session?.access_token;
-      const resp = await fetch("/api/ai?handler=study-chat", {
+      const resp = await apiFetch("/api/ai?handler=study-chat", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -792,42 +827,6 @@ export const StudyLab = () => {
     SEGURANCA_DO_TRABALHO: "Segurança do Trabalho",
     OUTROS: "Outros assuntos",
   };
-
-  const fixedSources = useMemo<StudySource[]>(() => {
-    return [
-      {
-        id: FIXED_RULES_ID,
-        user_id: "system",
-        title: DJT_RULES_ARTICLE.title,
-        kind: "text",
-        url: null,
-        storage_path: null,
-        summary: DJT_RULES_ARTICLE.summary,
-        ingest_status: "ok",
-        ingested_at: null,
-        ingest_error: null,
-        topic: "OUTROS",
-        category: "OUTROS",
-        scope: "org",
-        published: true,
-        metadata: {
-          fixed: true,
-          fixed_body: DJT_RULES_ARTICLE.body,
-          ai: { outline: DJT_RULES_ARTICLE.outline },
-          tags: DJT_RULES_ARTICLE.tags,
-        },
-        is_persistent: true,
-        created_at: "2025-01-01T00:00:00Z",
-        last_used_at: null,
-        expires_at: null,
-        access_count: 0,
-      },
-    ];
-  }, []);
-
-  const isFixedSource = (s: StudySource) => s.id === FIXED_RULES_ID;
-  const isPublicSource = (s: StudySource) => normalizeScope(s.scope) === "org" && s.published !== false;
-  const isPrivateSource = (s: StudySource) => normalizeScope(s.scope) === "user" || s.published === false;
 
   const canManageSource = (s: StudySource) => {
     if (!user) return false;

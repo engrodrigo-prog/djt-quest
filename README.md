@@ -99,6 +99,10 @@ To reseed org structure or data, check scripts in `scripts/`.
 
 Simply open [Lovable](https://lovable.dev/projects/28f86751-0548-411b-bdca-e0df24d02def) and click on Share -> Publish.
 
+## Vercel (env vars / StudyLab / OpenAI)
+
+Se você estiver usando Vercel (rotas em `api/*.ts`), veja `docs/vercel-env.md` para configurar `OPENAI_API_KEY` e variáveis do Supabase corretamente.
+
 ## Can I connect a custom domain to my Lovable project?
 
 Yes, you can!
