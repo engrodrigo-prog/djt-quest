@@ -180,7 +180,7 @@ export default function Forums() {
       <ThemedBackground theme="atitude" />
       <HelpInfo kind="forum" />
       <div className="container relative mx-auto p-4 md:p-6 max-w-5xl space-y-4">
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="space-y-1">
             <Button
               variant="ghost"
@@ -191,21 +191,28 @@ export default function Forums() {
               {tr("forums.backToDashboard")}
             </Button>
             <div>
-              <h1 className="text-3xl font-bold">{tr("forums.title")}</h1>
-              <p className="text-muted-foreground">{tr("forums.subtitle")}</p>
+              <h1 className="text-2xl font-bold sm:text-3xl">{tr("forums.title")}</h1>
+              <p className="text-sm text-muted-foreground sm:text-base">{tr("forums.subtitle")}</p>
             </div>
           </div>
           {(isLeader && studioAccess) && (
             <Button onClick={() => nav('/studio')}>{tr("forums.createTopic")}</Button>
           )}
         </div>
-        <div className="flex gap-3 items-center">
-          <Input placeholder={tr("forums.searchPlaceholder")} value={q} onChange={(e)=>setQ(e.target.value)} />
-          <Button variant="outline" onClick={()=>nav('/forums/insights')}>{tr("forums.topThemesButton")}</Button>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <Input
+            placeholder={tr("forums.searchPlaceholder")}
+            value={q}
+            onChange={(e)=>setQ(e.target.value)}
+            className="w-full"
+          />
+          <Button variant="outline" onClick={()=>nav('/forums/insights')} className="w-full sm:w-auto">
+            {tr("forums.topThemesButton")}
+          </Button>
         </div>
         <Card className="border-amber-600/40 bg-amber-950/20">
           <CardHeader className="pb-2">
-            <div className="flex items-center justify-between gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-2">
                 <Flame className="h-4 w-4 text-amber-400" />
                 <CardTitle className="text-sm">{tr("forums.trendingTitle")}</CardTitle>
@@ -253,7 +260,7 @@ export default function Forums() {
                       key={ins.topic_id}
                       role="button"
                       tabIndex={0}
-                      className="w-full text-left text-xs rounded-md border border-amber-500/30 bg-black/20 px-2 py-1 hover:bg-amber-500/10 flex items-start justify-between gap-2"
+                      className="w-full text-left text-xs rounded-md border border-amber-500/30 bg-black/20 px-2 py-1 hover:bg-amber-500/10 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between"
                       onClick={() => nav(`/forum/${ins.topic_id}`)}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' || e.key === ' ') {
@@ -269,7 +276,7 @@ export default function Forums() {
                           {translatedTrendingSummaries[ins.topic_id] || ins.summary}
                         </span>
                       </span>
-                      <div className="ml-2 flex-shrink-0 flex items-center gap-1">
+                      <div className="flex-shrink-0 flex flex-wrap items-center gap-1 sm:justify-end">
                         <Badge variant="outline">
                           {ins.chas === 'C'
                             ? tr("home.badgeKnowledge")
@@ -307,8 +314,10 @@ export default function Forums() {
           {filtered.map(t => (
             <Card key={t.id} className="cursor-pointer hover:-translate-y-1 transition" onClick={()=>nav(`/forum/${t.id}`)}>
               <CardHeader>
-                <div className="flex items-center justify-between gap-2">
-                  <CardTitle className="truncate">{translatedTopicTitles[t.id] || t.title}</CardTitle>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <CardTitle className="text-base leading-snug line-clamp-2 sm:line-clamp-1 sm:text-lg">
+                    {translatedTopicTitles[t.id] || t.title}
+                  </CardTitle>
                   <div className="flex items-center gap-1 flex-shrink-0">
                     <Badge variant={t.status === 'closed' ? 'secondary' : 'default'}>
                       {t.status === 'closed'

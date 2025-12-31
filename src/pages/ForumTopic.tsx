@@ -883,7 +883,7 @@ export default function ForumTopic() {
       <div className="container relative mx-auto p-4 md:p-6 max-w-5xl space-y-4">
         <Card>
           <CardHeader>
-            <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
+            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
               <div className="space-y-2 md:max-w-xl">
                 <Button
                   variant="ghost"
@@ -950,8 +950,8 @@ export default function ForumTopic() {
                   </div>
                 ) : (
                   <>
-                    <CardTitle className="text-2xl font-bold break-words">{topicTitle}</CardTitle>
-                    <CardDescription className="whitespace-pre-line">{topicDescription}</CardDescription>
+                    <CardTitle className="text-xl font-bold break-words sm:text-2xl">{topicTitle}</CardTitle>
+                    <CardDescription className="whitespace-pre-line text-sm sm:text-base">{topicDescription}</CardDescription>
                     {isTranslating && (
                       <p className="text-[11px] text-muted-foreground">
                         {tr('forumTopic.translationRunning')}
@@ -960,16 +960,16 @@ export default function ForumTopic() {
                   </>
                 )}
               </div>
-              <div className="flex flex-col items-end gap-2 w-full md:w-auto">
-                <div className="flex flex-wrap items-center justify-end gap-2 text-[11px]">
+              <div className="flex flex-col items-start gap-2 w-full md:w-auto md:items-end">
+                <div className="flex flex-wrap items-center gap-2 text-[11px] md:justify-end">
                   <Badge variant={topic.status === 'closed' ? 'secondary' : 'default'}>
                     {statusLabel}
                   </Badge>
-                  <span className="text-muted-foreground text-right max-w-xs">
+                  <span className="text-muted-foreground text-left md:text-right md:max-w-xs">
                     {permissionLabel}
                   </span>
                 </div>
-	                <div className="flex flex-wrap justify-end gap-2.5 p-1.5 rounded-lg border border-white/10 bg-black/20">
+	                <div className="flex flex-wrap gap-2.5 p-1.5 rounded-lg border border-white/10 bg-black/20 md:justify-end">
 	                  <Button
 	                    size="sm"
 	                    variant="outline"
@@ -1183,15 +1183,15 @@ export default function ForumTopic() {
                     </div>
                   </div>
                 ) : (
-	                  <div className="flex items-start justify-between gap-3">
-	                    <div className="flex-1 min-w-0 space-y-1">
-	                      <p className="text-[11px] font-semibold text-primary">
-	                        {authorLabel}
-	                      </p>
-	                      <div className="text-sm whitespace-pre-wrap break-words">{postText}</div>
-	                    </div>
-	                    <div className="shrink-0">
-	                      <div className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-black/20 p-1.5">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="flex-1 min-w-0 space-y-1">
+                      <p className="text-[11px] font-semibold text-primary">
+                        {authorLabel}
+                      </p>
+                      <div className="text-sm whitespace-pre-wrap break-words">{postText}</div>
+                    </div>
+                    <div className="w-full shrink-0 sm:w-auto">
+                      <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-white/10 bg-black/20 p-1.5 sm:flex-nowrap sm:justify-end">
 	                        <Button
 	                          type="button"
 	                          size="icon"
@@ -1290,13 +1290,13 @@ export default function ForumTopic() {
                         return name || tr('forumTopic.author.fallback')
                       })()
                       return (
-	                      <div key={r.id} id={`post-${r.id}`} className="flex items-start justify-between gap-3 text-sm text-muted-foreground">
-	                        <div className="whitespace-pre-wrap flex-1 min-w-0 space-y-1">
-	                          <p className="text-[11px] font-semibold text-muted-foreground flex items-center gap-1">
-	                            <span className="text-xs">{tr('forumTopic.reply.label')}</span>
-	                            <span>{rAuthorLabel}</span>
-	                          </p>
-	                          <div className="break-words">{replyText}</div>
+                      <div key={r.id} id={`post-${r.id}`} className="flex flex-col gap-3 text-sm text-muted-foreground sm:flex-row sm:items-start sm:justify-between">
+                        <div className="whitespace-pre-wrap flex-1 min-w-0 space-y-1">
+                          <p className="text-[11px] font-semibold text-muted-foreground flex items-center gap-1">
+                            <span className="text-xs">{tr('forumTopic.reply.label')}</span>
+                            <span>{rAuthorLabel}</span>
+                          </p>
+                          <div className="break-words">{replyText}</div>
 	                          {(() => {
 	                            const urls =
 	                              ((r as any)?.payload?.attachments ||
@@ -1306,8 +1306,8 @@ export default function ForumTopic() {
 	                            return <AttachmentViewer urls={urls} postId={r.id} />;
 	                          })()}
 	                        </div>
-	                        <div className="shrink-0">
-	                          <div className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-black/20 p-1.5">
+                        <div className="w-full shrink-0 sm:w-auto">
+                          <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-white/10 bg-black/20 p-1.5 sm:flex-nowrap sm:justify-end">
 	                            <Button
 	                              type="button"
 	                              size="icon"
@@ -1386,7 +1386,7 @@ export default function ForumTopic() {
               <CardDescription>{tr('forumTopic.newPost.subtitle')}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex flex-col gap-1">
                   <p className="text-xs text-muted-foreground">
                     {replyToPostId
@@ -1394,8 +1394,8 @@ export default function ForumTopic() {
                       : tr('forumTopic.newPost.hint.default')}
                   </p>
                   {replyToPostId && (
-                    <div className="text-[11px] text-muted-foreground border border-dashed border-border/60 rounded px-2 py-1 flex items-start justify-between gap-2">
-                      <span className="truncate">
+                    <div className="text-[11px] text-muted-foreground border border-dashed border-border/60 rounded px-2 py-1 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                      <span className="break-words sm:truncate">
                         <span className="font-semibold mr-1">{tr('forumTopic.newPost.replyTargetLabel')}:</span>
                         {replyToExcerpt || '...'}
                       </span>

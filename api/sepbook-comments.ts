@@ -62,12 +62,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (!SERVICE_ROLE_KEY && !authed) return res.status(401).json({ error: "Unauthorized" });
 
       const reader = SERVICE_ROLE_KEY ? admin : authed;
-      const { data, error } = await reader
+      const baseSelect = "id, post_id, user_id, content_md, created_at";
+      const selectWithAttachments = `${baseSelect}, attachments`;
+      let data: any[] | null = null;
+      let error: any = null;
+      const attempt = await reader
         .from("sepbook_comments")
-        .select("id, post_id, user_id, content_md, created_at")
+        .select(selectWithAttachments)
         .eq("post_id", postId)
         .order("created_at", { ascending: true })
         .limit(100);
+      data = attempt.data as any;
+      error = attempt.error as any;
+      if (error && /attachments/i.test(String(error.message || ""))) {
+        const fallback = await reader
+          .from("sepbook_comments")
+          .select(baseSelect)
+          .eq("post_id", postId)
+          .order("created_at", { ascending: true })
+          .limit(100);
+        data = fallback.data as any;
+        error = fallback.error as any;
+      }
       if (error) {
         const msg = String(error.message || "");
         if (/(row level security|rls|permission denied|not authorized)/i.test(msg)) {
@@ -98,6 +114,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       const items = (data || []).map((c) => {
         const prof = profileMap.get(c.user_id) || { name: "Colaborador", sigla_area: null, avatar_url: null, operational_base: null };
+        const attachments = Array.isArray(c.attachments) ? c.attachments.filter(Boolean) : [];
         return {
           id: c.id,
           post_id: c.post_id,
@@ -107,6 +124,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           author_avatar: prof.avatar_url,
           author_base: prof.operational_base,
           content_md: c.content_md,
+          attachments,
           created_at: c.created_at,
         };
       });
@@ -134,9 +152,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (!uid) return res.status(401).json({ error: "Unauthorized" });
 
       const { post_id, content_md } = req.body || {};
+      const rawAttachments = Array.isArray(req.body?.attachments) ? req.body.attachments : [];
+      const attachments = rawAttachments
+        .filter((item: any) => typeof item === "string" && item.trim())
+        .slice(0, 3);
       const postId = String(post_id || "").trim();
       const text = String(content_md || "").trim();
-      if (!postId || text.length < 2) return res.status(400).json({ error: "post_id e texto obrigatórios" });
+      if (!postId || (text.length < 2 && attachments.length === 0)) {
+        return res.status(400).json({ error: "post_id e texto/foto obrigatórios" });
+      }
+      const normalizedText = text.length >= 2 ? text : "";
 
       const profileReader = SERVICE_ROLE_KEY ? admin : authed;
       const { data: profile } = await profileReader
@@ -151,12 +176,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         .insert({
           post_id: postId,
           user_id: uid,
-          content_md: text,
+          content_md: normalizedText,
+          attachments,
         })
         .select()
         .single();
       if (error) {
         const message = error.message || "Falha ao comentar";
+        if (/attachments/i.test(message) && /(column|schema cache|does not exist)/i.test(message)) {
+          return res.status(400).json({
+            error:
+              "A coluna de anexos ainda não existe em sepbook_comments. Aplique a migração supabase/migrations/20251231180000_sepbook_comment_attachments.sql.",
+          });
+        }
         if (message.toLowerCase().includes("row level security") || message.toLowerCase().includes("rls")) {
           return res.status(403).json({
             error:

@@ -62,8 +62,8 @@ export default function ForumInsights() {
       <HelpInfo kind="forum" />
       <div className="container relative mx-auto p-4 md:p-6 max-w-5xl space-y-4">
         <div>
-          <h1 className="text-3xl font-bold">{tr("forumInsights.title")}</h1>
-          <p className="text-muted-foreground">
+          <h1 className="text-2xl font-bold sm:text-3xl">{tr("forumInsights.title")}</h1>
+          <p className="text-sm text-muted-foreground sm:text-base">
             {tr("forumInsights.subtitle")}
           </p>
         </div>
@@ -76,12 +76,12 @@ export default function ForumInsights() {
             {items.map((ins, idx) => (
               <Card key={ins.topic_id}>
                 <CardHeader>
-                  <div className="flex items-center justify-between gap-3">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0">
-                      <CardTitle className="truncate">#{idx+1} — {ins.title}</CardTitle>
+                      <CardTitle className="line-clamp-2 sm:line-clamp-1">#{idx+1} — {ins.title}</CardTitle>
                       <CardDescription className="mt-1 line-clamp-2">{ins.summary}</CardDescription>
                     </div>
-                    <div className="flex flex-col items-end gap-2 flex-shrink-0">
+                    <div className="flex flex-col items-start gap-2 flex-shrink-0 sm:items-end">
                       <Badge>{chasLabel(ins.chas)}</Badge>
                       <div className="flex gap-1 flex-wrap justify-end">
                         {ins.specialties?.slice(0,4).map(s => (<Badge key={s} variant="outline" className="text-xs">{s}</Badge>))}
@@ -105,7 +105,7 @@ export default function ForumInsights() {
                     </ul>
                   </div>
                   {isLeader && (
-                    <div className="flex gap-2">
+                    <div className="flex flex-col gap-2 sm:flex-row">
                       <Button size="sm" variant="outline" onClick={()=>sendToStudio(ins, 'quiz')}>{tr("forumInsights.createQuizDraft")}</Button>
                       <Button size="sm" variant="outline" onClick={()=>sendToStudio(ins, 'desafio')}>{tr("forumInsights.createChallengeDraft")}</Button>
                       <Button size="sm" variant="outline" onClick={()=>sendToStudio(ins, 'campanha')}>{tr("forumInsights.createCampaignDraft")}</Button>

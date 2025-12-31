@@ -3,6 +3,8 @@ import { useLocation as useRouterLocation, useNavigate } from "react-router-dom"
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { AttachmentUploader } from "@/components/AttachmentUploader";
@@ -64,7 +66,17 @@ interface SepComment {
   author_avatar?: string | null;
   author_base?: string | null;
   content_md: string;
+  attachments?: string[];
   created_at: string;
+}
+
+interface SepLikeUser {
+  user_id: string;
+  name: string;
+  sigla_area?: string | null;
+  avatar_url?: string | null;
+  operational_base?: string | null;
+  created_at?: string | null;
 }
 
 interface CampaignOption {
@@ -118,6 +130,11 @@ export default function SEPBook() {
   const [commentsByPost, setCommentsByPost] = useState<Record<string, SepComment[]>>({});
   const [openComments, setOpenComments] = useState<Record<string, boolean>>({});
   const [loadingComments, setLoadingComments] = useState<Record<string, boolean>>({});
+  const [commentAttachments, setCommentAttachments] = useState<Record<string, string[]>>({});
+  const [commentUploading, setCommentUploading] = useState<Record<string, boolean>>({});
+  const [likesModal, setLikesModal] = useState<{ postId: string; label: string } | null>(null);
+  const [likesModalItems, setLikesModalItems] = useState<SepLikeUser[]>([]);
+  const [likesModalLoading, setLikesModalLoading] = useState(false);
   const [newComment, setNewComment] = useState<Record<string, string>>({});
   const commentsByPostRef = useRef(commentsByPost);
   useEffect(() => {
@@ -566,23 +583,31 @@ export default function SEPBook() {
 
   const handleAddComment = async (post: SepPost) => {
     const text = (newComment[post.id] || "").trim();
-    if (text.length < 2) return;
+    const attachments = commentAttachments[post.id] || [];
+    const uploading = commentUploading[post.id];
+    if (uploading) {
+      toast({ title: "Aguarde o envio das fotos", description: "Estamos concluindo o upload antes de comentar." });
+      return;
+    }
+    if (text.length < 2 && attachments.length === 0) return;
     // sugere hashtags para o comentário e agrega automaticamente (sem aprovação) ao conteúdo enviado
     let finalText = text;
-    try {
-      const resp = await fetch("/api/ai?handler=suggest-hashtags", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
-      });
-      const json = await resp.json();
-      if (resp.ok && Array.isArray(json.hashtags) && json.hashtags.length > 0) {
-        const toAdd = json.hashtags.filter((h: string) => !finalText.includes(h));
-        if (toAdd.length > 0) {
-          finalText = `${finalText}\n${toAdd.join(" ")}`;
+    if (text.length >= 2) {
+      try {
+        const resp = await fetch("/api/ai?handler=suggest-hashtags", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text }),
+        });
+        const json = await resp.json();
+        if (resp.ok && Array.isArray(json.hashtags) && json.hashtags.length > 0) {
+          const toAdd = json.hashtags.filter((h: string) => !finalText.includes(h));
+          if (toAdd.length > 0) {
+            finalText = `${finalText}\n${toAdd.join(" ")}`;
+          }
         }
-      }
-    } catch {}
+      } catch {}
+    }
     try {
       const { data: session } = await supabase.auth.getSession();
       const token = session.session?.access_token;
@@ -593,7 +618,7 @@ export default function SEPBook() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ post_id: post.id, content_md: finalText }),
+        body: JSON.stringify({ post_id: post.id, content_md: finalText, attachments }),
       });
       const json = await resp.json();
       if (!resp.ok) throw new Error(json?.error || "Falha ao comentar");
@@ -603,6 +628,7 @@ export default function SEPBook() {
         [post.id]: [...(prev[post.id] || []), comment],
       }));
       setNewComment((prev) => ({ ...prev, [post.id]: "" }));
+      setCommentAttachments((prev) => ({ ...prev, [post.id]: [] }));
       setPosts((prev) =>
         prev.map((p) =>
           p.id === post.id ? { ...p, comment_count: (p.comment_count || 0) + 1 } : p
@@ -802,6 +828,27 @@ export default function SEPBook() {
       toast({ title: "Post atualizado" });
     } catch (e: any) {
       toast({ title: "Erro ao salvar edição", description: e?.message || "Tente novamente", variant: "destructive" });
+    }
+  };
+
+  const openLikesModal = async (post: SepPost) => {
+    const label = post.attachments && post.attachments.length > 0 ? "Curtidas na foto" : "Curtidas";
+    setLikesModal({ postId: post.id, label });
+    setLikesModalLoading(true);
+    setLikesModalItems([]);
+    try {
+      const { data: session } = await supabase.auth.getSession();
+      const token = session.session?.access_token;
+      const resp = await fetch(`/api/sepbook-likes?post_id=${encodeURIComponent(post.id)}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const json = await resp.json();
+      if (!resp.ok) throw new Error(json?.error || "Falha ao carregar curtidas");
+      setLikesModalItems(Array.isArray(json.items) ? json.items : []);
+    } catch (e: any) {
+      toast({ title: "Erro ao carregar curtidas", description: e?.message || "Tente novamente", variant: "destructive" });
+    } finally {
+      setLikesModalLoading(false);
     }
   };
 
@@ -1587,16 +1634,28 @@ export default function SEPBook() {
                 )}
                 <div className="flex items-center justify-between text-xs text-muted-foreground mt-2">
                   <div className="flex items-center gap-3">
-                    <button
-                      type="button"
-                      className="inline-flex items-center gap-1"
-                      onClick={() => toggleLike(p)}
-                    >
-                      <Heart
-                        className={`h-4 w-4 ${p.has_liked ? "fill-red-500 text-red-500" : ""}`}
-                      />
-                      <span>{p.like_count || 0}</span>
-                    </button>
+                    <div className="inline-flex items-center gap-1">
+                      <button
+                        type="button"
+                        className="inline-flex items-center justify-center"
+                        onClick={() => toggleLike(p)}
+                        title={p.has_liked ? "Descurtir" : "Curtir"}
+                        aria-label={p.has_liked ? "Descurtir" : "Curtir"}
+                      >
+                        <Heart
+                          className={`h-4 w-4 ${p.has_liked ? "fill-red-500 text-red-500" : ""}`}
+                        />
+                      </button>
+                      <button
+                        type="button"
+                        className="text-xs underline-offset-2 hover:underline"
+                        onClick={() => openLikesModal(p)}
+                        title="Ver quem curtiu"
+                        aria-label="Ver quem curtiu"
+                      >
+                        {p.like_count || 0}
+                      </button>
+                    </div>
                     <button
                       type="button"
                       className="inline-flex items-center gap-1"
@@ -1682,7 +1741,14 @@ export default function SEPBook() {
                                   </span>
                                 )}
                               </div>
-                              <div className="block">{renderRichText(c.content_md)}</div>
+                              {c.content_md?.trim() ? (
+                                <div className="block">{renderRichText(c.content_md)}</div>
+                              ) : null}
+                              {c.attachments && c.attachments.length > 0 && (
+                                <div className="mt-2">
+                                  <AttachmentViewer urls={c.attachments} mediaLayout="grid" />
+                                </div>
+                              )}
                             </div>
                             <div className="flex items-center gap-2 flex-shrink-0">
                               <button
@@ -1691,7 +1757,7 @@ export default function SEPBook() {
                                 onClick={() => speakText(c.content_md)}
                                 title="Ouvir este comentário"
                                 aria-label="Ouvir este comentário"
-                                disabled={isSpeaking}
+                                disabled={isSpeaking || !c.content_md?.trim()}
                               >
                                 <Volume2 className="h-3.5 w-3.5" />
                               </button>
@@ -1720,24 +1786,46 @@ export default function SEPBook() {
                         ))}
                       </div>
                     )}
-                    <div className="flex items-center gap-1">
-                      <input
-                        type="text"
-                        className="flex-1 rounded-md border bg-background px-2 py-1 text-[11px]"
-                        placeholder="Escreva um comentário..."
-                        value={newComment[p.id] || ""}
-                        onChange={(e) =>
-                          setNewComment((prev) => ({ ...prev, [p.id]: e.target.value }))
+                    <div className="space-y-2">
+                      <AttachmentUploader
+                        onAttachmentsChange={(urls) =>
+                          setCommentAttachments((prev) => ({ ...prev, [p.id]: urls }))
                         }
+                        onUploadingChange={(uploading) =>
+                          setCommentUploading((prev) => ({ ...prev, [p.id]: uploading }))
+                        }
+                        maxFiles={3}
+                        maxImages={3}
+                        maxSizeMB={15}
+                        bucket="evidence"
+                        pathPrefix="sepbook-comments"
+                        acceptMimeTypes={["image/jpeg", "image/png", "image/webp", "image/gif"]}
+                        maxImageDimension={1920}
+                        imageQuality={0.82}
+                        capture="environment"
                       />
-                      <button
-                        type="button"
-                        onClick={() => handleAddComment(p)}
-                        className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground"
-                        title="Enviar comentário"
-                      >
-                        <Send className="h-3 w-3" />
-                      </button>
+                      {commentUploading[p.id] && (
+                        <p className="text-[11px] text-muted-foreground">Enviando fotos...</p>
+                      )}
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="text"
+                          className="flex-1 rounded-md border bg-background px-2 py-1 text-[11px]"
+                          placeholder="Escreva um comentário..."
+                          value={newComment[p.id] || ""}
+                          onChange={(e) =>
+                            setNewComment((prev) => ({ ...prev, [p.id]: e.target.value }))
+                          }
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleAddComment(p)}
+                          className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground"
+                          title="Enviar comentário"
+                        >
+                          <Send className="h-3 w-3" />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -1746,6 +1834,51 @@ export default function SEPBook() {
           ))}
         </div>
       </div>
+      <Dialog
+        open={Boolean(likesModal)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setLikesModal(null);
+            setLikesModalItems([]);
+          }
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{likesModal?.label || "Curtidas"}</DialogTitle>
+          </DialogHeader>
+          {likesModalLoading ? (
+            <p className="text-sm text-muted-foreground">Carregando curtidas...</p>
+          ) : likesModalItems.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Ainda não há curtidas.</p>
+          ) : (
+            <div className="space-y-3 max-h-[60vh] overflow-auto pr-1">
+              {likesModalItems.map((item) => {
+                const initials = (item.name || "Colaborador")
+                  .split(" ")
+                  .map((part) => part[0])
+                  .join("")
+                  .toUpperCase()
+                  .slice(0, 2);
+                return (
+                  <div key={`${item.user_id}-${item.created_at || "like"}`} className="flex items-center gap-3">
+                    <Avatar className="h-9 w-9">
+                      <AvatarImage src={item.avatar_url || undefined} alt={item.name} />
+                      <AvatarFallback className="text-[11px]">{initials}</AvatarFallback>
+                    </Avatar>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium truncate">{item.name || "Colaborador"}</p>
+                      <p className="text-[11px] text-muted-foreground truncate">
+                        {[item.sigla_area, item.operational_base].filter(Boolean).join(" • ") || "DJT"}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
       <Navigation />
     </div>
   );
