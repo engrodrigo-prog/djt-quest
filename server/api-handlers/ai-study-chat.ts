@@ -4,6 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 import { createRequire } from "module";
 import { extractPdfText, extractDocxText, extractJsonText, extractPlainText } from "../lib/import-parsers.js";
 import { extractImageTextWithAi } from "../lib/ai-curation-provider.js";
+import { DJT_RULES_ARTICLE } from "../../shared/djt-rules.js";
 
 const require = createRequire(import.meta.url);
 
@@ -14,7 +15,7 @@ const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABA
 function chooseModel(preferPremium = false) {
   const premium = process.env.OPENAI_MODEL_PREMIUM;
   const fast = process.env.OPENAI_MODEL_FAST;
-  const fallback = preferPremium ? "gpt-4.1" : "gpt-4.1";
+  const fallback = preferPremium ? "gpt-5.2" : "gpt-5.2";
 
   const pick = preferPremium ? premium || fast : fast || premium;
   if (!pick) return fallback;
@@ -24,6 +25,99 @@ function chooseModel(preferPremium = false) {
   if (!lower.startsWith("gpt-")) return fallback;
   return pick;
 }
+
+const normalizeForMatch = (raw: string) =>
+  String(raw || "")
+    .toLowerCase()
+    .normalize("NFD")
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+
+const RULES_KEYWORDS = [
+  "djt",
+  "quest",
+  "regras",
+  "pontuacao",
+  "xp",
+  "bonus",
+  "ranking",
+  "campanha",
+  "desafio",
+  "forum",
+  "sepbook",
+  "quiz",
+  "avaliacao",
+];
+
+const shouldInjectRules = (text: string) => {
+  const normalized = normalizeForMatch(text);
+  if (!normalized) return false;
+  return RULES_KEYWORDS.some((k) => normalized.includes(k));
+};
+
+const buildRulesContext = () =>
+  `Base fixa (Regras do DJT Quest):\n${DJT_RULES_ARTICLE.title}\n${DJT_RULES_ARTICLE.body}`;
+
+const collectOutputText = (payload: any) => {
+  if (typeof payload?.output_text === "string") return payload.output_text.trim();
+  const output = Array.isArray(payload?.output) ? payload.output : [];
+  const chunks = output
+    .map((item: any) => {
+      if (typeof item?.content === "string") return item.content;
+      if (Array.isArray(item?.content)) {
+        return item.content.map((c: any) => c?.text || c?.content || "").join("\n");
+      }
+      return item?.text || "";
+    })
+    .filter(Boolean);
+  return chunks.join("\n").trim();
+};
+
+const fetchWebSearchSummary = async (query: string, model: string) => {
+  if (!OPENAI_API_KEY || !query) return null;
+  const tools = ["web_search", "web_search_preview"];
+  const input = [
+    {
+      role: "system",
+      content:
+        "Responda com um resumo objetivo (5 a 8 bullets) e inclua as principais fontes consultadas no fim.",
+    },
+    { role: "user", content: query },
+  ];
+
+  for (const tool of tools) {
+    try {
+      const resp = await fetch("https://api.openai.com/v1/responses", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${OPENAI_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model,
+          input,
+          tools: [{ type: tool }],
+          max_output_tokens: 520,
+        }),
+      });
+      const json = await resp.json().catch(() => null);
+      if (!resp.ok) {
+        const msg = json?.error?.message || json?.message || "";
+        if (/tool|web_search|unknown|invalid/i.test(msg)) {
+          continue;
+        }
+        return null;
+      }
+      const text = collectOutputText(json);
+      if (text) return { text, tool };
+    } catch {
+      // ignore and try fallback
+    }
+  }
+  return null;
+};
 
 const normalizeHashtagTag = (raw: string) => {
   const base = String(raw || "").trim().replace(/^#+/, "");
@@ -52,6 +146,109 @@ const mergeHashtags = (...groups: Array<string[] | null | undefined>) => {
     }
   }
   return Array.from(out).slice(0, 24);
+};
+
+const normalizeOutlineNode = (node: any): any | null => {
+  if (!node) return null;
+  if (typeof node === "string") {
+    const title = node.trim();
+    return title ? { title } : null;
+  }
+  const title = String(node.title || node.heading || node.name || "").trim();
+  if (!title) return null;
+  const rawChildren = Array.isArray(node.children)
+    ? node.children
+    : Array.isArray(node.items)
+      ? node.items
+      : [];
+  const children = rawChildren
+    .map((child: any) => normalizeOutlineNode(child))
+    .filter(Boolean)
+    .slice(0, 12);
+  return children.length ? { title, children } : { title };
+};
+
+const normalizeOutline = (raw: any) => {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((node) => normalizeOutlineNode(node)).filter(Boolean).slice(0, 20);
+};
+
+const normalizeQuestions = (raw: any) => {
+  if (!Array.isArray(raw)) return [];
+  const out = [];
+  for (const q of raw) {
+    const question = String(q?.question || q?.pergunta || "").trim();
+    if (!question) continue;
+    const rawOptions = Array.isArray(q?.options)
+      ? q.options
+      : Array.isArray(q?.alternativas)
+        ? q.alternativas
+        : [];
+    const answerIndexRaw = Number.isFinite(Number(q?.answer_index)) ? Number(q.answer_index) : -1;
+    const correctText = String(q?.correct || q?.correta || "").trim();
+    const options = rawOptions
+      .map((opt: any, idx: number) => {
+        if (typeof opt === "string") {
+          const text = opt.trim();
+          return text
+            ? {
+                text,
+                is_correct: idx === answerIndexRaw,
+                explanation: String(q?.explanation || q?.explicacao || "").trim(),
+              }
+            : null;
+        }
+        const text = String(opt?.text || opt?.option || opt?.alternativa || "").trim();
+        if (!text) return null;
+        const isCorrect =
+          Boolean(opt?.is_correct) ||
+          Boolean(opt?.correct) ||
+          (answerIndexRaw >= 0 ? idx === answerIndexRaw : false);
+        return {
+          text,
+          is_correct: isCorrect,
+          explanation: String(opt?.explanation || opt?.explicacao || q?.explanation || q?.explicacao || "").trim(),
+        };
+      })
+      .filter(Boolean)
+      .slice(0, 6);
+
+    if (correctText && !options.some((opt: any) => opt.text === correctText)) {
+      options.unshift({
+        text: correctText,
+        is_correct: true,
+        explanation: String(q?.explanation || q?.explicacao || "").trim(),
+      });
+    }
+
+    const cleanedOptions = options
+      .map((opt: any, idx: number) => ({
+        ...opt,
+        text: String(opt.text || "").trim(),
+        explanation: String(opt.explanation || "").trim(),
+        is_correct: Boolean(opt.is_correct),
+        order: idx,
+      }))
+      .filter((opt: any) => opt.text.length >= 2)
+      .slice(0, 5);
+
+    const hasCorrect = cleanedOptions.some((opt: any) => opt.is_correct);
+    if (!hasCorrect && cleanedOptions.length) cleanedOptions[0].is_correct = true;
+    if (cleanedOptions.length < 2) continue;
+
+    out.push({
+      question_text: question,
+      options: cleanedOptions.map(({ text, is_correct, explanation }: any) => ({
+        text,
+        is_correct,
+        explanation,
+      })),
+      answer_index: cleanedOptions.findIndex((opt: any) => opt.is_correct),
+      explanation: String(q?.explanation || q?.explicacao || "").trim(),
+      difficulty: String(q?.difficulty || q?.nivel || "basico").trim().toLowerCase(),
+    });
+  }
+  return out.slice(0, 12);
 };
 
 const replaceStudySourceHashtags = async (admin: any, sourceId: string, tags: string[]) => {
@@ -101,6 +298,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       mode = "study",
       kb_tags = [],
       kb_focus = "",
+      use_web = false,
     } = req.body || {};
 
     const forumKbTagsRaw = Array.isArray(kb_tags)
@@ -119,6 +317,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     let joinedContext = "";
     let sourceRow: any = null;
+    let lastUserText = "";
     const stripHtml = (html: string) =>
       html
         .replace(/<script[\s\S]*?<\/script>/gi, " ")
@@ -344,7 +543,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
 
       try {
-        const model = chooseModel(true);
+        const preferPremiumIngest =
+          sourceRow && String(sourceRow.scope || "").toLowerCase() === "org" && sourceRow.published !== false;
+        const model = chooseModel(preferPremiumIngest);
 
         const allowedTopics = [
           "LINHAS",
@@ -380,6 +581,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             '  "summary": "...",\n' +
             '  "topic": "LINHAS",\n' +
             '  "hashtags": ["#tag1", "#tag2"],\n' +
+            '  "outline": [{"title": "Seção 1", "children": [{"title": "Subseção"}]}],\n' +
+            '  "questions": [{"question": "...", "options": ["A", "B", "C", "D"], "answer_index": 0, "explanation": "...", "difficulty": "basico"}],\n' +
             '  "aprendizados": ["..."],\n' +
             '  "cuidados": ["..."],\n' +
             '  "mudancas": ["..."]\n' +
@@ -388,17 +591,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             "- summary: 2 a 4 frases, em português.\n" +
             `- topic: escolha UMA categoria entre: ${allowedTopics.join(", ")}.\n` +
             "- hashtags: 4 a 8 hashtags curtas (sem espaços), use termos do material.\n" +
+            "- outline: 4 a 10 subtítulos, até 3 níveis (use [] se não fizer sentido).\n" +
+            "- questions: 4 a 8 perguntas com 4 alternativas (use [] se o material for insuficiente).\n" +
             "- aprendizados/cuidados/mudancas: 3 a 7 itens cada (use [] se não tiver evidência no texto/formulário).\n" +
             "- NÃO invente detalhes que não estejam no material ou no formulário.\n\n" +
             incidentContext +
             "### Material\n" +
             baseMaterial
-          : "Leia o material abaixo e responda APENAS em JSON no formato " +
-            "{\"title\": \"...\", \"summary\": \"...\", \"topic\": \"LINHAS\", \"hashtags\": [\"#tag1\", \"#tag2\"]}.\n" +
+          : "Leia o material abaixo e responda APENAS em JSON válido no formato:\n" +
+            "{\n" +
+            '  "title": "...",\n' +
+            '  "summary": "...",\n' +
+            '  "topic": "LINHAS",\n' +
+            '  "hashtags": ["#tag1", "#tag2"],\n' +
+            '  "outline": [{"title": "Seção 1", "children": [{"title": "Subseção"}]}],\n' +
+            '  "questions": [{"question": "...", "options": ["A", "B", "C", "D"], "answer_index": 0, "explanation": "...", "difficulty": "basico"}]\n' +
+            "}\n\n" +
             "- title: título curto, sem siglas de GED.\n" +
             "- summary: resumo em 2 a 4 frases, em português.\n" +
             `- topic: escolha UMA categoria entre: ${allowedTopics.join(", ")}.\n` +
-            "- hashtags: 4 a 8 hashtags curtas (sem espaços), use termos do material.\n\n" +
+            "- hashtags: 4 a 8 hashtags curtas (sem espaços), use termos do material.\n" +
+            "- outline: 4 a 10 subtítulos, até 3 níveis (use [] se não fizer sentido).\n" +
+            "- questions: 4 a 8 perguntas com 4 alternativas (use [] se o material for insuficiente).\n\n" +
             baseMaterial;
 
         const resp = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -473,6 +687,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           const newSummary = typeof parsed?.summary === "string" ? parsed.summary.trim() : null;
           const topicRaw = typeof parsed?.topic === "string" ? parsed.topic.toUpperCase().trim() : null;
           const topic = topicRaw && allowedTopics.includes(topicRaw) ? topicRaw : null;
+          const outline = normalizeOutline(parsed?.outline);
+          const questions = normalizeQuestions(parsed?.questions);
 
           const aprendizados = Array.isArray(parsed?.aprendizados)
             ? parsed.aprendizados.map((x: any) => String(x || "").trim()).filter(Boolean).slice(0, 12)
@@ -506,6 +722,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                   ingested_at: new Date().toISOString(),
                   ...(topic ? { topic } : {}),
                   ...(mergedTags.length ? { tags: mergedTags } : {}),
+                  ...(outline.length ? { outline } : {}),
                   ...(isIncident
                     ? {
                         incident: {
@@ -536,6 +753,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
           if (mergedTags.length) {
             await replaceStudySourceHashtags(admin, source_id, mergedTags);
+          }
+
+          if (questions.length) {
+            try {
+              await admin.from("study_source_questions").delete().eq("source_id", source_id);
+              await admin.from("study_source_questions").insert(
+                questions.map((q: any) => ({
+                  source_id,
+                  question_text: q.question_text,
+                  options: q.options,
+                  answer_index: q.answer_index,
+                  explanation: q.explanation || null,
+                  difficulty: q.difficulty || "basico",
+                  tags: mergedTags,
+                })),
+              );
+            } catch {
+              // best-effort
+            }
           }
 
           return res.status(200).json({
@@ -618,6 +854,7 @@ Formato da saída:
           "") + "";
 
       const text = lastUserMsg.toString();
+      lastUserText = text;
       const stop = new Set([
         "de",
         "da",
@@ -935,13 +1172,33 @@ Formato da saída:
       }
     }
 
+    const useWeb = Boolean(use_web);
+    if (mode === "oracle" && useWeb && lastUserText) {
+      const webModel = chooseModel(true);
+      const webSummary = await fetchWebSearchSummary(lastUserText, webModel);
+      if (webSummary?.text) {
+        openaiMessages.push({
+          role: "system",
+          content: `Pesquisa web automatica (resumo):\n${webSummary.text}`,
+        });
+      }
+    }
+
+    if (mode === "oracle" && lastUserText && shouldInjectRules(lastUserText)) {
+      openaiMessages.push({ role: "system", content: buildRulesContext() });
+    }
+
     for (const m of normalizedMessages) {
       if (!m || !m.role || !m.content) continue;
       const role = m.role === "assistant" ? "assistant" : "user";
       openaiMessages.push({ role, content: m.content });
     }
 
-    const model = chooseModel(true);
+    const preferPremium =
+      mode === "oracle" ||
+      useWeb ||
+      (sourceRow && String(sourceRow.scope || "").toLowerCase() === "org" && sourceRow.published !== false);
+    const model = chooseModel(preferPremium);
 
     const resp = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",

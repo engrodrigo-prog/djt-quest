@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -37,6 +37,28 @@ const quizSchema = z.object({
 
 type QuizFormData = z.infer<typeof quizSchema>;
 
+const STUDYLAB_CATEGORIES = [
+  "ALL",
+  "MANUAIS",
+  "PROCEDIMENTOS",
+  "APOSTILAS",
+  "RELATORIO_OCORRENCIA",
+  "AUDITORIA_INTERNA",
+  "AUDITORIA_EXTERNA",
+  "OUTROS",
+] as const;
+
+const STUDYLAB_CATEGORY_LABELS: Record<(typeof STUDYLAB_CATEGORIES)[number], string> = {
+  ALL: "Todas",
+  MANUAIS: "Manuais",
+  PROCEDIMENTOS: "Procedimentos",
+  APOSTILAS: "Apostilas",
+  RELATORIO_OCORRENCIA: "Relatório de Ocorrência",
+  AUDITORIA_INTERNA: "Auditoria Interna",
+  AUDITORIA_EXTERNA: "Auditoria Externa",
+  OUTROS: "Outros",
+};
+
 export function QuizCreationWizard() {
   const [quizId, setQuizId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -51,6 +73,10 @@ export function QuizCreationWizard() {
   const [autoProofread, setAutoProofread] = useState(getActiveLocale() === 'pt-BR');
   const [autoGenerating, setAutoGenerating] = useState(false);
   const [quizMeta, setQuizMeta] = useState<{ title: string; description: string }>({ title: '', description: '' });
+  const [suggestedQuestions, setSuggestedQuestions] = useState<any[]>([]);
+  const [questionSearch, setQuestionSearch] = useState('');
+  const [questionSort, setQuestionSort] = useState<'recent' | 'access' | 'relevance'>('recent');
+  const [questionCategory, setQuestionCategory] = useState<(typeof STUDYLAB_CATEGORIES)[number]>('ALL');
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -110,6 +136,28 @@ export function QuizCreationWizard() {
         }
       } catch {
         if (!cancelled) setStudySources([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await supabase
+          .from('study_source_questions')
+          .select(
+            'id, source_id, question_text, options, answer_index, explanation, difficulty, tags, created_at, study_sources(title, topic, category, access_count, last_used_at)',
+          )
+          .order('created_at', { ascending: false })
+          .limit(200);
+        if (res.error) throw res.error;
+        if (!cancelled) setSuggestedQuestions(Array.isArray(res.data) ? res.data : []);
+      } catch {
+        if (!cancelled) setSuggestedQuestions([]);
       }
     })();
     return () => {
@@ -218,6 +266,88 @@ export function QuizCreationWizard() {
     }
     setSelectedSourceIds((prev) => (prev.includes(String(src.id)) ? prev : [String(src.id), ...prev].slice(0, 12)));
     toast.success('Base do StudyLab aplicada ao quiz.');
+  };
+
+  const filteredSuggestedQuestions = useMemo(() => {
+    const q = questionSearch.trim().toLowerCase();
+    const list = suggestedQuestions.filter((item) => {
+      const source = item?.study_sources || {};
+      const text = [
+        item?.question_text || "",
+        source?.title || "",
+        source?.topic || "",
+        source?.category || "",
+        Array.isArray(item?.tags) ? item.tags.join(" ") : "",
+      ]
+        .join(" ")
+        .toLowerCase();
+      if (questionCategory !== "ALL" && String(source?.category || "").toUpperCase() !== questionCategory) {
+        return false;
+      }
+      if (q && !text.includes(q)) return false;
+      return true;
+    });
+
+    const score = (item: any) => {
+      const source = item?.study_sources || {};
+      const access = Number(source?.access_count || 0) || 0;
+      const createdAt = Date.parse(String(item?.created_at || "")) || 0;
+      const recency = createdAt ? Math.max(0, 30 - (Date.now() - createdAt) / (1000 * 60 * 60 * 24)) : 0;
+      return access * 2 + recency;
+    };
+
+    const sorted = [...list];
+    if (questionSort === "access") {
+      sorted.sort((a, b) => (Number(b?.study_sources?.access_count || 0) || 0) - (Number(a?.study_sources?.access_count || 0) || 0));
+    } else if (questionSort === "relevance") {
+      sorted.sort((a, b) => score(b) - score(a));
+    } else {
+      sorted.sort((a, b) => String(b?.created_at || "").localeCompare(String(a?.created_at || "")));
+    }
+    return sorted.slice(0, 80);
+  }, [suggestedQuestions, questionSearch, questionCategory, questionSort]);
+
+  const handleAddSuggestedQuestion = async (item: any) => {
+    if (!quizId) {
+      toast.error('Crie o quiz primeiro para adicionar perguntas.');
+      return;
+    }
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) throw new Error('Não autenticado');
+
+      const optionsRaw = Array.isArray(item?.options) ? item.options : [];
+      const options = optionsRaw
+        .map((opt: any, idx: number) => ({
+          option_text: String(opt?.text || opt?.option_text || opt?.option || "").trim(),
+          is_correct: Boolean(opt?.is_correct) || idx === Number(item?.answer_index || -1),
+          explanation: String(opt?.explanation || item?.explanation || "").trim(),
+        }))
+        .filter((opt: any) => opt.option_text.length >= 2);
+      if (!options.length) throw new Error('Pergunta sem alternativas válidas.');
+      if (!options.some((opt: any) => opt.is_correct)) options[0].is_correct = true;
+
+      const resp = await apiFetch('/api/admin?handler=studio-create-quiz-question', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          challengeId: quizId,
+          question_text: String(item?.question_text || '').trim(),
+          difficulty_level: String(item?.difficulty || 'basico'),
+          options,
+        }),
+      });
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(json?.error || 'Falha ao adicionar pergunta');
+      toast.success('Pergunta adicionada ao quiz.');
+      setRefreshKey((prev) => prev + 1);
+    } catch (e: any) {
+      toast.error(e?.message || 'Falha ao adicionar pergunta');
+    }
   };
 
   const normalizeDifficultyLevel = (raw: any): 'basico' | 'intermediario' | 'avancado' | 'especialista' => {
@@ -634,6 +764,104 @@ export function QuizCreationWizard() {
                 {autoGenerating ? "Gerando e inserindo..." : "Gerar e inserir perguntas"}
               </Button>
             </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="border-sky-500/30 bg-sky-500/5">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <HelpCircle className="h-5 w-5 text-sky-400" />
+            Sugestoes do StudyLab (compendio)
+          </CardTitle>
+          <CardDescription>
+            Use perguntas sugeridas na catalogacao para acelerar a criacao. Filtre por tema, mais acessadas ou mais recentes.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="space-y-1">
+              <Label>Buscar</Label>
+              <Input
+                value={questionSearch}
+                onChange={(e) => setQuestionSearch(e.target.value)}
+                placeholder="Buscar por pergunta, tema ou fonte..."
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>Categoria</Label>
+              <Select value={questionCategory} onValueChange={(v) => setQuestionCategory(v as any)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {STUDYLAB_CATEGORIES.map((c) => (
+                    <SelectItem key={c} value={c}>
+                      {STUDYLAB_CATEGORY_LABELS[c]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label>Ordenar</Label>
+              <Select value={questionSort} onValueChange={(v) => setQuestionSort(v as any)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="recent">Mais recentes</SelectItem>
+                  <SelectItem value="access">Mais acessadas</SelectItem>
+                  <SelectItem value="relevance">Mais relevantes</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="space-y-2 max-h-80 overflow-y-auto">
+            {filteredSuggestedQuestions.length === 0 && (
+              <p className="text-sm text-muted-foreground">
+                Nenhuma sugestao encontrada. Envie materiais no StudyLab para gerar perguntas sugeridas.
+              </p>
+            )}
+            {filteredSuggestedQuestions.map((item: any) => {
+              const source = item?.study_sources || {};
+              const tags = Array.isArray(item?.tags) ? item.tags : [];
+              return (
+                <div key={item.id} className="rounded-md border border-border bg-background/60 p-3 space-y-2">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold leading-snug">{String(item?.question_text || '').trim()}</p>
+                      <p className="text-[11px] text-muted-foreground">
+                        Fonte: {String(source?.title || 'Sem titulo').slice(0, 80)}
+                        {source?.category ? ` • ${source.category}` : ''}
+                        {source?.topic ? ` • ${source.topic}` : ''}
+                      </p>
+                      <p className="text-[11px] text-muted-foreground">
+                        {Array.isArray(item?.options) ? `${item.options.length} alternativas` : 'Alternativas geradas na curadoria'}
+                      </p>
+                    </div>
+                    <Button type="button" size="sm" variant="outline" disabled={!quizId} onClick={() => handleAddSuggestedQuestion(item)}>
+                      Adicionar
+                    </Button>
+                  </div>
+                  {tags.length > 0 && (
+                    <div className="flex flex-wrap gap-1">
+                      {tags.slice(0, 8).map((t: string) => (
+                        <span key={t} className="text-[10px] rounded-full border border-border px-2 py-0.5 text-muted-foreground">
+                          #{t}
+                        </span>
+                      ))}
+                      {tags.length > 8 && (
+                        <span className="text-[10px] rounded-full border border-border px-2 py-0.5 text-muted-foreground">
+                          +{tags.length - 8}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </CardContent>
       </Card>

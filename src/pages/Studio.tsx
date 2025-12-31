@@ -130,7 +130,7 @@ const Studio = () => {
       case 'ai-quiz':
         return <AiQuizGenerator />;
       case 'study-lab':
-        return <StudyLab showOrgCatalog />;
+        return <StudyLab />;
       case 'maintenance':
         return <StudioMaintenance />;
       case 'team-bonus':

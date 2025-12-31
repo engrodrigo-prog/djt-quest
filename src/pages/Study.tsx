@@ -15,7 +15,7 @@ export default function Study() {
             {t("study.subtitle")}
           </p>
         </div>
-        <StudyLab showOrgCatalog />
+        <StudyLab />
       </main>
       <Navigation />
     </div>

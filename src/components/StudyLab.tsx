@@ -18,6 +18,8 @@ import { getActiveLocale } from "@/lib/i18n/activeLocale";
 import { ForumKbThemeMenu } from "@/components/ForumKbThemeMenu";
 import type { ForumKbSelection } from "@/components/ForumKbThemeSelector";
 import { useNavigate } from "react-router-dom";
+import { DJT_RULES_ARTICLE } from "../../shared/djt-rules";
+import { apiFetch } from "@/lib/api";
 
 interface StudySource {
   id: string;
@@ -36,6 +38,8 @@ interface StudySource {
   published?: boolean | null;
   metadata?: any | null;
   is_persistent: boolean;
+  expires_at?: string | null;
+  access_count?: number | null;
   created_at: string;
   last_used_at: string | null;
 }
@@ -91,6 +95,9 @@ const EMPTY_INCIDENT: IncidentForm = {
   mudancasImplementadas: "",
 };
 
+const PRIVATE_TTL_DAYS = 7;
+const FIXED_RULES_ID = "fixed:djt-quest-rules";
+
 const normalizeCategory = (raw: unknown): StudyCategory => {
   const s = (raw || "").toString().trim().toUpperCase().replace(/\s+/g, "_");
   return (STUDY_CATEGORIES as readonly string[]).includes(s) ? (s as StudyCategory) : "OUTROS";
@@ -101,8 +108,8 @@ const normalizeScope = (raw: unknown): StudyScope => {
   return s === "org" ? "org" : "user";
 };
 
-export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean }) => {
-  const { user, isLeader, studioAccess } = useAuth();
+export const StudyLab = () => {
+  const { user, studioAccess } = useAuth();
   const navigate = useNavigate();
   const [sources, setSources] = useState<StudySource[]>([]);
   const [loadingSources, setLoadingSources] = useState(false);
@@ -112,18 +119,21 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
   const [url, setUrl] = useState("");
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [visibilityFilter, setVisibilityFilter] = useState<"all" | "public" | "private">("all");
+  const [categoryFilter, setCategoryFilter] = useState<StudyCategory | "ALL">("ALL");
 
   const [newCategory, setNewCategory] = useState<StudyCategory>("OUTROS");
-  const [newScope, setNewScope] = useState<StudyScope>("user");
-  const [newPublished, setNewPublished] = useState(true);
+  const [newVisibility, setNewVisibility] = useState<"public" | "private">("public");
   const [incident, setIncident] = useState<IncidentForm>(EMPTY_INCIDENT);
   const insertedUrlsRef = useRef<Set<string>>(new Set());
+  const purgeDoneRef = useRef(false);
 
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
   const [oracleMode, setOracleMode] = useState(true);
+  const [useWeb, setUseWeb] = useState(true);
   const [showUploader, setShowUploader] = useState(false);
   const [polling, setPolling] = useState(false);
   const [kbEnabled, setKbEnabled] = useState(false);
@@ -135,20 +145,22 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
     }
   }, [showUploader]);
 
-  // Studio (liderança) costuma publicar no catálogo da organização por padrão
-  useEffect(() => {
-    if (!isLeader) return;
-    if (!showOrgCatalog) return;
-    setNewScope((prev) => (prev === "org" ? prev : "org"));
-    setNewPublished((prev) => (typeof prev === "boolean" ? prev : true));
-  }, [isLeader, showOrgCatalog]);
+  // default: publico, com opcao de tornar temporario (privado)
 
   const fetchSources = async () => {
     if (!user) return;
     try {
       setLoadingSources(true);
+      if (!purgeDoneRef.current) {
+        purgeDoneRef.current = true;
+        try {
+          await apiFetch("/api/study?handler=purge-expired", { method: "POST" });
+        } catch {
+          // best-effort
+        }
+      }
       const columnsV2 =
-        "id, user_id, title, kind, url, storage_path, summary, ingest_status, ingested_at, ingest_error, topic, category, scope, published, metadata, is_persistent, created_at, last_used_at";
+        "id, user_id, title, kind, url, storage_path, summary, ingest_status, ingested_at, ingest_error, topic, category, scope, published, metadata, is_persistent, expires_at, access_count, created_at, last_used_at";
       const columnsV1 =
         "id, user_id, title, kind, url, storage_path, summary, ingest_status, ingested_at, ingest_error, topic, is_persistent, created_at, last_used_at";
 
@@ -160,7 +172,7 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
       error = v2.error;
 
       // Backward-compat: se ainda não migrou a tabela, tenta sem colunas novas
-      if (error && /column .*?(category|scope|published|metadata)/i.test(String(error.message || error))) {
+      if (error && /column .*?(category|scope|published|metadata|expires_at|access_count)/i.test(String(error.message || error))) {
         const v1 = await supabase.from("study_sources").select(columnsV1).order("created_at", { ascending: false });
         data = v1.data as any[] | null;
         error = v1.error;
@@ -205,13 +217,14 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
   }, [sources.length, sources.map((s) => s.ingest_status).join(",")]);
 
   const selectedSource = useMemo(
-    () => sources.find((s) => s.id === selectedSourceId) || null,
-    [selectedSourceId, sources]
+    () => [...fixedSources, ...sources].find((s) => s.id === selectedSourceId) || null,
+    [selectedSourceId, sources, fixedSources]
   );
 
-  const canPublishOrg = Boolean(isLeader);
-  const effectiveScope: StudyScope = canPublishOrg ? newScope : "user";
-  const effectivePublished = effectiveScope === "org" ? Boolean(newPublished) : false;
+  const effectiveScope: StudyScope = newVisibility === "public" ? "org" : "user";
+  const effectivePublished = effectiveScope === "org";
+  const effectiveExpiresAt =
+    effectiveScope === "user" ? new Date(Date.now() + PRIVATE_TTL_DAYS * 24 * 60 * 60 * 1000).toISOString() : null;
 
   const buildInsertMetadata = (category: StudyCategory) => {
     if (category !== "RELATORIO_OCORRENCIA") return {};
@@ -355,17 +368,18 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
           url: u,
           summary: info.summary,
           ingest_status: "pending",
-          is_persistent: true,
+          is_persistent: effectiveScope === "org",
           last_used_at: new Date().toISOString(),
           category,
           scope: effectiveScope,
           published: effectivePublished,
+          expires_at: effectiveExpiresAt,
           metadata,
         };
       });
 
       const selectV2 =
-        "id, user_id, title, kind, url, storage_path, summary, ingest_status, ingested_at, ingest_error, topic, category, scope, published, metadata, is_persistent, created_at, last_used_at";
+        "id, user_id, title, kind, url, storage_path, summary, ingest_status, ingested_at, ingest_error, topic, category, scope, published, metadata, is_persistent, expires_at, access_count, created_at, last_used_at";
       const selectV1 =
         "id, user_id, title, kind, url, storage_path, summary, ingest_status, ingested_at, ingest_error, topic, is_persistent, created_at, last_used_at";
 
@@ -377,8 +391,8 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
       error = v2.error;
 
       // Backward-compat: tabela ainda sem colunas novas
-      if (error && /column .*?(category|scope|published|metadata)/i.test(String(error.message || error))) {
-        const legacyInserts = inserts.map(({ category: _c, scope: _s, published: _p, metadata: _m, ...rest }) => rest);
+      if (error && /column .*?(category|scope|published|metadata|expires_at|access_count)/i.test(String(error.message || error))) {
+        const legacyInserts = inserts.map(({ category: _c, scope: _s, published: _p, metadata: _m, expires_at: _e, ...rest }) => rest);
         const v1 = await supabase.from("study_sources").insert(legacyInserts as any).select(selectV1);
         data = v1.data as any[] | null;
         error = v1.error;
@@ -429,8 +443,9 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
 
   const handleSelectSource = async (id: string) => {
     setSelectedSourceId(id);
+    if (id === FIXED_RULES_ID) return;
     try {
-      await supabase.from("study_sources").update({ last_used_at: new Date().toISOString() }).eq("id", id);
+      await supabase.rpc("increment_study_source_access", { p_source_id: id });
     } catch {
       /* silencioso; não bloqueia UI */
     }
@@ -441,6 +456,7 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
       toast("Faça login para gerenciar materiais.");
       return;
     }
+    if (id === FIXED_RULES_ID) return;
     const confirmed = window.confirm("Remover este material da sua base de estudos?");
     if (!confirmed) return;
     try {
@@ -490,18 +506,26 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
     }
   };
 
-  const handleSetPublished = async (id: string, published: boolean) => {
+  const handleSetVisibility = async (id: string, visibility: "public" | "private") => {
     if (!user) {
-      toast("Faça login para gerenciar publicações.");
+      toast("Faça login para gerenciar visibilidade.");
       return;
     }
+    const updates =
+      visibility === "public"
+        ? { scope: "org", published: true, expires_at: null }
+        : {
+            scope: "user",
+            published: false,
+            expires_at: new Date(Date.now() + PRIVATE_TTL_DAYS * 24 * 60 * 60 * 1000).toISOString(),
+          };
     try {
-      const { error } = await supabase.from("study_sources").update({ published }).eq("id", id);
+      const { error } = await supabase.from("study_sources").update(updates).eq("id", id);
       if (error) throw error;
-      setSources((prev) => prev.map((s) => (s.id === id ? { ...s, published } : s)));
-      toast.success(published ? "Publicado no catálogo da organização." : "Marcado como rascunho (somente liderança).");
+      setSources((prev) => prev.map((s) => (s.id === id ? { ...s, ...updates } : s)));
+      toast.success(visibility === "public" ? "Material publicado para todos." : "Material mantido privado por 7 dias.");
     } catch (e: any) {
-      toast.error(e?.message || "Não foi possível atualizar a publicação.");
+      toast.error(e?.message || "Não foi possível atualizar a visibilidade.");
     }
   };
 
@@ -528,7 +552,7 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
       const metadata = buildInsertMetadata(category);
 
       const selectV2 =
-        "id, user_id, title, kind, url, storage_path, summary, ingest_status, ingested_at, ingest_error, topic, category, scope, published, metadata, is_persistent, created_at, last_used_at";
+        "id, user_id, title, kind, url, storage_path, summary, ingest_status, ingested_at, ingest_error, topic, category, scope, published, metadata, is_persistent, expires_at, access_count, created_at, last_used_at";
       const selectV1 =
         "id, user_id, title, kind, url, storage_path, summary, ingest_status, ingested_at, ingest_error, topic, is_persistent, created_at, last_used_at";
 
@@ -539,11 +563,12 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
         url: link,
         summary: finalDesc,
         ingest_status: "pending",
-        is_persistent: true,
+        is_persistent: effectiveScope === "org",
         last_used_at: new Date().toISOString(),
         category,
         scope: effectiveScope,
         published: effectivePublished,
+        expires_at: effectiveExpiresAt,
         metadata,
       };
 
@@ -555,8 +580,8 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
       error = v2.error;
 
       // Backward-compat
-      if (error && /column .*?(category|scope|published|metadata)/i.test(String(error.message || error))) {
-        const { category: _c, scope: _s, published: _p, metadata: _m, ...legacyPayload } = payload as any;
+      if (error && /column .*?(category|scope|published|metadata|expires_at|access_count)/i.test(String(error.message || error))) {
+        const { category: _c, scope: _s, published: _p, metadata: _m, expires_at: _e, ...legacyPayload } = payload as any;
         const v1 = await supabase.from("study_sources").insert(legacyPayload).select(selectV1).maybeSingle();
         data = v1.data as any;
         error = v1.error;
@@ -614,6 +639,10 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
         toast.error("Selecione um material da lista para conversar sobre ele.");
         return;
       }
+      if (selectedSourceId === FIXED_RULES_ID) {
+        toast.error("Use o Modo Oráculo para perguntar sobre o artigo fixo.");
+        return;
+      }
       const sel = sources.find((s) => s.id === selectedSourceId);
       if (sel && sel.ingest_status === "failed") {
         toast.error("Curadoria do material falhou. Reprocessando agora...");
@@ -659,6 +688,7 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
           mode: oracleMode ? "oracle" : "study",
           ...(oracleMode ? {} : { source_id: selectedSourceId }),
           language: getActiveLocale(),
+          ...(oracleMode ? { use_web: useWeb } : {}),
           ...(kbEnabled && kbSelection?.tags?.length
             ? { kb_tags: kbSelection.tags, kb_focus: kbSelection.label }
             : {}),
@@ -679,8 +709,8 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
       setChatMessages((prev) => [...prev, { role: "assistant", content: answer }]);
       // Atualiza último uso para manter ativo
       try {
-        if (!oracleMode && selectedSourceId) {
-          await supabase.from("study_sources").update({ last_used_at: new Date().toISOString() }).eq("id", selectedSourceId);
+        if (!oracleMode && selectedSourceId && selectedSourceId !== FIXED_RULES_ID) {
+          await supabase.rpc("increment_study_source_access", { p_source_id: selectedSourceId });
         }
       } catch {
         /* silencioso */
@@ -693,6 +723,31 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
   };
 
   const displaySummary = (s: StudySource) => s.summary?.trim() || s.url || "Sem resumo";
+  const formatExpiry = (s: StudySource) => {
+    if (!s.expires_at) return "";
+    const exp = Date.parse(String(s.expires_at));
+    if (!Number.isFinite(exp)) return "";
+    const diffDays = Math.ceil((exp - Date.now()) / (1000 * 60 * 60 * 24));
+    if (diffDays <= 0) return "Expirado";
+    return `Expira em ${diffDays} dia${diffDays === 1 ? "" : "s"}`;
+  };
+  const renderOutline = (nodes: any[], depth = 0): JSX.Element | null => {
+    if (!Array.isArray(nodes) || nodes.length === 0) return null;
+    return (
+      <ul className={`space-y-1 ${depth > 0 ? "ml-4" : ""}`}>
+        {nodes.map((node, idx) => {
+          const title = String(node?.title || "").trim();
+          if (!title) return null;
+          return (
+            <li key={`${depth}-${idx}`} className="text-xs text-white/80">
+              <span className="font-medium text-white/90">{title}</span>
+              {renderOutline(node?.children, depth + 1)}
+            </li>
+          );
+        })}
+      </ul>
+    );
+  };
   const statusBadge = (s: StudySource) => {
     if (s.ingest_status === "ok") return null;
     if (s.ingest_status === "pending")
@@ -738,14 +793,51 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
     OUTROS: "Outros assuntos",
   };
 
+  const fixedSources = useMemo<StudySource[]>(() => {
+    return [
+      {
+        id: FIXED_RULES_ID,
+        user_id: "system",
+        title: DJT_RULES_ARTICLE.title,
+        kind: "text",
+        url: null,
+        storage_path: null,
+        summary: DJT_RULES_ARTICLE.summary,
+        ingest_status: "ok",
+        ingested_at: null,
+        ingest_error: null,
+        topic: "OUTROS",
+        category: "OUTROS",
+        scope: "org",
+        published: true,
+        metadata: {
+          fixed: true,
+          fixed_body: DJT_RULES_ARTICLE.body,
+          ai: { outline: DJT_RULES_ARTICLE.outline },
+          tags: DJT_RULES_ARTICLE.tags,
+        },
+        is_persistent: true,
+        created_at: "2025-01-01T00:00:00Z",
+        last_used_at: null,
+        expires_at: null,
+        access_count: 0,
+      },
+    ];
+  }, []);
+
+  const isFixedSource = (s: StudySource) => s.id === FIXED_RULES_ID;
+  const isPublicSource = (s: StudySource) => normalizeScope(s.scope) === "org" && s.published !== false;
+  const isPrivateSource = (s: StudySource) => normalizeScope(s.scope) === "user" || s.published === false;
+
   const canManageSource = (s: StudySource) => {
     if (!user) return false;
-    const scope = normalizeScope(s.scope);
-    if (scope === "org") return canPublishOrg;
+    if (isFixedSource(s)) return false;
     return s.user_id === user.id;
   };
 
   const matchesSearch = (s: StudySource, q: string) => {
+    const meta = s.metadata && typeof s.metadata === "object" ? s.metadata : null;
+    const tags = Array.isArray(meta?.tags) ? meta.tags : Array.isArray(meta?.ai?.tags) ? meta.ai.tags : [];
     const hay = [
       s.title || "",
       s.summary || "",
@@ -753,43 +845,42 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
       normalizeCategory(s.category),
       s.topic || "",
       TOPIC_LABELS[(s.topic || "").toUpperCase().replace(/\s+/g, "_")] || "",
+      tags.join(" "),
     ]
       .join(" ")
       .toLowerCase();
     return hay.includes(q);
   };
 
-  const mySources = useMemo(() => {
-    if (!user) return [];
-    return sources.filter((s) => s.user_id === user.id && normalizeScope(s.scope) === "user");
-  }, [sources, user]);
-
-  const orgSources = useMemo(() => {
-    if (!showOrgCatalog) return [];
-    return sources.filter((s) => normalizeScope(s.scope) === "org");
-  }, [sources, showOrgCatalog]);
-
+  const allSources = useMemo(() => [...fixedSources, ...sources], [fixedSources, sources]);
   const q = search.trim().toLowerCase();
-  const filteredMySources = useMemo(() => (q ? mySources.filter((s) => matchesSearch(s, q)) : mySources), [q, mySources]);
-  const filteredOrgSources = useMemo(() => (q ? orgSources.filter((s) => matchesSearch(s, q)) : orgSources), [q, orgSources]);
+  const visibleSources = useMemo(() => {
+    const now = Date.now();
+    return allSources.filter((s) => {
+      if (!isFixedSource(s) && s.expires_at) {
+        const exp = Date.parse(String(s.expires_at));
+        if (Number.isFinite(exp) && exp <= now) return false;
+      }
+      if (visibilityFilter === "public" && !isFixedSource(s) && !isPublicSource(s)) return false;
+      if (visibilityFilter === "private") {
+        if (!user) return false;
+        if (!isPrivateSource(s) || s.user_id !== user.id) return false;
+      }
+      if (categoryFilter !== "ALL" && normalizeCategory(s.category) !== categoryFilter) return false;
+      if (q && !matchesSearch(s, q)) return false;
+      return true;
+    });
+  }, [allSources, visibilityFilter, categoryFilter, q, user]);
 
-  const groupByCategory = (list: StudySource[]) => {
+  const groupedSources = useMemo(() => {
     const groups: Partial<Record<StudyCategory, StudySource[]>> = {};
-    for (const s of list) {
+    for (const s of visibleSources) {
       const key = normalizeCategory(s.category);
       if (!groups[key]) groups[key] = [];
       groups[key]!.push(s);
     }
     return groups;
-  };
-
-  const myByCategory = groupByCategory(filteredMySources);
-  const orgByCategory = groupByCategory(filteredOrgSources);
-
-  const visibleSources = useMemo(
-    () => [...filteredMySources, ...filteredOrgSources],
-    [filteredMySources, filteredOrgSources]
-  );
+  }, [visibleSources]);
 
   // Se o usuário filtrou/ocultou a seleção atual, seleciona o primeiro item visível.
   useEffect(() => {
@@ -820,12 +911,29 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
         </div>
       )}
 
-      {/* Catálogo único acima: seus materiais + (opcional) organização */}
       <Card className="bg-white/5 border border-white/20 text-white backdrop-blur-md shadow-lg">
+        <CardHeader>
+          <CardTitle className="text-white">StudyLab • Enciclopédia viva</CardTitle>
+          <CardDescription className="text-white/80">
+            Use como compendio tecnico: busca interna + pesquisa online, relatorios de ocorrencias da subtransmissao, procedimentos, GEDs e arquivos enviados.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="text-sm text-white/90 space-y-2">
+          <ul className="list-disc pl-5 space-y-1">
+            <li>Conteúdo público fica disponível para todos no StudyLab.</li>
+            <li>Conteúdo privado é temporário e expira em até {PRIVATE_TTL_DAYS} dias.</li>
+            <li>O Oráculo combina base interna e web (quando habilitado) para respostas rápidas.</li>
+          </ul>
+        </CardContent>
+      </Card>
+
+      <div className="grid gap-4 lg:grid-cols-[320px_1fr]">
+        <div className="space-y-4">
+          <Card className="bg-white/5 border border-white/20 text-white backdrop-blur-md shadow-lg">
         <CardHeader>
           <div className="flex items-center gap-2">
             <MessageCircle className="h-4 w-4 text-primary" />
-            <CardTitle className="text-white">StudyLab • Base de conhecimento</CardTitle>
+            <CardTitle className="text-white">Catálogo StudyLab</CardTitle>
             <TipDialogButton
               tipId="studylab-oracle"
               ariaLabel="Entenda o StudyLab"
@@ -839,7 +947,7 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  <p>Materiais sem uso por 30 dias podem sair do catálogo (para manter a base enxuta).</p>
+                  <p>Materiais privados expiram em até {PRIVATE_TTL_DAYS} dias.</p>
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
@@ -854,10 +962,10 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
             </Button>
           </div>
           <CardDescription className="text-white/80">
-            Salve manuais, procedimentos, relatórios e imagens. Depois, pergunte ao Oráculo para transformar isso em aprendizados, fóruns e quizzes.
+            Arquivos publicos entram no compendio. Privados ficam disponiveis apenas para voce por {PRIVATE_TTL_DAYS} dias.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4 max-h-[520px] overflow-y-auto text-white">
+        <CardContent className="space-y-4 max-h-[720px] overflow-y-auto text-white">
           {showUploader && (
             <div className="rounded-lg border border-white/20 bg-white/5 p-4 space-y-4">
               <div className="grid gap-4 sm:grid-cols-2">
@@ -876,31 +984,23 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
                     </SelectContent>
                   </Select>
                 </div>
-
-                {canPublishOrg && (
-                  <div className="space-y-2">
-                    <Label className="text-white">Destino</Label>
-                    <Select value={effectiveScope} onValueChange={(v) => setNewScope(normalizeScope(v))}>
-                      <SelectTrigger className="text-white">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="user">Meu StudyLab (privado)</SelectItem>
-                        <SelectItem value="org">Catálogo da organização</SelectItem>
-                      </SelectContent>
-                    </Select>
-
-                    {effectiveScope === "org" && (
-                      <div className="flex items-center justify-between rounded-md border border-white/20 bg-white/5 px-3 py-2">
-                        <div>
-                          <p className="text-xs font-medium text-white">Publicado</p>
-                          <p className="text-[11px] text-white/70">Visível para todos no StudyLab.</p>
-                        </div>
-                        <Switch checked={newPublished} onCheckedChange={setNewPublished} />
-                      </div>
-                    )}
-                  </div>
-                )}
+                <div className="space-y-2">
+                  <Label className="text-white">Visibilidade</Label>
+                  <Select value={newVisibility} onValueChange={(v) => setNewVisibility(v as "public" | "private")}>
+                    <SelectTrigger className="text-white">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="public">Publico (para todos)</SelectItem>
+                      <SelectItem value="private">Privado (expira em {PRIVATE_TTL_DAYS} dias)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {newVisibility === "private" && (
+                    <p className="text-[11px] text-white/70">
+                      Privado serve para consultas temporarias e some automaticamente apos {PRIVATE_TTL_DAYS} dias.
+                    </p>
+                  )}
+                </div>
               </div>
 
               {newCategory === "RELATORIO_OCORRENCIA" && (
@@ -997,7 +1097,7 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
                   maxVideoSeconds={0}
                 />
                 <p className="text-xs text-white/80">
-                  Materiais inativos por 30 dias sem consulta saem automaticamente do catálogo.
+                  Materiais privados expiram em {PRIVATE_TTL_DAYS} dias. Publicos permanecem no compendio.
                 </p>
               </div>
             </div>
@@ -1008,18 +1108,49 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
               id="study-search"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Buscar por título, resumo, categoria ou tema..."
+              placeholder="Buscar por titulo, resumo, categoria ou tema..."
               className="text-white placeholder:text-white/50"
             />
           </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1">
+              <Label className="text-white text-xs">Visibilidade</Label>
+              <Select value={visibilityFilter} onValueChange={(v) => setVisibilityFilter(v as any)}>
+                <SelectTrigger className="text-white">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos</SelectItem>
+                  <SelectItem value="public">Publicos</SelectItem>
+                  <SelectItem value="private">Privados (meus)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-white text-xs">Categoria</Label>
+              <Select value={categoryFilter} onValueChange={(v) => setCategoryFilter(v as any)}>
+                <SelectTrigger className="text-white">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">Todas</SelectItem>
+                  {CATEGORY_ORDER.map((c) => (
+                    <SelectItem key={c} value={c}>
+                      {CATEGORY_LABELS[c]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
           <div className="space-y-2">
-            <p className="text-xs font-semibold text-white/80">Seu catálogo</p>
-            {loadingSources && <p className="text-sm text-white/70">Carregando sua base de estudos...</p>}
-            {!loadingSources && filteredMySources.length === 0 && (
-              <p className="text-sm text-white/70">Nenhum material salvo ainda. Use o botão acima para adicionar.</p>
+            <p className="text-xs font-semibold text-white/80">Materiais</p>
+            {loadingSources && <p className="text-sm text-white/70">Carregando a base...</p>}
+            {!loadingSources && visibleSources.length === 0 && (
+              <p className="text-sm text-white/70">Nenhum material encontrado com esses filtros.</p>
             )}
             {CATEGORY_ORDER.map((cat) => {
-              const items = myByCategory[cat];
+              const items = groupedSources[cat];
               if (!items || !items.length) return null;
               return (
                 <div key={cat} className="space-y-1">
@@ -1030,6 +1161,9 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
                     const isActive = s.id === selectedSourceId;
                     const topicKey = (s.topic || "").toUpperCase().replace(/\s+/g, "_");
                     const topicLabel = topicKey ? (TOPIC_LABELS[topicKey] || s.topic || "") : "";
+                    const isPublic = isPublicSource(s) || isFixedSource(s);
+                    const visibilityLabel = isFixedSource(s) ? "FIXO" : isPublic ? "PUBLICO" : "PRIVADO";
+                    const expiryText = !isPublic ? formatExpiry(s) : "";
                     return (
                       <div
                         key={s.id}
@@ -1055,10 +1189,14 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
                             </p>
                             <p className="text-[11px] text-white/70">
                               {new Date(s.created_at).toLocaleString(getActiveLocale())}
+                              {expiryText ? ` • ${expiryText}` : ""}
                             </p>
                             {statusBadge(s)}
                           </div>
-                          <div className="flex items-center gap-1">
+                          <div className="flex items-center gap-1 flex-wrap justify-end">
+                            <Badge variant="outline" className="text-[10px] border-white/50 text-white">
+                              {visibilityLabel}
+                            </Badge>
                             {topicLabel && (
                               <Badge variant="outline" className="text-[10px] border-white/50 text-white/90">
                                 {topicLabel}
@@ -1082,9 +1220,7 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
                             )}
                           </div>
                         </div>
-                        <p className="text-sm text-white mt-1 line-clamp-2">
-                          {displaySummary(s)}
-                        </p>
+                        <p className="text-sm text-white mt-1 line-clamp-2">{displaySummary(s)}</p>
                       </div>
                     );
                   })}
@@ -1092,96 +1228,12 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
               );
             })}
           </div>
-
-          {showOrgCatalog && (
-            <div className="space-y-2 pt-2 border-t border-white/20">
-              <p className="text-xs font-semibold text-white/80">Catálogo da organização</p>
-              {!loadingSources && filteredOrgSources.length === 0 && (
-                <p className="text-sm text-white/70">Nenhum material publicado pela organização ainda.</p>
-              )}
-              {CATEGORY_ORDER.map((cat) => {
-                const items = orgByCategory[cat];
-                if (!items || !items.length) return null;
-                return (
-                  <div key={cat} className="space-y-1">
-                    <p className="mt-2 text-[11px] font-semibold uppercase tracking-wide text-white/60">
-                      {CATEGORY_LABELS[cat]}
-                    </p>
-                    {items.map((s) => {
-                      const isActive = s.id === selectedSourceId;
-                      const topicKey = (s.topic || "").toUpperCase().replace(/\s+/g, "_");
-                      const topicLabel = topicKey ? (TOPIC_LABELS[topicKey] || s.topic || "") : "";
-                      const isDraft = s.published === false;
-                      return (
-                        <div
-                          key={s.id}
-                          role="button"
-                          tabIndex={0}
-                          className={`w-full text-left rounded-md border px-3 py-2 transition-colors cursor-pointer ${
-                            isActive
-                              ? "border-primary/80 bg-primary/20"
-                              : "border-white/30 bg-white/5 hover:border-primary/40"
-                          }`}
-                          onClick={() => handleSelectSource(s.id)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter" || e.key === " ") {
-                              e.preventDefault();
-                              handleSelectSource(s.id);
-                            }
-                          }}
-                        >
-                          <div className="flex items-start justify-between gap-2">
-                            <div>
-                              <p className="font-semibold leading-tight text-white">
-                                {s.title?.trim() || deriveTitleFromUrl(s.url || "")}
-                              </p>
-                              <p className="text-[11px] text-white/70">
-                                {new Date(s.created_at).toLocaleString(getActiveLocale())}
-                              </p>
-                              {statusBadge(s)}
-                            </div>
-                            <div className="flex items-center gap-1">
-                              <Badge variant="outline" className="text-[10px] border-blue-300/60 text-blue-100 bg-blue-500/10">
-                                {isDraft ? "RASCUNHO" : "ORG"}
-                              </Badge>
-                              {topicLabel && (
-                                <Badge variant="outline" className="text-[10px] border-white/50 text-white/90">
-                                  {topicLabel}
-                                </Badge>
-                              )}
-                              <Badge variant="outline" className="text-[10px] border-white/50 text-white">
-                                {s.kind.toUpperCase()}
-                              </Badge>
-                              {canManageSource(s) && (
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleDeleteSource(s.id);
-                                  }}
-                                  className="inline-flex h-6 w-6 items-center justify-center rounded-full text-white/70 hover:text-red-400 hover:bg-white/10 transition-colors"
-                                  aria-label="Remover material de estudo"
-                                >
-                                  <Trash2 className="h-3 w-3" />
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                          <p className="text-sm text-white mt-1 line-clamp-2">
-                            {displaySummary(s)}
-                          </p>
-                        </div>
-                      );
-                    })}
-                  </div>
-                );
-              })}
-            </div>
-          )}
         </CardContent>
       </Card>
 
-      {selectedSource && (
+      </div>
+      <div className="space-y-4">
+      {selectedSource ? (
         <Card className="bg-white/5 border border-white/20 text-white shadow-xl backdrop-blur-md">
           <CardHeader className="space-y-1">
             <div className="flex items-start justify-between gap-3">
@@ -1192,19 +1244,30 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
                     ? CATEGORY_LABELS[normalizeCategory(selectedSource.category)]
                     : "Outros"}
                   {selectedSource.topic ? ` • ${TOPIC_LABELS[(selectedSource.topic || "").toUpperCase().replace(/\\s+/g, "_")] || selectedSource.topic}` : ""}
+                  {!isPublicSource(selectedSource) && !isFixedSource(selectedSource) && formatExpiry(selectedSource)
+                    ? ` • ${formatExpiry(selectedSource)}`
+                    : ""}
                 </CardDescription>
               </div>
-              <div className="flex items-center gap-2">
-                {canPublishOrg && normalizeScope(selectedSource.scope) === "org" && (
+              <div className="flex items-center gap-2 flex-wrap">
+                {canManageSource(selectedSource) && !isFixedSource(selectedSource) && (
                   <div className="flex items-center gap-2 rounded-md border border-white/20 bg-white/5 px-3 py-2">
-                    <p className="text-xs text-white/80">Publicado</p>
-                    <Switch
-                      checked={selectedSource.published !== false}
-                      onCheckedChange={(v) => handleSetPublished(selectedSource.id, v)}
-                    />
+                    <p className="text-xs text-white/80">Visibilidade</p>
+                    <Select
+                      value={isPublicSource(selectedSource) ? "public" : "private"}
+                      onValueChange={(v) => handleSetVisibility(selectedSource.id, v as "public" | "private")}
+                    >
+                      <SelectTrigger className="h-7 text-[11px] text-white">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="public">Publico</SelectItem>
+                        <SelectItem value="private">Privado</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
                 )}
-                {studioAccess && (
+                {studioAccess && selectedSource.id !== FIXED_RULES_ID && (
                   <Button
                     type="button"
                     size="sm"
@@ -1231,6 +1294,29 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
             {selectedSource.summary && (
               <p className="text-sm text-white/90 whitespace-pre-line">{selectedSource.summary}</p>
             )}
+
+            {(() => {
+              const meta = selectedSource.metadata && typeof selectedSource.metadata === "object" ? selectedSource.metadata : null;
+              const fixedBody = meta?.fixed_body ? String(meta.fixed_body) : "";
+              const outline = meta?.ai?.outline || meta?.outline || [];
+              if (!fixedBody && (!Array.isArray(outline) || outline.length === 0)) return null;
+              return (
+                <div className="rounded-md border border-white/20 bg-white/5 p-3 space-y-3">
+                  {fixedBody && (
+                    <div>
+                      <p className="text-xs font-semibold text-white/80">Artigo fixo</p>
+                      <p className="text-sm text-white/90 whitespace-pre-line mt-1">{fixedBody}</p>
+                    </div>
+                  )}
+                  {Array.isArray(outline) && outline.length > 0 && (
+                    <div>
+                      <p className="text-xs font-semibold text-white/80">Sumario</p>
+                      <div className="mt-2">{renderOutline(outline)}</div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {(() => {
               const meta = selectedSource.metadata && typeof selectedSource.metadata === "object" ? selectedSource.metadata : null;
@@ -1324,6 +1410,15 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
             })()}
           </CardContent>
         </Card>
+      ) : (
+        <Card className="bg-white/5 border border-white/20 text-white shadow-xl backdrop-blur-md">
+          <CardHeader>
+            <CardTitle className="text-white">Selecione um artigo</CardTitle>
+            <CardDescription className="text-white/80">
+              Escolha um material no catalogo para ver resumo, sumario e metadados.
+            </CardDescription>
+          </CardHeader>
+        </Card>
       )}
 
       {/* Chat de Estudos */}
@@ -1336,7 +1431,7 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
             <div>
               <CardTitle className="text-2xl font-semibold leading-tight text-white">Oráculo (perguntas e respostas)</CardTitle>
               <CardDescription className="text-white/80">
-                Pergunte e receba respostas com base nos seus materiais, no catálogo da organização e no Compêndio de Ocorrências.
+                Pergunte e receba respostas com base nos seus materiais, no catalogo publico e no Compendio de Ocorrencias.
               </CardDescription>
             </div>
           </div>
@@ -1402,21 +1497,34 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
             <div className="space-y-3">
               <div className="flex items-center justify-between gap-3 flex-wrap">
                 <Label className="text-white">Pergunta</Label>
-                <div className="flex items-center gap-2 rounded-md border border-white/20 bg-white/5 px-3 py-2">
-                  <div className="min-w-0">
-                    <p className="text-xs font-medium text-white">Modo Oráculo</p>
-                    <p className="text-[11px] text-white/70">
-                      {oracleMode ? "Busca em toda a base" : "Somente no material selecionado"}
-                    </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex items-center gap-2 rounded-md border border-white/20 bg-white/5 px-3 py-2">
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium text-white">Modo Oráculo</p>
+                      <p className="text-[11px] text-white/70">
+                        {oracleMode ? "Busca em toda a base" : "Somente no material selecionado"}
+                      </p>
+                    </div>
+                    <Switch checked={oracleMode} onCheckedChange={setOracleMode} />
                   </div>
-                  <Switch checked={oracleMode} onCheckedChange={setOracleMode} />
+                  <div className="flex items-center gap-2 rounded-md border border-white/20 bg-white/5 px-3 py-2">
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium text-white">Pesquisa online</p>
+                      <p className="text-[11px] text-white/70">
+                        {useWeb ? "Ativa (web + base)" : "Desligada"}
+                      </p>
+                    </div>
+                    <Switch checked={useWeb} onCheckedChange={setUseWeb} disabled={!oracleMode} />
+                  </div>
                 </div>
               </div>
               <div className="border border-white/20 rounded-md p-3 max-h-72 overflow-y-auto bg-white/5 text-sm">
                 {chatMessages.length === 0 && (
                   <p className="text-white/70 text-xs">
                     {oracleMode
-                      ? "Pergunte qualquer coisa sobre os temas da sua área. O Oráculo busca nos materiais e traz um resumo prático (com referências)."
+                      ? useWeb
+                        ? "Pergunte qualquer coisa sobre os temas da sua area. O Oraculo busca nos materiais e na web e traz um resumo pratico (com referencias)."
+                        : "Pergunte qualquer coisa sobre os temas da sua area. O Oraculo busca nos materiais e traz um resumo pratico."
                       : "Selecione um material no catálogo acima e pergunte sobre ele. A IA usa o conteúdo selecionado como contexto."}
                   </p>
                 )}
@@ -1457,7 +1565,9 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
               {chatError && <p className="text-sm text-destructive">Erro: {chatError}</p>}
               <p className="text-[11px] text-white/70">
                 {oracleMode
-                  ? "O Oráculo busca no catálogo e no compêndio, e também usa o histórico desta conversa."
+                  ? useWeb
+                    ? "O Oráculo busca no catálogo, no compendio e na web, e tambem usa o historico desta conversa."
+                    : "O Oráculo busca no catálogo e no compendio, e também usa o histórico desta conversa."
                   : "A IA prioriza o material selecionado no catálogo e o histórico desta conversa."}
                 {kbEnabled && kbSelection?.tags?.length ? " (com foco adicional no tema selecionado na base de conhecimento)" : ""}
               </p>
@@ -1466,6 +1576,8 @@ export const StudyLab = ({ showOrgCatalog = false }: { showOrgCatalog?: boolean 
         </CardContent>
       </Card>
 
+      </div>
+    </div>
     </div>
   );
 };

@@ -156,12 +156,13 @@ export const gameTips: Record<string, GameTip> = {
   'studylab-oracle': {
     title: 'StudyLab (Oráculo)',
     body: [
-      'Aqui você guarda a “memória” da área (materiais e ocorrências) e conversa com uma IA que busca nesses conteúdos.',
+      'Aqui você guarda a “memória” da área (materiais e ocorrências) e conversa com uma IA que busca nesses conteúdos e, quando habilitado, na web.',
       '',
       'O que dá para fazer:',
       '• Subir manuais, procedimentos, imagens, relatórios e links.',
       '• Perguntar sobre modos de falha, causa raiz, cuidados e boas práticas.',
       '• Pedir sugestões de temas para fóruns e perguntas de quiz a partir do material.',
+      '• Publicar materiais no compêndio (público) ou manter privado por alguns dias.',
       '',
       'Dica: se quiser focar em um documento específico, desligue o “Modo Oráculo” no chat.'
     ].join('\n'),
