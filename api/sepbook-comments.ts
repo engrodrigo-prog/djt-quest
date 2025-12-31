@@ -1,7 +1,7 @@
 // @ts-nocheck
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { createClient } from "@supabase/supabase-js";
-import { recomputeSepbookMentionsForPost } from "./sepbook-mentions";
+import { recomputeSepbookMentionsForPost } from "./sepbook-mentions.js";
 import { assertDjtQuestServerEnv, DJT_QUEST_SUPABASE_HOST } from "../server/env-guard.js";
 import { getSupabaseUrlFromEnv } from "../server/lib/supabase-url.js";
 
@@ -15,6 +15,21 @@ const ANON_KEY = (process.env.SUPABASE_ANON_KEY ||
   process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY ||
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) as string;
 const SERVICE_KEY = (SERVICE_ROLE_KEY || ANON_KEY) as string;
+const ENV_INFO = {
+  hasSupabaseUrl: Boolean(SUPABASE_URL),
+  supabaseHost: (() => {
+    if (!SUPABASE_URL) return null;
+    try {
+      return new URL(SUPABASE_URL).hostname;
+    } catch {
+      return "invalid";
+    }
+  })(),
+  hasServiceRoleKey: Boolean(SERVICE_ROLE_KEY),
+  serviceRoleKeyLen: SERVICE_ROLE_KEY ? SERVICE_ROLE_KEY.length : 0,
+  hasAnonKey: Boolean(ANON_KEY),
+  anonKeyLen: ANON_KEY ? ANON_KEY.length : 0,
+};
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === "OPTIONS") return res.status(204).send("");
@@ -22,9 +37,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     assertDjtQuestServerEnv({ requireSupabaseUrl: false });
     if (!SUPABASE_URL || !SERVICE_KEY) return res.status(500).json({ error: "Missing Supabase config" });
-    const admin = createClient(SUPABASE_URL, SERVICE_KEY, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    });
+    let admin: any = null;
+    try {
+      admin = createClient(SUPABASE_URL, SERVICE_KEY, {
+        auth: { autoRefreshToken: false, persistSession: false },
+      });
+    } catch (e: any) {
+      console.error("sepbook-comments: createClient failed", { message: e?.message || e, env: ENV_INFO });
+      return res.status(500).json({ error: "Supabase client init failed" });
+    }
     const authHeader = req.headers["authorization"] as string | undefined;
     const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : undefined;
     const authed =
@@ -193,6 +214,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     return res.status(405).json({ error: "Method not allowed" });
   } catch (e: any) {
+    console.error("sepbook-comments: unhandled error", {
+      message: e?.message || e,
+      stack: e?.stack,
+      env: ENV_INFO,
+      method: req.method,
+      hasAuthHeader: Boolean(req.headers?.authorization),
+    });
     return res.status(500).json({ error: e?.message || "Unknown error" });
   }
 }
