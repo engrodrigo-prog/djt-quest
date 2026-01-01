@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import Navigation from "@/components/Navigation";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
@@ -220,12 +220,27 @@ function SepbookFitBounds({ points }: { points: Array<[number, number]> }) {
   useEffect(() => {
     if (!map) return;
     if (!points || points.length === 0) return;
+    let cancelled = false;
+    const run = () => {
+      if (cancelled) return;
+      try {
+        map.invalidateSize(true);
+        const bounds = L.latLngBounds(points.map((p) => L.latLng(p[0], p[1])));
+        map.fitBounds(bounds, { padding: [24, 24], maxZoom: 14, animate: false });
+      } catch {
+        /* ignore */
+      }
+    };
     try {
-      const bounds = L.latLngBounds(points.map((p) => L.latLng(p[0], p[1])));
-      map.fitBounds(bounds, { padding: [24, 24], maxZoom: 14 });
+      map.whenReady(() => {
+        window.setTimeout(run, 60);
+      });
     } catch {
-      /* ignore */
+      window.setTimeout(run, 60);
     }
+    return () => {
+      cancelled = true;
+    };
   }, [map, points]);
   return null;
 }
@@ -1473,6 +1488,7 @@ export default function SEPBookIG() {
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>Curtidas</DialogTitle>
+            <DialogDescription>Lista de pessoas que curtiram a publicação.</DialogDescription>
           </DialogHeader>
           {likesLoading ? (
             <div className="py-6 text-sm text-muted-foreground">Carregando...</div>
@@ -1503,6 +1519,7 @@ export default function SEPBookIG() {
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>Filtrar por autor</DialogTitle>
+            <DialogDescription>Escolha um autor para filtrar o feed.</DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <Input value={authorQuery} onChange={(e) => setAuthorQuery(e.target.value)} placeholder="Buscar por nome ou sigla…" />
@@ -1548,9 +1565,9 @@ export default function SEPBookIG() {
         <DialogContent className="max-w-3xl p-0 overflow-hidden">
           <DialogHeader className="px-4 pt-4 pb-2">
             <DialogTitle>Mapa • publicações com GPS</DialogTitle>
-            <p className="text-[12px] text-muted-foreground">
+            <DialogDescription className="text-[12px] text-muted-foreground">
               Aqui aparecem <span className="font-semibold">apenas fotos</span> de publicações onde o autor permitiu capturar a localização (GPS).
-            </p>
+            </DialogDescription>
           </DialogHeader>
 
           {mapPosts.length === 0 ? (
@@ -1558,7 +1575,15 @@ export default function SEPBookIG() {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-0 border-t">
               <div className="h-[48vh] md:h-[70vh] border-b md:border-b-0 md:border-r">
-                <MapContainer center={mapCenter} zoom={12} scrollWheelZoom className="h-full w-full">
+                <MapContainer
+                  center={mapCenter}
+                  zoom={12}
+                  scrollWheelZoom
+                  zoomAnimation={false}
+                  fadeAnimation={false}
+                  markerZoomAnimation={false}
+                  className="h-full w-full"
+                >
                   <TileLayer
                     attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
                     url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
