@@ -105,6 +105,7 @@ type MediaItem = {
   file: File;
   kind: "image" | "video";
   previewUrl?: string;
+  gps?: { lat: number; lng: number } | null;
   uploading: boolean;
   progress: number;
   url?: string;
@@ -214,6 +215,56 @@ const isImageUrl = (url: string) => {
   const u = String(url || "").toLowerCase();
   return /\.(png|jpg|jpeg|webp|gif)(\?|#|$)/i.test(u);
 };
+
+const STORAGE_SEPBOOK_LOCATION_CONSENT = "sepbook_location_consent"; // 'allow' | 'deny'
+
+const readLocationConsent = (): "allow" | "deny" | "unknown" => {
+  try {
+    const raw = localStorage.getItem(STORAGE_SEPBOOK_LOCATION_CONSENT);
+    if (raw === "allow" || raw === "deny") return raw;
+    return "unknown";
+  } catch {
+    return "unknown";
+  }
+};
+
+const writeLocationConsent = (next: "allow" | "deny") => {
+  try {
+    localStorage.setItem(STORAGE_SEPBOOK_LOCATION_CONSENT, next);
+  } catch {
+    /* ignore */
+  }
+};
+
+const clampLatLng = (lat: number, lng: number) => {
+  const la = Number(lat);
+  const ln = Number(lng);
+  if (!Number.isFinite(la) || !Number.isFinite(ln)) return null;
+  if (Math.abs(la) > 90 || Math.abs(ln) > 180) return null;
+  return { lat: la, lng: ln };
+};
+
+const formatGpsLabel = (lat: number, lng: number, source: "photo" | "device") => {
+  const a = source === "photo" ? "GPS da foto" : "Local atual";
+  return `${a}: ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+};
+
+async function extractGpsFromImage(file: File): Promise<{ lat: number; lng: number } | null> {
+  try {
+    const t = String(file?.type || "");
+    if (!t.startsWith("image/")) return null;
+    // Dynamic import to keep the base bundle smaller.
+    const mod: any = await import("exifr");
+    const exifr: any = mod?.default || mod;
+    if (!exifr?.gps) return null;
+    const gps = await exifr.gps(file).catch(() => null);
+    const lat = gps?.latitude ?? gps?.lat;
+    const lng = gps?.longitude ?? gps?.lon ?? gps?.lng;
+    return clampLatLng(Number(lat), Number(lng));
+  } catch {
+    return null;
+  }
+}
 
 function SepbookFitBounds({ points }: { points: Array<[number, number]> }) {
   const map = useMap();
@@ -401,6 +452,12 @@ export default function SEPBookIG() {
   const [authorQuery, setAuthorQuery] = useState("");
   const [mapOpen, setMapOpen] = useState(false);
 
+  const [locationConsent, setLocationConsent] = useState<"allow" | "deny" | "unknown">("unknown");
+  const [locationConsentDialogOpen, setLocationConsentDialogOpen] = useState(false);
+  const [useDeviceLocationDialogOpen, setUseDeviceLocationDialogOpen] = useState(false);
+  const locationConsentResolverRef = useRef<((allowed: boolean) => void) | null>(null);
+  const useDeviceLocationResolverRef = useRef<((allowed: boolean) => void) | null>(null);
+
   const [composerOpen, setComposerOpen] = useState(false);
   const [composerText, setComposerText] = useState("");
   const [composerMentionQuery, setComposerMentionQuery] = useState("");
@@ -431,6 +488,14 @@ export default function SEPBookIG() {
   const deepLinkCommentHandledRef = useRef<string | null>(null);
 
   const activePost = useMemo(() => posts.find((p) => p.id === commentsOpenFor) || null, [commentsOpenFor, posts]);
+
+  const composerGpsFromPhoto = useMemo(() => {
+    const items = composerMedia.filter((m) => m.kind === "image");
+    for (const it of items) {
+      if (it.gps && typeof it.gps.lat === "number" && typeof it.gps.lng === "number") return it.gps;
+    }
+    return null;
+  }, [composerMedia]);
 
   const authorOptions = useMemo(() => {
     const map = new Map<
@@ -511,6 +576,75 @@ export default function SEPBookIG() {
       if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
     }, 80);
   }, []);
+
+  useEffect(() => {
+    setLocationConsent(readLocationConsent());
+  }, []);
+
+  const requestLocationConsent = useCallback(async () => {
+    if (locationConsent === "allow") return true;
+    if (locationConsent === "deny") return false;
+    return await new Promise<boolean>((resolve) => {
+      locationConsentResolverRef.current = resolve;
+      setLocationConsentDialogOpen(true);
+    });
+  }, [locationConsent]);
+
+  const requestUseDeviceLocation = useCallback(async () => {
+    return await new Promise<boolean>((resolve) => {
+      useDeviceLocationResolverRef.current = resolve;
+      setUseDeviceLocationDialogOpen(true);
+    });
+  }, []);
+
+  const getCurrentPosition = useCallback(async (): Promise<{ lat: number; lng: number } | null> => {
+    try {
+      if (typeof navigator === "undefined" || !navigator.geolocation) return null;
+      const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: true,
+          timeout: 9000,
+          maximumAge: 30000,
+        });
+      });
+      return clampLatLng(pos.coords.latitude, pos.coords.longitude);
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const resolveLocationForNewPost = useCallback(async () => {
+    const allowed = await requestLocationConsent();
+    if (!allowed) return null;
+
+    // Prefer EXIF GPS from the image, if present.
+    if (composerGpsFromPhoto) {
+      return {
+        location_lat: composerGpsFromPhoto.lat,
+        location_lng: composerGpsFromPhoto.lng,
+        location_label: formatGpsLabel(composerGpsFromPhoto.lat, composerGpsFromPhoto.lng, "photo"),
+      };
+    }
+
+    // No EXIF GPS: confirm with the user every time before using device location.
+    const ok = await requestUseDeviceLocation();
+    if (!ok) return null;
+
+    const coords = await getCurrentPosition();
+    if (!coords) {
+      toast({
+        title: "Localização indisponível",
+        description: "Não foi possível obter sua localização atual. A publicação será enviada sem GPS.",
+      });
+      return null;
+    }
+
+    return {
+      location_lat: coords.lat,
+      location_lng: coords.lng,
+      location_label: formatGpsLabel(coords.lat, coords.lng, "device"),
+    };
+  }, [composerGpsFromPhoto, getCurrentPosition, requestLocationConsent, requestUseDeviceLocation, toast]);
 
   const uploadedComposerUrls = useMemo(
     () => composerMedia.filter((m) => m.url).map((m) => m.url!) as string[],
@@ -749,7 +883,11 @@ export default function SEPBookIG() {
 
         const id = randomId();
         const previewUrl = URL.createObjectURL(file);
-        const item: MediaItem = { id, file, kind, previewUrl, uploading: true, progress: 30 };
+        const gps =
+          opts.context === "post" && kind === "image"
+            ? await extractGpsFromImage(file)
+            : null;
+        const item: MediaItem = { id, file, kind, previewUrl, gps, uploading: true, progress: 30 };
         setState((prev: MediaItem[]) => [...prev, item]);
 
         try {
@@ -802,10 +940,11 @@ export default function SEPBookIG() {
     if (!text && uploadedComposerUrls.length === 0) return;
     try {
       setComposerSubmitting(true);
+      const locationPayload = await resolveLocationForNewPost();
       const resp = await apiFetch("/api/sepbook-post", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content_md: text, attachments: uploadedComposerUrls }),
+        body: JSON.stringify({ content_md: text, attachments: uploadedComposerUrls, ...(locationPayload || {}) }),
       });
       const json = await resp.json().catch(() => ({}));
       if (!resp.ok) throw new Error(json?.error || "Falha ao postar");
@@ -822,7 +961,7 @@ export default function SEPBookIG() {
     } finally {
       setComposerSubmitting(false);
     }
-  }, [composerMedia, composerText, composerUploading, toast, uploadedComposerUrls]);
+  }, [composerMedia, composerText, composerUploading, resolveLocationForNewPost, toast, uploadedComposerUrls]);
 
   const submitComment = useCallback(async () => {
     const postId = String(commentsOpenFor || "").trim();
@@ -1637,6 +1776,100 @@ export default function SEPBookIG() {
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={locationConsentDialogOpen}
+        onOpenChange={(open) => {
+          if (open) {
+            setLocationConsentDialogOpen(true);
+            return;
+          }
+          setLocationConsentDialogOpen(false);
+          locationConsentResolverRef.current?.(false);
+          locationConsentResolverRef.current = null;
+        }}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Usar localização (GPS) no SEPBook?</DialogTitle>
+            <DialogDescription>
+              Se permitido, o SEPBook vai salvar a localização da publicação: preferencialmente o GPS da foto (metadados), ou a sua localização atual quando a foto não tiver GPS.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex items-center justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setLocationConsent("deny");
+                writeLocationConsent("deny");
+                setLocationConsentDialogOpen(false);
+                locationConsentResolverRef.current?.(false);
+                locationConsentResolverRef.current = null;
+              }}
+            >
+              Não permitir
+            </Button>
+            <Button
+              type="button"
+              onClick={() => {
+                setLocationConsent("allow");
+                writeLocationConsent("allow");
+                setLocationConsentDialogOpen(false);
+                locationConsentResolverRef.current?.(true);
+                locationConsentResolverRef.current = null;
+              }}
+            >
+              Permitir
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={useDeviceLocationDialogOpen}
+        onOpenChange={(open) => {
+          if (open) {
+            setUseDeviceLocationDialogOpen(true);
+            return;
+          }
+          setUseDeviceLocationDialogOpen(false);
+          useDeviceLocationResolverRef.current?.(false);
+          useDeviceLocationResolverRef.current = null;
+        }}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Foto sem GPS</DialogTitle>
+            <DialogDescription>
+              Esta publicação não tem GPS nos metadados da foto. Quer usar sua localização atual nesta postagem?
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex items-center justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setUseDeviceLocationDialogOpen(false);
+                useDeviceLocationResolverRef.current?.(false);
+                useDeviceLocationResolverRef.current = null;
+              }}
+            >
+              Não usar
+            </Button>
+            <Button
+              type="button"
+              onClick={() => {
+                setUseDeviceLocationDialogOpen(false);
+                useDeviceLocationResolverRef.current?.(true);
+                useDeviceLocationResolverRef.current = null;
+              }}
+            >
+              Usar localização
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </div>
