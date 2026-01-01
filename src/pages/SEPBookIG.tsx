@@ -456,6 +456,7 @@ export default function SEPBookIG() {
   const [authorPickerOpen, setAuthorPickerOpen] = useState(false);
   const [authorQuery, setAuthorQuery] = useState("");
   const [mapOpen, setMapOpen] = useState(false);
+  const mapInstanceRef = useRef<L.Map | null>(null);
 
   const [locationConsent, setLocationConsent] = useState<"allow" | "deny" | "unknown">("unknown");
   const [locationConsentDialogOpen, setLocationConsentDialogOpen] = useState(false);
@@ -1819,7 +1820,20 @@ export default function SEPBookIG() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={mapOpen} onOpenChange={setMapOpen}>
+      <Dialog
+        open={mapOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            try {
+              mapInstanceRef.current?.stop();
+            } catch {
+              /* ignore */
+            }
+          }
+          setMapOpen(open);
+          if (!open) mapInstanceRef.current = null;
+        }}
+      >
         <DialogContent className="max-w-3xl p-0 overflow-hidden">
           <DialogHeader className="px-4 pt-4 pb-2">
             <DialogTitle>{tr("sepbook.mapTitle")}</DialogTitle>
@@ -1836,10 +1850,13 @@ export default function SEPBookIG() {
                 <MapContainer
                   center={mapCenter}
                   zoom={12}
-                  scrollWheelZoom
+                  scrollWheelZoom={false}
                   zoomAnimation={false}
                   fadeAnimation={false}
                   markerZoomAnimation={false}
+                  whenCreated={(map) => {
+                    mapInstanceRef.current = map;
+                  }}
                   className="h-full w-full"
                 >
                   <TileLayer
