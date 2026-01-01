@@ -29,7 +29,8 @@ const ForumTopic = lazy(() => import("./pages/ForumTopic"));
 const ForumInsights = lazy(() => import("./pages/ForumInsights"));
 const UserSetup = lazy(() => import("./pages/UserSetup"));
 const LeaderDashboard = lazy(() => import("./pages/LeaderDashboard"));
-const SEPBook = lazy(() => import("./pages/SEPBook"));
+const SEPBook = lazy(() => import("./pages/SEPBookIG"));
+const SEPBookLegacy = lazy(() => import("./pages/SEPBook"));
 const CampaignDetail = lazy(() => import("./pages/CampaignDetail"));
 const Study = lazy(() => import("./pages/Study"));
 
@@ -145,6 +146,11 @@ const App = () => (
                   <Route path="/sepbook" element={
                     <ProtectedRoute>
                       <SEPBook />
+                    </ProtectedRoute>
+                  } />
+                  <Route path="/sepbook-legacy" element={
+                    <ProtectedRoute>
+                      <SEPBookLegacy />
                     </ProtectedRoute>
                   } />
                   <Route path="/study" element={

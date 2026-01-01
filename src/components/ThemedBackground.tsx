@@ -42,18 +42,37 @@ export function ThemedBackground({ theme, className, fixed = true, fit = 'cover'
         }}
       />
 
-      {/* Gradient overlay for theme tint */}
-      <div className={cn('absolute inset-0 bg-gradient-to-br animate-gradientShift mix-blend-multiply', t.from, t.via, t.to)} />
+      {/* Gradient overlay for theme tint (mobile: less busy) */}
+      <div
+        className={cn(
+          'absolute inset-0 bg-gradient-to-br mix-blend-multiply opacity-70 sm:opacity-100 animate-none sm:animate-gradientShift',
+          t.from,
+          t.via,
+          t.to,
+        )}
+      />
 
       {/* Soft vignette */}
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(255,255,255,0.08),transparent_40%),radial-gradient(circle_at_80%_0%,rgba(255,255,255,0.06),transparent_35%),radial-gradient(circle_at_0%_80%,rgba(255,255,255,0.05),transparent_35%)]" />
 
-      {/* Floating orbs */}
-      <div className={cn('absolute -top-10 -left-10 w-64 h-64 rounded-full opacity-25 animate-floatSlow', t.ring, 'ring-8')} />
-      <div className={cn('absolute bottom-[-3rem] right-[-2rem] w-72 h-72 rounded-full opacity-20 animate-floatSlow2', t.ring, 'ring-8')} />
+      {/* Floating orbs (hide on small screens for readability/perf) */}
+      <div
+        className={cn(
+          'hidden sm:block absolute -top-10 -left-10 w-64 h-64 rounded-full opacity-25 animate-floatSlow',
+          t.ring,
+          'ring-8',
+        )}
+      />
+      <div
+        className={cn(
+          'hidden sm:block absolute bottom-[-3rem] right-[-2rem] w-72 h-72 rounded-full opacity-20 animate-floatSlow2',
+          t.ring,
+          'ring-8',
+        )}
+      />
 
-      {/* Guardian of Life motif: subtle shields grid */}
-      <div className="absolute inset-0 opacity-10">
+      {/* Guardian of Life motif: subtle shields grid (hide on small screens) */}
+      <div className="hidden sm:block absolute inset-0 opacity-10">
         <div className="absolute left-6 top-8 animate-pulseSoft">
           <Shield className="h-10 w-10" />
         </div>

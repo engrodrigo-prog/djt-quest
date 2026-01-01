@@ -82,6 +82,8 @@ const Navigation = () => {
     let timer: any;
 
 	    const fetchCounts = async () => {
+        if (!active) return;
+        if (typeof navigator !== 'undefined' && 'onLine' in navigator && !navigator.onLine) return;
 	      try {
 	        const resp = await apiFetch('/api/admin?handler=studio-pending-counts');
 	        const json = await resp.json().catch(() => ({}));
@@ -148,23 +150,48 @@ const Navigation = () => {
       }
     };
 
-    const startPolling = () => {
+    const stopPolling = () => {
       clearInterval(timer);
-      timer = setInterval(fetchCounts, 30000); // 30s
+      timer = null;
+    };
+
+    const startPolling = () => {
+      stopPolling();
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      timer = setInterval(fetchCounts, 45000); // 45s (reduce noise on mobile)
     };
 
     fetchCounts();
     startPolling();
 
-    const onFocus = () => fetchCounts();
-    const onVisibility = () => { if (document.visibilityState === 'visible') fetchCounts(); };
+    const onFocus = () => {
+      fetchCounts();
+      startPolling();
+    };
+    const onOnline = () => {
+      fetchCounts();
+      startPolling();
+    };
+    const onOffline = () => stopPolling();
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        fetchCounts();
+        startPolling();
+      } else {
+        stopPolling();
+      }
+    };
     window.addEventListener('focus', onFocus);
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
     document.addEventListener('visibilitychange', onVisibility);
 
     return () => {
       active = false;
-      clearInterval(timer);
+      stopPolling();
       window.removeEventListener('focus', onFocus);
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('offline', onOffline);
       document.removeEventListener('visibilitychange', onVisibility);
     };
   }, [studioAccess, isLeader]);

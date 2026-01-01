@@ -3,12 +3,21 @@ import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { X, Download, Info } from "lucide-react";
 import { AttachmentMetadataModal } from "./AttachmentMetadataModal";
+import { cn } from "@/lib/utils";
 
 interface AttachmentViewerProps {
   urls: string[];
   postId?: string;
   /** Default: 'grid'. Use 'carousel' for Instagram-like media. */
   mediaLayout?: 'grid' | 'carousel';
+  /** Optional additional classes for the root container. */
+  className?: string;
+  /** Default: true. When false, disables click-to-open lightbox on images. */
+  enableLightbox?: boolean;
+  /** Default: true. When false, hides the metadata/info button. */
+  showMetadata?: boolean;
+  /** Optional callback for double-click/tap on media (useful for "double tap to like"). */
+  onMediaDoubleClick?: () => void;
 }
 
 const getFileType = (url: string): 'image' | 'audio' | 'video' | 'document' => {
@@ -19,7 +28,15 @@ const getFileType = (url: string): 'image' | 'audio' | 'video' | 'document' => {
   return 'document';
 };
 
-export const AttachmentViewer = ({ urls, postId, mediaLayout = 'grid' }: AttachmentViewerProps) => {
+export const AttachmentViewer = ({
+  urls,
+  postId,
+  mediaLayout = 'grid',
+  className,
+  enableLightbox = true,
+  showMetadata = true,
+  onMediaDoubleClick,
+}: AttachmentViewerProps) => {
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [metadataUrl, setMetadataUrl] = useState<string | null>(null);
@@ -57,7 +74,7 @@ export const AttachmentViewer = ({ urls, postId, mediaLayout = 'grid' }: Attachm
   };
 
   return (
-    <div className="mt-4 space-y-4">
+    <div className={cn("mt-4 space-y-4", className)}>
       {/* Mídia principal (carousel, estilo Instagram) */}
       {mediaLayout === 'carousel' && media.length > 0 && (
         <div className="relative mx-auto w-full max-w-2xl overflow-hidden rounded-lg border bg-background">
@@ -66,7 +83,17 @@ export const AttachmentViewer = ({ urls, postId, mediaLayout = 'grid' }: Attachm
             const t = getFileType(url);
             if (t === 'video') {
               return (
-                <video controls className="w-full max-h-[70vh] bg-black" preload="metadata">
+                <video
+                  controls
+                  className="w-full max-h-[70vh] bg-black"
+                  preload="metadata"
+                  onDoubleClick={(e) => {
+                    if (!onMediaDoubleClick) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onMediaDoubleClick();
+                  }}
+                >
                   <source src={url} />
                   Seu navegador não suporta vídeo.
                 </video>
@@ -77,26 +104,38 @@ export const AttachmentViewer = ({ urls, postId, mediaLayout = 'grid' }: Attachm
               <img
                 src={url}
                 alt={`Mídia ${carouselIndex + 1}`}
-                className="w-full max-h-[70vh] object-contain bg-black/5 cursor-pointer"
+                className={cn(
+                  "w-full max-h-[70vh] object-contain bg-black/5",
+                  enableLightbox ? "cursor-pointer" : "cursor-default",
+                )}
                 onClick={() => {
+                  if (!enableLightbox) return;
                   if (imageIndex >= 0) openLightbox(imageIndex);
+                }}
+                onDoubleClick={(e) => {
+                  if (!onMediaDoubleClick) return;
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onMediaDoubleClick();
                 }}
               />
             );
           })()}
 
-          <div className="absolute top-2 right-2 flex items-center gap-2">
-            <Button
-              variant="secondary"
-              size="sm"
-              className="h-7 w-7 p-0"
-              onClick={() => setMetadataUrl(media[carouselIndex])}
-              title="Detalhes"
-              aria-label="Detalhes"
-            >
-              <Info className="w-4 h-4" />
-            </Button>
-          </div>
+          {showMetadata && (
+            <div className="absolute top-2 right-2 flex items-center gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                className="h-7 w-7 p-0"
+                onClick={() => setMetadataUrl(media[carouselIndex])}
+                title="Detalhes"
+                aria-label="Detalhes"
+              >
+                <Info className="w-4 h-4" />
+              </Button>
+            </div>
+          )}
 
           {media.length > 1 && (
             <>
@@ -149,20 +188,28 @@ export const AttachmentViewer = ({ urls, postId, mediaLayout = 'grid' }: Attachm
               <img
                 src={url}
                 alt={`Anexo ${index + 1}`}
-                className="w-full h-32 object-cover rounded-lg cursor-pointer transition-opacity hover:opacity-90"
-                onClick={() => openLightbox(index)}
-              />
-              <Button
-                variant="secondary"
-                size="sm"
-                className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity h-7 w-7 p-0"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setMetadataUrl(url);
+                className={cn(
+                  "w-full h-32 object-cover rounded-lg transition-opacity hover:opacity-90",
+                  enableLightbox ? "cursor-pointer" : "cursor-default",
+                )}
+                onClick={() => {
+                  if (!enableLightbox) return;
+                  openLightbox(index);
                 }}
-              >
-                <Info className="w-4 h-4" />
-              </Button>
+              />
+              {showMetadata && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity h-7 w-7 p-0"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setMetadataUrl(url);
+                  }}
+                >
+                  <Info className="w-4 h-4" />
+                </Button>
+              )}
             </div>
           ))}
         </div>
@@ -243,7 +290,7 @@ export const AttachmentViewer = ({ urls, postId, mediaLayout = 'grid' }: Attachm
       )}
 
       {/* Lightbox para Imagens */}
-      <Dialog open={lightboxOpen} onOpenChange={setLightboxOpen}>
+      <Dialog open={enableLightbox && lightboxOpen} onOpenChange={setLightboxOpen}>
         <DialogContent className="max-w-4xl w-full p-0">
           <div className="relative">
             <img
