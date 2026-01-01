@@ -6,7 +6,14 @@ import { translateForumTexts, mergeTranslations, localesForAllTargets } from '..
 const SUPABASE_URL = process.env.SUPABASE_URL as string
 const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY) as string
 
-const needsLocales = (map: any, locales: string[]) => {
+const parseBool = (v: any) => {
+  if (v === true) return true
+  const s = String(v ?? '').trim().toLowerCase()
+  return s === '1' || s === 'true' || s === 'yes' || s === 'on'
+}
+
+const needsLocales = (map: any, locales: string[], force = false) => {
+  if (force) return true
   if (!locales || locales.length === 0) return false
   const obj = (map && typeof map === 'object') ? map : {}
   return locales.some((loc) => typeof obj[loc] !== 'string' || obj[loc].trim().length === 0)
@@ -29,6 +36,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!topicId) return res.status(400).json({ error: 'topic_id required' })
 
     const targetLocales = localesForAllTargets((req.body as any)?.locales || (req.query as any)?.locales)
+    const force = parseBool((req.body as any)?.force || (req.query as any)?.force)
 
     const [{ data: topic, error: topicErr }, { data: posts }, { data: compendium }] = await Promise.all([
       admin
@@ -52,22 +60,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!topic) return res.status(404).json({ error: 'Tópico não encontrado' })
 
     const tasks: Array<{ kind: string; id: string; text: string }> = []
-    if (needsLocales((topic as any).title_translations, targetLocales)) {
+    if (needsLocales((topic as any).title_translations, targetLocales, force)) {
       tasks.push({ kind: 'topic_title', id: topic.id, text: topic.title || '' })
     }
-    if (needsLocales((topic as any).description_translations, targetLocales) && (topic.description || '').trim()) {
+    if (needsLocales((topic as any).description_translations, targetLocales, force) && (topic.description || '').trim()) {
       tasks.push({ kind: 'topic_description', id: topic.id, text: topic.description || '' })
     }
 
     const postsList = Array.isArray(posts) ? posts : []
     const cappedPosts = postsList.slice(0, 200)
     for (const p of cappedPosts) {
-      if (needsLocales((p as any).translations, targetLocales)) {
+      if (needsLocales((p as any).translations, targetLocales, force)) {
         tasks.push({ kind: 'post', id: p.id, text: String(p.content_md || '') })
       }
     }
 
-    if (compendium?.summary_md && needsLocales((compendium as any)?.summary_translations, targetLocales)) {
+    if (compendium?.summary_md && needsLocales((compendium as any)?.summary_translations, targetLocales, force)) {
       tasks.push({ kind: 'compendium_summary', id: topic.id, text: String(compendium.summary_md || '') })
     }
 

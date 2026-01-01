@@ -2,7 +2,15 @@ import { createClient } from '@supabase/supabase-js';
 import { translateForumTexts, mergeTranslations, localesForAllTargets } from '../lib/forum-translations.js';
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY);
-const needsLocales = (map, locales) => {
+const parseBool = (v) => {
+    if (v === true)
+        return true;
+    const s = String(v ?? '').trim().toLowerCase();
+    return s === '1' || s === 'true' || s === 'yes' || s === 'on';
+};
+const needsLocales = (map, locales, force = false) => {
+    if (force)
+        return true;
     if (!locales || locales.length === 0)
         return false;
     const obj = (map && typeof map === 'object') ? map : {};
@@ -29,6 +37,7 @@ export default async function handler(req, res) {
         if (!topicId)
             return res.status(400).json({ error: 'topic_id required' });
         const targetLocales = localesForAllTargets((req.body)?.locales || (req.query)?.locales);
+        const force = parseBool((req.body)?.force || (req.query)?.force);
         const [{ data: topic, error: topicErr }, { data: posts }, { data: compendium }] = await Promise.all([
             admin
                 .from('forum_topics')
@@ -52,20 +61,20 @@ export default async function handler(req, res) {
         if (!topic)
             return res.status(404).json({ error: 'Tópico não encontrado' });
         const tasks = [];
-        if (needsLocales((topic)?.title_translations, targetLocales)) {
+        if (needsLocales((topic)?.title_translations, targetLocales, force)) {
             tasks.push({ kind: 'topic_title', id: topic.id, text: topic.title || '' });
         }
-        if (needsLocales((topic)?.description_translations, targetLocales) && (topic.description || '').trim()) {
+        if (needsLocales((topic)?.description_translations, targetLocales, force) && (topic.description || '').trim()) {
             tasks.push({ kind: 'topic_description', id: topic.id, text: topic.description || '' });
         }
         const postsList = Array.isArray(posts) ? posts : [];
         const cappedPosts = postsList.slice(0, 200);
         for (const p of cappedPosts) {
-            if (needsLocales((p)?.translations, targetLocales)) {
+            if (needsLocales((p)?.translations, targetLocales, force)) {
                 tasks.push({ kind: 'post', id: p.id, text: String(p.content_md || '') });
             }
         }
-        if (compendium?.summary_md && needsLocales((compendium)?.summary_translations, targetLocales)) {
+        if (compendium?.summary_md && needsLocales((compendium)?.summary_translations, targetLocales, force)) {
             tasks.push({ kind: 'compendium_summary', id: topic.id, text: String(compendium.summary_md || '') });
         }
         const translations = tasks.length

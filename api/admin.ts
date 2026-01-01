@@ -50,6 +50,7 @@ import compendiumExtractImport from '../server/api-handlers/compendium-extract-i
 import compendiumFinalizeImport from '../server/api-handlers/compendium-finalize-import.js';
 import systemCleanup from '../server/api-handlers/system-cleanup.js';
 import quizResetAttempt from '../server/api-handlers/quiz-reset-attempt.js';
+import sepbookBackfillTranslations from '../server/api-handlers/sepbook-backfill-translations.js';
 
 type Handler = (req: VercelRequest, res: VercelResponse) => any | Promise<any>;
 
@@ -101,6 +102,7 @@ const handlers: Record<string, Handler> = {
   'compendium-finalize-import': compendiumFinalizeImport,
   'system-cleanup': systemCleanup,
   'quiz-reset-attempt': quizResetAttempt,
+  'sepbook-backfill-translations': sepbookBackfillTranslations,
 };
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {

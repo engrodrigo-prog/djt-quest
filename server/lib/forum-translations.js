@@ -1,8 +1,8 @@
 import OpenAI from "openai";
 
 const SUPPORTED_LOCALES = ["pt-BR", "en", "zh-CN"];
-const BASE_LOCALE = "pt-BR";
-const DEFAULT_TARGET_LOCALES = ["en", "zh-CN"];
+// We always target all supported locales. Source language is auto-detected per text.
+const DEFAULT_TARGET_LOCALES = [...SUPPORTED_LOCALES];
 
 const client = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
 
@@ -16,10 +16,6 @@ const chunkArray = (arr, size) => {
   const out = [];
   for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
   return out;
-};
-
-const fallbackMap = (locales, text) => {
-  return { [BASE_LOCALE]: text || "" };
 };
 
 const normalizeLocales = (raw) => {
@@ -38,11 +34,15 @@ const normalizeLocales = (raw) => {
 
 export async function translateForumTexts(params) {
   const texts = Array.isArray(params?.texts) ? params.texts.map((t) => String(t ?? "")) : [];
-  const targetLocales = normalizeLocales(params?.targetLocales);
-  const locales = Array.from(new Set([BASE_LOCALE, ...targetLocales]));
+  const locales = Array.from(new Set(normalizeLocales(params?.targetLocales)));
   const maxPerBatch = Math.max(3, Math.min(12, Number(params?.maxPerBatch || 10)));
 
-  const output = texts.map((txt) => fallbackMap(locales, txt));
+  const output = texts.map((txt) => {
+    const base = String(txt ?? "");
+    const map = {};
+    for (const loc of locales) map[loc] = base;
+    return map;
+  });
   const tasks = texts
     .map((text, idx) => ({ idx, text: String(text || "").slice(0, 6000).trim() }))
     .filter((t) => t.text.length > 0);
@@ -51,12 +51,14 @@ export async function translateForumTexts(params) {
   if (!client) return output;
 
   const prompt =
-    `Você traduz textos do fórum da DJT Quest para múltiplos idiomas (${locales.join(", ")}).\n` +
+    `Você traduz textos da DJT Quest para múltiplos idiomas (${locales.join(", ")}).\n` +
     `Regras:\n` +
+    `- Detecte automaticamente o idioma do texto de entrada (pode estar em pt-BR, en, zh-CN ou misturado).\n` +
     `- Preserve markdown, hashtags (#tag), menções (@pessoa ou @equipe) e emojis.\n` +
     `- Mantenha o sentido técnico/profissional; não acrescente comentários.\n` +
     `- Se o texto já estiver em algum idioma alvo, reutilize-o (sem inventar tradução literal).\n` +
-    `Retorne SOMENTE JSON: {"translations":[{ "${locales.join('":"...","')}" : "..." }]} no mesmo tamanho e ordem.`;
+    `Retorne SOMENTE JSON: {"translations":[{ "${locales.join('":"...","')}" : "..." }]} no mesmo tamanho e ordem.\n` +
+    `- Preencha TODAS as chaves de idioma; se não souber, repita o texto de entrada.`;
 
   for (const batch of chunkArray(tasks, maxPerBatch)) {
     try {
@@ -111,9 +113,9 @@ export function mergeTranslations(existing, next) {
 
 export function localesForAllTargets(raw) {
   const target = normalizeLocales(raw);
-  const set = new Set([BASE_LOCALE, ...DEFAULT_TARGET_LOCALES, ...target]);
+  const set = new Set([...DEFAULT_TARGET_LOCALES, ...target]);
   return Array.from(set).filter((loc) => SUPPORTED_LOCALES.includes(loc));
 }
 
 export const FORUM_SUPPORTED_LOCALES = SUPPORTED_LOCALES;
-export const FORUM_BASE_LOCALE = BASE_LOCALE;
+export const FORUM_BASE_LOCALE = "pt-BR";

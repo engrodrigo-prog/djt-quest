@@ -27,6 +27,8 @@ import { buildAbsoluteAppUrl, openWhatsAppShare } from "@/lib/whatsappShare";
 import { useTts } from "@/lib/tts";
 import { AttachmentViewer } from "@/components/AttachmentViewer";
 import { useAuth } from "@/contexts/AuthContext";
+import { useI18n } from "@/contexts/I18nContext";
+import { translateTextsCached } from "@/lib/i18n/aiTranslate";
 import { MapContainer, Marker, Popup, TileLayer, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
@@ -62,6 +64,7 @@ type SepPost = {
   author_avatar: string | null;
   author_base?: string | null;
   content_md: string;
+  translations?: Record<string, string> | null;
   attachments: string[];
   like_count: number;
   comment_count: number;
@@ -80,6 +83,7 @@ type SepComment = {
   author_team: string | null;
   author_avatar?: string | null;
   content_md: string;
+  translations?: Record<string, string> | null;
   attachments?: string[];
   created_at: string;
 };
@@ -440,6 +444,7 @@ export default function SEPBookIG() {
   const routerLocation = useRouterLocation();
   const { speak, isSpeaking } = useTts();
   const { user } = useAuth();
+  const { locale, t: tr } = useI18n();
 
   const [posts, setPosts] = useState<SepPost[]>([]);
   const [loadingFeed, setLoadingFeed] = useState(false);
@@ -488,6 +493,9 @@ export default function SEPBookIG() {
   const deepLinkCommentHandledRef = useRef<string | null>(null);
 
   const activePost = useMemo(() => posts.find((p) => p.id === commentsOpenFor) || null, [commentsOpenFor, posts]);
+
+  const [fallbackTranslations, setFallbackTranslations] = useState<Record<string, string>>({});
+  const translationInFlightRef = useRef(0);
 
   const composerGpsFromPhoto = useMemo(() => {
     const items = composerMedia.filter((m) => m.kind === "image");
@@ -581,6 +589,84 @@ export default function SEPBookIG() {
     setLocationConsent(readLocationConsent());
   }, []);
 
+  useEffect(() => {
+    setFallbackTranslations({});
+  }, [locale]);
+
+  const getPostDisplayText = useCallback(
+    (post: SepPost | null) => {
+      const raw = String(post?.content_md || "");
+      const stored = (post as any)?.translations?.[locale];
+      if (typeof stored === "string" && stored.trim()) return stored;
+      const fallback = post?.id ? fallbackTranslations[`post:${post.id}`] : null;
+      if (typeof fallback === "string" && fallback.trim()) return fallback;
+      return raw;
+    },
+    [fallbackTranslations, locale],
+  );
+
+  const getCommentDisplayText = useCallback(
+    (comment: SepComment | null) => {
+      const raw = String(comment?.content_md || "");
+      const stored = (comment as any)?.translations?.[locale];
+      if (typeof stored === "string" && stored.trim()) return stored;
+      const fallback = comment?.id ? fallbackTranslations[`comment:${comment.id}`] : null;
+      if (typeof fallback === "string" && fallback.trim()) return fallback;
+      return raw;
+    },
+    [fallbackTranslations, locale],
+  );
+
+  useEffect(() => {
+    if (locale === "pt-BR") return;
+
+    const toTranslateByText = new Map<string, string[]>();
+    const add = (key: string, text: string) => {
+      const v = String(text || "").trim();
+      if (!v) return;
+      const list = toTranslateByText.get(v) || [];
+      list.push(key);
+      toTranslateByText.set(v, list);
+    };
+
+    visiblePosts.slice(0, 60).forEach((p) => {
+      const stored = (p as any)?.translations?.[locale];
+      if (typeof stored === "string" && stored.trim()) return;
+      add(`post:${p.id}`, String(p.content_md || ""));
+    });
+
+    if (commentsOpenFor) {
+      (commentsByPost[commentsOpenFor] || []).slice(0, 120).forEach((c) => {
+        const stored = (c as any)?.translations?.[locale];
+        if (typeof stored === "string" && stored.trim()) return;
+        add(`comment:${c.id}`, String(c.content_md || ""));
+      });
+    }
+
+    const texts = Array.from(toTranslateByText.keys()).slice(0, 60);
+    if (texts.length === 0) return;
+
+    const run = ++translationInFlightRef.current;
+    (async () => {
+      try {
+        const translated = await translateTextsCached({ targetLocale: locale, texts });
+        if (translationInFlightRef.current !== run) return;
+        setFallbackTranslations((prev) => {
+          const next = { ...prev };
+          translated.forEach((t, idx) => {
+            const keys = toTranslateByText.get(texts[idx]) || [];
+            keys.forEach((k) => {
+              next[k] = t;
+            });
+          });
+          return next;
+        });
+      } catch {
+        /* ignore */
+      }
+    })();
+  }, [commentsByPost, commentsOpenFor, locale, visiblePosts]);
+
   const requestLocationConsent = useCallback(async () => {
     if (locationConsent === "allow") return true;
     if (locationConsent === "deny") return false;
@@ -666,6 +752,26 @@ export default function SEPBookIG() {
       }
     },
     [speak, toast],
+  );
+
+  const likesCountLabel = useCallback(
+    (countRaw: number) => {
+      const count = Math.max(0, Number(countRaw) || 0);
+      if (locale === "en") return `${count} like${count === 1 ? "" : "s"}`;
+      if (locale === "zh-CN") return `${count} 赞`;
+      return `${count} curtida${count === 1 ? "" : "s"}`;
+    },
+    [locale],
+  );
+
+  const viewAllCommentsLabel = useCallback(
+    (countRaw: number) => {
+      const count = Math.max(0, Number(countRaw) || 0);
+      if (locale === "en") return `View all ${count} comment${count === 1 ? "" : "s"}`;
+      if (locale === "zh-CN") return `查看全部 ${count} 条评论`;
+      return `Ver todos os ${count} comentário${count === 1 ? "" : "s"}`;
+    },
+    [locale],
   );
 
   const loadFeed = useCallback(async () => {
@@ -782,25 +888,25 @@ export default function SEPBookIG() {
 
   const sharePost = useCallback((post: SepPost) => {
     const url = buildAbsoluteAppUrl(`/sepbook#post-${encodeURIComponent(post.id)}`);
-    const preview = (post.content_md || "").trim().replace(/\s+/g, " ").slice(0, 140);
+    const preview = getPostDisplayText(post).trim().replace(/\s+/g, " ").slice(0, 140);
     openWhatsAppShare({
       message: preview
         ? `Veja esta publicação no SEPBook (DJT Quest):\n"${preview}${preview.length >= 140 ? "…" : ""}"`
         : "Veja esta publicação no SEPBook (DJT Quest):",
       url,
     });
-  }, []);
+  }, [getPostDisplayText]);
 
   const shareComment = useCallback((postId: string, comment: SepComment) => {
     const url = buildAbsoluteAppUrl(`/sepbook?comment=${encodeURIComponent(comment.id)}#post-${encodeURIComponent(postId)}`);
-    const preview = (comment.content_md || "").trim().replace(/\s+/g, " ").slice(0, 140);
+    const preview = getCommentDisplayText(comment).trim().replace(/\s+/g, " ").slice(0, 140);
     openWhatsAppShare({
       message: preview
         ? `Comentário no SEPBook (DJT Quest):\n"${preview}${preview.length >= 140 ? "…" : ""}"`
         : "Comentário no SEPBook (DJT Quest):",
       url,
     });
-  }, []);
+  }, [getCommentDisplayText]);
 
   const removeMediaItem = useCallback(async (item: MediaItem, setState: (updater: any) => void) => {
     if (item.previewUrl) {
@@ -1094,7 +1200,7 @@ export default function SEPBookIG() {
             {m.kind === "image" ? (
               <img
                 src={m.url || m.previewUrl}
-                alt="Anexo"
+                alt={tr("sepbook.attachment")}
                 className={cn("h-full w-full object-cover", m.uploading && "opacity-60")}
               />
             ) : (
@@ -1114,8 +1220,8 @@ export default function SEPBookIG() {
               type="button"
               className="absolute -top-2 -right-2 h-6 w-6 rounded-full bg-background shadow flex items-center justify-center border"
               onClick={() => void onRemove(m)}
-              aria-label="Remover"
-              title="Remover"
+              aria-label={tr("sepbook.remove")}
+              title={tr("sepbook.remove")}
             >
               <X className="h-3.5 w-3.5" />
             </button>
@@ -1131,27 +1237,27 @@ export default function SEPBookIG() {
         <div className="mx-auto flex max-w-[680px] items-center justify-between gap-3 px-3 py-2">
           <div className="min-w-0">
             <p className="text-[12px] text-muted-foreground leading-tight">SEPBook</p>
-            <h1 className="text-[16px] font-black leading-tight tracking-tight truncate">Feed</h1>
+            <h1 className="text-[16px] font-black leading-tight tracking-tight truncate">{tr("sepbook.feedTitle")}</h1>
           </div>
           <div className="flex items-center gap-2">
-            <Button type="button" size="icon" variant="ghost" onClick={() => setMapOpen(true)} aria-label="Mapa">
+            <Button type="button" size="icon" variant="ghost" onClick={() => setMapOpen(true)} aria-label={tr("sepbook.map")}>
               <MapPinned className="h-5 w-5" />
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button type="button" size="icon" variant="ghost" aria-label="Filtros e ordenação">
+                <Button type="button" size="icon" variant="ghost" aria-label={tr("sepbook.filtersSort")}>
                   <SlidersHorizontal className="h-5 w-5" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-[260px]">
-                <DropdownMenuLabel>Ordenar</DropdownMenuLabel>
+                <DropdownMenuLabel>{tr("sepbook.sortLabel")}</DropdownMenuLabel>
                 <DropdownMenuRadioGroup value={sortMode} onValueChange={(v) => setSortMode(v as any)}>
-                  <DropdownMenuRadioItem value="newest">Mais recentes</DropdownMenuRadioItem>
-                  <DropdownMenuRadioItem value="oldest">Mais antigas</DropdownMenuRadioItem>
-                  <DropdownMenuRadioItem value="author_az">Autor (A–Z)</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="newest">{tr("sepbook.sortNewest")}</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="oldest">{tr("sepbook.sortOldest")}</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="author_az">{tr("sepbook.sortAuthorAz")}</DropdownMenuRadioItem>
                 </DropdownMenuRadioGroup>
                 <DropdownMenuSeparator />
-                <DropdownMenuLabel>Filtrar</DropdownMenuLabel>
+                <DropdownMenuLabel>{tr("sepbook.filterLabel")}</DropdownMenuLabel>
                 <DropdownMenuCheckboxItem
                   checked={filterMine}
                   onCheckedChange={(v) => {
@@ -1161,9 +1267,9 @@ export default function SEPBookIG() {
                   }}
                   disabled={!user?.id}
                 >
-                  Somente minhas publicações
+                  {tr("sepbook.filterMine")}
                 </DropdownMenuCheckboxItem>
-                <DropdownMenuItem onClick={() => setAuthorPickerOpen(true)}>Filtrar por autor…</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setAuthorPickerOpen(true)}>{tr("sepbook.filterByAuthor")}</DropdownMenuItem>
                 {(filterUserId || filterMine) && (
                   <DropdownMenuItem
                     onClick={() => {
@@ -1171,12 +1277,12 @@ export default function SEPBookIG() {
                       setFilterUserId(null);
                     }}
                   >
-                    Limpar filtros
+                    {tr("sepbook.clearFilters")}
                   </DropdownMenuItem>
                 )}
               </DropdownMenuContent>
             </DropdownMenu>
-            <Button type="button" size="icon" variant="ghost" onClick={() => setComposerOpen(true)} aria-label="Nova postagem">
+            <Button type="button" size="icon" variant="ghost" onClick={() => setComposerOpen(true)} aria-label={tr("sepbook.newPost")}>
               <Plus className="h-5 w-5" />
             </Button>
           </div>
@@ -1190,14 +1296,14 @@ export default function SEPBookIG() {
           </div>
         )}
         {loadingFeed ? (
-          <div className="px-4 py-10 text-sm text-muted-foreground">Carregando...</div>
+          <div className="px-4 py-10 text-sm text-muted-foreground">{tr("common.loading")}</div>
         ) : visiblePosts.length === 0 ? (
-          <div className="px-4 py-10 text-sm text-muted-foreground">Nenhuma publicação ainda.</div>
+          <div className="px-4 py-10 text-sm text-muted-foreground">{tr("sepbook.emptyFeed")}</div>
         ) : (
           <div className="flex flex-col">
             {visiblePosts.map((p) => {
               const createdLabel = new Date(p.created_at).toLocaleString();
-              const caption = String(p.content_md || "").trim();
+              const caption = String(getPostDisplayText(p) || "").trim();
               return (
                 <article key={p.id} id={`post-${p.id}`} className="border-b">
                   <div className="flex items-center justify-between gap-2 px-3 py-2">
@@ -1226,8 +1332,8 @@ export default function SEPBookIG() {
                       onClick={() => {
                         void copyToClipboard(toast, buildAbsoluteAppUrl(`/sepbook#post-${encodeURIComponent(p.id)}`));
                       }}
-                      aria-label="Opções"
-                      title="Copiar link"
+                      aria-label={tr("sepbook.options")}
+                      title={tr("sepbook.copyLink")}
                     >
                       <MoreHorizontal className="h-5 w-5" />
                     </Button>
@@ -1258,7 +1364,13 @@ export default function SEPBookIG() {
 
                   <div className="flex items-center justify-between px-2 pt-1">
                     <div className="flex items-center gap-0.5">
-                      <Button type="button" size="icon" variant="ghost" onClick={() => void toggleLike(p)} aria-label="Curtir">
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        onClick={() => void toggleLike(p)}
+                        aria-label={tr("sepbook.like")}
+                      >
                         <Heart className={cn("h-6 w-6", p.has_liked && "fill-rose-500 text-rose-500")} />
                       </Button>
                       <Button
@@ -1266,11 +1378,11 @@ export default function SEPBookIG() {
                         size="icon"
                         variant="ghost"
                         onClick={() => void openComments(p.id)}
-                        aria-label="Comentar"
+                        aria-label={tr("sepbook.comment")}
                       >
                         <MessageCircle className="h-6 w-6" />
                       </Button>
-                      <Button type="button" size="icon" variant="ghost" onClick={() => sharePost(p)} aria-label="Compartilhar">
+                      <Button type="button" size="icon" variant="ghost" onClick={() => sharePost(p)} aria-label={tr("sepbook.share")}>
                         <Send className="h-6 w-6" />
                       </Button>
                     </div>
@@ -1278,9 +1390,9 @@ export default function SEPBookIG() {
                       type="button"
                       size="icon"
                       variant="ghost"
-                      onClick={() => void speakText(p.content_md)}
-                      aria-label="Ouvir"
-                      title="Ouvir"
+                      onClick={() => void speakText(caption)}
+                      aria-label={tr("sepbook.listen")}
+                      title={tr("sepbook.listen")}
                       disabled={isSpeaking || !caption}
                     >
                       <Volume2 className="h-5 w-5" />
@@ -1292,9 +1404,9 @@ export default function SEPBookIG() {
                       type="button"
                       onClick={() => void openLikes(p.id)}
                       className="text-[13px] font-semibold"
-                      aria-label="Ver curtidas"
+                      aria-label={tr("sepbook.viewLikes")}
                     >
-                      {p.like_count || 0} curtida{(p.like_count || 0) === 1 ? "" : "s"}
+                      {likesCountLabel(p.like_count || 0)}
                     </button>
 
                     {caption ? (
@@ -1310,11 +1422,11 @@ export default function SEPBookIG() {
                         className="text-[13px] text-muted-foreground"
                         onClick={() => void openComments(p.id)}
                       >
-                        Ver todos os {p.comment_count} comentário{p.comment_count === 1 ? "" : "s"}
+                        {viewAllCommentsLabel(p.comment_count)}
                       </button>
                     ) : (
                       <button type="button" className="text-[13px] text-muted-foreground" onClick={() => void openComments(p.id)}>
-                        Adicionar comentário
+                        {tr("sepbook.addComment")}
                       </button>
                     )}
 
@@ -1347,7 +1459,7 @@ export default function SEPBookIG() {
       >
         <DrawerContent className="max-h-[90vh]">
           <DrawerHeader>
-            <DrawerTitle>Nova publicação</DrawerTitle>
+            <DrawerTitle>{tr("sepbook.newPost")}</DrawerTitle>
           </DrawerHeader>
 
           <div className="px-3 pb-3 space-y-3">
@@ -1360,8 +1472,8 @@ export default function SEPBookIG() {
                 variant="outline"
                 onClick={() => composerCameraRef.current?.click()}
                 disabled={composerUploading || composerSubmitting}
-                aria-label="Câmera"
-                title="Câmera"
+                aria-label={tr("sepbook.camera")}
+                title={tr("sepbook.camera")}
               >
                 <Camera className="h-4 w-4" />
               </Button>
@@ -1371,8 +1483,8 @@ export default function SEPBookIG() {
                 variant="outline"
                 onClick={() => composerGalleryRef.current?.click()}
                 disabled={composerUploading || composerSubmitting}
-                aria-label="Fototeca"
-                title="Fototeca"
+                aria-label={tr("sepbook.gallery")}
+                title={tr("sepbook.gallery")}
               >
                 <ImageIcon className="h-4 w-4" />
               </Button>
@@ -1396,28 +1508,28 @@ export default function SEPBookIG() {
 
               <div className="flex-1" />
 
-              <Button
-                type="button"
-                onClick={() => void submitPost()}
-                disabled={composerSubmitting || composerUploading || composerMedia.some((m) => m.uploading) || (!composerText.trim() && uploadedComposerUrls.length === 0)}
-              >
-                Publicar
-              </Button>
-            </div>
+                <Button
+                  type="button"
+                  onClick={() => void submitPost()}
+                  disabled={composerSubmitting || composerUploading || composerMedia.some((m) => m.uploading) || (!composerText.trim() && uploadedComposerUrls.length === 0)}
+                >
+                  {tr("sepbook.publish")}
+                </Button>
+              </div>
 
-            <Textarea
-              value={composerText}
-              onChange={(e) => setComposerText(e.target.value)}
-              placeholder="Escreva uma legenda…"
-              className="min-h-[120px]"
-            />
+              <Textarea
+                value={composerText}
+                onChange={(e) => setComposerText(e.target.value)}
+                placeholder={tr("sepbook.captionPlaceholder")}
+                className="min-h-[120px]"
+              />
 
-            {composerMentionQuery && composerMentions.items.length > 0 && (
-              <div className="rounded-xl border bg-background">
-                <div className="px-3 py-2 text-[12px] text-muted-foreground">Sugestões de @menção</div>
-                <div className="max-h-[220px] overflow-auto">
-                  {composerMentions.items.slice(0, 12).map((s, idx) => (
-                    <button
+              {composerMentionQuery && composerMentions.items.length > 0 && (
+                <div className="rounded-xl border bg-background">
+                <div className="px-3 py-2 text-[12px] text-muted-foreground">{tr("sepbook.mentionSuggestions")}</div>
+                  <div className="max-h-[220px] overflow-auto">
+                    {composerMentions.items.slice(0, 12).map((s, idx) => (
+                      <button
                       key={`${s.kind}-${s.handle}-${idx}`}
                       type="button"
                       className="w-full text-left px-3 py-2 hover:bg-muted text-[13px]"
@@ -1450,7 +1562,11 @@ export default function SEPBookIG() {
       >
         <DrawerContent className="max-h-[92vh]">
           <DrawerHeader>
-            <DrawerTitle>{activePost ? `Comentários • ${formatName(activePost.author_name)}` : "Comentários"}</DrawerTitle>
+            <DrawerTitle>
+              {activePost
+                ? tr("sepbook.commentsTitleWithAuthor", { author: formatName(activePost.author_name) })
+                : tr("sepbook.commentsTitle")}
+            </DrawerTitle>
           </DrawerHeader>
 
           <div className="flex flex-col h-full">
@@ -1460,20 +1576,20 @@ export default function SEPBookIG() {
                   <div className="text-[12px] text-muted-foreground">
                     {formatName(activePost.author_name)} {activePost.author_team ? `• ${activePost.author_team}` : ""}
                   </div>
-                  {String(activePost.content_md || "").trim() ? (
-                    <div className="text-[13px] mt-1">{renderRichText(toast, activePost.content_md)}</div>
+                  {String(getPostDisplayText(activePost) || "").trim() ? (
+                    <div className="text-[13px] mt-1">{renderRichText(toast, getPostDisplayText(activePost))}</div>
                   ) : null}
                 </div>
               )}
 
               {commentsOpenFor && commentsLoading[commentsOpenFor] ? (
-                <div className="py-6 text-sm text-muted-foreground">Carregando comentários...</div>
+                <div className="py-6 text-sm text-muted-foreground">{tr("sepbook.loadingComments")}</div>
               ) : commentsOpenFor && (commentsByPost[commentsOpenFor] || []).length === 0 ? (
-                <div className="py-6 text-sm text-muted-foreground">Seja o primeiro a comentar.</div>
+                <div className="py-6 text-sm text-muted-foreground">{tr("sepbook.firstComment")}</div>
               ) : (
                 <div className="space-y-3">
                   {(commentsOpenFor ? commentsByPost[commentsOpenFor] || [] : []).map((c) => {
-                    const text = String(c.content_md || "").trim();
+                    const text = String(getCommentDisplayText(c) || "").trim();
                     const hasAtt = Array.isArray(c.attachments) && c.attachments.length > 0;
                     return (
                       <div key={c.id} id={`comment-${c.id}`} className="flex items-start gap-2">
@@ -1495,8 +1611,8 @@ export default function SEPBookIG() {
                                 className="h-8 w-8"
                                 onClick={() => void speakText(text)}
                                 disabled={isSpeaking || !text}
-                                aria-label="Ouvir comentário"
-                                title="Ouvir"
+                                aria-label={tr("sepbook.listen")}
+                                title={tr("sepbook.listen")}
                               >
                                 <Volume2 className="h-4 w-4" />
                               </Button>
@@ -1506,8 +1622,8 @@ export default function SEPBookIG() {
                                 variant="ghost"
                                 className="h-8 w-8"
                                 onClick={() => commentsOpenFor && shareComment(commentsOpenFor, c)}
-                                aria-label="Compartilhar comentário"
-                                title="Compartilhar"
+                                aria-label={tr("sepbook.share")}
+                                title={tr("sepbook.share")}
                               >
                                 <Share2 className="h-4 w-4" />
                               </Button>
@@ -1534,7 +1650,7 @@ export default function SEPBookIG() {
 
               {commentMentionQuery && commentMentions.items.length > 0 && (
                 <div className="rounded-xl border bg-background">
-                  <div className="px-3 py-2 text-[12px] text-muted-foreground">Sugestões de @menção</div>
+                  <div className="px-3 py-2 text-[12px] text-muted-foreground">{tr("sepbook.mentionSuggestions")}</div>
                   <div className="max-h-[160px] overflow-auto">
                     {commentMentions.items.slice(0, 8).map((s, idx) => (
                       <button
@@ -1558,8 +1674,8 @@ export default function SEPBookIG() {
                   variant="outline"
                   onClick={() => commentCameraRef.current?.click()}
                   disabled={commentUploading || commentSubmitting}
-                  aria-label="Câmera"
-                  title="Câmera"
+                  aria-label={tr("sepbook.camera")}
+                  title={tr("sepbook.camera")}
                 >
                   <Camera className="h-4 w-4" />
                 </Button>
@@ -1569,8 +1685,8 @@ export default function SEPBookIG() {
                   variant="outline"
                   onClick={() => commentGalleryRef.current?.click()}
                   disabled={commentUploading || commentSubmitting}
-                  aria-label="Fototeca"
-                  title="Fototeca"
+                  aria-label={tr("sepbook.gallery")}
+                  title={tr("sepbook.gallery")}
                 >
                   <ImageIcon className="h-4 w-4" />
                 </Button>
@@ -1594,7 +1710,7 @@ export default function SEPBookIG() {
                 <Textarea
                   value={commentText}
                   onChange={(e) => setCommentText(e.target.value)}
-                  placeholder="Adicionar um comentário…"
+                  placeholder={tr("sepbook.commentPlaceholder")}
                   rows={1}
                   className="min-h-[42px] max-h-[120px] resize-none"
                 />
@@ -1608,15 +1724,14 @@ export default function SEPBookIG() {
                     commentMedia.some((m) => m.uploading) ||
                     ((commentText.trim().length < 2) && uploadedCommentUrls.length === 0)
                   }
-                  aria-label="Enviar comentário"
-                  title="Enviar"
+                  aria-label={tr("sepbook.sendComment")}
+                  title={tr("sepbook.send")}
                 >
                   <Send className="h-4 w-4" />
                 </Button>
               </div>
               <div className="text-[11px] text-muted-foreground">
-                Fotos: até 3 por comentário • Use <span className="font-semibold">📷</span> para câmera e{" "}
-                <span className="font-semibold">🖼️</span> para fototeca.
+                {tr("sepbook.commentPhotoHint")}
               </div>
             </div>
           </div>
@@ -1626,13 +1741,13 @@ export default function SEPBookIG() {
       <Dialog open={Boolean(likesOpenFor)} onOpenChange={(open) => !open && setLikesOpenFor(null)}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Curtidas</DialogTitle>
-            <DialogDescription>Lista de pessoas que curtiram a publicação.</DialogDescription>
+            <DialogTitle>{tr("sepbook.likesTitle")}</DialogTitle>
+            <DialogDescription>{tr("sepbook.likesDescription")}</DialogDescription>
           </DialogHeader>
           {likesLoading ? (
-            <div className="py-6 text-sm text-muted-foreground">Carregando...</div>
+            <div className="py-6 text-sm text-muted-foreground">{tr("common.loading")}</div>
           ) : likers.length === 0 ? (
-            <div className="py-6 text-sm text-muted-foreground">Ninguém curtiu ainda.</div>
+            <div className="py-6 text-sm text-muted-foreground">{tr("sepbook.likesEmpty")}</div>
           ) : (
             <div className="max-h-[60vh] overflow-auto space-y-2 pr-1">
               {likers.map((u) => (
@@ -1657,11 +1772,15 @@ export default function SEPBookIG() {
       <Dialog open={authorPickerOpen} onOpenChange={setAuthorPickerOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Filtrar por autor</DialogTitle>
-            <DialogDescription>Escolha um autor para filtrar o feed.</DialogDescription>
+            <DialogTitle>{tr("sepbook.authorFilterTitle")}</DialogTitle>
+            <DialogDescription>{tr("sepbook.authorFilterDescription")}</DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
-            <Input value={authorQuery} onChange={(e) => setAuthorQuery(e.target.value)} placeholder="Buscar por nome ou sigla…" />
+            <Input
+              value={authorQuery}
+              onChange={(e) => setAuthorQuery(e.target.value)}
+              placeholder={tr("sepbook.authorSearchPlaceholder")}
+            />
             <div className="max-h-[55vh] overflow-auto space-y-1 pr-1">
               {authorOptions
                 .filter((a) => {
@@ -1703,14 +1822,14 @@ export default function SEPBookIG() {
       <Dialog open={mapOpen} onOpenChange={setMapOpen}>
         <DialogContent className="max-w-3xl p-0 overflow-hidden">
           <DialogHeader className="px-4 pt-4 pb-2">
-            <DialogTitle>Mapa • publicações com GPS</DialogTitle>
+            <DialogTitle>{tr("sepbook.mapTitle")}</DialogTitle>
             <DialogDescription className="text-[12px] text-muted-foreground">
-              Aqui aparecem <span className="font-semibold">apenas fotos</span> de publicações onde o autor permitiu capturar a localização (GPS).
+              {tr("sepbook.mapDescription")}
             </DialogDescription>
           </DialogHeader>
 
           {mapPosts.length === 0 ? (
-            <div className="px-4 pb-6 text-sm text-muted-foreground">Nenhuma publicação com foto + GPS encontrada nos filtros atuais.</div>
+            <div className="px-4 pb-6 text-sm text-muted-foreground">{tr("sepbook.mapEmpty")}</div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-0 border-t">
               <div className="h-[48vh] md:h-[70vh] border-b md:border-b-0 md:border-r">
@@ -1738,12 +1857,12 @@ export default function SEPBookIG() {
                       <Popup>
                         <div className="space-y-2">
                           <div className="text-[12px] font-semibold">{formatName(x.post.author_name)}</div>
-                          <div className="text-[12px] text-muted-foreground">{x.post.location_label || "Localização"}</div>
+                          <div className="text-[12px] text-muted-foreground">{x.post.location_label || tr("sepbook.location")}</div>
                           {x.imageUrl ? (
-                            <img src={x.imageUrl} alt="Foto" className="w-[220px] max-w-full rounded-md border" />
+                            <img src={x.imageUrl} alt={tr("sepbook.photo")} className="w-[220px] max-w-full rounded-md border" />
                           ) : null}
                           <Button type="button" size="sm" onClick={() => openPostById(x.post.id)}>
-                            Abrir publicação
+                            {tr("sepbook.openPost")}
                           </Button>
                         </div>
                       </Popup>
@@ -1761,12 +1880,14 @@ export default function SEPBookIG() {
                   >
                     <img
                       src={x.imageUrl || undefined}
-                      alt="Foto"
+                      alt={tr("sepbook.photo")}
                       className="h-16 w-16 rounded-lg object-cover border"
                     />
                     <div className="min-w-0 flex-1">
                       <div className="text-[13px] font-semibold truncate">{formatName(x.post.author_name)}</div>
-                      <div className="text-[12px] text-muted-foreground truncate">{x.post.location_label || "Localização"}</div>
+                      <div className="text-[12px] text-muted-foreground truncate">
+                        {x.post.location_label || tr("sepbook.location")}
+                      </div>
                       <div className="text-[11px] text-muted-foreground truncate">
                         {new Date(x.post.created_at).toLocaleString()}
                       </div>
@@ -1793,9 +1914,9 @@ export default function SEPBookIG() {
       >
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Usar localização (GPS) no SEPBook?</DialogTitle>
+            <DialogTitle>{tr("sepbook.gpsConsentTitle")}</DialogTitle>
             <DialogDescription>
-              Se permitido, o SEPBook vai salvar a localização da publicação: preferencialmente o GPS da foto (metadados), ou a sua localização atual quando a foto não tiver GPS.
+              {tr("sepbook.gpsConsentDescription")}
             </DialogDescription>
           </DialogHeader>
           <div className="flex items-center justify-end gap-2">
@@ -1810,7 +1931,7 @@ export default function SEPBookIG() {
                 locationConsentResolverRef.current = null;
               }}
             >
-              Não permitir
+              {tr("sepbook.gpsConsentDeny")}
             </Button>
             <Button
               type="button"
@@ -1822,7 +1943,7 @@ export default function SEPBookIG() {
                 locationConsentResolverRef.current = null;
               }}
             >
-              Permitir
+              {tr("sepbook.gpsConsentAllow")}
             </Button>
           </div>
         </DialogContent>
@@ -1842,9 +1963,9 @@ export default function SEPBookIG() {
       >
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Foto sem GPS</DialogTitle>
+            <DialogTitle>{tr("sepbook.photoNoGpsTitle")}</DialogTitle>
             <DialogDescription>
-              Esta publicação não tem GPS nos metadados da foto. Quer usar sua localização atual nesta postagem?
+              {tr("sepbook.photoNoGpsDescription")}
             </DialogDescription>
           </DialogHeader>
           <div className="flex items-center justify-end gap-2">
@@ -1857,7 +1978,7 @@ export default function SEPBookIG() {
                 useDeviceLocationResolverRef.current = null;
               }}
             >
-              Não usar
+              {tr("sepbook.photoNoGpsDeny")}
             </Button>
             <Button
               type="button"
@@ -1867,7 +1988,7 @@ export default function SEPBookIG() {
                 useDeviceLocationResolverRef.current = null;
               }}
             >
-              Usar localização
+              {tr("sepbook.photoNoGpsAllow")}
             </Button>
           </div>
         </DialogContent>

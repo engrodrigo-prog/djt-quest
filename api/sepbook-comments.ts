@@ -4,6 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 import { recomputeSepbookMentionsForPost } from "./sepbook-mentions.js";
 import { assertDjtQuestServerEnv, DJT_QUEST_SUPABASE_HOST } from "../server/env-guard.js";
 import { getSupabaseUrlFromEnv } from "../server/lib/supabase-url.js";
+import { localesForAllTargets, translateForumTexts } from "../server/lib/forum-translations.js";
 
 const SUPABASE_URL =
   getSupabaseUrlFromEnv(process.env, { expectedHostname: DJT_QUEST_SUPABASE_HOST, allowLocal: true }) ||
@@ -63,7 +64,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       const reader = SERVICE_ROLE_KEY ? admin : authed;
       const baseSelect = "id, post_id, user_id, content_md, created_at";
-      const selectWithAttachments = `${baseSelect}, attachments`;
+      const selectWithAttachments = `${baseSelect}, attachments, translations`;
       let data: any[] | null = null;
       let error: any = null;
       const attempt = await reader
@@ -74,7 +75,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         .limit(100);
       data = attempt.data as any;
       error = attempt.error as any;
-      if (error && /attachments/i.test(String(error.message || ""))) {
+      if (error && /attachments|translations/i.test(String(error.message || ""))) {
         const fallback = await reader
           .from("sepbook_comments")
           .select(baseSelect)
@@ -115,6 +116,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const items = (data || []).map((c) => {
         const prof = profileMap.get(c.user_id) || { name: "Colaborador", sigla_area: null, avatar_url: null, operational_base: null };
         const attachments = Array.isArray(c.attachments) ? c.attachments.filter(Boolean) : [];
+        const translations = c?.translations && typeof c.translations === "object" ? c.translations : null;
         return {
           id: c.id,
           post_id: c.post_id,
@@ -125,6 +127,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           author_base: prof.operational_base,
           content_md: c.content_md,
           attachments,
+          translations,
           created_at: c.created_at,
         };
       });
@@ -156,12 +159,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const attachments = rawAttachments
         .filter((item: any) => typeof item === "string" && item.trim())
         .slice(0, 3);
+      const targetLocales = localesForAllTargets(req.body?.locales);
       const postId = String(post_id || "").trim();
       const text = String(content_md || "").trim();
       if (!postId || (text.length < 2 && attachments.length === 0)) {
         return res.status(400).json({ error: "post_id e texto/foto obrigatórios" });
       }
       const normalizedText = text.length >= 2 ? text : "";
+
+      let translations: any = { "pt-BR": normalizedText || "" };
+      if (normalizedText) {
+        try {
+          const [map] = await translateForumTexts({ texts: [normalizedText], targetLocales, maxPerBatch: 6 } as any);
+          if (map && typeof map === "object") translations = map;
+        } catch {
+          // keep base locale only
+        }
+      }
 
       const profileReader = SERVICE_ROLE_KEY ? admin : authed;
       const { data: profile } = await profileReader
@@ -171,22 +185,39 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         .maybeSingle();
 
       const writer = SERVICE_ROLE_KEY ? admin : authed;
-      const { data, error } = await writer
-        .from("sepbook_comments")
-        .insert({
-          post_id: postId,
-          user_id: uid,
-          content_md: normalizedText,
-          attachments,
-        })
-        .select()
-        .single();
+      const insertPayload: any = {
+        post_id: postId,
+        user_id: uid,
+        content_md: normalizedText,
+        attachments,
+        translations,
+      };
+
+      let data: any = null;
+      let error: any = null;
+      try {
+        const resp = await writer.from("sepbook_comments").insert(insertPayload).select().single();
+        data = resp.data;
+        error = resp.error;
+        if (error && /column .*translations.* does not exist/i.test(String(error.message || ""))) throw error;
+      } catch {
+        const { translations: _omit, ...fallbackPayload } = insertPayload;
+        const resp2 = await writer.from("sepbook_comments").insert(fallbackPayload).select().single();
+        data = resp2.data;
+        error = resp2.error;
+      }
       if (error) {
         const message = error.message || "Falha ao comentar";
         if (/attachments/i.test(message) && /(column|schema cache|does not exist)/i.test(message)) {
           return res.status(400).json({
             error:
               "A coluna de anexos ainda não existe em sepbook_comments. Aplique a migração supabase/migrations/20251231180000_sepbook_comment_attachments.sql.",
+          });
+        }
+        if (/translations/i.test(message) && /(column|schema cache|does not exist)/i.test(message)) {
+          return res.status(400).json({
+            error:
+              "A coluna de traduções ainda não existe no SEPBook. Aplique a migração supabase/migrations/20260101130000_sepbook_translations.sql.",
           });
         }
         if (message.toLowerCase().includes("row level security") || message.toLowerCase().includes("rls")) {

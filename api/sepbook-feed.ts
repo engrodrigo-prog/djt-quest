@@ -61,6 +61,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     let posts: any[] = [];
     try {
       const baseSelect = `
+          id, user_id, content_md, attachments, translations, like_count, comment_count, created_at, location_label, location_lat, location_lng, campaign_id, challenge_id, group_label,
+          participants:sepbook_post_participants(user_id, profiles(id, name, sigla_area))
+        `;
+
+      const baseSelectNoTranslations = `
           id, user_id, content_md, attachments, like_count, comment_count, created_at, location_label, location_lat, location_lng, campaign_id, challenge_id, group_label,
           participants:sepbook_post_participants(user_id, profiles(id, name, sigla_area))
         `;
@@ -70,11 +75,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           ${baseSelect},
           repost_of,
           repost:sepbook_posts!sepbook_posts_repost_of_fkey(
-            id, user_id, content_md, attachments, like_count, comment_count, created_at, location_label, campaign_id, challenge_id, group_label
+            id, user_id, content_md, attachments, translations, like_count, comment_count, created_at, location_label, location_lat, location_lng, campaign_id, challenge_id, group_label
+          )
+        `;
+
+      const selectWithRepostNoTranslations = `
+          ${baseSelectNoTranslations},
+          repost_of,
+          repost:sepbook_posts!sepbook_posts_repost_of_fkey(
+            id, user_id, content_md, attachments, like_count, comment_count, created_at, location_label, location_lat, location_lng, campaign_id, challenge_id, group_label
           )
         `;
 
       const minimalSelect = `
+          id, user_id, content_md, attachments, translations, like_count, comment_count, created_at, location_label, location_lat, location_lng, campaign_id, challenge_id, group_label, repost_of
+        `;
+
+      const minimalSelectNoTranslations = `
           id, user_id, content_md, attachments, like_count, comment_count, created_at, location_label, location_lat, location_lng, campaign_id, challenge_id, group_label, repost_of
         `;
 
@@ -87,10 +104,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         .limit(50);
       data = attempt.data as any;
       error = attempt.error as any;
+      if (error && /translations/i.test(String(error.message || ""))) {
+        const retry = await reader
+          .from("sepbook_posts")
+          .select(selectWithRepostNoTranslations)
+          .order("created_at", { ascending: false })
+          .limit(50);
+        data = retry.data as any;
+        error = retry.error as any;
+      }
       if (error && /repost_of|sepbook_posts_repost_of_fkey/i.test(String(error.message || ""))) {
         const fallback = await reader
           .from("sepbook_posts")
           .select(baseSelect)
+          .order("created_at", { ascending: false })
+          .limit(50);
+        data = fallback.data as any;
+        error = fallback.error as any;
+      }
+      if (error && /translations/i.test(String(error.message || ""))) {
+        const fallback = await reader
+          .from("sepbook_posts")
+          .select(baseSelectNoTranslations)
           .order("created_at", { ascending: false })
           .limit(50);
         data = fallback.data as any;
@@ -103,6 +138,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const fallback2 = await reader
           .from("sepbook_posts")
           .select(minimalSelect)
+          .order("created_at", { ascending: false })
+          .limit(50);
+        data = fallback2.data as any;
+        error = fallback2.error as any;
+      }
+      if (
+        error &&
+        /(sepbook_post_participants|permission denied|row level security|rls)/i.test(String(error.message || "")) &&
+        /translations/i.test(String(error.message || ""))
+      ) {
+        const fallback2 = await reader
+          .from("sepbook_posts")
+          .select(minimalSelectNoTranslations)
           .order("created_at", { ascending: false })
           .limit(50);
         data = fallback2.data as any;
@@ -195,6 +243,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         author_avatar: prof.avatar_url,
         author_base: prof.operational_base,
         content_md: p.content_md,
+        translations: p?.translations && typeof p.translations === "object" ? p.translations : null,
         attachments: Array.isArray(p.attachments) ? p.attachments : [],
         like_count: p.like_count || 0,
         comment_count: p.comment_count || 0,
@@ -217,6 +266,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               author_avatar: repostAuthor?.avatar_url || null,
               author_base: repostAuthor?.operational_base || null,
               content_md: repostRow.content_md,
+              translations: repostRow?.translations && typeof repostRow.translations === "object" ? repostRow.translations : null,
               attachments: Array.isArray(repostRow.attachments) ? repostRow.attachments : [],
               like_count: repostRow.like_count || 0,
               comment_count: repostRow.comment_count || 0,

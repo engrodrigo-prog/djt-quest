@@ -2,6 +2,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { createClient } from "@supabase/supabase-js";
 import { recomputeSepbookMentionsForPost } from "./sepbook-mentions.js";
+import { localesForAllTargets, translateForumTexts } from "../server/lib/forum-translations.js";
 import { assertDjtQuestServerEnv } from "../server/env-guard.js";
 
 const SUPABASE_URL = process.env.SUPABASE_URL as string;
@@ -41,6 +42,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     const { post_id, content_md, attachments } = req.body || {};
+    const targetLocales = localesForAllTargets(req.body?.locales);
     const postId = String(post_id || "").trim();
     const text = String(content_md || "").trim();
     const atts = Array.isArray(attachments) ? attachments : [];
@@ -62,17 +64,37 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(403).json({ error: "Sem permissão para editar este post" });
     }
 
-    const { data, error } = await authed
-      .from("sepbook_posts")
-      .update({
-        content_md: text || "",
-        attachments: atts,
-        has_media: atts.length > 0,
-        updated_at: new Date().toISOString(),
-      } as any)
-      .eq("id", postId)
-      .select()
-      .single();
+    let translations: any = { "pt-BR": text || "" };
+    if (text) {
+      try {
+        const [map] = await translateForumTexts({ texts: [text], targetLocales, maxPerBatch: 6 } as any);
+        if (map && typeof map === "object") translations = map;
+      } catch {
+        // keep base locale only
+      }
+    }
+
+    const updatePayload: any = {
+      content_md: text || "",
+      attachments: atts,
+      has_media: atts.length > 0,
+      updated_at: new Date().toISOString(),
+      translations,
+    };
+
+    let data: any = null;
+    let error: any = null;
+    try {
+      const resp = await authed.from("sepbook_posts").update(updatePayload as any).eq("id", postId).select().single();
+      data = resp.data;
+      error = resp.error;
+      if (error && /column .*translations.* does not exist/i.test(String(error.message || ""))) throw error;
+    } catch {
+      const { translations: _omit, ...fallbackPayload } = updatePayload;
+      const resp2 = await authed.from("sepbook_posts").update(fallbackPayload as any).eq("id", postId).select().single();
+      data = resp2.data;
+      error = resp2.error;
+    }
     if (error) return res.status(400).json({ error: error.message });
 
     // Recalcular menções (post + comentários)

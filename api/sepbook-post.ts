@@ -2,6 +2,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { createClient } from "@supabase/supabase-js";
 import { recomputeSepbookMentionsForPost } from "./sepbook-mentions.js";
+import { localesForAllTargets, translateForumTexts } from "../server/lib/forum-translations.js";
 import { assertDjtQuestServerEnv } from "../server/env-guard.js";
 
 const SUPABASE_URL = process.env.SUPABASE_URL as string;
@@ -38,6 +39,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       location_label,
       location_lat,
       location_lng,
+      locales,
       participant_ids,
       campaign_id,
       challenge_id,
@@ -59,23 +61,45 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .eq("id", uid)
       .maybeSingle();
 
-    const { data: post, error } = await authed
-      .from("sepbook_posts")
-      .insert({
-        user_id: uid,
-        content_md: text,
-        attachments: atts,
-        has_media: atts.length > 0,
-        repost_of: repostOf || null,
-        location_label: location_label || null,
-        location_lat: typeof location_lat === "number" ? location_lat : null,
-        location_lng: typeof location_lng === "number" ? location_lng : null,
-        campaign_id: campaign_id || null,
-        challenge_id: challenge_id || null,
-        group_label: group_label || null,
-      })
-      .select()
-      .single();
+    const targetLocales = localesForAllTargets(locales);
+    let translations: any = { "pt-BR": text || "" };
+    if (text) {
+      try {
+        const [map] = await translateForumTexts({ texts: [text], targetLocales, maxPerBatch: 6 } as any);
+        if (map && typeof map === "object") translations = map;
+      } catch {
+        // keep base locale only
+      }
+    }
+
+    const insertPayload: any = {
+      user_id: uid,
+      content_md: text,
+      attachments: atts,
+      has_media: atts.length > 0,
+      repost_of: repostOf || null,
+      location_label: location_label || null,
+      location_lat: typeof location_lat === "number" ? location_lat : null,
+      location_lng: typeof location_lng === "number" ? location_lng : null,
+      campaign_id: campaign_id || null,
+      challenge_id: challenge_id || null,
+      group_label: group_label || null,
+      translations,
+    };
+
+    let post: any = null;
+    let error: any = null;
+    try {
+      const resp = await authed.from("sepbook_posts").insert(insertPayload).select().single();
+      post = resp.data;
+      error = resp.error;
+      if (error && /column .*translations.* does not exist/i.test(String(error.message || ""))) throw error;
+    } catch {
+      const { translations: _omit, ...fallbackPayload } = insertPayload;
+      const resp2 = await authed.from("sepbook_posts").insert(fallbackPayload).select().single();
+      post = resp2.data;
+      error = resp2.error;
+    }
 
     if (error) {
       const message = error?.message || "Erro ao salvar postagem";
