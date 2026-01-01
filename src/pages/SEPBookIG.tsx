@@ -8,24 +8,51 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { buildAbsoluteAppUrl, openWhatsAppShare } from "@/lib/whatsappShare";
 import { useTts } from "@/lib/tts";
 import { AttachmentViewer } from "@/components/AttachmentViewer";
+import { useAuth } from "@/contexts/AuthContext";
+import { MapContainer, Marker, Popup, TileLayer, useMap } from "react-leaflet";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
+import markerIcon2xUrl from "leaflet/dist/images/marker-icon-2x.png";
+import markerIconUrl from "leaflet/dist/images/marker-icon.png";
+import markerShadowUrl from "leaflet/dist/images/marker-shadow.png";
 import {
   Camera,
   Heart,
   Image as ImageIcon,
   MessageCircle,
+  MapPinned,
   MoreHorizontal,
   Plus,
   Send,
   Share2,
+  SlidersHorizontal,
   Volume2,
   X,
 } from "lucide-react";
+
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: markerIcon2xUrl,
+  iconUrl: markerIconUrl,
+  shadowUrl: markerShadowUrl,
+});
 
 type SepPost = {
   id: string;
@@ -40,6 +67,8 @@ type SepPost = {
   comment_count: number;
   created_at: string;
   location_label?: string | null;
+  location_lat?: number | null;
+  location_lng?: number | null;
   has_liked: boolean;
 };
 
@@ -180,6 +209,26 @@ const renderRichText = (toast: ReturnType<typeof useToast>["toast"], text: strin
     </span>
   );
 };
+
+const isImageUrl = (url: string) => {
+  const u = String(url || "").toLowerCase();
+  return /\.(png|jpg|jpeg|webp|gif)(\?|#|$)/i.test(u);
+};
+
+function SepbookFitBounds({ points }: { points: Array<[number, number]> }) {
+  const map = useMap();
+  useEffect(() => {
+    if (!map) return;
+    if (!points || points.length === 0) return;
+    try {
+      const bounds = L.latLngBounds(points.map((p) => L.latLng(p[0], p[1])));
+      map.fitBounds(bounds, { padding: [24, 24], maxZoom: 14 });
+    } catch {
+      /* ignore */
+    }
+  }, [map, points]);
+  return null;
+}
 
 const maybeDownscaleImage = async (file: File, maxImageDimension: number, imageQuality: number): Promise<File> => {
   if (typeof document === "undefined") return file;
@@ -324,10 +373,18 @@ export default function SEPBookIG() {
   const { toast } = useToast();
   const routerLocation = useRouterLocation();
   const { speak, isSpeaking } = useTts();
+  const { user } = useAuth();
 
   const [posts, setPosts] = useState<SepPost[]>([]);
   const [loadingFeed, setLoadingFeed] = useState(false);
   const [feedWarning, setFeedWarning] = useState<string | null>(null);
+
+  const [sortMode, setSortMode] = useState<"newest" | "oldest" | "author_az">("newest");
+  const [filterMine, setFilterMine] = useState(false);
+  const [filterUserId, setFilterUserId] = useState<string | null>(null);
+  const [authorPickerOpen, setAuthorPickerOpen] = useState(false);
+  const [authorQuery, setAuthorQuery] = useState("");
+  const [mapOpen, setMapOpen] = useState(false);
 
   const [composerOpen, setComposerOpen] = useState(false);
   const [composerText, setComposerText] = useState("");
@@ -359,6 +416,86 @@ export default function SEPBookIG() {
   const deepLinkCommentHandledRef = useRef<string | null>(null);
 
   const activePost = useMemo(() => posts.find((p) => p.id === commentsOpenFor) || null, [commentsOpenFor, posts]);
+
+  const authorOptions = useMemo(() => {
+    const map = new Map<
+      string,
+      { user_id: string; author_name: string; author_team: string | null; author_avatar: string | null }
+    >();
+    posts.forEach((p) => {
+      if (!p.user_id) return;
+      if (!map.has(p.user_id)) {
+        map.set(p.user_id, {
+          user_id: p.user_id,
+          author_name: p.author_name,
+          author_team: p.author_team || null,
+          author_avatar: p.author_avatar || null,
+        });
+      }
+    });
+    return Array.from(map.values()).sort((a, b) =>
+      String(a.author_name || "").localeCompare(String(b.author_name || ""), undefined, { sensitivity: "base" }),
+    );
+  }, [posts]);
+
+  const visiblePosts = useMemo(() => {
+    const uid = user?.id || null;
+    let items = posts.slice();
+    if (filterMine && uid) {
+      items = items.filter((p) => p.user_id === uid);
+    } else if (filterUserId) {
+      items = items.filter((p) => p.user_id === filterUserId);
+    }
+
+    if (sortMode === "oldest") {
+      items.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+    } else if (sortMode === "author_az") {
+      items.sort((a, b) => {
+        const an = String(a.author_name || "");
+        const bn = String(b.author_name || "");
+        const byName = an.localeCompare(bn, undefined, { sensitivity: "base" });
+        if (byName !== 0) return byName;
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      });
+    } else {
+      items.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    }
+    return items;
+  }, [filterMine, filterUserId, posts, sortMode, user?.id]);
+
+  const mapPosts = useMemo(() => {
+    return visiblePosts
+      .filter((p) => typeof p.location_lat === "number" && typeof p.location_lng === "number")
+      .map((p) => {
+        const imageUrl = (Array.isArray(p.attachments) ? p.attachments : []).find((u) => isImageUrl(u)) || null;
+        return { post: p, imageUrl };
+      })
+      .filter((x) => Boolean(x.imageUrl));
+  }, [visiblePosts]);
+
+  const mapCenter = useMemo<[number, number]>(() => {
+    if (!mapPosts.length) return [-23.55052, -46.633308]; // fallback: São Paulo
+    const sum = mapPosts.reduce(
+      (acc, item) => {
+        acc.lat += Number(item.post.location_lat || 0);
+        acc.lng += Number(item.post.location_lng || 0);
+        return acc;
+      },
+      { lat: 0, lng: 0 },
+    );
+    return [sum.lat / mapPosts.length, sum.lng / mapPosts.length];
+  }, [mapPosts]);
+
+  const openPostById = useCallback((postId: string) => {
+    const id = String(postId || "").trim();
+    if (!id) return;
+    setMapOpen(false);
+    setAuthorPickerOpen(false);
+    window.setTimeout(() => {
+      const el = document.getElementById(`post-${id}`);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 80);
+  }, []);
 
   const uploadedComposerUrls = useMemo(
     () => composerMedia.filter((m) => m.url).map((m) => m.url!) as string[],
@@ -843,6 +980,48 @@ export default function SEPBookIG() {
             <h1 className="text-[16px] font-black leading-tight tracking-tight truncate">Feed</h1>
           </div>
           <div className="flex items-center gap-2">
+            <Button type="button" size="icon" variant="ghost" onClick={() => setMapOpen(true)} aria-label="Mapa">
+              <MapPinned className="h-5 w-5" />
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button type="button" size="icon" variant="ghost" aria-label="Filtros e ordenação">
+                  <SlidersHorizontal className="h-5 w-5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-[260px]">
+                <DropdownMenuLabel>Ordenar</DropdownMenuLabel>
+                <DropdownMenuRadioGroup value={sortMode} onValueChange={(v) => setSortMode(v as any)}>
+                  <DropdownMenuRadioItem value="newest">Mais recentes</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="oldest">Mais antigas</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="author_az">Autor (A–Z)</DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
+                <DropdownMenuSeparator />
+                <DropdownMenuLabel>Filtrar</DropdownMenuLabel>
+                <DropdownMenuCheckboxItem
+                  checked={filterMine}
+                  onCheckedChange={(v) => {
+                    const next = Boolean(v);
+                    setFilterMine(next);
+                    if (next) setFilterUserId(null);
+                  }}
+                  disabled={!user?.id}
+                >
+                  Somente minhas publicações
+                </DropdownMenuCheckboxItem>
+                <DropdownMenuItem onClick={() => setAuthorPickerOpen(true)}>Filtrar por autor…</DropdownMenuItem>
+                {(filterUserId || filterMine) && (
+                  <DropdownMenuItem
+                    onClick={() => {
+                      setFilterMine(false);
+                      setFilterUserId(null);
+                    }}
+                  >
+                    Limpar filtros
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
             <Button type="button" size="icon" variant="ghost" onClick={() => setComposerOpen(true)} aria-label="Nova postagem">
               <Plus className="h-5 w-5" />
             </Button>
@@ -858,11 +1037,11 @@ export default function SEPBookIG() {
         )}
         {loadingFeed ? (
           <div className="px-4 py-10 text-sm text-muted-foreground">Carregando...</div>
-        ) : posts.length === 0 ? (
+        ) : visiblePosts.length === 0 ? (
           <div className="px-4 py-10 text-sm text-muted-foreground">Nenhuma publicação ainda.</div>
         ) : (
           <div className="flex flex-col">
-            {posts.map((p) => {
+            {visiblePosts.map((p) => {
               const createdLabel = new Date(p.created_at).toLocaleString();
               const caption = String(p.content_md || "").trim();
               return (
@@ -901,7 +1080,7 @@ export default function SEPBookIG() {
                   </div>
 
                   {Array.isArray(p.attachments) && p.attachments.length > 0 ? (
-                    <div className="px-0">
+                    <div className="px-0 relative">
                       <AttachmentViewer
                         urls={p.attachments}
                         postId={p.id}
@@ -913,6 +1092,13 @@ export default function SEPBookIG() {
                           if (!p.has_liked) void toggleLike(p);
                         }}
                       />
+                      {p.location_label ? (
+                        <div className="pointer-events-none absolute left-3 top-3 z-10">
+                          <span className="inline-flex items-center rounded-full border bg-background/80 backdrop-blur px-2 py-0.5 text-[11px] font-semibold text-foreground shadow">
+                            {p.location_label}
+                          </span>
+                        </div>
+                      ) : null}
                     </div>
                   ) : null}
 
@@ -1308,6 +1494,122 @@ export default function SEPBookIG() {
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={authorPickerOpen} onOpenChange={setAuthorPickerOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Filtrar por autor</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <Input value={authorQuery} onChange={(e) => setAuthorQuery(e.target.value)} placeholder="Buscar por nome ou sigla…" />
+            <div className="max-h-[55vh] overflow-auto space-y-1 pr-1">
+              {authorOptions
+                .filter((a) => {
+                  const q = String(authorQuery || "").trim().toLowerCase();
+                  if (!q) return true;
+                  const hay = `${a.author_name || ""} ${a.author_team || ""}`.toLowerCase();
+                  return hay.includes(q);
+                })
+                .slice(0, 120)
+                .map((a) => (
+                  <button
+                    key={a.user_id}
+                    type="button"
+                    className={cn(
+                      "w-full flex items-center gap-3 rounded-lg border px-3 py-2 hover:bg-muted text-left",
+                      filterUserId === a.user_id && "border-primary",
+                    )}
+                    onClick={() => {
+                      setFilterMine(false);
+                      setFilterUserId(a.user_id);
+                      setAuthorPickerOpen(false);
+                    }}
+                  >
+                    <Avatar className="h-9 w-9">
+                      <AvatarImage src={a.author_avatar || undefined} alt={a.author_name || "Autor"} />
+                      <AvatarFallback>{initials(a.author_name)}</AvatarFallback>
+                    </Avatar>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[13px] font-semibold truncate">{formatName(a.author_name)}</div>
+                      <div className="text-[12px] text-muted-foreground truncate">{a.author_team || "DJT"}</div>
+                    </div>
+                  </button>
+                ))}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={mapOpen} onOpenChange={setMapOpen}>
+        <DialogContent className="max-w-3xl p-0 overflow-hidden">
+          <DialogHeader className="px-4 pt-4 pb-2">
+            <DialogTitle>Mapa • publicações com GPS</DialogTitle>
+            <p className="text-[12px] text-muted-foreground">
+              Aqui aparecem <span className="font-semibold">apenas fotos</span> de publicações onde o autor permitiu capturar a localização (GPS).
+            </p>
+          </DialogHeader>
+
+          {mapPosts.length === 0 ? (
+            <div className="px-4 pb-6 text-sm text-muted-foreground">Nenhuma publicação com foto + GPS encontrada nos filtros atuais.</div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-0 border-t">
+              <div className="h-[48vh] md:h-[70vh] border-b md:border-b-0 md:border-r">
+                <MapContainer center={mapCenter} zoom={12} scrollWheelZoom className="h-full w-full">
+                  <TileLayer
+                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                  />
+                  <SepbookFitBounds
+                    points={mapPosts.map((x) => [Number(x.post.location_lat), Number(x.post.location_lng)] as [number, number])}
+                  />
+                  {mapPosts.map((x) => (
+                    <Marker
+                      key={x.post.id}
+                      position={[Number(x.post.location_lat), Number(x.post.location_lng)]}
+                    >
+                      <Popup>
+                        <div className="space-y-2">
+                          <div className="text-[12px] font-semibold">{formatName(x.post.author_name)}</div>
+                          <div className="text-[12px] text-muted-foreground">{x.post.location_label || "Localização"}</div>
+                          {x.imageUrl ? (
+                            <img src={x.imageUrl} alt="Foto" className="w-[220px] max-w-full rounded-md border" />
+                          ) : null}
+                          <Button type="button" size="sm" onClick={() => openPostById(x.post.id)}>
+                            Abrir publicação
+                          </Button>
+                        </div>
+                      </Popup>
+                    </Marker>
+                  ))}
+                </MapContainer>
+              </div>
+              <div className="max-h-[48vh] md:max-h-[70vh] overflow-auto p-4 space-y-3">
+                {mapPosts.map((x) => (
+                  <button
+                    key={`gps-${x.post.id}`}
+                    type="button"
+                    className="w-full flex items-center gap-3 rounded-xl border p-2 hover:bg-muted text-left"
+                    onClick={() => openPostById(x.post.id)}
+                  >
+                    <img
+                      src={x.imageUrl || undefined}
+                      alt="Foto"
+                      className="h-16 w-16 rounded-lg object-cover border"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[13px] font-semibold truncate">{formatName(x.post.author_name)}</div>
+                      <div className="text-[12px] text-muted-foreground truncate">{x.post.location_label || "Localização"}</div>
+                      <div className="text-[11px] text-muted-foreground truncate">
+                        {new Date(x.post.created_at).toLocaleString()}
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
             </div>
           )}
         </DialogContent>

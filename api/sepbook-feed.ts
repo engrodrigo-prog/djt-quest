@@ -61,7 +61,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     let posts: any[] = [];
     try {
       const baseSelect = `
-          id, user_id, content_md, attachments, like_count, comment_count, created_at, location_label, campaign_id, challenge_id, group_label,
+          id, user_id, content_md, attachments, like_count, comment_count, created_at, location_label, location_lat, location_lng, campaign_id, challenge_id, group_label,
           participants:sepbook_post_participants(user_id, profiles(id, name, sigla_area))
         `;
 
@@ -75,7 +75,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         `;
 
       const minimalSelect = `
-          id, user_id, content_md, attachments, like_count, comment_count, created_at, location_label, campaign_id, challenge_id, group_label, repost_of
+          id, user_id, content_md, attachments, like_count, comment_count, created_at, location_label, location_lat, location_lng, campaign_id, challenge_id, group_label, repost_of
         `;
 
       let data: any[] | null = null;
@@ -200,6 +200,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         comment_count: p.comment_count || 0,
         created_at: p.created_at,
         location_label: p.location_label,
+        location_lat: typeof p.location_lat === "number" ? p.location_lat : null,
+        location_lng: typeof p.location_lng === "number" ? p.location_lng : null,
         campaign_id: p.campaign_id || null,
         challenge_id: p.challenge_id || null,
         group_label: p.group_label || null,
@@ -220,6 +222,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               comment_count: repostRow.comment_count || 0,
               created_at: repostRow.created_at,
               location_label: repostRow.location_label,
+              location_lat: typeof repostRow.location_lat === "number" ? repostRow.location_lat : null,
+              location_lng: typeof repostRow.location_lng === "number" ? repostRow.location_lng : null,
               campaign_id: repostRow.campaign_id || null,
               challenge_id: repostRow.challenge_id || null,
               group_label: repostRow.group_label || null,
