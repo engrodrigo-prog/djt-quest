@@ -76,6 +76,9 @@ Deno.serve(async (req) => {
 
     const body = await req.json();
     const { eventId, action, rating, scores, feedbackPositivo, feedbackConstrutivo } = body;
+    if (!eventId) {
+      throw new Error('eventId obrigatório');
+    }
 
     // Buscar evento com dados do colaborador
     const { data: event, error: eventError } = await supabase
@@ -95,10 +98,45 @@ Deno.serve(async (req) => {
     const challenge = event.challenge;
     const collaborator = event.user;
 
-    // Verificar coordenação diferente
-    if (reviewer.coord_id === collaborator.coord_id) {
-      throw new Error('Não pode avaliar colaborador da mesma coordenação');
+    // Garantir que o líder está atribuído na fila (regra de negócio: líder imediato + líder randômico)
+    const { data: queueRow } = await supabase
+      .from('evaluation_queue')
+      .select('id, completed_at')
+      .eq('event_id', eventId)
+      .eq('assigned_to', user.id)
+      .is('completed_at', null)
+      .maybeSingle();
+
+    if (!queueRow?.id) {
+      throw new Error('Você não está atribuído para avaliar esta ação (fila de avaliações).');
     }
+
+    const markEvaluationDone = async () => {
+      const nowIso = new Date().toISOString();
+      try {
+        await supabase
+          .from('evaluation_queue')
+          .update({ completed_at: nowIso })
+          .eq('event_id', eventId)
+          .eq('assigned_to', user.id)
+          .is('completed_at', null);
+      } catch {
+        /* ignore */
+      }
+
+      // Best-effort: mark the assignment notification as read once evaluated
+      try {
+        await supabase
+          .from('notifications')
+          .update({ read: true, read_at: nowIso })
+          .eq('user_id', user.id)
+          .eq('type', 'evaluation_assigned')
+          .eq('metadata->>event_id', String(eventId))
+          .eq('read', false);
+      } catch {
+        /* ignore */
+      }
+    };
 
     // **APROVAR AÇÃO**
     if (action === 'approve') {
@@ -151,14 +189,8 @@ Deno.serve(async (req) => {
             })
             .eq('id', eventId);
 
-          // Atribuir 2º avaliador (coordenação diferente)
-          await supabase.functions.invoke('assign-evaluations', {
-            body: { 
-              eventId,
-              excludeCoordinations: [reviewer.coord_id, collaborator.coord_id],
-              excludeUserId: user.id
-            }
-          });
+          // Garantir 2º avaliador (idempotente; baseado na função do banco)
+          await supabase.rpc('assign_evaluators_for_event', { _event_id: eventId }).catch(() => {});
 
           // Notificar colaborador
           await supabase.rpc('create_notification', {
@@ -172,6 +204,8 @@ Deno.serve(async (req) => {
               reviewer_name: reviewer.name
             }
           });
+
+          await markEvaluationDone();
 
           console.log('First evaluation completed:', { eventId, rating });
 
@@ -188,6 +222,9 @@ Deno.serve(async (req) => {
         } else if (evalCount === 1) {
           // ✅ SEGUNDA AVALIAÇÃO
           const firstEval = existingEvals[0];
+          if (firstEval?.reviewer_id === user.id) {
+            throw new Error('O 2º avaliador deve ser diferente do 1º avaliador');
+          }
 
           // Validar que é de coordenação diferente do 1º avaliador
           const { data: firstReviewer } = await supabase
@@ -275,6 +312,8 @@ Deno.serve(async (req) => {
             }
           });
 
+          await markEvaluationDone();
+
           console.log('Second evaluation completed:', { eventId, avgRating, finalXP });
 
           return new Response(
@@ -358,6 +397,8 @@ Deno.serve(async (req) => {
           }
         });
 
+        await markEvaluationDone();
+
         console.log('Simple evaluation completed:', { eventId, rating, finalXP });
 
         return new Response(
@@ -397,6 +438,8 @@ Deno.serve(async (req) => {
         }
       });
 
+      await markEvaluationDone();
+
       console.log('Action rejected:', { eventId });
 
       return new Response(
@@ -432,6 +475,8 @@ Deno.serve(async (req) => {
           feedback: feedbackConstrutivo
         }
       });
+
+      await markEvaluationDone();
 
       console.log('Retry requested:', { eventId });
 

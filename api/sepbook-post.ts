@@ -12,6 +12,38 @@ const ANON_KEY = (process.env.SUPABASE_ANON_KEY ||
   process.env.VITE_SUPABASE_ANON_KEY) as string;
 const SERVICE_KEY = (SERVICE_ROLE_KEY || ANON_KEY) as string;
 
+const extractCampaignTitles = (md: string) => {
+  const text = String(md || "");
+  const out: string[] = [];
+  for (const m of text.matchAll(/&"([^"]{2,160})"/g)) out.push(String(m[1] || "").trim());
+  // Fallback for single-token titles without spaces/quotes
+  for (const m of text.matchAll(/&([^\s#@&]{2,80})/g)) out.push(String(m[1] || "").trim());
+  return Array.from(new Set(out.map((t) => t.replace(/\s+/g, " ").trim()).filter(Boolean))).slice(0, 3);
+};
+
+async function resolveCampaignByTitle(reader: any, titleRaw: string) {
+  const title = String(titleRaw || "").replace(/\s+/g, " ").trim();
+  if (!title) return null;
+  const safe = title.replace(/[%_]/g, "\\$&");
+  // Try exact-ish match first
+  const exact = await reader.from("campaigns").select("id,title,is_active,evidence_challenge_id").ilike("title", safe).limit(3);
+  const exactRows = Array.isArray(exact?.data) ? exact.data : [];
+  if (exactRows.length === 1) return exactRows[0];
+  if (exactRows.length > 1) return { error: `Título de campanha ambíguo: "${title}"` };
+
+  const like = await reader
+    .from("campaigns")
+    .select("id,title,is_active,evidence_challenge_id")
+    .ilike("title", `%${safe}%`)
+    .order("is_active", { ascending: false })
+    .order("start_date", { ascending: false })
+    .limit(5);
+  const rows = Array.isArray(like?.data) ? like.data : [];
+  if (rows.length === 1) return rows[0];
+  if (rows.length > 1) return { error: `Mais de uma campanha encontrada para: "${title}". Seja mais específico.` };
+  return null;
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === "OPTIONS") return res.status(204).send("");
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
@@ -51,6 +83,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const repostOf = repost_of != null ? String(repost_of).trim() : "";
     if (!text && atts.length === 0 && !repostOf) return res.status(400).json({ error: "Conteúdo, mídia ou repost obrigatórios" });
 
+    // Campaign linking via &"Nome da Campanha" (one campaign per post)
+    const extractedCampaignTitles = extractCampaignTitles(text);
+    if (extractedCampaignTitles.length > 1) {
+      return res.status(400).json({
+        error: "A publicação deve referenciar apenas 1 campanha via &\"Nome\". Remova campanhas extras.",
+      });
+    }
+
     const participantIds = Array.isArray(participant_ids)
       ? Array.from(new Set((participant_ids as string[]).filter((id) => typeof id === "string" && id.trim().length > 0)))
       : [];
@@ -72,6 +112,29 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     }
 
+    // Resolve campaign by explicit campaign_id or by &"Nome"
+    let resolvedCampaignId = campaign_id || null;
+    let evidenceChallengeId: string | null = null;
+    try {
+      if (!resolvedCampaignId && extractedCampaignTitles.length === 1) {
+        const candidate = await resolveCampaignByTitle(SERVICE_ROLE_KEY ? admin : authed, extractedCampaignTitles[0]);
+        if (candidate?.error) throw new Error(candidate.error);
+        if (candidate?.id) {
+          resolvedCampaignId = candidate.id;
+          evidenceChallengeId = candidate.evidence_challenge_id || null;
+        }
+      } else if (resolvedCampaignId) {
+        const { data: camp } = await (SERVICE_ROLE_KEY ? admin : authed)
+          .from("campaigns")
+          .select("id,evidence_challenge_id")
+          .eq("id", resolvedCampaignId)
+          .maybeSingle();
+        evidenceChallengeId = (camp as any)?.evidence_challenge_id || null;
+      }
+    } catch (e: any) {
+      return res.status(400).json({ error: e?.message || "Falha ao resolver campanha via &\"Nome\"" });
+    }
+
     const insertPayload: any = {
       user_id: uid,
       content_md: text,
@@ -81,7 +144,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       location_label: location_label || null,
       location_lat: typeof location_lat === "number" ? location_lat : null,
       location_lng: typeof location_lng === "number" ? location_lng : null,
-      campaign_id: campaign_id || null,
+      campaign_id: resolvedCampaignId || null,
       challenge_id: challenge_id || null,
       group_label: group_label || null,
       translations,
@@ -128,7 +191,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     let eventId: string | null = null;
     let eventError: string | null = null;
     try {
-      if (campaign_id || challenge_id || participantIds.length > 0) {
+      const nextChallengeId = challenge_id || evidenceChallengeId || null;
+      if (resolvedCampaignId || nextChallengeId || participantIds.length > 0) {
         // Em ambientes sem service role, essa integração é best-effort.
         const writer = SERVICE_ROLE_KEY ? admin : authed;
         const payload = {
@@ -136,16 +200,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           sepbook_post_id: post.id,
           content_md: text,
           attachments: atts,
-          campaign_id: campaign_id || null,
+          campaign_id: resolvedCampaignId || null,
           group_label: group_label || null,
           location_label: location_label || null,
+          location_lat: typeof location_lat === "number" ? location_lat : null,
+          location_lng: typeof location_lng === "number" ? location_lng : null,
         };
 
         const { data: newEvent, error: eventErr } = await writer
           .from("events")
           .insert({
             user_id: uid,
-            challenge_id: challenge_id || null,
+            challenge_id: nextChallengeId,
             status: "submitted",
             evidence_urls: atts,
             payload,
@@ -161,6 +227,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         participantsSet.add(uid);
         const participantRows = Array.from(participantsSet).map((pid) => ({ event_id: eventId, user_id: pid }));
         await writer.from("event_participants").upsert(participantRows as any, { onConflict: "event_id,user_id" } as any);
+
+        // Persist back-reference on the post if the column exists (best-effort)
+        try {
+          await writer.from("sepbook_posts").update({ event_id: eventId } as any).eq("id", post.id);
+        } catch {}
       }
     } catch (e: any) {
       const msg = e?.message || "Falha ao criar evidência";

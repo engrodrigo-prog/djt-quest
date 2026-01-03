@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useLocation as useRouterLocation } from "react-router-dom";
+import { useLocation as useRouterLocation, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import Navigation from "@/components/Navigation";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -72,6 +72,8 @@ type SepPost = {
   location_label?: string | null;
   location_lat?: number | null;
   location_lng?: number | null;
+  campaign_id?: string | null;
+  campaign?: { id: string; title: string | null; is_active?: boolean } | null;
   has_liked: boolean;
 };
 
@@ -157,6 +159,14 @@ const detectMentionQuery = (text: string) => {
   return m?.[1] || "";
 };
 
+const detectCampaignQuery = (text: string) => {
+  const v = String(text || "");
+  const q = v.match(/&"([^"]{0,80})$/);
+  if (q) return q[1] || "";
+  const u = v.match(/&([^\s#@&]{0,60})$/);
+  return u?.[1] || "";
+};
+
 const applyMention = (text: string, query: string, handle: string) => {
   const q = String(query || "").trim();
   const h = String(handle || "").trim();
@@ -164,6 +174,22 @@ const applyMention = (text: string, query: string, handle: string) => {
   const suffix = `@${q}`;
   if (!text.endsWith(suffix)) return text;
   return `${text.slice(0, text.length - suffix.length)}@${h} `;
+};
+
+const applyCampaign = (text: string, query: string, title: string) => {
+  const q = String(query || "");
+  const t = String(title || "").trim();
+  if (!t) return text;
+  const quotedSuffix = `&"${q}`;
+  if (text.endsWith(quotedSuffix)) {
+    return `${text.slice(0, text.length - quotedSuffix.length)}&"${t}" `;
+  }
+  const suffix = `&${q}`;
+  if (text.endsWith(suffix)) {
+    // Always insert quoted title to support spaces safely.
+    return `${text.slice(0, text.length - suffix.length)}&"${t}" `;
+  }
+  return text;
 };
 
 const copyToClipboard = async (toast: ReturnType<typeof useToast>["toast"], value: string) => {
@@ -180,7 +206,7 @@ const copyToClipboard = async (toast: ReturnType<typeof useToast>["toast"], valu
 const renderRichText = (toast: ReturnType<typeof useToast>["toast"], text: string) => {
   const src = String(text || "");
   const lines = src.split("\n");
-  const re = /(@[A-Za-z0-9_.-]+|#[\\p{L}0-9_]+)/gu;
+  const re = /(@[A-Za-z0-9_.-]+|&"[^"\n]{2,160}"|#[\p{L}0-9_]+)/gu;
   return (
     <span className="whitespace-pre-wrap">
       {lines.map((line, lineIdx) => {
@@ -279,6 +305,11 @@ function SepbookFitBounds({ points }: { points: Array<[number, number]> }) {
     const run = () => {
       if (cancelled) return;
       try {
+        const el = map.getContainer?.();
+        if (!el || el.offsetWidth === 0 || el.offsetHeight === 0) {
+          window.setTimeout(run, 120);
+          return;
+        }
         map.invalidateSize(true);
         const bounds = L.latLngBounds(points.map((p) => L.latLng(p[0], p[1])));
         map.fitBounds(bounds, { padding: [24, 24], maxZoom: 14, animate: false });
@@ -439,9 +470,55 @@ function useMentionSuggest(query: string) {
   return { items, loading };
 }
 
+type CampaignSuggestion = {
+  id: string;
+  title: string;
+  label: string;
+  is_active: boolean;
+  evidence_challenge_id?: string | null;
+};
+
+function useCampaignSuggest(query: string) {
+  const [items, setItems] = useState<CampaignSuggestion[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const q = String(query || "").trim();
+    if (q.length < 1) {
+      setItems([]);
+      setLoading(false);
+      return;
+    }
+    let cancelled = false;
+    const t = window.setTimeout(() => {
+      (async () => {
+        setLoading(true);
+        try {
+          const resp = await apiFetch(`/api/campaign-suggest?q=${encodeURIComponent(q)}&limit=20`);
+          const json = await resp.json().catch(() => ({}));
+          if (!resp.ok) throw new Error(json?.error || "Falha ao sugerir campanhas");
+          if (!cancelled) setItems(Array.isArray(json.items) ? (json.items as any) : []);
+        } catch {
+          if (!cancelled) setItems([]);
+        } finally {
+          if (!cancelled) setLoading(false);
+        }
+      })();
+    }, 180);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(t);
+    };
+  }, [query]);
+
+  return { items, loading };
+}
+
 export default function SEPBookIG() {
   const { toast } = useToast();
   const routerLocation = useRouterLocation();
+  const navigate = useNavigate();
   const { speak, isSpeaking } = useTts();
   const { user } = useAuth();
   const { locale, t: tr } = useI18n();
@@ -453,8 +530,13 @@ export default function SEPBookIG() {
   const [sortMode, setSortMode] = useState<"newest" | "oldest" | "author_az">("newest");
   const [filterMine, setFilterMine] = useState(false);
   const [filterUserId, setFilterUserId] = useState<string | null>(null);
+  const [filterCampaignId, setFilterCampaignId] = useState<string | null>(null);
   const [authorPickerOpen, setAuthorPickerOpen] = useState(false);
   const [authorQuery, setAuthorQuery] = useState("");
+  const [campaignPickerOpen, setCampaignPickerOpen] = useState(false);
+  const [campaignQuery, setCampaignQuery] = useState("");
+  const [campaignOptions, setCampaignOptions] = useState<CampaignSuggestion[]>([]);
+  const [campaignOptionsLoading, setCampaignOptionsLoading] = useState(false);
   const [mapOpen, setMapOpen] = useState(false);
   const mapInstanceRef = useRef<L.Map | null>(null);
 
@@ -468,6 +550,10 @@ export default function SEPBookIG() {
   const [composerText, setComposerText] = useState("");
   const [composerMentionQuery, setComposerMentionQuery] = useState("");
   const composerMentions = useMentionSuggest(composerMentionQuery);
+  const [composerCampaignQuery, setComposerCampaignQuery] = useState("");
+  const composerCampaigns = useCampaignSuggest(composerCampaignQuery);
+  const [composerCampaignId, setComposerCampaignId] = useState<string | null>(null);
+  const [composerCampaignLabel, setComposerCampaignLabel] = useState<string | null>(null);
   const [composerMedia, setComposerMedia] = useState<MediaItem[]>([]);
   const [composerUploading, setComposerUploading] = useState(false);
   const [composerSubmitting, setComposerSubmitting] = useState(false);
@@ -527,6 +613,27 @@ export default function SEPBookIG() {
     );
   }, [posts]);
 
+  useEffect(() => {
+    if (!campaignPickerOpen) return;
+    let cancelled = false;
+    setCampaignOptionsLoading(true);
+    (async () => {
+      try {
+        const resp = await apiFetch(`/api/campaign-suggest?q=${encodeURIComponent(String(campaignQuery || "").trim())}&limit=60`);
+        const json = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(json?.error || "Falha ao carregar campanhas");
+        if (!cancelled) setCampaignOptions(Array.isArray(json.items) ? (json.items as any) : []);
+      } catch {
+        if (!cancelled) setCampaignOptions([]);
+      } finally {
+        if (!cancelled) setCampaignOptionsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [campaignPickerOpen, campaignQuery]);
+
   const visiblePosts = useMemo(() => {
     const uid = user?.id || null;
     let items = posts.slice();
@@ -534,6 +641,9 @@ export default function SEPBookIG() {
       items = items.filter((p) => p.user_id === uid);
     } else if (filterUserId) {
       items = items.filter((p) => p.user_id === filterUserId);
+    }
+    if (filterCampaignId) {
+      items = items.filter((p) => String((p as any)?.campaign_id || "") === String(filterCampaignId));
     }
 
     if (sortMode === "oldest") {
@@ -550,7 +660,7 @@ export default function SEPBookIG() {
       items.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
     }
     return items;
-  }, [filterMine, filterUserId, posts, sortMode, user?.id]);
+  }, [filterCampaignId, filterMine, filterUserId, posts, sortMode, user?.id]);
 
   const mapPosts = useMemo(() => {
     return visiblePosts
@@ -1051,7 +1161,12 @@ export default function SEPBookIG() {
       const resp = await apiFetch("/api/sepbook-post", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content_md: text, attachments: uploadedComposerUrls, ...(locationPayload || {}) }),
+        body: JSON.stringify({
+          content_md: text,
+          attachments: uploadedComposerUrls,
+          campaign_id: composerCampaignId || null,
+          ...(locationPayload || {}),
+        }),
       });
       const json = await resp.json().catch(() => ({}));
       if (!resp.ok) throw new Error(json?.error || "Falha ao postar");
@@ -1060,6 +1175,9 @@ export default function SEPBookIG() {
       setComposerOpen(false);
       setComposerText("");
       setComposerMentionQuery("");
+      setComposerCampaignQuery("");
+      setComposerCampaignId(null);
+      setComposerCampaignLabel(null);
       composerMedia.forEach((m) => m.previewUrl && URL.revokeObjectURL(m.previewUrl));
       setComposerMedia([]);
       toast({ title: "Publicado", description: "Sua postagem foi publicada no SEPBook." });
@@ -1068,7 +1186,7 @@ export default function SEPBookIG() {
     } finally {
       setComposerSubmitting(false);
     }
-  }, [composerMedia, composerText, composerUploading, resolveLocationForNewPost, toast, uploadedComposerUrls]);
+  }, [composerCampaignId, composerMedia, composerText, composerUploading, resolveLocationForNewPost, toast, uploadedComposerUrls]);
 
   const submitComment = useCallback(async () => {
     const postId = String(commentsOpenFor || "").trim();
@@ -1187,6 +1305,12 @@ export default function SEPBookIG() {
   // Track mention queries for post/comment inputs
   useEffect(() => {
     setComposerMentionQuery(detectMentionQuery(composerText));
+    const cq = detectCampaignQuery(composerText);
+    setComposerCampaignQuery(cq);
+    if (!/&"[^"]{2,160}"/.test(String(composerText || ""))) {
+      setComposerCampaignId(null);
+      setComposerCampaignLabel(null);
+    }
   }, [composerText]);
   useEffect(() => {
     setCommentMentionQuery(detectMentionQuery(commentText));
@@ -1271,11 +1395,13 @@ export default function SEPBookIG() {
                   {tr("sepbook.filterMine")}
                 </DropdownMenuCheckboxItem>
                 <DropdownMenuItem onClick={() => setAuthorPickerOpen(true)}>{tr("sepbook.filterByAuthor")}</DropdownMenuItem>
-                {(filterUserId || filterMine) && (
+                <DropdownMenuItem onClick={() => setCampaignPickerOpen(true)}>{tr("sepbook.filterByCampaign")}</DropdownMenuItem>
+                {(filterUserId || filterMine || filterCampaignId) && (
                   <DropdownMenuItem
                     onClick={() => {
                       setFilterMine(false);
                       setFilterUserId(null);
+                      setFilterCampaignId(null);
                     }}
                   >
                     {tr("sepbook.clearFilters")}
@@ -1322,6 +1448,20 @@ export default function SEPBookIG() {
                         </div>
                         {p.location_label ? (
                           <span className="text-[11px] text-muted-foreground truncate">{p.location_label}</span>
+                        ) : null}
+                        {p.campaign?.id ? (
+                          <button
+                            type="button"
+                            className="mt-0.5 inline-flex items-center gap-1 text-[11px] font-semibold text-primary hover:underline truncate"
+                            onClick={() => navigate(`/campaign/${encodeURIComponent(p.campaign!.id)}`)}
+                            title={p.campaign?.title || tr("sepbook.campaign")}
+                          >
+                            <span className="opacity-80">&amp;</span>
+                            <span className="truncate">
+                              {p.campaign?.title || tr("sepbook.campaign")}
+                              {p.campaign && (p.campaign as any).is_active === false ? ` (${tr("sepbook.campaignOffline")})` : ""}
+                            </span>
+                          </button>
                         ) : null}
                       </div>
                     </div>
@@ -1449,6 +1589,9 @@ export default function SEPBookIG() {
             setComposerOpen(false);
             setComposerText("");
             setComposerMentionQuery("");
+            setComposerCampaignQuery("");
+            setComposerCampaignId(null);
+            setComposerCampaignLabel(null);
             composerMedia.forEach((m) => m.previewUrl && URL.revokeObjectURL(m.previewUrl));
             setComposerMedia([]);
             setComposerUploading(false);
@@ -1509,14 +1652,19 @@ export default function SEPBookIG() {
 
               <div className="flex-1" />
 
-                <Button
-                  type="button"
-                  onClick={() => void submitPost()}
-                  disabled={composerSubmitting || composerUploading || composerMedia.some((m) => m.uploading) || (!composerText.trim() && uploadedComposerUrls.length === 0)}
-                >
-                  {tr("sepbook.publish")}
-                </Button>
-              </div>
+              <Button
+                type="button"
+                onClick={() => void submitPost()}
+                disabled={
+                  composerSubmitting ||
+                  composerUploading ||
+                  composerMedia.some((m) => m.uploading) ||
+                  (!composerText.trim() && uploadedComposerUrls.length === 0)
+                }
+              >
+                {tr("sepbook.publish")}
+              </Button>
+            </div>
 
               <Textarea
                 value={composerText}
@@ -1525,24 +1673,66 @@ export default function SEPBookIG() {
                 className="min-h-[120px]"
               />
 
+              {composerCampaignId ? (
+                <div className="flex items-center justify-between gap-2 rounded-xl border bg-muted/20 px-3 py-2">
+                  <div className="min-w-0">
+                    <div className="text-[11px] text-muted-foreground">{tr("sepbook.campaignSelected")}</div>
+                    <div className="text-[13px] font-semibold truncate">{composerCampaignLabel || composerCampaignId}</div>
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      setComposerCampaignId(null);
+                      setComposerCampaignLabel(null);
+                      setComposerText((prev) => String(prev || "").replace(/&\"[^\"\n]{2,160}\"/g, "").replace(/\s{2,}/g, " "));
+                    }}
+                  >
+                    {tr("sepbook.remove")}
+                  </Button>
+                </div>
+              ) : null}
+
+              {composerCampaignQuery && composerCampaigns.items.length > 0 && (
+                <div className="rounded-xl border bg-background">
+                  <div className="px-3 py-2 text-[12px] text-muted-foreground">{tr("sepbook.campaignSuggestions")}</div>
+                  <div className="max-h-[220px] overflow-auto">
+                    {composerCampaigns.items.slice(0, 10).map((c) => (
+                      <button
+                        key={`camp-${c.id}`}
+                        type="button"
+                        className="w-full text-left px-3 py-2 hover:bg-muted text-[13px]"
+                        onClick={() => {
+                          setComposerCampaignId(c.id);
+                          setComposerCampaignLabel(c.label || c.title);
+                          setComposerText((prev) => applyCampaign(prev, composerCampaignQuery, c.title));
+                        }}
+                      >
+                        <span className="font-semibold">&amp;{c.label || c.title}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {composerMentionQuery && composerMentions.items.length > 0 && (
                 <div className="rounded-xl border bg-background">
-                <div className="px-3 py-2 text-[12px] text-muted-foreground">{tr("sepbook.mentionSuggestions")}</div>
+                  <div className="px-3 py-2 text-[12px] text-muted-foreground">{tr("sepbook.mentionSuggestions")}</div>
                   <div className="max-h-[220px] overflow-auto">
                     {composerMentions.items.slice(0, 12).map((s, idx) => (
                       <button
-                      key={`${s.kind}-${s.handle}-${idx}`}
-                      type="button"
-                      className="w-full text-left px-3 py-2 hover:bg-muted text-[13px]"
-                      onClick={() => setComposerText((prev) => applyMention(prev, composerMentionQuery, s.handle))}
-                    >
-                      <span className="font-semibold">@{s.handle}</span>{" "}
-                      <span className="text-muted-foreground">{s.label}</span>
-                    </button>
-                  ))}
+                        key={`${s.kind}-${s.handle}-${idx}`}
+                        type="button"
+                        className="w-full text-left px-3 py-2 hover:bg-muted text-[13px]"
+                        onClick={() => setComposerText((prev) => applyMention(prev, composerMentionQuery, s.handle))}
+                      >
+                        <span className="font-semibold">@{s.handle}</span> <span className="text-muted-foreground">{s.label}</span>
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
           </div>
         </DrawerContent>
       </Drawer>
@@ -1820,12 +2010,69 @@ export default function SEPBookIG() {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={campaignPickerOpen} onOpenChange={setCampaignPickerOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{tr("sepbook.campaignFilterTitle")}</DialogTitle>
+            <DialogDescription>{tr("sepbook.campaignFilterDescription")}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <Input
+              value={campaignQuery}
+              onChange={(e) => setCampaignQuery(e.target.value)}
+              placeholder={tr("sepbook.campaignSearchPlaceholder")}
+            />
+            {campaignOptionsLoading ? (
+              <div className="py-6 text-sm text-muted-foreground">{tr("common.loading")}</div>
+            ) : campaignOptions.length === 0 ? (
+              <div className="py-6 text-sm text-muted-foreground">{tr("sepbook.campaignFilterEmpty")}</div>
+            ) : (
+              <div className="max-h-[55vh] overflow-auto space-y-1 pr-1">
+                {campaignOptions.slice(0, 120).map((c) => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    className={cn(
+                      "w-full flex items-center justify-between gap-3 rounded-lg border px-3 py-2 hover:bg-muted text-left",
+                      filterCampaignId === c.id && "border-primary",
+                    )}
+                    onClick={() => {
+                      setFilterCampaignId(c.id);
+                      setCampaignPickerOpen(false);
+                    }}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[13px] font-semibold truncate">{c.title}</div>
+                      <div className="text-[12px] text-muted-foreground truncate">{c.label}</div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+            {filterCampaignId ? (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setFilterCampaignId(null);
+                  setCampaignPickerOpen(false);
+                }}
+              >
+                {tr("sepbook.clearCampaignFilter")}
+              </Button>
+            ) : null}
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <Dialog
         open={mapOpen}
         onOpenChange={(open) => {
           if (!open) {
             try {
+              mapInstanceRef.current?.off();
               mapInstanceRef.current?.stop();
+              mapInstanceRef.current?.remove();
             } catch {
               /* ignore */
             }

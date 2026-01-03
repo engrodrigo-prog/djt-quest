@@ -222,11 +222,34 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       profileMap.set(p.id, { name: p.name, sigla_area: p.sigla_area, avatar_url: p.avatar_url, operational_base: (p as any).operational_base || null });
     });
 
+    const campaignIds = Array.from(
+      new Set(
+        (posts || [])
+          .flatMap((p) => [p.campaign_id, p?.repost?.campaign_id].filter(Boolean))
+          .map((v) => String(v)),
+      ),
+    );
+    const campaignMap = new Map<string, { id: string; title: string | null; is_active: boolean }>();
+    if (campaignIds.length) {
+      try {
+        const { data: camps } = await reader.from("campaigns").select("id,title,is_active").in("id", campaignIds.slice(0, 120));
+        (camps || []).forEach((c: any) => {
+          campaignMap.set(String(c.id), { id: String(c.id), title: c.title ?? null, is_active: c.is_active !== false });
+        });
+      } catch {
+        // ignore (RLS / table differences)
+      }
+    }
+
     const items = (posts || []).map((p) => {
       const prof = profileMap.get(p.user_id) || { name: "Colaborador", sigla_area: null, avatar_url: null, operational_base: null };
       const repostRow = p?.repost || null;
       const repostAuthor =
         repostRow && repostRow.user_id ? profileMap.get(repostRow.user_id) || { name: "Colaborador", sigla_area: null, avatar_url: null, operational_base: null } : null;
+      const campaign =
+        p.campaign_id && campaignMap.has(String(p.campaign_id))
+          ? campaignMap.get(String(p.campaign_id))
+          : null;
       const participants =
         Array.isArray(p.participants) && p.participants.length > 0
           ? (p.participants as any[]).map((row) => ({
@@ -252,6 +275,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         location_lat: typeof p.location_lat === "number" ? p.location_lat : null,
         location_lng: typeof p.location_lng === "number" ? p.location_lng : null,
         campaign_id: p.campaign_id || null,
+        campaign,
         challenge_id: p.challenge_id || null,
         group_label: p.group_label || null,
         participants,
@@ -275,6 +299,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               location_lat: typeof repostRow.location_lat === "number" ? repostRow.location_lat : null,
               location_lng: typeof repostRow.location_lng === "number" ? repostRow.location_lng : null,
               campaign_id: repostRow.campaign_id || null,
+              campaign:
+                repostRow.campaign_id && campaignMap.has(String(repostRow.campaign_id))
+                  ? campaignMap.get(String(repostRow.campaign_id))
+                  : null,
               challenge_id: repostRow.challenge_id || null,
               group_label: repostRow.group_label || null,
             }

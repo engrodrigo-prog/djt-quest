@@ -54,7 +54,7 @@ export async function translateForumTexts(params) {
     `Você traduz textos da DJT Quest para múltiplos idiomas (${locales.join(", ")}).\n` +
     `Regras:\n` +
     `- Detecte automaticamente o idioma do texto de entrada (pode estar em pt-BR, en, zh-CN ou misturado).\n` +
-    `- Preserve markdown, hashtags (#tag), menções (@pessoa ou @equipe) e emojis.\n` +
+    `- Preserve markdown, hashtags (#tag), menções (@pessoa ou @equipe), campanhas (&"Nome da Campanha") e emojis.\n` +
     `- Mantenha o sentido técnico/profissional; não acrescente comentários.\n` +
     `- Se o texto já estiver em algum idioma alvo, reutilize-o (sem inventar tradução literal).\n` +
     `Retorne SOMENTE JSON: {"translations":[{ "${locales.join('":"...","')}" : "..." }]} no mesmo tamanho e ordem.\n` +

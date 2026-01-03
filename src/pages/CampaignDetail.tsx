@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -7,9 +7,24 @@ import { Badge } from "@/components/ui/badge";
 import { ThemedBackground } from "@/components/ThemedBackground";
 import Navigation from "@/components/Navigation";
 import { useToast } from "@/hooks/use-toast";
-import { Target, Hash, MessageSquare, Zap, ArrowLeft, Share2 } from "lucide-react";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Target, Hash, MessageSquare, Zap, ArrowLeft, Share2, MapPinned } from "lucide-react";
 import { buildAbsoluteAppUrl, openWhatsAppShare } from "@/lib/whatsappShare";
 import { getActiveLocale } from "@/lib/i18n/activeLocale";
+import { apiFetch } from "@/lib/api";
+import { MapContainer, Marker, Popup, TileLayer } from "react-leaflet";
+import { useMap } from "react-leaflet";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
+import markerIcon2xUrl from "leaflet/dist/images/marker-icon-2x.png";
+import markerIconUrl from "leaflet/dist/images/marker-icon.png";
+import markerShadowUrl from "leaflet/dist/images/marker-shadow.png";
+
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: markerIcon2xUrl,
+  iconUrl: markerIconUrl,
+  shadowUrl: markerShadowUrl,
+});
 
 interface Campaign {
   id: string;
@@ -18,6 +33,8 @@ interface Campaign {
   narrative_tag: string | null;
   start_date: string | null;
   end_date: string | null;
+  is_active?: boolean | null;
+  evidence_challenge_id?: string | null;
 }
 
 interface ChallengeRow {
@@ -44,6 +61,57 @@ interface SepPostRow {
   created_at: string;
 }
 
+type EvidenceItem = {
+  id: string;
+  user_id: string;
+  author_name: string;
+  author_team: string | null;
+  author_avatar: string | null;
+  author_base?: string | null;
+  created_at: string;
+  final_points: number | null;
+  evidence_urls: string[];
+  sepbook_post_id: string | null;
+  location_label: string | null;
+  location_lat: number | null;
+  location_lng: number | null;
+};
+
+const isImageUrl = (url: string) => /\.(png|jpg|jpeg|webp|gif)(\?|#|$)/i.test(String(url || ""));
+
+function FitBounds({ points }: { points: Array<[number, number]> }) {
+  const map = useMap();
+  useEffect(() => {
+    if (!map) return;
+    if (!points || points.length === 0) return;
+    let cancelled = false;
+    const run = () => {
+      if (cancelled) return;
+      try {
+        const el = map.getContainer?.();
+        if (!el || el.offsetWidth === 0 || el.offsetHeight === 0) {
+          window.setTimeout(run, 120);
+          return;
+        }
+        map.invalidateSize(true);
+        const bounds = L.latLngBounds(points.map((p) => L.latLng(p[0], p[1])));
+        map.fitBounds(bounds, { padding: [24, 24], maxZoom: 14, animate: false });
+      } catch {
+        /* ignore */
+      }
+    };
+    try {
+      map.whenReady(() => window.setTimeout(run, 80));
+    } catch {
+      window.setTimeout(run, 80);
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [map, points]);
+  return null;
+}
+
 export default function CampaignDetail() {
   const { campaignId } = useParams();
   const navigate = useNavigate();
@@ -54,54 +122,30 @@ export default function CampaignDetail() {
   const [challenges, setChallenges] = useState<ChallengeRow[]>([]);
   const [topics, setTopics] = useState<ForumTopicRow[]>([]);
   const [posts, setPosts] = useState<SepPostRow[]>([]);
+  const [evidence, setEvidence] = useState<EvidenceItem[]>([]);
+  const [mapOpen, setMapOpen] = useState(false);
+  const mapInstanceRef = useRef<L.Map | null>(null);
 
-  const hashTag = (() => {
-    if (!campaign) return "";
-    if (campaign.narrative_tag && campaign.narrative_tag.trim().length > 0) {
-      const raw = campaign.narrative_tag.trim();
+  const computeHashTag = (c: Campaign) => {
+    if (c?.narrative_tag && String(c.narrative_tag).trim().length > 0) {
+      const raw = String(c.narrative_tag).trim();
       return raw.startsWith("#") ? raw : `#${raw}`;
     }
-    const slug = campaign.title
+    const slug = String(c?.title || "")
       .toLowerCase()
       .normalize("NFD")
       .replace(/[\u0300-\u036f]/g, "")
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-+|-+$/g, "");
-    return `#camp_${slug}`;
-  })();
+    return `#camp_${slug || "djt"}`;
+  };
 
   useEffect(() => {
     const load = async () => {
       if (!campaignId) return;
       setLoading(true);
       try {
-        const [{ data: camp, error: campErr }, { data: chRows }, { data: topicRows }, { data: postRows }] =
-          await Promise.all([
-            supabase.from("campaigns").select("*").eq("id", campaignId).maybeSingle(),
-            supabase
-              .from("challenges")
-              .select("id,title,description,type,xp_reward")
-              .eq("campaign_id", campaignId)
-              .order("created_at", { ascending: false }),
-            supabase
-              .from("forum_topics")
-              .select("id,title,description")
-              .or(
-                `title.ilike.%${hashTag.replace("#", "")}%,description.ilike.%${hashTag.replace(
-                  "#",
-                  ""
-                )}%`
-              )
-              .order("created_at", { ascending: false })
-              .limit(20),
-            supabase
-              .from("sepbook_posts")
-              .select("id,content_md,like_count,comment_count,created_at")
-              .ilike("content_md", `%${hashTag}%`)
-              .order("created_at", { ascending: false })
-              .limit(20),
-          ]);
-
+        const { data: camp, error: campErr } = await supabase.from("campaigns").select("*").eq("id", campaignId).maybeSingle();
         if (campErr) throw campErr;
         if (!camp) {
           toast({
@@ -112,10 +156,69 @@ export default function CampaignDetail() {
           return;
         }
 
-        setCampaign(camp as any);
-        setChallenges((chRows || []) as any);
-        setTopics((topicRows || []) as any);
-        setPosts((postRows || []) as any);
+        const campRow = camp as any;
+        const hashTag = computeHashTag(campRow);
+
+        const [chRows, topicRows, postRows] = await Promise.all([
+          supabase
+            .from("challenges")
+            .select("id,title,description,type,xp_reward,reward_mode,reward_tier_steps")
+            .eq("campaign_id", campaignId)
+            .order("created_at", { ascending: false }),
+          (async () => {
+            try {
+              const { data } = await supabase
+                .from("forum_topics")
+                .select("id,title,description")
+                .eq("campaign_id", campaignId)
+                .order("created_at", { ascending: false })
+                .limit(30);
+              return { data };
+            } catch {
+              const { data } = await supabase
+                .from("forum_topics")
+                .select("id,title,description")
+                .or(`title.ilike.%${hashTag.replace("#", "")}%,description.ilike.%${hashTag.replace("#", "")}%`)
+                .order("created_at", { ascending: false })
+                .limit(20);
+              return { data };
+            }
+          })(),
+          (async () => {
+            try {
+              const { data } = await supabase
+                .from("sepbook_posts")
+                .select("id,content_md,like_count,comment_count,created_at")
+                .eq("campaign_id", campaignId)
+                .order("created_at", { ascending: false })
+                .limit(20);
+              return { data };
+            } catch {
+              const { data } = await supabase
+                .from("sepbook_posts")
+                .select("id,content_md,like_count,comment_count,created_at")
+                .ilike("content_md", `%${hashTag}%`)
+                .order("created_at", { ascending: false })
+                .limit(20);
+              return { data };
+            }
+          })(),
+        ]);
+
+        setCampaign(campRow);
+        setChallenges(((chRows as any)?.data || []) as any);
+        setTopics(((topicRows as any)?.data || []) as any);
+        setPosts(((postRows as any)?.data || []) as any);
+
+        // Evidence: only approved items (appears after evaluation)
+        try {
+          const resp = await apiFetch(`/api/campaign-evidence?campaign_id=${encodeURIComponent(String(campRow.id))}&limit=200`);
+          const json = await resp.json().catch(() => ({}));
+          if (!resp.ok) throw new Error(json?.error || "Falha ao carregar evidências");
+          setEvidence(Array.isArray(json.items) ? (json.items as any) : []);
+        } catch {
+          setEvidence([]);
+        }
       } catch (e: any) {
         console.error("Erro ao carregar campanha", e);
         toast({
@@ -135,11 +238,36 @@ export default function CampaignDetail() {
   const handleOpenSepbookDraft = () => {
     if (!campaign) return;
     try {
-      const content = `${hashTag} ${campaign.title}`;
+      const content = `&"${campaign.title}"`;
       localStorage.setItem("sepbook_draft", JSON.stringify({ content }));
-    } catch {}
+    } catch {
+      /* ignore */
+    }
     navigate("/sepbook");
   };
+
+  const mapEvidence = useMemo(() => {
+    return (evidence || [])
+      .map((e) => {
+        const imageUrl = (Array.isArray(e.evidence_urls) ? e.evidence_urls : []).find((u) => isImageUrl(u)) || null;
+        const hasGps = typeof e.location_lat === "number" && typeof e.location_lng === "number";
+        return { e, imageUrl, hasGps };
+      })
+      .filter((x) => x.hasGps && Boolean(x.imageUrl));
+  }, [evidence]);
+
+  const mapCenter = useMemo<[number, number]>(() => {
+    if (!mapEvidence.length) return [-23.55052, -46.633308];
+    const sum = mapEvidence.reduce(
+      (acc, item) => {
+        acc.lat += Number(item.e.location_lat || 0);
+        acc.lng += Number(item.e.location_lng || 0);
+        return acc;
+      },
+      { lat: 0, lng: 0 },
+    );
+    return [sum.lat / mapEvidence.length, sum.lng / mapEvidence.length];
+  }, [mapEvidence]);
 
   if (loading) {
     return (
@@ -191,7 +319,7 @@ export default function CampaignDetail() {
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="space-y-2">
                 <Badge className="w-fit mb-1 text-[10px] bg-cyan-700/60 text-blue-50 border-cyan-500/50">
-                  {campaign.narrative_tag || "Campanha DJT Quest"}
+                  {(campaign.narrative_tag && campaign.narrative_tag.trim()) || "Campanha DJT Quest"}
                 </Badge>
                 <CardTitle className="text-lg leading-tight">{campaign.title}</CardTitle>
                 {campaign.description && (
@@ -201,7 +329,7 @@ export default function CampaignDetail() {
                 )}
                 <p className="text-[11px] text-muted-foreground mt-1 flex items-center gap-1">
                   <Hash className="h-3 w-3" />
-                  <span>{hashTag}</span>
+                  <span>{computeHashTag(campaign)}</span>
                 </p>
                 {campaign.start_date && campaign.end_date && (
                   <p className="text-[11px] text-muted-foreground">
@@ -222,6 +350,11 @@ export default function CampaignDetail() {
                   <Zap className="h-4 w-4 mr-1" />
                   Subir no SEPBook
                 </Button>
+                {campaign?.evidence_challenge_id ? (
+                  <Button size="sm" variant="secondary" onClick={() => navigate(`/challenge/${encodeURIComponent(String(campaign.evidence_challenge_id))}`)}>
+                    Enviar evidência
+                  </Button>
+                ) : null}
                 <Button
                   size="sm"
                   variant="outline"
@@ -239,6 +372,67 @@ export default function CampaignDetail() {
               </div>
             </div>
           </CardHeader>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <div className="flex items-start justify-between gap-3">
+              <div className="space-y-1">
+                <CardTitle className="text-sm">Evidências aprovadas</CardTitle>
+                <CardDescription className="text-xs">
+                  Histórico de evidências (aparece após avaliação). O mapa mostra apenas imagens com GPS.
+                </CardDescription>
+              </div>
+              <Button size="sm" variant="outline" onClick={() => setMapOpen(true)} disabled={mapEvidence.length === 0}>
+                <MapPinned className="h-4 w-4 mr-1" />
+                Mapa
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {evidence.length === 0 ? (
+              <p className="text-xs text-muted-foreground">Ainda não há evidências aprovadas para esta campanha.</p>
+            ) : (
+              evidence.slice(0, 25).map((ev) => {
+                const firstImg = (Array.isArray(ev.evidence_urls) ? ev.evidence_urls : []).find((u) => isImageUrl(u)) || null;
+                return (
+                  <div key={ev.id} className="flex items-start gap-3 rounded-lg border p-2">
+                    {firstImg ? (
+                      <img src={firstImg} alt="Evidência" className="h-14 w-14 rounded-md object-cover border" />
+                    ) : (
+                      <div className="h-14 w-14 rounded-md border bg-muted" />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="text-[13px] font-semibold truncate">{ev.author_name}</div>
+                        <div className="text-[11px] text-muted-foreground">{new Date(ev.created_at).toLocaleString(getActiveLocale())}</div>
+                      </div>
+                      <div className="text-[12px] text-muted-foreground truncate">
+                        {(ev.author_team || "DJT") + (ev.author_base ? ` • ${ev.author_base}` : "")}
+                      </div>
+                      <div className="flex items-center gap-2 mt-1">
+                        {typeof ev.location_lat === "number" && typeof ev.location_lng === "number" ? (
+                          <Badge variant="secondary" className="text-[10px]">
+                            GPS
+                          </Badge>
+                        ) : null}
+                        {ev.sepbook_post_id ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 px-2 text-[11px]"
+                            onClick={() => navigate(`/sepbook#post-${encodeURIComponent(String(ev.sepbook_post_id))}`)}
+                          >
+                            Abrir no SEPBook
+                          </Button>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </CardContent>
         </Card>
 
         <div className="grid gap-4 lg:grid-cols-3">
@@ -310,7 +504,7 @@ export default function CampaignDetail() {
             <CardContent className="space-y-2">
               {topics.length === 0 && (
                 <p className="text-xs text-muted-foreground">
-                  Ainda não há fóruns com essa hashtag.
+                  Ainda não há fóruns relacionados a esta campanha.
                 </p>
               )}
               {topics.map((t) => (
@@ -352,13 +546,13 @@ export default function CampaignDetail() {
             <CardHeader className="pb-2">
               <CardTitle className="text-sm">Movimento no SEPBook</CardTitle>
               <CardDescription className="text-xs">
-                Publicações espontâneas com a hashtag da campanha.
+                Publicações espontâneas vinculadas a esta campanha.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-2">
               {posts.length === 0 && (
                 <p className="text-xs text-muted-foreground">
-                  Ainda não há posts no SEPBook com essa hashtag.
+                  Ainda não há posts no SEPBook vinculados a esta campanha.
                 </p>
               )}
               {posts.map((p) => (
@@ -409,6 +603,104 @@ export default function CampaignDetail() {
           </Card>
         </div>
       </div>
+
+      <Dialog
+        open={mapOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            try {
+              mapInstanceRef.current?.off();
+              mapInstanceRef.current?.stop();
+              mapInstanceRef.current?.remove();
+            } catch {
+              /* ignore */
+            }
+            mapInstanceRef.current = null;
+          }
+          setMapOpen(open);
+        }}
+      >
+        <DialogContent className="max-w-4xl p-0 overflow-hidden">
+          <DialogHeader className="px-4 pt-4 pb-2">
+            <DialogTitle>Mapa de evidências</DialogTitle>
+            <DialogDescription className="text-[12px] text-muted-foreground">
+              Apenas imagens com localização GPS estão sendo mostradas.
+            </DialogDescription>
+          </DialogHeader>
+
+          {mapEvidence.length === 0 ? (
+            <div className="px-4 pb-6 text-sm text-muted-foreground">Nenhuma evidência com GPS disponível.</div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-0 border-t">
+              <div className="h-[48vh] md:h-[70vh] border-b md:border-b-0 md:border-r">
+                <MapContainer
+                  center={mapCenter}
+                  zoom={12}
+                  scrollWheelZoom={false}
+                  zoomAnimation={false}
+                  fadeAnimation={false}
+                  markerZoomAnimation={false}
+                  whenCreated={(map) => {
+                    mapInstanceRef.current = map;
+                  }}
+                  className="h-full w-full"
+                >
+                  <TileLayer
+                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                  />
+                  <FitBounds
+                    points={mapEvidence.map((x) => [Number(x.e.location_lat), Number(x.e.location_lng)] as [number, number])}
+                  />
+                  {mapEvidence.map((x) => (
+                    <Marker key={x.e.id} position={[Number(x.e.location_lat), Number(x.e.location_lng)]}>
+                      <Popup>
+                        <div className="space-y-2">
+                          <div className="text-[12px] font-semibold">{x.e.author_name}</div>
+                          <div className="text-[12px] text-muted-foreground">{x.e.location_label || "GPS"}</div>
+                          {x.imageUrl ? (
+                            <img src={x.imageUrl} alt="Evidência" className="w-[220px] max-w-full rounded-md border" />
+                          ) : null}
+                          {x.e.sepbook_post_id ? (
+                            <Button
+                              type="button"
+                              size="sm"
+                              onClick={() => navigate(`/sepbook#post-${encodeURIComponent(String(x.e.sepbook_post_id))}`)}
+                            >
+                              Abrir no SEPBook
+                            </Button>
+                          ) : null}
+                        </div>
+                      </Popup>
+                    </Marker>
+                  ))}
+                </MapContainer>
+              </div>
+              <div className="max-h-[48vh] md:max-h-[70vh] overflow-auto p-4 space-y-3">
+                {mapEvidence.map((x) => (
+                  <button
+                    key={`ev-${x.e.id}`}
+                    type="button"
+                    className="w-full flex items-center gap-3 rounded-xl border p-2 hover:bg-accent/10 text-left"
+                    onClick={() => {
+                      if (x.e.sepbook_post_id) navigate(`/sepbook#post-${encodeURIComponent(String(x.e.sepbook_post_id))}`);
+                    }}
+                  >
+                    <img src={x.imageUrl || undefined} alt="Evidência" className="h-16 w-16 rounded-lg object-cover border" />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[13px] font-semibold truncate">{x.e.author_name}</div>
+                      <div className="text-[12px] text-muted-foreground truncate">{x.e.location_label || "GPS"}</div>
+                      <div className="text-[11px] text-muted-foreground truncate">
+                        {new Date(x.e.created_at).toLocaleString(getActiveLocale())}
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <Navigation />
     </div>

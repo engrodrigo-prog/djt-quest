@@ -14,7 +14,7 @@ import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { apiFetch } from '@/lib/api';
 import { ChangePasswordCard } from '@/components/profile/ChangePasswordCard';
 import bgMenu from '@/assets/backgrounds/BG Menu.webp';
@@ -457,6 +457,7 @@ const Navigation = () => {
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>{t("profile.changePasswordTitle")}</DialogTitle>
+            <DialogDescription className="sr-only">Alterar senha</DialogDescription>
           </DialogHeader>
           <ChangePasswordCard compact />
         </DialogContent>

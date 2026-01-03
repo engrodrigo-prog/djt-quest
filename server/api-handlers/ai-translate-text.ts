@@ -46,7 +46,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     `Preserve meaning and tone.\n` +
     `Rules:\n` +
     `- Keep placeholders like {name} intact.\n` +
-    `- Preserve markdown, hashtags (#tag), mentions (@user or @team), emojis, and punctuation.\n` +
+    `- Preserve markdown, hashtags (#tag), mentions (@user or @team), campaign markers (&"Campaign Name"), emojis, and punctuation.\n` +
     `- If a string is already in the target locale, reuse it (do not force literal translation).\n` +
     `- Do not add explanations.\n` +
     `Return ONLY JSON: {"translations": ["..."]} with same length and order.`;
