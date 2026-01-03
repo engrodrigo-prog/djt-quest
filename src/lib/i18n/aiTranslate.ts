@@ -53,22 +53,32 @@ export async function translateTextsCached(params: {
   // Avoid huge payloads; keep ordering for filled subset.
   const missingTexts = missingIdx.map((idx) => texts[idx]).slice(0, 60);
 
-  const resp = await apiFetch("/api/ai?handler=translate-text", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ targetLocale, texts: missingTexts }),
-  });
-  const json = await resp.json().catch(() => ({} as any));
-  if (!resp.ok) throw new Error((json as any)?.error || "Translation failed");
+  try {
+    const resp = await apiFetch("/api/ai?handler=translate-text", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ targetLocale, texts: missingTexts }),
+    });
+    const json = await resp.json().catch(() => ({} as any));
+    if (!resp.ok) throw new Error((json as any)?.error || "Translation failed");
 
-  const translations: string[] = Array.isArray(json?.translations) ? json.translations.map((x: any) => String(x || "")) : [];
-  for (let i = 0; i < missingTexts.length; i++) {
-    const original = missingTexts[i];
-    const translated = translations[i] || original;
-    writeCache(cacheKey(targetLocale, original), translated);
+    const warning = (json as any)?.meta?.warning ? String((json as any).meta.warning) : "";
+    if (warning) {
+      // Do not cache fallbacks (otherwise we'd permanently cache the original text as "translated").
+      return texts.map((t, i) => cached[i] ?? t);
+    }
+
+    const translations: string[] = Array.isArray(json?.translations) ? json.translations.map((x: any) => String(x || "")) : [];
+    for (let i = 0; i < missingTexts.length; i++) {
+      const original = missingTexts[i];
+      const translated = translations[i] || original;
+      writeCache(cacheKey(targetLocale, original), translated);
+    }
+  } catch {
+    // Silent fallback: return cached where available, otherwise original text.
+    return texts.map((t, i) => cached[i] ?? t);
   }
 
   // Re-read cache to ensure hash collisions don't propagate wrong content.
   return texts.map((t) => readCache(cacheKey(targetLocale, t)) ?? t);
 }
-

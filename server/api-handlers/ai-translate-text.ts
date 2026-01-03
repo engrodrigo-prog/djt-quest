@@ -6,13 +6,11 @@ type Body = {
   texts?: unknown;
 };
 
-const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-
 const pickModel = () =>
   process.env.OPENAI_MODEL_FAST ||
   process.env.OPENAI_MODEL_PREMIUM ||
   process.env.OPENAI_TEXT_MODEL ||
-  "gpt-5.2-fast";
+  "gpt-4o-mini";
 
 const normalizeTarget = (value: any) => {
   const v = String(value || "").trim();
@@ -22,7 +20,6 @@ const normalizeTarget = (value: any) => {
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
-  if (!process.env.OPENAI_API_KEY) return res.status(500).json({ error: "Missing OPENAI_API_KEY" });
 
   const body = (req.body || {}) as Body;
   const targetLocale = normalizeTarget(body.targetLocale);
@@ -40,6 +37,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // No-op target
   if (targetLocale === "pt-BR") return res.status(200).json({ translations: texts });
 
+  if (!process.env.OPENAI_API_KEY) {
+    return res.status(200).json({
+      translations: texts,
+      meta: { warning: "OPENAI_API_KEY ausente (tradução desabilitada no servidor)." },
+    });
+  }
+
   const prompt =
     `Translate UI/content strings to locale "${targetLocale}".\n` +
     `Source text may be Portuguese, English, or Chinese, and may be mixed.\n` +
@@ -52,6 +56,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     `Return ONLY JSON: {"translations": ["..."]} with same length and order.`;
 
   try {
+    const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
     const completion = await client.chat.completions.create({
       model: pickModel(),
       messages: [
@@ -80,6 +85,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(200).json({ translations: out });
   } catch (e: any) {
     console.error("ai-translate-text error", e);
-    return res.status(500).json({ error: e?.message || "Falha ao traduzir texto" });
+    return res.status(200).json({
+      translations: texts,
+      meta: { warning: e?.message || "Falha ao traduzir texto" },
+    });
   }
 }
