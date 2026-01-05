@@ -5,7 +5,7 @@ import Navigation from "@/components/Navigation";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
+import { Drawer, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
@@ -36,6 +36,7 @@ import markerIcon2xUrl from "leaflet/dist/images/marker-icon-2x.png";
 import markerIconUrl from "leaflet/dist/images/marker-icon.png";
 import markerShadowUrl from "leaflet/dist/images/marker-shadow.png";
 import {
+  AtSign,
   Camera,
   Heart,
   Image as ImageIcon,
@@ -155,7 +156,12 @@ const initials = (name: string | null | undefined) => {
 
 const detectMentionQuery = (text: string) => {
   const v = String(text || "");
-  const m = v.match(/@([A-Za-z0-9_.-]{1,40})$/);
+  // Allow typing by name (spaces) while preventing trailing-space "re-trigger" after selecting a suggestion.
+  // Examples:
+  // - "@rod" -> "rod"
+  // - "@rodrigo ca" -> "rodrigo ca"
+  // - "@rodrigo " -> no match (wait for next char)
+  const m = v.match(/@([\p{L}0-9_.-]+(?:\s+[\p{L}0-9_.-]+)*)$/u);
   return m?.[1] || "";
 };
 
@@ -571,6 +577,10 @@ export default function SEPBookIG() {
   const [commentSubmitting, setCommentSubmitting] = useState(false);
   const commentCameraRef = useRef<HTMLInputElement | null>(null);
   const commentGalleryRef = useRef<HTMLInputElement | null>(null);
+
+  const [mentionsOpen, setMentionsOpen] = useState(false);
+  const [mentionsLoading, setMentionsLoading] = useState(false);
+  const [mentionsItems, setMentionsItems] = useState<any[]>([]);
 
   const [likesOpenFor, setLikesOpenFor] = useState<string | null>(null);
   const [likesLoading, setLikesLoading] = useState(false);
@@ -1223,12 +1233,41 @@ export default function SEPBookIG() {
     }
   }, [commentMedia, commentText, commentUploading, commentsOpenFor, toast, uploadedCommentUrls]);
 
-  // Mark seen on entry (best-effort) and clear nav badges
+  const loadMentionsInbox = useCallback(async () => {
+    setMentionsLoading(true);
+    try {
+      const resp = await apiFetch(`/api/sepbook-mentions-inbox?limit=40`);
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(json?.error || "Falha ao carregar menções");
+      const items = Array.isArray(json.items) ? json.items : [];
+      setMentionsItems(items);
+      return items;
+    } finally {
+      setMentionsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!mentionsOpen) return;
+    (async () => {
+      try {
+        const items = await loadMentionsInbox();
+        if (items.length) {
+          await apiFetch("/api/sepbook-mentions-mark-seen", { method: "POST", headers: { "Content-Type": "application/json" } });
+          window.dispatchEvent(new CustomEvent("sepbook-mentions-seen"));
+        }
+      } catch {
+        // ignore
+      }
+    })();
+  }, [loadMentionsInbox, mentionsOpen]);
+
+  // Mark last seen on entry (best-effort) and clear only "new posts" badge
   useEffect(() => {
     (async () => {
       try {
-        await apiFetch("/api/sepbook-mark-seen", { method: "POST", headers: { "Content-Type": "application/json" } });
-        window.dispatchEvent(new CustomEvent("sepbook-summary-updated"));
+        await apiFetch("/api/sepbook-mark-last-seen", { method: "POST", headers: { "Content-Type": "application/json" } });
+        window.dispatchEvent(new CustomEvent("sepbook-last-seen-updated"));
       } catch {
         /* ignore */
       }
@@ -1365,6 +1404,16 @@ export default function SEPBookIG() {
             <h1 className="text-[16px] font-black leading-tight tracking-tight truncate">{tr("sepbook.feedTitle")}</h1>
           </div>
           <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              onClick={() => setMentionsOpen(true)}
+              aria-label={tr("sepbook.mentions")}
+              title={tr("sepbook.mentions")}
+            >
+              <AtSign className="h-5 w-5" />
+            </Button>
             <Button type="button" size="icon" variant="ghost" onClick={() => setMapOpen(true)} aria-label={tr("sepbook.map")}>
               <MapPinned className="h-5 w-5" />
             </Button>
@@ -1604,6 +1653,7 @@ export default function SEPBookIG() {
         <DrawerContent className="max-h-[90vh]">
           <DrawerHeader>
             <DrawerTitle>{tr("sepbook.newPost")}</DrawerTitle>
+            <DrawerDescription className="sr-only">Criar uma nova postagem, com menções e campanha opcional</DrawerDescription>
           </DrawerHeader>
 
           <div className="px-3 pb-3 space-y-3">
@@ -1758,6 +1808,7 @@ export default function SEPBookIG() {
                 ? tr("sepbook.commentsTitleWithAuthor", { author: formatName(activePost.author_name) })
                 : tr("sepbook.commentsTitle")}
             </DrawerTitle>
+            <DrawerDescription className="sr-only">Lista de comentários e caixa para responder</DrawerDescription>
           </DrawerHeader>
 
           <div className="flex flex-col h-full">
@@ -1928,6 +1979,48 @@ export default function SEPBookIG() {
           </div>
         </DrawerContent>
       </Drawer>
+
+      <Dialog open={mentionsOpen} onOpenChange={setMentionsOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{tr("sepbook.mentionsTitle")}</DialogTitle>
+            <DialogDescription>{tr("sepbook.mentionsDescription")}</DialogDescription>
+          </DialogHeader>
+          {mentionsLoading ? (
+            <div className="py-6 text-sm text-muted-foreground">{tr("sepbook.mentionsLoading")}</div>
+          ) : mentionsItems.length === 0 ? (
+            <div className="py-6 text-sm text-muted-foreground">{tr("sepbook.mentionsEmpty")}</div>
+          ) : (
+            <div className="max-h-[60vh] overflow-auto space-y-2 pr-1">
+              {mentionsItems.map((m: any) => {
+                const p = m?.post;
+                const postId = String(m?.post_id || p?.id || "").trim();
+                const authorName = formatName(p?.author_name);
+                const created = m?.created_at ? new Date(m.created_at).toLocaleString() : "";
+                const text = String(getPostDisplayText(p) || "").trim();
+                const snippet = text ? text.replace(/\s+/g, " ").slice(0, 180) : tr("sepbook.mentionsNoText");
+                return (
+                  <button
+                    key={String(m.id || postId)}
+                    type="button"
+                    className="w-full text-left rounded-xl border px-3 py-2 hover:bg-muted"
+                    onClick={() => {
+                      setMentionsOpen(false);
+                      if (postId) openPostById(postId);
+                    }}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-[13px] font-semibold truncate">{authorName || "Autor"}</div>
+                      <div className="text-[11px] text-muted-foreground">{created}</div>
+                    </div>
+                    <div className="text-[12px] text-muted-foreground mt-1 whitespace-normal">{snippet}</div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={Boolean(likesOpenFor)} onOpenChange={(open) => !open && setLikesOpenFor(null)}>
         <DialogContent className="max-w-lg">

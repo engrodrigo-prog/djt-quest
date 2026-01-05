@@ -393,7 +393,7 @@ export default function SEPBook() {
         const { data: session } = await supabase.auth.getSession();
         const token = session.session?.access_token;
         if (!token) return;
-        await fetch("/api/sepbook-mark-seen", {
+        await fetch("/api/sepbook-mark-last-seen", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -401,8 +401,8 @@ export default function SEPBook() {
           },
           body: JSON.stringify({}),
         });
-        // Notifica a barra de navegação para limpar badges imediatamente
-        window.dispatchEvent(new CustomEvent("sepbook-summary-updated"));
+        // Notifica a barra de navegação para limpar badge de "novas publicações"
+        window.dispatchEvent(new CustomEvent("sepbook-last-seen-updated"));
       } catch {
         // silencioso
       }
@@ -668,19 +668,8 @@ export default function SEPBook() {
   const handleContentChange = (value: string) => {
     setContent(value);
     // Detecta a última menção digitada e só mostra sugestões se o cursor estiver logo após ela
-    const matches = Array.from(value.matchAll(/@([A-Za-z0-9_.-]{2,30})/g));
-    if (matches.length > 0) {
-      const last = matches[matches.length - 1];
-      const endIndex = (last.index ?? 0) + last[0].length;
-      if (endIndex === value.length) {
-        setMentionQuery(last[1] || "");
-      } else {
-        // Já veio espaço/pontuação depois da menção: não sugerir mais
-        setMentionQuery("");
-      }
-    } else {
-      setMentionQuery("");
-    }
+    const last = value.match(/@([\p{L}0-9_.-]+(?:\s+[\p{L}0-9_.-]+)*)$/u);
+    setMentionQuery(last?.[1] || "");
   };
 
   const fetchHashtagSuggestions = async (text: string) => {

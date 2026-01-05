@@ -1,0 +1,44 @@
+// @ts-nocheck
+import type { VercelRequest, VercelResponse } from "@vercel/node";
+import { createClient } from "@supabase/supabase-js";
+import { assertDjtQuestServerEnv } from "../server/env-guard.js";
+
+const SUPABASE_URL = process.env.SUPABASE_URL as string;
+const ANON_KEY = (process.env.SUPABASE_ANON_KEY ||
+  process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+  process.env.VITE_SUPABASE_ANON_KEY) as string;
+
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  if (req.method === "OPTIONS") return res.status(204).send("");
+  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+
+  try {
+    assertDjtQuestServerEnv({ requireSupabaseUrl: false });
+    if (!SUPABASE_URL || !ANON_KEY) return res.status(500).json({ error: "Missing Supabase config" });
+    const authHeader = req.headers["authorization"] as string | undefined;
+    if (!authHeader?.startsWith("Bearer ")) return res.status(401).json({ error: "Unauthorized" });
+    const token = authHeader.slice(7);
+
+    const authed = createClient(SUPABASE_URL, ANON_KEY, {
+      auth: { autoRefreshToken: false, persistSession: false },
+      global: { headers: { Authorization: `Bearer ${token}` } },
+    });
+    const { data: userData, error: authErr } = await authed.auth.getUser();
+    if (authErr) return res.status(401).json({ error: "Unauthorized" });
+    const uid = userData?.user?.id;
+    if (!uid) return res.status(401).json({ error: "Unauthorized" });
+
+    const now = new Date().toISOString();
+    const { error } = await authed
+      .from("sepbook_last_seen")
+      .upsert({ user_id: uid, last_seen_at: now } as any, { onConflict: "user_id" });
+    if (error) throw error;
+
+    return res.status(200).json({ success: true });
+  } catch (e: any) {
+    return res.status(500).json({ error: e?.message || "Unknown error" });
+  }
+}
+
+export const config = { api: { bodyParser: true } };
+

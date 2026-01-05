@@ -32,6 +32,18 @@ function toMentionHandle(name: string | null | undefined) {
   return last ? `${first}.${last}` : first;
 }
 
+function normalizeQuery(raw: string) {
+  return String(raw || "")
+    .replace(/\u0000/g, "")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function escapeLike(raw: string) {
+  // Minimal escaping for ILIKE patterns; PostgREST supports standard LIKE wildcards.
+  return String(raw || "").replace(/[%_]/g, "");
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === "OPTIONS") return res.status(204).send("");
   if (req.method !== "GET") return res.status(405).json({ error: "Method not allowed" });
@@ -43,15 +55,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       auth: { autoRefreshToken: false, persistSession: false },
     });
 
-    const q = String(req.query.q || "").trim();
+    const q = normalizeQuery(req.query.q);
     if (!q || q.length < 1) return res.status(200).json({ items: [] });
+    const qSafe = escapeLike(q);
+    const tokens = qSafe.split(/\s+/).filter(Boolean);
 
     // Sugestões de equipes (sigla_area)
     const { data: teamsRaw } = await admin
       .from("profiles")
       .select("sigla_area")
       .not("sigla_area", "is", null)
-      .ilike("sigla_area", `%${q}%`)
+      .ilike("sigla_area", `%${qSafe}%`)
       .limit(20);
 
     const teamHandles = new Set<string>();
@@ -68,19 +82,39 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Sugestões de pessoas (por nome/email/sigla/handle)
     let users: any[] = [];
     try {
-      const { data } = await admin
-        .from("profiles")
-        .select("id, name, email, sigla_area, operational_base, mention_handle")
-        .or(`name.ilike.%${q}%,email.ilike.%${q}%,sigla_area.ilike.%${q}%,mention_handle.ilike.%${q}%`)
-        .limit(25);
-      users = (data as any[]) || [];
+      if (tokens.length >= 2) {
+        const namePattern = `%${tokens.join("%")}%`;
+        const { data } = await admin
+          .from("profiles")
+          .select("id, name, email, sigla_area, operational_base, mention_handle")
+          .ilike("name", namePattern)
+          .limit(25);
+        users = (data as any[]) || [];
+      } else {
+        const { data } = await admin
+          .from("profiles")
+          .select("id, name, email, sigla_area, operational_base, mention_handle")
+          .or(`name.ilike.%${qSafe}%,email.ilike.%${qSafe}%,sigla_area.ilike.%${qSafe}%,mention_handle.ilike.%${qSafe}%`)
+          .limit(25);
+        users = (data as any[]) || [];
+      }
     } catch {
-      const { data } = await admin
-        .from("profiles")
-        .select("id, name, email, sigla_area, operational_base")
-        .or(`name.ilike.%${q}%,email.ilike.%${q}%,sigla_area.ilike.%${q}%`)
-        .limit(25);
-      users = (data as any[]) || [];
+      if (tokens.length >= 2) {
+        const namePattern = `%${tokens.join("%")}%`;
+        const { data } = await admin
+          .from("profiles")
+          .select("id, name, email, sigla_area, operational_base")
+          .ilike("name", namePattern)
+          .limit(25);
+        users = (data as any[]) || [];
+      } else {
+        const { data } = await admin
+          .from("profiles")
+          .select("id, name, email, sigla_area, operational_base")
+          .or(`name.ilike.%${qSafe}%,email.ilike.%${qSafe}%,sigla_area.ilike.%${qSafe}%`)
+          .limit(25);
+        users = (data as any[]) || [];
+      }
     }
 
     const userSuggestions =

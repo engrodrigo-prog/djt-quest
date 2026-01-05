@@ -199,12 +199,18 @@ const Navigation = () => {
   // Ouvir eventos globais de leitura de menções para limpar badges imediatamente
   useEffect(() => {
     const onForumSeen = () => setForumBadge(0);
-    const onSepbookSeen = () => { setSepbookNew(0); setSepbookMentions(0); };
+    const onSepbookLegacy = () => { setSepbookNew(0); setSepbookMentions(0); };
+    const onSepbookLastSeen = () => setSepbookNew(0);
+    const onSepbookMentionsSeen = () => setSepbookMentions(0);
     window.addEventListener('forum-mentions-seen', onForumSeen as any);
-    window.addEventListener('sepbook-summary-updated', onSepbookSeen as any);
+    window.addEventListener('sepbook-summary-updated', onSepbookLegacy as any);
+    window.addEventListener('sepbook-last-seen-updated', onSepbookLastSeen as any);
+    window.addEventListener('sepbook-mentions-seen', onSepbookMentionsSeen as any);
     return () => {
       window.removeEventListener('forum-mentions-seen', onForumSeen as any);
-      window.removeEventListener('sepbook-summary-updated', onSepbookSeen as any);
+      window.removeEventListener('sepbook-summary-updated', onSepbookLegacy as any);
+      window.removeEventListener('sepbook-last-seen-updated', onSepbookLastSeen as any);
+      window.removeEventListener('sepbook-mentions-seen', onSepbookMentionsSeen as any);
     };
   }, []);
 
@@ -299,9 +305,9 @@ const Navigation = () => {
             <span className="absolute inset-[3px] rounded-2xl overflow-hidden">
               <img src={iconSEPBook} alt={t("nav.sepbook")} className="w-full h-full object-cover" />
             </span>
-            {sepbookNew > 0 && (
-              <span className={badgeClass(false)} style={{ zIndex: 5 }}>
-                {sepbookNew > 99 ? '99+' : sepbookNew}
+            {(sepbookNew > 0 || sepbookMentions > 0) && (
+              <span className={badgeClass(sepbookMentions > 0)} style={{ zIndex: 5 }}>
+                {(sepbookNew + sepbookMentions) > 99 ? '99+' : (sepbookNew + sepbookMentions)}
               </span>
             )}
           </span>

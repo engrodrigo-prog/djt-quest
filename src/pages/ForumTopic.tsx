@@ -474,7 +474,9 @@ export default function ForumTopic() {
   const detectMentionDraftAtCursor = (text: string, cursor: number) => {
     const cur = Math.max(0, Math.min(text.length, cursor))
     const left = text.slice(0, cur)
-    const match = left.match(/(^|[\s([{<])@([A-Za-z0-9_.-]{0,60})$/)
+    // Allow searching by name (including spaces) while preventing trailing-space drafts.
+    // Examples: "@rod" / "@rodrigo ca"
+    const match = left.match(/(^|[\s([{<])@([\p{L}0-9_.-]+(?:\s+[\p{L}0-9_.-]+)*)$/u)
     if (!match) return null
     const query = match[2] ?? ''
     const start = cur - query.length - 1
