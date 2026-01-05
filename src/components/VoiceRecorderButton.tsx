@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Mic, Square, Loader2, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { supabase } from "@/integrations/supabase/client";
 import { getActiveLocale } from "@/lib/i18n/activeLocale";
@@ -401,6 +401,7 @@ export function VoiceRecorderButton({
         <DialogContent className="max-w-xl">
           <DialogHeader>
             <DialogTitle>Revisar transcrição</DialogTitle>
+            <DialogDescription className="sr-only">Revisar e confirmar o texto transcrito antes de inserir</DialogDescription>
           </DialogHeader>
 
           <div className="space-y-3">

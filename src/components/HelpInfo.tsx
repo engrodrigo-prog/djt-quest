@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { HelpCircle } from 'lucide-react'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useI18n } from '@/contexts/I18nContext'
 
 type HelpKind = 'quiz' | 'challenge' | 'forum'
@@ -15,6 +15,7 @@ export function HelpInfo({ kind = 'challenge' as HelpKind }: { kind?: HelpKind }
         <>
           <DialogHeader>
             <DialogTitle>{t("helpInfo.quiz.title")}</DialogTitle>
+            <DialogDescription className="sr-only">Ajuda e instruções do quiz</DialogDescription>
           </DialogHeader>
           <div className="space-y-2 text-sm">
             <p>• {t("helpInfo.quiz.b1")}</p>
@@ -30,6 +31,7 @@ export function HelpInfo({ kind = 'challenge' as HelpKind }: { kind?: HelpKind }
         <>
           <DialogHeader>
             <DialogTitle>{t("helpInfo.forum.title")}</DialogTitle>
+            <DialogDescription className="sr-only">Ajuda e instruções do fórum</DialogDescription>
           </DialogHeader>
           <div className="space-y-2 text-sm">
             <p>• {t("helpInfo.forum.b1")}</p>
@@ -44,6 +46,7 @@ export function HelpInfo({ kind = 'challenge' as HelpKind }: { kind?: HelpKind }
       <>
         <DialogHeader>
           <DialogTitle>{t("helpInfo.challenge.title")}</DialogTitle>
+          <DialogDescription className="sr-only">Ajuda e instruções do desafio</DialogDescription>
         </DialogHeader>
         <div className="space-y-2 text-sm">
           <p>• {t("helpInfo.challenge.b1")}</p>

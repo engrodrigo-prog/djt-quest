@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { X, Download, Info } from "lucide-react";
 import { AttachmentMetadataModal } from "./AttachmentMetadataModal";
@@ -292,6 +292,10 @@ export const AttachmentViewer = ({
       {/* Lightbox para Imagens */}
       <Dialog open={enableLightbox && lightboxOpen} onOpenChange={setLightboxOpen}>
         <DialogContent className="max-w-4xl w-full p-0">
+          <DialogHeader className="sr-only">
+            <DialogTitle>Visualização de imagem</DialogTitle>
+            <DialogDescription>Visualização ampliada de mídia; use os controles para navegar e baixar.</DialogDescription>
+          </DialogHeader>
           <div className="relative">
             <img
               src={images[selectedIndex]}

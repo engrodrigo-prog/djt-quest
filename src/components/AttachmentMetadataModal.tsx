@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -62,6 +63,7 @@ export const AttachmentMetadataModal = ({
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>Detalhes do Anexo</DialogTitle>
+          <DialogDescription className="sr-only">Metadados e informações do arquivo selecionado</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">

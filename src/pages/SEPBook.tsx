@@ -3,7 +3,7 @@ import { useLocation as useRouterLocation, useNavigate } from "react-router-dom"
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
@@ -1846,6 +1846,7 @@ export default function SEPBook() {
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>{likesModal?.label || "Curtidas"}</DialogTitle>
+            <DialogDescription className="sr-only">Lista de pessoas que curtiram</DialogDescription>
           </DialogHeader>
           {likesModalLoading ? (
             <p className="text-sm text-muted-foreground">Carregando curtidas...</p>
