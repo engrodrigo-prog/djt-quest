@@ -15,6 +15,23 @@ function formatName(name: string | null | undefined) {
   return `${parts[0]} ${parts[parts.length - 1]}`;
 }
 
+function toMentionHandle(name: string | null | undefined) {
+  const raw = String(name || "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, ""); // remove accents
+  const cleaned = raw
+    .replace(/[^a-z0-9\s-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!cleaned) return "";
+  const parts = cleaned.split(" ").filter(Boolean);
+  const first = parts[0] || "";
+  const last = parts.length > 1 ? parts[parts.length - 1] : "";
+  return last ? `${first}.${last}` : first;
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === "OPTIONS") return res.status(204).send("");
   if (req.method !== "GET") return res.status(405).json({ error: "Method not allowed" });
@@ -48,17 +65,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       label: `Equipe ${sigla}`,
     }));
 
-    // Sugestões de pessoas (por nome ou email)
-    const { data: users } = await admin
-      .from("profiles")
-      .select("id, name, email, sigla_area, operational_base")
-      .or(`name.ilike.%${q}%,email.ilike.%${q}%,sigla_area.ilike.%${q}%`)
-      .limit(20);
+    // Sugestões de pessoas (por nome/email/sigla/handle)
+    let users: any[] = [];
+    try {
+      const { data } = await admin
+        .from("profiles")
+        .select("id, name, email, sigla_area, operational_base, mention_handle")
+        .or(`name.ilike.%${q}%,email.ilike.%${q}%,sigla_area.ilike.%${q}%,mention_handle.ilike.%${q}%`)
+        .limit(25);
+      users = (data as any[]) || [];
+    } catch {
+      const { data } = await admin
+        .from("profiles")
+        .select("id, name, email, sigla_area, operational_base")
+        .or(`name.ilike.%${q}%,email.ilike.%${q}%,sigla_area.ilike.%${q}%`)
+        .limit(25);
+      users = (data as any[]) || [];
+    }
 
     const userSuggestions =
       (users || []).map((u: any) => ({
         kind: "user",
-        handle: u.email || "",
+        handle: String(u.mention_handle || toMentionHandle(u.name) || u.email || "").trim(),
         label: `${formatName(u.name)} — ${u.sigla_area || "DJT"}`,
         base: u.operational_base || null,
       })) || [];

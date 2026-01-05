@@ -47,7 +47,8 @@ export async function recomputeSepbookMentionsForPost(postId: string) {
   }
 
   const emailMentions = Array.from(new Set(mentions.filter((m) => m.includes("@"))));
-  const teamMentions = Array.from(new Set(mentions.filter((m) => !m.includes("@"))));
+  const handleMentions = Array.from(new Set(mentions.filter((m) => !m.includes("@") && m.includes("."))));
+  const teamMentions = Array.from(new Set(mentions.filter((m) => !m.includes("@") && !m.includes("."))));
 
   let ids: string[] = [];
 
@@ -57,6 +58,18 @@ export async function recomputeSepbookMentionsForPost(postId: string) {
       .select("id, email")
       .in("email", emailMentions);
     ids.push(...((usersByEmail || []).map((u: any) => u.id)));
+  }
+
+  if (handleMentions.length) {
+    try {
+      const { data: usersByHandle } = await admin
+        .from("profiles")
+        .select("id, mention_handle")
+        .in("mention_handle", handleMentions);
+      ids.push(...((usersByHandle || []).map((u: any) => u.id)));
+    } catch {
+      // schema without mention_handle: ignore (best-effort)
+    }
   }
 
   for (const code of teamMentions) {
@@ -108,8 +121,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(200).json({ success: true, mentions: [] });
     }
 
-    const emailMentions = Array.from(new Set(mentions.filter((m) => m.includes("@"))));
-    const teamMentions = Array.from(new Set(mentions.filter((m) => !m.includes("@"))));
+  const emailMentions = Array.from(new Set(mentions.filter((m) => m.includes("@"))));
+  const handleMentions = Array.from(new Set(mentions.filter((m) => !m.includes("@") && m.includes("."))));
+  const teamMentions = Array.from(new Set(mentions.filter((m) => !m.includes("@") && !m.includes("."))));
 
     let ids: string[] = [];
 
@@ -119,12 +133,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         .from("profiles")
         .select("id, email")
         .in("email", emailMentions);
-      ids.push(...((usersByEmail || []).map((u: any) => u.id)));
-    }
+    ids.push(...((usersByEmail || []).map((u: any) => u.id)));
+  }
 
-    // Menções por equipe/sigla (ex.: DJT, DJTV-SUL, DJTB-CUB)
-    for (const code of teamMentions) {
-      const upper = code.toUpperCase();
+  if (handleMentions.length) {
+    try {
+      const { data: usersByHandle } = await admin
+        .from("profiles")
+        .select("id, mention_handle")
+        .in("mention_handle", handleMentions);
+      ids.push(...((usersByHandle || []).map((u: any) => u.id)));
+    } catch {
+      // schema without mention_handle: ignore (best-effort)
+    }
+  }
+
+  // Menções por equipe/sigla (ex.: DJT, DJTV-SUL, DJTB-CUB)
+  for (const code of teamMentions) {
+    const upper = code.toUpperCase();
       let query = admin.from("profiles").select("id, sigla_area");
 
       if (upper === "DJT" || upper === "DJTB" || upper === "DJTV") {
