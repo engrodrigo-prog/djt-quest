@@ -40,7 +40,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const { data, error } = await admin
         .from("sepbook_mentions")
         .select(
-          "id, post_id, created_at, is_read, post:sepbook_posts(id, created_at, user_id, author_name, author_avatar, author_team, content_md, attachments)"
+          "post_id, mentioned_user_id, created_at, is_read, post:sepbook_posts(id, created_at, user_id, author_name, author_avatar, author_team, content_md, attachments)"
         )
         .eq("mentioned_user_id", uid)
         .eq("is_read", false)
@@ -51,7 +51,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     } catch {
       const { data: mentions, error: mentionsErr } = await admin
         .from("sepbook_mentions")
-        .select("id, post_id, created_at, is_read")
+        .select("post_id, mentioned_user_id, created_at, is_read")
         .eq("mentioned_user_id", uid)
         .eq("is_read", false)
         .order("created_at", { ascending: false })
@@ -76,4 +76,3 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 }
 
 export const config = { api: { bodyParser: false } };
-

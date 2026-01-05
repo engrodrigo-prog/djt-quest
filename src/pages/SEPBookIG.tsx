@@ -2001,7 +2001,7 @@ export default function SEPBookIG() {
                 const snippet = text ? text.replace(/\s+/g, " ").slice(0, 180) : tr("sepbook.mentionsNoText");
                 return (
                   <button
-                    key={String(m.id || postId)}
+                    key={postId || String(m?.created_at || Math.random())}
                     type="button"
                     className="w-full text-left rounded-xl border px-3 py-2 hover:bg-muted"
                     onClick={() => {
