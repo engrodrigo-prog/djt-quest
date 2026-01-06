@@ -163,7 +163,16 @@ const collectOutputText = (payload: any) => {
     .map((item: any) => {
       if (typeof item?.content === "string") return item.content;
       if (Array.isArray(item?.content)) {
-        return item.content.map((c: any) => c?.text || c?.content || "").join("\n");
+        return item.content
+          .map((c: any) => {
+            if (typeof c?.text === "string") return c.text;
+            if (typeof c?.text?.value === "string") return c.text.value;
+            if (typeof c?.content === "string") return c.content;
+            if (typeof c?.value === "string") return c.value;
+            return "";
+          })
+          .filter(Boolean)
+          .join("\n");
       }
       return item?.text || "";
     })
@@ -1550,6 +1559,9 @@ Formato da saída:
           resp = await callOpenAiResponse({
             model,
             input: toResponsesInputMessages(openaiMessages),
+            text: { verbosity: "low" },
+            reasoning: { effort: "low" },
+            temperature: 0.2,
             max_output_tokens: maxTokens,
           });
         } catch (e: any) {

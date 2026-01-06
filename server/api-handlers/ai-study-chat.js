@@ -117,7 +117,13 @@ const collectOutputText = (payload) => {
   const chunks = output.map((item) => {
     if (typeof item?.content === "string") return item.content;
     if (Array.isArray(item?.content)) {
-      return item.content.map((c) => c?.text || c?.content || "").join("\n");
+      return item.content.map((c) => {
+        if (typeof c?.text === "string") return c.text;
+        if (typeof c?.text?.value === "string") return c.text.value;
+        if (typeof c?.content === "string") return c.content;
+        if (typeof c?.value === "string") return c.value;
+        return "";
+      }).filter(Boolean).join("\n");
     }
     return item?.text || "";
   }).filter(Boolean);
@@ -1223,6 +1229,9 @@ ${webSummary.text}`
           resp = await callOpenAiChatCompletion({
             model,
             input: toResponsesInputMessages(openaiMessages),
+            text: { verbosity: "low" },
+            reasoning: { effort: "low" },
+            temperature: 0.2,
             max_output_tokens: maxTokens
           });
         } catch (e) {
