@@ -43,7 +43,6 @@ Regras:
             { role: 'system', content: sys },
             { role: 'user', content: user },
           ],
-          temperature: 0.65,
         }
         if (/^gpt-5/i.test(String(OPENAI_TEXT_MODEL))) body.max_completion_tokens = 550
         else body.max_tokens = 550

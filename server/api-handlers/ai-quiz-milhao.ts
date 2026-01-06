@@ -120,7 +120,6 @@ Observações:
       const body: any = {
         model,
         messages: [{ role: 'system', content: system }, userMessage],
-        temperature: 0.7,
       };
       if (/^gpt-5/i.test(String(model))) body.max_completion_tokens = 4500;
       else body.max_tokens = 4500;

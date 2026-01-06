@@ -32,7 +32,6 @@ export default async function handler(req, res) {
                             { role: 'system', content: sys },
                             { role: 'user', content: user },
                         ],
-                        temperature: 0.7,
                         ...(/^gpt-5/i.test(String(OPENAI_TEXT_MODEL))
                             ? { max_completion_tokens: 400 }
                             : { max_tokens: 400 }),

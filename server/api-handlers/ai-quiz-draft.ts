@@ -72,7 +72,6 @@ Responda apenas em JSON válido, sem comentários.`
       const body: any = {
         model,
         messages: [{ role: 'system', content: system }, user],
-        temperature: 0.7,
       }
       if (/^gpt-5/i.test(String(model))) body.max_completion_tokens = 650
       else body.max_tokens = 650

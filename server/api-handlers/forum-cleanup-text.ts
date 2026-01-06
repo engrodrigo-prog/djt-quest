@@ -70,7 +70,6 @@ Descrição original:
         { role: 'system', content: system },
         { role: 'user', content: user },
       ],
-      temperature: 0.15,
       response_format: { type: 'json_object' },
     };
     if (/^gpt-5/i.test(String(OPENAI_TEXT_MODEL))) body.max_completion_tokens = 400;

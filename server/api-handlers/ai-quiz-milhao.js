@@ -107,8 +107,7 @@ Gere o objeto JSON seguindo exatamente o formato especificado. D\xEA aten\xE7\xE
     for (const model of models) {
       const body = {
         model,
-        messages: [{ role: "system", content: system }, userMessage],
-        temperature: 0.7
+        messages: [{ role: "system", content: system }, userMessage]
       };
       if (/^gpt-5/i.test(String(model))) body.max_completion_tokens = 4500;
       else body.max_tokens = 4500;

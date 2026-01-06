@@ -53,11 +53,10 @@ Responda apenas em JSON válido, sem comentários.`;
         let content = '';
         let lastErr = '';
         for (const model of models) {
-            const body = {
-                model,
-                messages: [{ role: 'system', content: system }, user],
-                temperature: 0.7,
-            };
+                const body = {
+                    model,
+                    messages: [{ role: 'system', content: system }, user],
+                };
             if (/^gpt-5/i.test(String(model)))
                 body.max_completion_tokens = 650;
             else

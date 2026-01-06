@@ -116,7 +116,6 @@ Retorne JSON estrito:
 }`;
     const body = {
       model: MODEL,
-      temperature: 0.4,
       messages: [
         { role: "system", content: `${system}
 

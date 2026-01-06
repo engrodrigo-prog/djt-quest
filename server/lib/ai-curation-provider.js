@@ -30,17 +30,18 @@ const pickVisionModel = (paramsModel) =>
   );
 
 async function callOpenAiChatJson({ openaiKey, model, system, user, maxTokens = 1800, temperature = 0.2 }) {
+  const isGpt5 = String(model).startsWith('gpt-5');
   const resp = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${openaiKey}` },
     body: JSON.stringify({
       model,
-      temperature,
+      ...(isGpt5 ? {} : { temperature }),
       messages: [
         { role: 'system', content: system },
         { role: 'user', content: user },
       ],
-      ...(String(model).startsWith('gpt-5') ? { max_completion_tokens: maxTokens } : { max_tokens: maxTokens }),
+      ...(isGpt5 ? { max_completion_tokens: maxTokens } : { max_tokens: maxTokens }),
     }),
   });
 
@@ -162,7 +163,6 @@ Responda APENAS em JSON válido no formato:
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${openaiKey}` },
     body: JSON.stringify({
       model,
-      temperature: 0.2,
       messages: [
         { role: 'system', content: system },
         {

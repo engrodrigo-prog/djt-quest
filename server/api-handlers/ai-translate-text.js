@@ -38,8 +38,7 @@ Return ONLY JSON: {"translations": ["..."]} with same length and order.`;
         { role: "system", content: prompt },
         { role: "user", content: JSON.stringify({ targetLocale, texts }) }
       ],
-      response_format: { type: "json_object" },
-      temperature: 0.2
+      response_format: { type: "json_object" }
     };
     if (/^gpt-5/i.test(String(model))) payload.max_completion_tokens = 1500;
     else payload.max_tokens = 1500;

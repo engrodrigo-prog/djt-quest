@@ -104,7 +104,6 @@ Retorne APENAS JSON válido: {"strings": ["...","..."]} mantendo o mesmo número
 
   const body = {
     model,
-    temperature: 0,
     messages: [
       { role: 'system', content: system },
       user,

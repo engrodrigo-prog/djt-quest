@@ -99,7 +99,6 @@ Saída: responda APENAS JSON válido, no formato:
 
   const body: any = {
     model,
-    temperature: 0.2,
     messages: [
       { role: 'system', content: system },
       { role: 'user', content: JSON.stringify({ items: payload }) },

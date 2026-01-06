@@ -200,7 +200,6 @@ Retorne um JSON estrito:
 
         const body: any = {
           model: OPENAI_MODEL_PREMIUM,
-          temperature: 0.35,
           messages: [
             { role: "system", content: system },
             { role: "user", content: user },

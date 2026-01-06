@@ -166,15 +166,14 @@ export default async function handler(req, res) {
                             Authorization: `Bearer ${OPENAI_API_KEY}`,
                             'Content-Type': 'application/json',
                         },
-                        body: JSON.stringify({
-                            model,
-                            temperature: wantedMode === 'organize' ? 0 : 0.2,
-                            messages: [
-                                { role: 'system', content: system },
-                                { role: 'user', content: userContent },
-                            ],
-                        }),
-                    });
+                            body: JSON.stringify({
+                                model,
+                                messages: [
+                                    { role: 'system', content: system },
+                                    { role: 'user', content: userContent },
+                                ],
+                            }),
+                        });
                     if (!comp.ok)
                         continue;
                     const cj = await comp.json().catch(() => null);

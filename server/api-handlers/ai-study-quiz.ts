@@ -148,7 +148,6 @@ ${JSON.stringify({ items: payload })}`;
       { role: "system", content: system },
       { role: "user", content: user },
     ],
-    temperature: 0.35,
   };
   if (/^gpt-5/i.test(String(model))) body.max_completion_tokens = 2200;
   else body.max_tokens = 2200;
@@ -667,7 +666,6 @@ ${joinedContext}`,
       const body: any = {
         model,
         messages: [{ role: "system", content: system }, userMessage],
-        temperature: hasReferenceSources ? 0.55 : 0.4,
       };
       if (/^gpt-5/i.test(String(model))) body.max_completion_tokens = 4500;
       else body.max_tokens = 4500;

@@ -735,7 +735,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               content: userContent,
             },
           ],
-          temperature: 0.4,
           max_completion_tokens: isIncident ? 500 : 300,
         };
         if (wantsStrictJson) {
@@ -781,7 +780,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               const repairModel = chooseModel(false);
               const repairBody: any = {
                 model: repairModel,
-                temperature: 0,
                 max_completion_tokens: 400,
                 messages: [
                   {
@@ -1385,7 +1383,6 @@ Formato da saída:
       body: JSON.stringify({
         model,
         messages: openaiMessages,
-        temperature: 0.6,
         max_completion_tokens: 1200,
       }),
     });

@@ -41,7 +41,7 @@ export default async function handler(req, res) {
             const system = 'Você é um consultor de aprendizado corporativo (pt-BR). Atribua prioridades e proponha ações (quiz/desafio/campanha/operacional) com escopo (equipes, líderes, toda organização, ou outras áreas) a partir dos tópicos do fórum.';
             const premium = process.env.OPENAI_MODEL_PREMIUM || process.env.OPENAI_MODEL_OVERRIDE || 'gpt-5-2025-08-07';
             const base = {
-                model: premium, temperature: 0.3,
+                model: premium,
                 messages: [
                     { role: 'system', content: system },
                     { role: 'user', content: `Considere estes tópicos com métricas:\n${JSON.stringify(top, null, 2)}\nRegras: priorize Segurança (S) quando aplicável; alinhe com CHAS (Conhecimento/Habilidade/Atitude/Segurança).\nRetorne JSON estrito: {"items":[{ "topic_id":"uuid","title":"...","priority":1-5,"chas":"C|H|A|S","specialties":[...],"summary":"...","proposed_actions":[{"type":"quiz|desafio|campanha|operacional","title":"...","description":"...","target":"equipes|lideres|organizacao|outras_areas"}],"justification":"..." } ×10]}` }

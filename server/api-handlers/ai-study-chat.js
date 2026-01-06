@@ -587,7 +587,6 @@ ${metaParts.join("\n\n")}` : ""}`;
               content: userContent
             }
           ],
-          temperature: 0.4,
           max_completion_tokens: isIncident ? 500 : 300
         };
         if (wantsStrictJson) {
@@ -629,7 +628,6 @@ ${metaParts.join("\n\n")}` : ""}`;
               const repairModel = chooseModel(false);
               const repairBody = {
                 model: repairModel,
-                temperature: 0,
                 max_completion_tokens: 400,
                 messages: [
                   {
@@ -1097,7 +1095,6 @@ ${webSummary.text}`
       body: JSON.stringify({
         model,
         messages: openaiMessages,
-        temperature: 0.6,
         max_completion_tokens: 1200
       })
     });

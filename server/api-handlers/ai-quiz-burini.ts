@@ -160,7 +160,6 @@ Retorne JSON estrito:
 
     const body: any = {
       model: MODEL,
-      temperature: 0.4,
       messages: [
         { role: 'system', content: `${system}\n\n${safety}` },
         { role: 'user', content: user },

@@ -74,7 +74,6 @@ export async function translateForumTexts(params) {
           { role: "user", content: JSON.stringify({ locales, texts: batch.map((b) => b.text) }) },
         ],
         response_format: { type: "json_object" },
-        temperature: 0.2,
       };
       if (/^gpt-5/i.test(String(model))) {
         base.max_completion_tokens = 3500;

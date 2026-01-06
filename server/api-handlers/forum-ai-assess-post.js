@@ -32,7 +32,7 @@ export default async function handler(req, res) {
         let content = '';
         let lastErr = '';
         for (const model of models) {
-            const body = { model, temperature: 0, messages: [{ role: 'system', content: system }, { role: 'user', content: user }] };
+            const body = { model, messages: [{ role: 'system', content: system }, { role: 'user', content: user }] };
             // gpt-5 family uses max_completion_tokens
             if (/^gpt-5/i.test(model))
                 body.max_completion_tokens = 300;

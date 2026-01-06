@@ -136,7 +136,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             },
             body: JSON.stringify({
               model,
-              temperature: wantedMode === 'organize' ? 0 : 0.2,
               messages: [
                 { role: 'system', content: system },
                 { role: 'user', content: userContent },

@@ -50,7 +50,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     let out = ''
     let lastErr = ''
     for (const model of tryModels) {
-      const body: any = { model, temperature: 0.3, messages: [ { role: 'system', content: system }, { role: 'user', content: userContent } ] }
+      const body: any = { model, messages: [ { role: 'system', content: system }, { role: 'user', content: userContent } ] }
       if (/^gpt-5/i.test(model)) body.max_completion_tokens = 1400; else body.max_tokens = 1400
       const resp = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',

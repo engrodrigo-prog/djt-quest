@@ -120,7 +120,6 @@ Retorne APENAS JSON válido: {"strings": ["...","..."]} mantendo o mesmo número
     },
     body: JSON.stringify({
       model,
-      temperature: 0,
       messages: [{ role: 'system', content: system }, user],
     }),
   });

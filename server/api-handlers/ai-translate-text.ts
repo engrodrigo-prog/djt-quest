@@ -65,7 +65,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         { role: "user", content: JSON.stringify({ targetLocale, texts }) },
       ],
       response_format: { type: "json_object" as any },
-      temperature: 0.2,
     };
     if (/^gpt-5/i.test(String(model))) payload.max_completion_tokens = 1500;
     else payload.max_tokens = 1500;
