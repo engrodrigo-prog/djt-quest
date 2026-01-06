@@ -124,6 +124,8 @@ Retorne APENAS JSON válido: {"strings": ["...","..."]} mantendo o mesmo número
     }),
   });
 
+  if (!resp.ok) return { output: inputStrings };
+
   const json = await resp.json().catch(() => null);
   const content = json?.choices?.[0]?.message?.content;
   const parsed = extractJson(content || '');

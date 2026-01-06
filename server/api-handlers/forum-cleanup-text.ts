@@ -3,6 +3,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 
 import { loadLocalEnvIfNeeded } from '../lib/load-local-env.js';
 import { normalizeChatModel } from '../lib/openai-models.js';
+import { proofreadPtBrStrings } from '../lib/ai-proofread-ptbr.js';
 
 loadLocalEnvIfNeeded();
 
@@ -44,77 +45,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
-    const system = `Você é um REVISOR GRAMATICAL em ${language} para textos corporativos.
-REGRAS OBRIGATÓRIAS (NÃO QUEBRE):
-- NÃO reescreva frases, NÃO resuma, NÃO aumente e NÃO mude o sentido das frases.
-- NÃO troque palavras por sinônimos, NÃO mude tempos verbais e NÃO reorganize a ordem das frases.
-- NÃO altere números, medidas, nomes de pessoas, empresas, equipamentos ou normas.
-- Apenas:
-  • corrija erros de ortografia (acentos, letras trocadas);
-  • corrija pontuação (vírgulas, pontos, parágrafos);
-  • corrija concordância gramatical simples, mantendo exatamente a mesma mensagem.
-- Preserve o estilo, o vocabulário técnico e o comprimento aproximado do texto original.
-- Nunca adicione informações novas nem remova informações existentes.
-Saída: responda SOMENTE em JSON válido, no formato exato:
-{"title":"...","description":"..."}`;
-
-    const user = `Título original:
-"""${safeTitle}"""
-
-Descrição original:
-"""${safeDescription}"""`;
-
-    const payload: any = {
+    const { output, usedModel } = await proofreadPtBrStrings({
+      openaiKey: OPENAI_API_KEY,
       model: OPENAI_TEXT_MODEL,
-      messages: [
-        { role: 'system', content: system },
-        { role: 'user', content: user },
-      ],
-      response_format: { type: 'json_object' },
-    };
-    if (/^gpt-5/i.test(String(OPENAI_TEXT_MODEL))) payload.max_completion_tokens = 400;
-    else payload.max_tokens = 400;
-
-    const resp = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
+      strings: [safeTitle, safeDescription],
     });
 
-    if (!resp.ok) {
-      const txt = await resp.text().catch(() => '');
-      return res.status(200).json({
-        cleaned: { title: safeTitle.trim(), description: safeDescription.trim() },
-        meta: { usedAI: false, reason: `openai_error: ${txt || resp.status}` },
-      });
-    }
-
-    const data = await resp.json().catch(() => null);
-    const content = data?.choices?.[0]?.message?.content || '';
-    let json: any;
-    try {
-      json = JSON.parse(content);
-    } catch {
-      const m = content.match(/\{[\s\S]*\}/);
-      if (m) json = JSON.parse(m[0]);
-    }
-
-    if (!json?.title || !json?.description) {
-      return res.status(200).json({
-        cleaned: { title: safeTitle.trim(), description: safeDescription.trim() },
-        meta: { usedAI: false, reason: 'bad_ai_format' },
-      });
-    }
-
+    const [nextTitle, nextDescription] = Array.isArray(output) ? output : [safeTitle, safeDescription];
     return res.status(200).json({
       cleaned: {
-        title: String(json.title || safeTitle).trim(),
-        description: String(json.description || safeDescription).trim(),
+        title: String(nextTitle || safeTitle).trim(),
+        description: String(nextDescription || safeDescription).trim(),
       },
-      meta: { usedAI: true },
+      meta: { usedAI: Boolean(usedModel), model: usedModel || OPENAI_TEXT_MODEL, language },
     });
   } catch (err: any) {
     return res.status(200).json({
