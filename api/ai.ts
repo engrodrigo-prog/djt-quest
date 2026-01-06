@@ -3,39 +3,26 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 
 import { assertDjtQuestServerEnv } from '../server/env-guard.js';
 
-// Import handlers estaticamente para o bundle da Vercel
-import aiHealth from '../server/api-handlers/ai-health.js';
-import aiQuizDraft from '../server/api-handlers/ai-quiz-draft.js';
-import aiGenerateWrongs from '../server/api-handlers/ai-generate-wrongs.js';
-import transcribeAudio from '../server/api-handlers/transcribe-audio.js';
-import forumCleanupText from '../server/api-handlers/forum-cleanup-text.js';
-import suggestHashtags from '../server/api-handlers/ai-suggest-hashtags.js';
-import aiQuizMilhao from '../server/api-handlers/ai-quiz-milhao.js';
-import aiQuizBurini from '../server/api-handlers/ai-quiz-burini.js';
-import aiStudyQuiz from '../server/api-handlers/ai-study-quiz.js';
-import aiStudyChat from '../server/api-handlers/ai-study-chat.js';
-import aiTranslateText from '../server/api-handlers/ai-translate-text.js';
-
 type Handler = (req: VercelRequest, res: VercelResponse) => any | Promise<any>;
 
-const handlers: Record<string, Handler> = {
+const handlers: Record<string, () => Promise<{ default: Handler }>> = {
   // IA health check
-  health: aiHealth,
+  health: () => import('../server/api-handlers/ai-health.js'),
   // Quiz helpers
-  'quiz-draft': aiQuizDraft,
-  'generate-wrongs': aiGenerateWrongs,
-  'quiz-milhao': aiQuizMilhao,
-  'quiz-burini': aiQuizBurini,
-  'study-quiz': aiStudyQuiz,
-  'study-chat': aiStudyChat,
+  'quiz-draft': () => import('../server/api-handlers/ai-quiz-draft.js'),
+  'generate-wrongs': () => import('../server/api-handlers/ai-generate-wrongs.js'),
+  'quiz-milhao': () => import('../server/api-handlers/ai-quiz-milhao.js'),
+  'quiz-burini': () => import('../server/api-handlers/ai-quiz-burini.js'),
+  'study-quiz': () => import('../server/api-handlers/ai-study-quiz.js'),
+  'study-chat': () => import('../server/api-handlers/ai-study-chat.js'),
   // Audio -> texto
-  'transcribe-audio': transcribeAudio,
+  'transcribe-audio': () => import('../server/api-handlers/transcribe-audio.js'),
   // Texto: limpeza ortográfica/pontuação (usado em fórum, quizzes, etc.)
-  'cleanup-text': forumCleanupText,
+  'cleanup-text': () => import('../server/api-handlers/forum-cleanup-text.js'),
   // Tradução (conteúdo dinâmico do banco)
-  'translate-text': aiTranslateText,
+  'translate-text': () => import('../server/api-handlers/ai-translate-text.js'),
   // Sugerir hashtags (IA premium, JSON)
-  'suggest-hashtags': suggestHashtags,
+  'suggest-hashtags': () => import('../server/api-handlers/ai-suggest-hashtags.js'),
 };
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -59,15 +46,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(400).json({ error: 'handler query param required' });
   }
 
-  const fn = handlers[key];
-  if (!fn) {
+  const loader = handlers[key];
+  if (!loader) {
     return res.status(400).json({ error: `Unknown AI handler: ${key}` });
   }
 
   try {
+    const mod = await loader();
+    const fn = mod?.default;
+    if (typeof fn !== 'function') {
+      return res.status(500).json({ error: `Invalid AI handler module: ${key}` });
+    }
     return await fn(req, res);
   } catch (e: any) {
-    return res.status(500).json({ error: e?.message || 'Unknown error in /api/ai' });
+    return res.status(500).json({
+      error: e?.message || 'Unknown error in /api/ai',
+      meta: { handler: key },
+    });
   }
 }
 
