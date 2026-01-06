@@ -96,11 +96,19 @@ const isAbortError = (err: any) => {
   return msg.includes("aborted") || msg.includes("abort");
 };
 
-const callOpenAiChatCompletion = async (payload: any) => {
+const toResponsesInputMessages = (messages: Array<{ role: string; content: string }>) =>
+  (messages || [])
+    .map((m) => ({
+      role: m?.role,
+      content: [{ type: "input_text", text: String(m?.content || "") }],
+    }))
+    .filter((m) => m.role && m.content?.[0]?.text);
+
+const callOpenAiResponse = async (payload: any) => {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), STUDYLAB_OPENAI_TIMEOUT_MS);
   try {
-    return await fetch("https://api.openai.com/v1/chat/completions", {
+    return await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -1539,12 +1547,10 @@ Formato da saída:
         let resp: Response | null = null;
         try {
           attempts += 1;
-          resp = await callOpenAiChatCompletion({
+          resp = await callOpenAiResponse({
             model,
-            messages: openaiMessages,
-            // Some models/endpoints still expect `max_tokens`; keep both for compatibility.
-            max_tokens: maxTokens,
-            max_completion_tokens: maxTokens,
+            input: toResponsesInputMessages(openaiMessages),
+            max_output_tokens: maxTokens,
           });
         } catch (e: any) {
           lastErrTxt = e?.message || "OpenAI request failed";
@@ -1564,7 +1570,7 @@ Formato da saída:
         }
 
         const data = await resp.json().catch(() => null);
-        content = String(extractChatText(data) || "").trim();
+        content = String(collectOutputText(data) || extractChatText(data) || "").trim();
         if (content) {
           usedModel = model;
           break;
@@ -1588,7 +1594,7 @@ Formato da saída:
           aborted,
           attempts,
           timeout_ms: STUDYLAB_OPENAI_TIMEOUT_MS,
-          max_tokens: maxTokens,
+          max_output_tokens: maxTokens,
           latency_ms: Date.now() - t0,
         },
       });
@@ -1760,21 +1766,21 @@ Formato da saída:
       success: true,
       answer: content,
       session_id: resolvedSessionId,
-        meta: {
-          model: usedModel,
-          model_candidates: modelCandidates,
-          latency_ms: Date.now() - t0,
-          web: usedWebSummary,
-          used_web_summary: usedWebSummary,
-          use_web: Boolean(use_web),
-          attempts,
-          timeout_ms: STUDYLAB_OPENAI_TIMEOUT_MS,
-          max_tokens: maxTokens,
-          sources: usedOracleSourcesCount,
-          compendium: usedOracleCompendiumCount,
-          attachments: normalizedAttachments.length,
-        },
-      });
+      meta: {
+        model: usedModel,
+        model_candidates: modelCandidates,
+        latency_ms: Date.now() - t0,
+        web: usedWebSummary,
+        used_web_summary: usedWebSummary,
+        use_web: Boolean(use_web),
+        attempts,
+        timeout_ms: STUDYLAB_OPENAI_TIMEOUT_MS,
+        max_output_tokens: maxTokens,
+        sources: usedOracleSourcesCount,
+        compendium: usedOracleCompendiumCount,
+        attachments: normalizedAttachments.length,
+      },
+    });
   } catch (err: any) {
     return res.status(500).json({ error: err?.message || "Unknown error" });
   }
