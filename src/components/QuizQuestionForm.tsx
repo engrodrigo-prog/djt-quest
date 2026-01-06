@@ -244,10 +244,20 @@ export function QuizQuestionForm({ challengeId, onQuestionAdded }: QuizQuestionF
         body: JSON.stringify({ title: "", description: current, language: localeToOpenAiLanguageTag(getActiveLocale()) }),
       });
       const json = await resp.json().catch(() => ({}));
+      const usedAI = json?.meta?.usedAI !== false;
       if (!resp.ok || !json?.cleaned?.description) {
         throw new Error(json?.error || "Falha na revisão automática");
       }
-      reset({ ...watch(), question_text: json.cleaned.description });
+      if (!usedAI) {
+        toast.error("IA indisponível no momento. Tente novamente.");
+        return;
+      }
+      const cleaned = String(json.cleaned.description || current).trim();
+      if (cleaned === current.trim()) {
+        toast.success("Nenhuma correção necessária.");
+        return;
+      }
+      reset({ ...watch(), question_text: cleaned });
       toast.success("Pergunta revisada (ortografia e pontuação).");
     } catch (e: any) {
       toast.error(e?.message || "Não foi possível revisar a pergunta agora.");

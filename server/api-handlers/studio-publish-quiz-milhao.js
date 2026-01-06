@@ -287,7 +287,7 @@ export default async function handler(req, res) {
     // NÃO altera alternativas; apenas adiciona explicações e, se detectada ambiguidade, ajusta o enunciado.
     let explanationsByIndex = null;
     try {
-      const explainModel = process.env.OPENAI_MODEL_PREMIUM || process.env.OPENAI_MODEL_FAST || 'gpt-5.2-thinking';
+      const explainModel = process.env.OPENAI_MODEL_PREMIUM || process.env.OPENAI_MODEL_FAST || 'gpt-4.1';
       explanationsByIndex = await generateExplanationsAndDisambiguations({
         model: explainModel,
         language: 'pt-BR',

@@ -326,10 +326,20 @@ const Evaluations = () => {
                             body: JSON.stringify({ title: 'Feedback positivo', description: text, language: localeToOpenAiLanguageTag(getActiveLocale()) }),
                           });
                           const j = await resp.json().catch(() => ({}));
+                          const usedAI = j?.meta?.usedAI !== false;
                           if (!resp.ok || !j?.cleaned?.description) {
                             throw new Error(j?.error || 'Falha na revisão automática');
                           }
-                          setFeedbackPositivo(String(j.cleaned.description || text));
+                          if (!usedAI) {
+                            toast({ title: 'Não foi possível revisar agora', description: 'IA indisponível no momento. Tente novamente mais tarde.', variant: 'destructive' });
+                            return;
+                          }
+                          const cleaned = String(j.cleaned.description || text).trim();
+                          if (cleaned === text) {
+                            toast({ title: 'Nenhuma correção necessária', description: 'Não encontrei ajustes de ortografia/pontuação para fazer.' });
+                            return;
+                          }
+                          setFeedbackPositivo(cleaned);
                           toast({ title: 'Feedback positivo revisado', description: 'Ortografia e pontuação ajustadas.' });
                         } catch (e: any) {
                           toast({ title: 'Não foi possível revisar agora', description: e?.message || 'Tente novamente mais tarde.', variant: 'destructive' });
@@ -382,10 +392,20 @@ const Evaluations = () => {
                             body: JSON.stringify({ title: 'Feedback construtivo', description: text, language: localeToOpenAiLanguageTag(getActiveLocale()) }),
                           });
                           const j = await resp.json().catch(() => ({}));
+                          const usedAI = j?.meta?.usedAI !== false;
                           if (!resp.ok || !j?.cleaned?.description) {
                             throw new Error(j?.error || 'Falha na revisão automática');
                           }
-                          setFeedbackConstrutivo(String(j.cleaned.description || text));
+                          if (!usedAI) {
+                            toast({ title: 'Não foi possível revisar agora', description: 'IA indisponível no momento. Tente novamente mais tarde.', variant: 'destructive' });
+                            return;
+                          }
+                          const cleaned = String(j.cleaned.description || text).trim();
+                          if (cleaned === text) {
+                            toast({ title: 'Nenhuma correção necessária', description: 'Não encontrei ajustes de ortografia/pontuação para fazer.' });
+                            return;
+                          }
+                          setFeedbackConstrutivo(cleaned);
                           toast({ title: 'Feedback construtivo revisado', description: 'Ortografia e pontuação ajustadas.' });
                         } catch (e: any) {
                           toast({ title: 'Não foi possível revisar agora', description: e?.message || 'Tente novamente mais tarde.', variant: 'destructive' });

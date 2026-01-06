@@ -14,6 +14,37 @@ function extractMentionsAndTags(md: string) {
   return { mentions, hashtags }
 }
 
+async function resolveMentionedUserIds(admin: any, rawMentions: string[], opts?: { excludeUserId?: string }) {
+  const excludeUserId = opts?.excludeUserId ? String(opts.excludeUserId) : null
+  const list = Array.from(
+    new Set((rawMentions || []).map((m) => String(m || '').trim().replace(/^@+/, '')).filter(Boolean)),
+  ).slice(0, 40)
+  if (!list.length) return []
+
+  const emails = list.filter((m) => m.includes('@'))
+  const handles = list.filter((m) => !m.includes('@'))
+
+  const out = new Set<string>()
+  try {
+    if (emails.length) {
+      const { data } = await admin.from('profiles').select('id, email').in('email', emails)
+      for (const u of data || []) if (u?.id) out.add(String(u.id))
+    }
+  } catch {}
+
+  try {
+    if (handles.length) {
+      // Resolve "@paulo.camara" -> "paulo.camara@dominio"
+      const or = handles.map((h) => `email.ilike.${h}@%`).join(',')
+      const { data } = await admin.from('profiles').select('id, email').or(or)
+      for (const u of data || []) if (u?.id) out.add(String(u.id))
+    }
+  } catch {}
+
+  if (excludeUserId) out.delete(excludeUserId)
+  return Array.from(out)
+}
+
 async function syncPostHashtags(admin: any, postId: string, rawTags: string[]) {
   const tags = Array.from(
     new Set((rawTags || []).map((t) => String(t || '').trim().replace(/^#+/, '').toLowerCase()).filter(Boolean)),
@@ -165,12 +196,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Register mentions best-effort
     if (mentions.length) {
       try {
-        const { data: users } = await admin.from('profiles').select('id, email, name')
-          .in('email', mentions)
-        const ids = (users || []).map((u: any) => u.id)
+        const ids = await resolveMentionedUserIds(admin, mentions, { excludeUserId: uid })
         if (ids.length) {
-          const rows = ids.map((id: string) => ({ mentioned_user_id: id, post_id: post.id, topic_id }))
-          await admin.from('forum_mentions').insert(rows as any)
+          const rows = ids.map((id: string) => ({
+            mentioned_user_id: id,
+            mentioned_by: uid,
+            post_id: post.id,
+            is_read: false,
+          }))
+          await admin.from('forum_mentions').upsert(rows as any, { onConflict: 'post_id,mentioned_user_id' } as any)
         }
       } catch {}
     }

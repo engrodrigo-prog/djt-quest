@@ -531,6 +531,8 @@
       "nothingToReviewDesc": "Digite o texto antes de pedir correção.",
       "textReviewedTitle": "Texto revisado",
       "textReviewedDesc": "Ortografia e pontuação ajustadas, conteúdo preservado.",
+      "textReviewNoChangesTitle": "Nenhuma correção necessária",
+      "textReviewNoChangesDesc": "Não encontrei ajustes de ortografia/pontuação para fazer.",
       "reviewUnavailableTitle": "Não foi possível revisar agora",
       "postTooShortTitle": "Conteúdo muito curto",
       "postTooShortDesc": "Escreva ao menos 10 caracteres",

@@ -607,10 +607,20 @@ const Auth = () => {
                         body: JSON.stringify({ title: t("auth.forgot.aiReviewTitle"), description: text, language: localeToOpenAiLanguageTag(locale) }),
                       });
                       const json = await resp.json().catch(() => ({}));
+                      const usedAI = json?.meta?.usedAI !== false;
                       if (!resp.ok || !json?.cleaned?.description) {
                         throw new Error(json?.error || t("auth.forgot.aiReviewAutoFail"));
                       }
-                      setResetReason(String(json.cleaned.description || text));
+                      if (!usedAI) {
+                        toast.error(t("auth.forgot.aiReviewFailed"));
+                        return;
+                      }
+                      const cleaned = String(json.cleaned.description || text).trim();
+                      if (cleaned === text) {
+                        toast.success("Nenhuma correção necessária");
+                        return;
+                      }
+                      setResetReason(cleaned);
                       toast.success(t("auth.forgot.aiReviewSuccess"));
                     } catch (e: any) {
                       toast.error(e?.message || t("auth.forgot.aiReviewFailed"));

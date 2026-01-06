@@ -37,6 +37,7 @@ interface Topic {
 interface Post {
   id: string;
   user_id: string;
+  author_id?: string;
   content_md: string;
   payload: any;
   created_at: string;
@@ -54,7 +55,7 @@ export default function ForumTopic() {
   const { topicId: id } = useParams()
   const navigate = useNavigate()
   const { toast } = useToast()
-  const { isLeader, studioAccess, user, userRole } = useAuth() as any
+  const { isLeader, studioAccess, user, userRole, roles } = useAuth() as any
   const { locale, t: tr } = useI18n()
   const { ttsEnabled, isSpeaking, speak } = useTts()
   const [topic, setTopic] = useState<Topic | null>(null)
@@ -145,7 +146,7 @@ export default function ForumTopic() {
       supabase.from('forum_topics').select('*').eq('id', id).maybeSingle(),
       supabase
         .from('forum_posts')
-        .select('id,user_id,content_md,translations,payload,created_at,ai_assessment,parent_post_id,reply_to_user_id,author:profiles!forum_posts_author_id_fkey(name,sigla_area)')
+        .select('id,user_id,author_id,content_md,translations,payload,created_at,ai_assessment,parent_post_id,reply_to_user_id,author:profiles!forum_posts_author_id_fkey(name,sigla_area)')
         .eq('topic_id', id)
         .order('created_at', { ascending: true }),
       supabase.from('forum_compendia').select('*').eq('topic_id', id).maybeSingle(),
@@ -404,10 +405,20 @@ export default function ForumTopic() {
         body: JSON.stringify({ title: topic?.title || '', description: text, language: localeToOpenAiLanguageTag(getActiveLocale()) })
       })
       const j = await resp.json().catch(() => ({}))
+      const usedAI = j?.meta?.usedAI !== false
       if (!resp.ok || !j?.cleaned?.description) {
         throw new Error(j?.error || tr('forumTopic.errors.cleanupFailed'))
       }
-      setContent(String(j.cleaned.description || text))
+      if (!usedAI) {
+        toast({ title: tr('forumTopic.toast.reviewUnavailableTitle'), description: tr('forumTopic.toast.tryAgainLater'), variant: 'destructive' })
+        return
+      }
+      const cleaned = String(j.cleaned.description || text).trim()
+      if (cleaned === text) {
+        toast({ title: tr('forumTopic.toast.textReviewNoChangesTitle'), description: tr('forumTopic.toast.textReviewNoChangesDesc') })
+        return
+      }
+      setContent(cleaned)
       toast({ title: tr('forumTopic.toast.textReviewedTitle'), description: tr('forumTopic.toast.textReviewedDesc') })
     } catch (e: any) {
       toast({
@@ -689,7 +700,7 @@ export default function ForumTopic() {
   }
 
   const isLeaderMod = Boolean(isLeader && studioAccess)
-  const isAdmin = typeof userRole === 'string' && userRole.includes('admin')
+  const isAdmin = (Array.isArray(roles) && roles.includes('admin')) || (typeof userRole === 'string' && userRole.includes('admin'))
   const canDeleteTopic = isAdmin || userRole?.includes?.('gerente_djt') || userRole?.includes?.('gerente_divisao_djtx')
   const permissionLabel = isAdmin
     ? tr('forumTopic.permission.admin')
@@ -798,19 +809,30 @@ export default function ForumTopic() {
       })
       const j = await resp.json().catch(()=>({}))
       const cleaned = j?.cleaned?.description
+      const usedAI = j?.meta?.usedAI !== false
       if (!resp.ok || !cleaned) throw new Error(j?.error || tr('forumTopic.errors.cleanupFailed'))
+      if (!usedAI) {
+        toast({ title: tr('forumTopic.toast.reviewUnavailableTitle'), description: tr('forumTopic.toast.tryAgainLater'), variant: 'destructive' })
+        return
+      }
+      const trimmedCleaned = String(cleaned).trim()
+      const trimmedOriginal = String(post.content_md || '').trim()
+      if (trimmedCleaned === trimmedOriginal) {
+        toast({ title: tr('forumTopic.toast.textReviewNoChangesTitle'), description: tr('forumTopic.toast.textReviewNoChangesDesc') })
+        return
+      }
 
       const { data: session } = await supabase.auth.getSession(); const token = session.session?.access_token
       if (!token) throw new Error('Não autenticado')
       const save = await fetch('/api/forum?handler=moderate', {
         method:'POST',
         headers:{ 'Content-Type':'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ action:'update_post', post_id: post.id, content_md: cleaned })
+        body: JSON.stringify({ action:'update_post', post_id: post.id, content_md: trimmedCleaned })
       })
       const j2 = await save.json().catch(()=>({}))
       if (!save.ok) throw new Error(j2?.error || tr('forumTopic.errors.saveReviewFailed'))
 
-      setPosts(prev => prev.map(p => p.id === post.id ? { ...p, content_md: cleaned } : p))
+      setPosts(prev => prev.map(p => p.id === post.id ? { ...p, content_md: trimmedCleaned } : p))
       toast({ title: tr('forumTopic.toast.textReviewedTitle'), description: tr('forumTopic.toast.textReviewedDesc') })
     } catch (e:any) {
       toast({
@@ -1160,8 +1182,22 @@ export default function ForumTopic() {
                             })
                             const j = await resp.json().catch(()=>({}))
                             const cleaned = j?.cleaned?.description
+                            const usedAI = j?.meta?.usedAI !== false
                             if (!resp.ok || !cleaned) throw new Error(j?.error || tr('forumTopic.errors.aiCleanupFailed'))
-                            setEditingPostText(String(cleaned))
+                            if (!usedAI) {
+                              toast({
+                                title: tr('forumTopic.toast.reviewUnavailableTitle'),
+                                description: tr('forumTopic.toast.tryAgainLater'),
+                                variant: 'destructive',
+                              })
+                              return
+                            }
+                            const next = String(cleaned).trim()
+                            if (next === source) {
+                              toast({ title: tr('forumTopic.toast.textReviewNoChangesTitle'), description: tr('forumTopic.toast.textReviewNoChangesDesc') })
+                              return
+                            }
+                            setEditingPostText(next)
                           } catch (e:any) {
                             toast({
                               title: tr('forumTopic.toast.aiCleanupErrorTitle'),
@@ -1237,7 +1273,7 @@ export default function ForumTopic() {
 	                            </Button>
 	                          </DropdownMenuTrigger>
 	                          <DropdownMenuContent align="end" className="min-w-[190px]">
-	                            {isLeaderMod && (
+	                            {(isAdmin || p.user_id === user?.id) && (
 	                              <DropdownMenuItem
 	                                onClick={() => handleCleanExistingPost(p)}
 	                                disabled={cleaningPostId === p.id}
@@ -1246,20 +1282,22 @@ export default function ForumTopic() {
 	                                {tr('forumTopic.post.reviewAi')}
 	                              </DropdownMenuItem>
 	                            )}
-	                            {(isAdmin || p.user_id === user?.id) && (
+	                            {(p.user_id === user?.id || (p as any).author_id === user?.id) && (
 	                              <>
 	                                <DropdownMenuItem onClick={() => startEditPost(p)}>
 	                                  <Pencil className="h-4 w-4 mr-2" />
 	                                  {tr('forumTopic.actions.edit')}
 	                                </DropdownMenuItem>
-	                                <DropdownMenuItem
-	                                  onClick={() => handleDeletePost(p.id)}
-	                                  className="text-destructive focus:text-destructive"
-	                                >
-	                                  <Trash2 className="h-4 w-4 mr-2" />
-	                                    {tr('forumTopic.actions.delete')}
-	                                  </DropdownMenuItem>
 	                              </>
+	                            )}
+	                            {(isAdmin || p.user_id === user?.id || (p as any).author_id === user?.id) && (
+	                              <DropdownMenuItem
+	                                onClick={() => handleDeletePost(p.id)}
+	                                className="text-destructive focus:text-destructive"
+	                              >
+	                                <Trash2 className="h-4 w-4 mr-2" />
+	                                  {tr('forumTopic.actions.delete')}
+	                                </DropdownMenuItem>
 	                            )}
 	                          </DropdownMenuContent>
 	                        </DropdownMenu>
@@ -1346,7 +1384,7 @@ export default function ForumTopic() {
 	                              <Reply className="h-4 w-4" />
 	                              {tr('forumTopic.actions.reply')}
 	                            </Button>
-	                            {(isAdmin || r.user_id === user?.id) && (
+	                            {(r.user_id === user?.id || (r as any).author_id === user?.id) && (
 	                              <DropdownMenu>
 	                                <DropdownMenuTrigger asChild>
 	                                  <Button type="button" size="icon" variant="ghost" className="h-9 w-9" aria-label="Mais ações">
@@ -1358,15 +1396,21 @@ export default function ForumTopic() {
 	                                    <Pencil className="h-4 w-4 mr-2" />
 	                                    {tr('forumTopic.actions.edit')}
 	                                  </DropdownMenuItem>
-	                                  <DropdownMenuItem
-	                                    onClick={() => handleDeletePost(r.id)}
-	                                    className="text-destructive focus:text-destructive"
-	                                  >
-	                                    <Trash2 className="h-4 w-4 mr-2" />
-	                                    {tr('forumTopic.actions.delete')}
-	                                  </DropdownMenuItem>
 	                                </DropdownMenuContent>
 	                              </DropdownMenu>
+	                            )}
+	                            {(isAdmin || r.user_id === user?.id || (r as any).author_id === user?.id) && (
+	                              <Button
+	                                type="button"
+	                                size="icon"
+	                                variant="ghost"
+	                                className="h-9 w-9 text-destructive"
+	                                onClick={() => handleDeletePost(r.id)}
+	                                aria-label={tr('forumTopic.actions.delete')}
+	                                title={tr('forumTopic.actions.delete')}
+	                              >
+	                                <Trash2 className="h-4 w-4" />
+	                              </Button>
 	                            )}
 	                          </div>
 	                        </div>

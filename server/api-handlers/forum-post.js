@@ -9,6 +9,39 @@ function extractMentionsAndTags(md) {
     const hashtags = Array.from(md.matchAll(/#([A-Za-z0-9_.-]+)/g)).map(m => m[1].toLowerCase());
     return { mentions, hashtags };
 }
+async function resolveMentionedUserIds(admin, rawMentions, opts) {
+    const excludeUserId = opts?.excludeUserId ? String(opts.excludeUserId) : null;
+    const list = Array.from(new Set((rawMentions || [])
+        .map((m) => String(m || '').trim().replace(/^@+/, ''))
+        .filter(Boolean))).slice(0, 40);
+    if (!list.length)
+        return [];
+    const emails = list.filter((m) => m.includes('@'));
+    const handles = list.filter((m) => !m.includes('@'));
+    const out = new Set();
+    try {
+        if (emails.length) {
+            const { data } = await admin.from('profiles').select('id, email').in('email', emails);
+            for (const u of data || [])
+                if (u?.id)
+                    out.add(String(u.id));
+        }
+    }
+    catch { }
+    try {
+        if (handles.length) {
+            const or = handles.map((h) => `email.ilike.${h}@%`).join(',');
+            const { data } = await admin.from('profiles').select('id, email').or(or);
+            for (const u of data || [])
+                if (u?.id)
+                    out.add(String(u.id));
+        }
+    }
+    catch { }
+    if (excludeUserId)
+        out.delete(excludeUserId);
+    return Array.from(out);
+}
 export default async function handler(req, res) {
     if (req.method === 'OPTIONS')
         return res.status(204).send('');
@@ -88,12 +121,15 @@ export default async function handler(req, res) {
         // Register mentions best-effort
         if (mentions.length) {
             try {
-                const { data: users } = await admin.from('profiles').select('id, email, name')
-                    .in('email', mentions);
-                const ids = (users || []).map((u) => u.id);
+                const ids = await resolveMentionedUserIds(admin, mentions, { excludeUserId: uid });
                 if (ids.length) {
-                    const rows = ids.map((id) => ({ mentioned_user_id: id, post_id: post.id, topic_id }));
-                    await admin.from('forum_mentions').insert(rows);
+                    const rows = ids.map((id) => ({
+                        mentioned_user_id: id,
+                        mentioned_by: uid,
+                        post_id: post.id,
+                        is_read: false,
+                    }));
+                    await admin.from('forum_mentions').upsert(rows, { onConflict: 'post_id,mentioned_user_id' });
                 }
             }
             catch { }

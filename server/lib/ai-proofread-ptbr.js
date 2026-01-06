@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { normalizeChatModel } from './openai-models.js';
 const stripDiacritics = (s) =>
   String(s ?? '')
     .normalize('NFD')
@@ -79,12 +80,14 @@ export async function proofreadPtBrStrings(params) {
     return { output: inputStrings };
   }
 
-  const model =
+  const model = normalizeChatModel(
     params?.model ||
-    process.env.OPENAI_MODEL_FAST ||
-    process.env.OPENAI_TEXT_MODEL ||
-    process.env.OPENAI_MODEL_PREMIUM ||
-    'gpt-5.2-fast';
+      process.env.OPENAI_MODEL_FAST ||
+      process.env.OPENAI_TEXT_MODEL ||
+      process.env.OPENAI_MODEL_PREMIUM ||
+      'gpt-4.1-mini',
+    'gpt-4.1-mini',
+  );
 
   const system = `Você é um revisor ortográfico em PT-BR.
 Sua tarefa: corrigir APENAS ortografia, acentuação, concordância nominal/verbal mínima e pontuação básica.
@@ -132,4 +135,3 @@ Retorne APENAS JSON válido: {"strings": ["...","..."]} mantendo o mesmo número
 
   return { output: safe, usedModel: model };
 }
-

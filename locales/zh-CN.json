@@ -531,6 +531,8 @@
       "nothingToReviewDesc": "请先输入文本再请求修正。",
       "textReviewedTitle": "文本已审阅",
       "textReviewedDesc": "已调整拼写和标点，内容保持不变。",
+      "textReviewNoChangesTitle": "无需修改",
+      "textReviewNoChangesDesc": "未检测到需要更正的拼写/标点。",
       "reviewUnavailableTitle": "暂时无法审阅",
       "postTooShortTitle": "内容太短",
       "postTooShortDesc": "请至少写 10 个字符",

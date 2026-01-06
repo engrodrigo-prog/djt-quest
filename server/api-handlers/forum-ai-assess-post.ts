@@ -22,7 +22,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const system = 'Classifique posts de fórum (pt-BR): retorne JSON { helpfulness:0..1, clarity:0..1, novelty:0..1, toxicity:0..1, chas:"C|H|A|S", tags:[..], flags:[..] }.'
     const user = `POST:\n${post.content_md}`
     // Fast model: classificação simples e barata
-    const fast = process.env.OPENAI_MODEL_FAST || process.env.OPENAI_MODEL_OVERRIDE || process.env.OPENAI_MODEL_PREMIUM || 'gpt-5.2-fast'
+    const fast = process.env.OPENAI_MODEL_FAST || process.env.OPENAI_MODEL_OVERRIDE || process.env.OPENAI_MODEL_PREMIUM || 'gpt-4.1-mini'
     const models = Array.from(new Set([
       fast,
       'gpt-5.2-fast',

@@ -641,8 +641,18 @@ const ChallengeDetail = () => {
                           body: JSON.stringify({ title: 'Descrição da ação', description: text, language: localeToOpenAiLanguageTag(getActiveLocale()) }),
                         });
                         const json = await resp.json().catch(() => ({}));
+                        const usedAI = json?.meta?.usedAI !== false;
                         if (!resp.ok || !json?.cleaned?.description) throw new Error(json?.error || 'Falha na revisão automática');
-                        setDescription(String(json.cleaned.description || text));
+                        if (!usedAI) {
+                          toast({ title: 'Não foi possível revisar agora', description: 'IA indisponível no momento. Tente novamente mais tarde.', variant: 'destructive' });
+                          return;
+                        }
+                        const cleaned = String(json.cleaned.description || text).trim();
+                        if (cleaned === text) {
+                          toast({ title: 'Nenhuma correção necessária', description: 'Não encontrei ajustes de ortografia/pontuação para fazer.' });
+                          return;
+                        }
+                        setDescription(cleaned);
                         toast({ title: 'Texto revisado', description: 'Ortografia e pontuação ajustadas.' });
                       } catch (e: any) {
                         toast({ title: 'Não foi possível revisar agora', description: e?.message || 'Tente novamente mais tarde.', variant: 'destructive' });

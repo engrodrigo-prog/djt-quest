@@ -311,10 +311,20 @@ export const ChallengeForm = () => {
         body: JSON.stringify({ title: "", description: desc, language: localeToOpenAiLanguageTag(getActiveLocale()) }),
       });
       const json = await resp.json().catch(() => ({}));
+      const usedAI = json?.meta?.usedAI !== false;
       if (!resp.ok || !json?.cleaned?.description) {
         throw new Error(json?.error || "Falha na revisão automática");
       }
-      setValue("description", json.cleaned.description, { shouldValidate: true });
+      if (!usedAI) {
+        toast({ title: "Erro ao revisar descrição", description: "IA indisponível no momento. Tente novamente.", variant: "destructive" });
+        return;
+      }
+      const cleaned = String(json.cleaned.description || desc).trim();
+      if (cleaned === desc.trim()) {
+        toast({ title: "Nenhuma correção necessária", description: "Não encontrei ajustes de ortografia/pontuação para fazer." });
+        return;
+      }
+      setValue("description", cleaned, { shouldValidate: true });
       toast({ title: "Descrição revisada", description: "Ortografia e pontuação ajustadas." });
     } catch (e: any) {
       toast({ title: "Erro ao revisar descrição", description: e?.message || "Tente novamente", variant: "destructive" });

@@ -1,13 +1,20 @@
 // @ts-nocheck
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
+import { loadLocalEnvIfNeeded } from '../lib/load-local-env.js';
+import { normalizeChatModel } from '../lib/openai-models.js';
+
+loadLocalEnvIfNeeded();
+
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
 // Fast model for orthography/cleanup tasks (fallback chain keeps compatibility).
-const OPENAI_TEXT_MODEL =
+const OPENAI_TEXT_MODEL = normalizeChatModel(
   process.env.OPENAI_MODEL_FAST ||
-  process.env.OPENAI_TEXT_MODEL ||
-  process.env.OPENAI_MODEL_OVERRIDE ||
-  'gpt-5.2-fast';
+    process.env.OPENAI_TEXT_MODEL ||
+    process.env.OPENAI_MODEL_OVERRIDE ||
+    'gpt-4.1-mini',
+  'gpt-4.1-mini',
+);
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === 'OPTIONS') return res.status(204).send('');
@@ -64,6 +71,7 @@ Descrição original:
         { role: 'user', content: user },
       ],
       temperature: 0.15,
+      response_format: { type: 'json_object' },
     };
     if (/^gpt-5/i.test(String(OPENAI_TEXT_MODEL))) body.max_completion_tokens = 400;
     else body.max_tokens = 400;

@@ -7,6 +7,7 @@ const SUPABASE_URL = process.env.SUPABASE_URL as string
 const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY) as string
 
 const EDIT_ROLES = new Set(['admin','gerente_djt','gerente_divisao_djtx','coordenador_djtx'])
+const EDIT_ANY_POST_ROLES = new Set(['admin','gerente_djt','gerente_divisao_djtx'])
 const DELETE_TOPIC_ROLES = new Set(['admin','gerente_djt','gerente_divisao_djtx'])
 
 function extractMentionsAndTags(md: string) {
@@ -15,6 +16,36 @@ function extractMentionsAndTags(md: string) {
   ).map(m => m[1])
   const hashtags = Array.from(md.matchAll(/#([A-Za-z0-9_.-]+)/g)).map(m => m[1].toLowerCase())
   return { mentions, hashtags }
+}
+
+async function resolveMentionedUserIds(admin: any, rawMentions: string[], opts?: { excludeUserId?: string }) {
+  const excludeUserId = opts?.excludeUserId ? String(opts.excludeUserId) : null
+  const list = Array.from(
+    new Set((rawMentions || []).map((m) => String(m || '').trim().replace(/^@+/, '')).filter(Boolean)),
+  ).slice(0, 40)
+  if (!list.length) return []
+
+  const emails = list.filter((m) => m.includes('@'))
+  const handles = list.filter((m) => !m.includes('@'))
+
+  const out = new Set<string>()
+  try {
+    if (emails.length) {
+      const { data } = await admin.from('profiles').select('id, email').in('email', emails)
+      for (const u of data || []) if (u?.id) out.add(String(u.id))
+    }
+  } catch {}
+
+  try {
+    if (handles.length) {
+      const or = handles.map((h) => `email.ilike.${h}@%`).join(',')
+      const { data } = await admin.from('profiles').select('id, email').or(or)
+      for (const u of data || []) if (u?.id) out.add(String(u.id))
+    }
+  } catch {}
+
+  if (excludeUserId) out.delete(excludeUserId)
+  return Array.from(out)
 }
 
 async function replacePostHashtags(admin: any, postId: string, rawTags: string[]) {
@@ -76,6 +107,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { data: roles } = await admin.from('user_roles').select('role').eq('user_id', uid)
     const roleNames = (roles || []).map((r: any) => r.role as string)
     const canEdit = roleNames.some((r) => EDIT_ROLES.has(r))
+    const canEditAnyPost = roleNames.some((r) => EDIT_ANY_POST_ROLES.has(r))
     const canDeleteTopic = roleNames.some((r) => DELETE_TOPIC_ROLES.has(r))
 
     const { action, topic_id, post_id, update, content_md } = req.body || {}
@@ -194,13 +226,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       const { data: post, error: postErr } = await admin
         .from('forum_posts')
-        .select('id, user_id, topic_id, translations')
+        .select('id, user_id, author_id, topic_id, translations')
         .eq('id', post_id)
         .maybeSingle()
       if (postErr) return res.status(400).json({ error: postErr.message })
       if (!post) return res.status(404).json({ error: 'Post não encontrado' })
 
-      if (!canEdit && post.user_id !== uid) {
+      const ownerId = post.user_id || (post as any).author_id
+      if (ownerId !== uid) {
         return res.status(403).json({ error: 'Sem permissão para editar este post' })
       }
 
@@ -249,18 +282,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       try {
         await admin.from('forum_mentions').delete().eq('post_id', post_id)
         if (mentions.length) {
-          const { data: users } = await admin
-            .from('profiles')
-            .select('id, email')
-            .in('email', mentions)
-          const ids = (users || []).map((u: any) => u.id)
+          const ids = await resolveMentionedUserIds(admin, mentions, { excludeUserId: uid })
           if (ids.length) {
             const rows = ids.map((id: string) => ({
               mentioned_user_id: id,
+              mentioned_by: uid,
               post_id,
-              topic_id: post.topic_id,
+              is_read: false,
             }))
-            await admin.from('forum_mentions').insert(rows as any)
+            await admin.from('forum_mentions').upsert(rows as any, { onConflict: 'post_id,mentioned_user_id' } as any)
           }
         }
       } catch {}

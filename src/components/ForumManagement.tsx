@@ -281,11 +281,21 @@ export function ForumManagement() {
                         body: JSON.stringify({ title, description, language: localeToOpenAiLanguageTag(getActiveLocale()) }),
                       });
                       const json = await resp.json().catch(() => ({}));
+                      const usedAI = json?.meta?.usedAI !== false;
                       if (!resp.ok || !json?.cleaned) {
                         throw new Error(json?.error || 'Falha na revisão automática');
                       }
-                      setTitle(json.cleaned.title || title);
-                      setDescription(json.cleaned.description || description);
+                      if (!usedAI) {
+                        throw new Error('IA indisponível no momento.');
+                      }
+                      const nextTitle = String(json.cleaned.title || title).trim();
+                      const nextDesc = String(json.cleaned.description || description).trim();
+                      if (nextTitle === title.trim() && nextDesc === description.trim()) {
+                        toast({ title: 'Nenhuma correção necessária', description: 'Não encontrei ajustes de ortografia/pontuação para fazer.' });
+                        return;
+                      }
+                      setTitle(nextTitle);
+                      setDescription(nextDesc);
                       toast({ title: 'Texto revisado com IA', description: 'Revise e ajuste antes de publicar.' });
                     } catch (e: any) {
                       toast({ title: 'Não foi possível revisar o texto agora', description: e?.message, variant: 'destructive' });

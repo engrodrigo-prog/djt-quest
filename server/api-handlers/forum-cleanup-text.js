@@ -1,5 +1,11 @@
+import { loadLocalEnvIfNeeded } from '../lib/load-local-env.js';
+import { normalizeChatModel } from '../lib/openai-models.js';
+loadLocalEnvIfNeeded();
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
-const OPENAI_TEXT_MODEL = process.env.OPENAI_TEXT_MODEL || 'gpt-4o-mini';
+const OPENAI_TEXT_MODEL = normalizeChatModel(process.env.OPENAI_MODEL_FAST ||
+    process.env.OPENAI_TEXT_MODEL ||
+    process.env.OPENAI_MODEL_OVERRIDE ||
+    'gpt-4.1-mini', 'gpt-4.1-mini');
 export default async function handler(req, res) {
     if (req.method === 'OPTIONS')
         return res.status(204).send('');
@@ -65,6 +71,7 @@ Descrição original:
                     { role: 'user', content: user },
                 ],
                 temperature: 0.15,
+                response_format: { type: 'json_object' },
                 max_tokens: 400,
             }),
         });

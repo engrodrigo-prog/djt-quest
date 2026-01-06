@@ -1,3 +1,5 @@
+import { normalizeChatModel } from './openai-models.js';
+
 const extractJson = (content) => {
   const s = String(content || '');
   const start = s.indexOf('{');
@@ -12,14 +14,20 @@ const extractJson = (content) => {
 };
 
 const pickTextModel = (paramsModel) =>
-  paramsModel || process.env.OPENAI_MODEL_PREMIUM || process.env.OPENAI_MODEL_FAST || process.env.MODEL || 'gpt-5.2';
+  normalizeChatModel(
+    paramsModel || process.env.OPENAI_MODEL_PREMIUM || process.env.OPENAI_MODEL_FAST || process.env.MODEL || 'gpt-4.1',
+    'gpt-4.1',
+  );
 
 const pickVisionModel = (paramsModel) =>
-  paramsModel ||
-  process.env.OPENAI_MODEL_VISION ||
-  process.env.OPENAI_MODEL_PREMIUM ||
-  process.env.OPENAI_MODEL_FAST ||
-  'gpt-4.1';
+  normalizeChatModel(
+    paramsModel ||
+      process.env.OPENAI_MODEL_VISION ||
+      process.env.OPENAI_MODEL_PREMIUM ||
+      process.env.OPENAI_MODEL_FAST ||
+      'gpt-4.1',
+    'gpt-4.1',
+  );
 
 async function callOpenAiChatJson({ openaiKey, model, system, user, maxTokens = 1800, temperature = 0.2 }) {
   const resp = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -185,4 +193,3 @@ Responda APENAS em JSON válido no formato:
   const description = typeof parsed?.description === 'string' ? parsed.description.trim() : '';
   return { ok: true, model, text, description };
 }
-

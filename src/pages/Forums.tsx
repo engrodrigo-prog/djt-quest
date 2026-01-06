@@ -9,10 +9,10 @@ import { useAuth } from '@/contexts/AuthContext'
 import { ThemedBackground } from '@/components/ThemedBackground'
 import { HelpInfo } from '@/components/HelpInfo'
 import { Flame, Share2 } from 'lucide-react'
-import { apiFetch } from '@/lib/api'
 import { buildAbsoluteAppUrl, openWhatsAppShare } from '@/lib/whatsappShare'
 import { useI18n } from '@/contexts/I18nContext'
 import { translateTextsCached } from '@/lib/i18n/aiTranslate'
+import { ForumMentionsInbox } from '@/components/ForumMentionsInbox'
 
 interface Topic {
   id: string;
@@ -119,17 +119,7 @@ export default function Forums() {
     }
   }, [locale, topics])
 
-  // Ao entrar na área de fóruns, marcar menções como lidas e limpar badge global
-  useEffect(() => {
-    (async () => {
-      try {
-        await apiFetch('/api/forum-mentions-mark-seen', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
-        window.dispatchEvent(new CustomEvent('forum-mentions-seen'));
-      } catch {
-        // silencioso – se falhar, apenas mantém badge até próxima tentativa
-      }
-    })();
-  }, [])
+  // Não marcar menções como lidas automaticamente ao entrar em /forums.
 
   const fetchTrending = useCallback(async (range: typeof trendingRange) => {
     setTrendingLoading(true)
@@ -180,6 +170,8 @@ export default function Forums() {
       <ThemedBackground theme="atitude" />
       <HelpInfo kind="forum" />
       <div className="container relative mx-auto p-4 md:p-6 max-w-5xl space-y-4">
+        <ForumMentionsInbox />
+
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="space-y-1">
             <Button

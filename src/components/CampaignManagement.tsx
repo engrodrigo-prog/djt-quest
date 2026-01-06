@@ -228,7 +228,14 @@ export const CampaignManagement = () => {
                                 const j = await resp.json().catch(() => ({}));
                                 const cleaned = j?.cleaned?.description;
                                 if (!resp.ok || !cleaned) throw new Error(j?.error || "Falha na revisão automática");
-                                setEditDescription(String(cleaned));
+                                const usedAI = j?.meta?.usedAI !== false;
+                                if (!usedAI) throw new Error("IA indisponível no momento.");
+                                const next = String(cleaned).trim();
+                                if (next === source) {
+                                  alert("Nenhuma correção necessária.");
+                                  return;
+                                }
+                                setEditDescription(next);
                               } catch (e: any) {
                                 alert(String(e?.message || "Não foi possível revisar a descrição agora."));
                               }

@@ -531,6 +531,8 @@
       "nothingToReviewDesc": "Type some text before requesting a correction.",
       "textReviewedTitle": "Text reviewed",
       "textReviewedDesc": "Spelling and punctuation adjusted; content preserved.",
+      "textReviewNoChangesTitle": "No changes needed",
+      "textReviewNoChangesDesc": "No spelling/punctuation fixes detected.",
       "reviewUnavailableTitle": "Couldn’t review right now",
       "postTooShortTitle": "Post too short",
       "postTooShortDesc": "Write at least 10 characters",

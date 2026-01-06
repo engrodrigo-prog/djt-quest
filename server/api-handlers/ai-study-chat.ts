@@ -5,6 +5,7 @@ import { createRequire } from "module";
 import { extractPdfText, extractDocxText, extractJsonText, extractPlainText } from "../lib/import-parsers.js";
 import { extractImageTextWithAi } from "../lib/ai-curation-provider.js";
 import { DJT_RULES_ARTICLE } from "../../shared/djt-rules.js";
+import { pickChatModel } from "../lib/openai-models.js";
 
 const require = createRequire(import.meta.url);
 
@@ -15,15 +16,12 @@ const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABA
 function chooseModel(preferPremium = false) {
   const premium = process.env.OPENAI_MODEL_PREMIUM;
   const fast = process.env.OPENAI_MODEL_FAST;
-  const fallback = preferPremium ? "gpt-5.2" : "gpt-5.2";
-
-  const pick = preferPremium ? premium || fast : fast || premium;
-  if (!pick) return fallback;
-
-  const lower = pick.toLowerCase();
-  // Valid OpenAI chat models begin with "gpt-" today; if not, ignore it
-  if (!lower.startsWith("gpt-")) return fallback;
-  return pick;
+  return pickChatModel(preferPremium, {
+    premium,
+    fast,
+    fallbackFast: "gpt-4.1-mini",
+    fallbackPremium: "gpt-4.1",
+  });
 }
 
 const normalizeForMatch = (raw: string) =>

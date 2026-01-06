@@ -653,10 +653,20 @@ export default function SEPBook() {
         body: JSON.stringify({ title: "Publicação SEPBook", description: text, language: localeToOpenAiLanguageTag(getActiveLocale()) }),
       });
       const j = await resp.json().catch(() => ({}));
+      const usedAI = j?.meta?.usedAI !== false;
       if (!resp.ok || !j?.cleaned?.description) {
         throw new Error(j?.error || "Falha na revisão automática");
       }
-      setContent(String(j.cleaned.description || text));
+      if (!usedAI) {
+        toast({ title: "Não foi possível revisar agora", description: "IA indisponível no momento. Tente novamente mais tarde.", variant: "destructive" });
+        return;
+      }
+      const cleaned = String(j.cleaned.description || text).trim();
+      if (cleaned === text) {
+        toast({ title: "Nenhuma correção necessária", description: "Não encontrei ajustes de ortografia/pontuação para fazer.", variant: "default" });
+        return;
+      }
+      setContent(cleaned);
       toast({ title: "Texto revisado", description: "Ortografia e pontuação ajustadas, conteúdo preservado." });
     } catch (e: any) {
       toast({ title: "Não foi possível revisar agora", description: e?.message || "Tente novamente mais tarde.", variant: "destructive" });
@@ -877,7 +887,18 @@ export default function SEPBook() {
       });
       const json = await resp.json().catch(() => ({}));
       const cleaned = json?.cleaned?.description;
+      const usedAI = json?.meta?.usedAI !== false;
       if (!resp.ok || !cleaned) throw new Error(json?.error || "Falha na revisão");
+      if (!usedAI) {
+        toast({ title: "Não foi possível revisar", description: "IA indisponível no momento. Tente novamente.", variant: "destructive" });
+        return;
+      }
+      const trimmedCleaned = String(cleaned).trim();
+      const trimmedOriginal = String(post.content_md || "").trim();
+      if (trimmedCleaned === trimmedOriginal) {
+        toast({ title: "Nenhuma correção necessária", description: "Não encontrei ajustes de ortografia/pontuação para fazer.", variant: "default" });
+        return;
+      }
 
       const { data: session } = await supabase.auth.getSession();
       const token = session.session?.access_token;
@@ -890,7 +911,7 @@ export default function SEPBook() {
         },
         body: JSON.stringify({
           post_id: post.id,
-          content_md: cleaned,
+          content_md: trimmedCleaned,
           attachments: post.attachments || [],
         }),
       });
@@ -898,7 +919,7 @@ export default function SEPBook() {
       if (!save.ok) throw new Error(j2?.error || "Erro ao salvar revisão");
 
       setPosts((prev) =>
-        prev.map((p) => (p.id === post.id ? { ...p, content_md: cleaned } : p))
+        prev.map((p) => (p.id === post.id ? { ...p, content_md: trimmedCleaned } : p))
       );
       toast({ title: "Texto revisado", description: "Ortografia e pontuação ajustadas (sem alterar o conteúdo)." });
     } catch (e: any) {
@@ -1518,8 +1539,18 @@ export default function SEPBook() {
                             });
                             const j = await resp.json().catch(() => ({}));
                             const cleaned = j?.cleaned?.description;
+                            const usedAI = j?.meta?.usedAI !== false;
                             if (!resp.ok || !cleaned) throw new Error(j?.error || "Falha na revisão automática");
-                            setEditingText(String(cleaned));
+                            if (!usedAI) {
+                              toast({ title: "Não foi possível revisar agora", description: "IA indisponível no momento. Tente novamente mais tarde.", variant: "destructive" });
+                              return;
+                            }
+                            const next = String(cleaned).trim();
+                            if (next === source) {
+                              toast({ title: "Nenhuma correção necessária", description: "Não encontrei ajustes de ortografia/pontuação para fazer.", variant: "default" });
+                              return;
+                            }
+                            setEditingText(next);
                             toast({ title: "Texto revisado", description: "Ortografia e pontuação ajustadas, conteúdo preservado." });
                           } catch (e: any) {
                             toast({ title: "Não foi possível revisar agora", description: e?.message || "Tente novamente mais tarde.", variant: "destructive" });
