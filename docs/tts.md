@@ -10,6 +10,10 @@ Permitir leitura em voz de textos (enunciados, explicações, análises do Monit
 
 ## Backend
 - Endpoint: `POST /api/tts`
+- Modelo:
+  - usa `OPENAI_TTS_MODEL` quando configurado
+  - fallback: `gpt-4o-mini-tts` → `tts-1`
+  - para testar `gpt-audio-2025-08-28` como leitura em voz, configure `OPENAI_TTS_MODEL="gpt-audio-2025-08-28"` (se o modelo suportar TTS na sua conta)
 - Entrada:
   - `text` (string)
   - `locale` (`pt-BR` | `en` | `zh-CN`)
@@ -31,4 +35,3 @@ Permitir leitura em voz de textos (enunciados, explicações, análises do Monit
 - Regras:
   - só toca após gesto do usuário (autoplay policy)
   - dispara eventos `window` `tts:start` / `tts:end` para ducking em SFX
-

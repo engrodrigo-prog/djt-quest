@@ -1,4 +1,6 @@
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const OPENAI_MODEL_AUDIO = process.env.OPENAI_MODEL_AUDIO || '';
+const OPENAI_TRANSCRIBE_MODEL = process.env.OPENAI_TRANSCRIBE_MODEL || '';
 const FAST_MODELS = Array.from(new Set([
     process.env.OPENAI_MODEL_FAST,
     process.env.OPENAI_MODEL_OVERRIDE,
@@ -13,6 +15,15 @@ Regras (STRICT):
 4) Agrupe frases afins no mesmo parágrafo, mantendo a sequência original do discurso.
 5) Se houver trechos inaudíveis, mantenha-os como [inaudível] sem tentar adivinhar.
 6) Saída final: apenas o texto organizado (sem títulos, notas, listas, explicações ou metadados).`;
+const TRANSCRIBE_INSTRUCTION = (languageHint) => {
+    const hint = typeof languageHint === 'string' && languageHint.trim() ? `\nDica de idioma: ${languageHint.trim()}` : '';
+    return (`Transcreva fielmente o áudio para texto (sem resumir e sem traduzir).` +
+        `\nRegras:` +
+        `\n- Preserve a ordem e o conteúdo.` +
+        `\n- Pontue apenas para legibilidade (não invente nada).` +
+        `\n- Para trechos inaudíveis, escreva exatamente: [inaudível].` +
+        hint);
+};
 async function fetchBytesFromUrl(url) {
     const resp = await fetch(url);
     if (!resp.ok)
@@ -81,6 +92,77 @@ function extFromMime(input) {
     const p = mime.split('/')[1] || 'mp3';
     return p.toLowerCase();
 }
+const collectOutputText = (payload) => {
+    if (typeof payload?.output_text === 'string')
+        return payload.output_text.trim();
+    const output = Array.isArray(payload?.output) ? payload.output : [];
+    const chunks = output
+        .map((item) => {
+        if (typeof item?.content === 'string')
+            return item.content;
+        if (Array.isArray(item?.content)) {
+            return item.content.map((c) => c?.text || c?.content || '').join('\n');
+        }
+        return item?.text || '';
+    })
+        .filter(Boolean);
+    return chunks.join('\n').trim();
+};
+async function transcribeWithResponses(params) {
+    const base64 = Buffer.from(params.bytes).toString('base64');
+    const format = extFromMime(params.mime);
+    const input = [
+        {
+            role: 'user',
+            content: [
+                { type: 'input_text', text: TRANSCRIBE_INSTRUCTION(params.language) },
+                { type: 'input_audio', input_audio: { data: base64, format } },
+            ],
+        },
+    ];
+    const resp = await fetch('https://api.openai.com/v1/responses', {
+        method: 'POST',
+        headers: {
+            Authorization: `Bearer ${OPENAI_API_KEY}`,
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            model: params.model,
+            input,
+            modalities: ['text'],
+            max_output_tokens: 900,
+        }),
+    });
+    const json = await resp.json().catch(() => null);
+    if (!resp.ok) {
+        const msg = json?.error?.message || json?.message || '';
+        throw new Error(msg ? `responses transcription failed: ${msg}` : `responses transcription failed: HTTP ${resp.status}`);
+    }
+    const text = collectOutputText(json);
+    if (!text)
+        throw new Error('responses transcription returned empty text');
+    return text;
+}
+async function transcribeWithTranscriptionsEndpoint(params) {
+    const blob = new Blob([params.bytes], { type: params.mime });
+    const form = new FormData();
+    form.append('model', params.model);
+    form.append('file', blob, `audio.${extFromMime(params.mime)}`);
+    if (typeof params.language === 'string' && params.language.trim()) {
+        form.append('language', params.language.trim());
+    }
+    const tr = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${OPENAI_API_KEY}` },
+        body: form,
+    });
+    if (!tr.ok) {
+        const t = await tr.text().catch(() => '');
+        throw new Error(t ? `transcription failed: ${t}` : `transcription failed: HTTP ${tr.status}`);
+    }
+    const tj = await tr.json().catch(() => null);
+    return String(tj?.text || '').trim();
+}
 export default async function handler(req, res) {
     if (req.method === 'OPTIONS')
         return res.status(204).send('');
@@ -129,25 +211,44 @@ export default async function handler(req, res) {
         if (!bytes || bytes.length === 0) {
             return res.status(400).json({ error: 'empty audio payload' });
         }
-        // Whisper transcription
-        const blob = new Blob([bytes], { type: mime });
-        const form = new FormData();
-        form.append('model', 'whisper-1');
-        form.append('file', blob, `audio.${extFromMime(mime)}`);
-        if (typeof language === 'string' && language.trim()) {
-            form.append('language', language.trim());
+        // Transcription (prefer gpt-audio via Responses API when configured; fallback to /audio/transcriptions)
+        const preferredAudioModel = String(OPENAI_MODEL_AUDIO || '').trim();
+        const preferredTranscribeModel = String(OPENAI_TRANSCRIBE_MODEL || '').trim() || 'whisper-1';
+        let transcript = '';
+        let usedTranscribeModel = '';
+        let lastTranscribeErr = null;
+        if (preferredAudioModel) {
+            try {
+                transcript = await transcribeWithResponses({ bytes, mime, model: preferredAudioModel, language });
+                usedTranscribeModel = preferredAudioModel;
+            }
+            catch (e) {
+                lastTranscribeErr = e;
+                transcript = '';
+            }
         }
-        const tr = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${OPENAI_API_KEY}` },
-            body: form,
-        });
-        if (!tr.ok) {
-            const t = await tr.text();
-            return res.status(400).json({ error: `transcription failed: ${t}` });
+        if (!transcript) {
+            try {
+                transcript = await transcribeWithTranscriptionsEndpoint({ bytes, mime, model: preferredTranscribeModel, language });
+                usedTranscribeModel = preferredTranscribeModel;
+            }
+            catch (e) {
+                lastTranscribeErr = e;
+                if (preferredTranscribeModel !== 'whisper-1') {
+                    try {
+                        transcript = await transcribeWithTranscriptionsEndpoint({ bytes, mime, model: 'whisper-1', language });
+                        usedTranscribeModel = 'whisper-1';
+                        lastTranscribeErr = null;
+                    }
+                    catch (e2) {
+                        lastTranscribeErr = e2;
+                    }
+                }
+            }
         }
-        const tj = await tr.json();
-        const transcript = tj?.text || '';
+        if (!transcript) {
+            return res.status(400).json({ error: lastTranscribeErr?.message || 'transcription failed' });
+        }
         // Post-processing: organize or summarize
         let textOut = null;
         let summaryOut = null;
@@ -191,7 +292,12 @@ export default async function handler(req, res) {
                 }
             }
         }
-        return res.status(200).json({ transcript, text: textOut || summaryOut || transcript, summary: summaryOut });
+        return res.status(200).json({
+            transcript,
+            text: textOut || summaryOut || transcript,
+            summary: summaryOut,
+            meta: { transcribe_model: usedTranscribeModel || null },
+        });
     }
     catch (err) {
         return res.status(500).json({ error: err?.message || 'unknown error' });

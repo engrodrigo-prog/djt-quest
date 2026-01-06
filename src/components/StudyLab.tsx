@@ -17,6 +17,7 @@ import { TipDialogButton } from "@/components/TipDialogButton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -200,6 +201,7 @@ export const StudyLab = () => {
   const [chatUploading, setChatUploading] = useState(false);
   const [chatUploadKey, setChatUploadKey] = useState(0);
   const [chatSessionId, setChatSessionId] = useState<string>(() => createChatSessionId());
+  const [chatAttachmentsOpen, setChatAttachmentsOpen] = useState(false);
 
   const [oracleMode, setOracleMode] = useState(true);
   const [useWeb, setUseWeb] = useState(true);
@@ -865,43 +867,75 @@ export const StudyLab = () => {
             ))}
           </div>
 
-          <div className="space-y-2 rounded-md border bg-muted/20 p-3">
-            <div className="flex items-center justify-between gap-2">
-              <p className="text-sm font-medium">Anexos do chat</p>
-              {chatUploading && (
-                <Badge variant="outline" className="text-[10px]">
-                  enviando…
-                </Badge>
-              )}
-            </div>
-            <AttachmentUploader
-              key={chatUploadKey}
-              onAttachmentsChange={setChatAttachments}
-              onUploadingChange={setChatUploading}
-              maxFiles={4}
-              maxSizeMB={20}
-              bucket="evidence"
-              pathPrefix="study-chat"
-              acceptMimeTypes={[
-                "application/pdf",
-                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                "application/vnd.ms-excel",
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                "text/plain",
-                "application/json",
-                "text/csv",
-                "image/jpeg",
-                "image/png",
-                "image/webp",
-              ]}
-              maxVideoSeconds={0}
-            />
-            <p className="text-xs text-muted-foreground">
-              Imagens, desenhos, PDFs e documentos ajudam o Oráculo a aprofundar a resposta. Eles ficam registrados no compêndio.
-            </p>
-          </div>
-
           <div className="flex gap-2">
+            <Dialog open={chatAttachmentsOpen} onOpenChange={setChatAttachmentsOpen}>
+              <DialogTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="relative shrink-0"
+                  aria-label="Anexar arquivos"
+                  title="Anexar arquivos"
+                  disabled={chatLoading}
+                >
+                  <Plus className="h-4 w-4" />
+                  {chatUploading && (
+                    <span
+                      className="absolute -bottom-1 -right-1 inline-flex h-3 w-3 rounded-full bg-amber-400"
+                      aria-label="Enviando anexos"
+                      title="Enviando…"
+                    />
+                  )}
+                  {chatAttachments.length > 0 && (
+                    <Badge className="absolute -top-2 -right-2 h-5 min-w-[20px] justify-center px-1 text-[10px]">
+                      {chatAttachments.length}
+                    </Badge>
+                  )}
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-2xl">
+                <DialogHeader>
+                  <DialogTitle>Anexos</DialogTitle>
+                  <DialogDescription>
+                    Imagens, desenhos, PDFs e documentos ajudam o Oráculo a aprofundar a resposta e ficam registrados no compêndio.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-3">
+                  <AttachmentUploader
+                    key={chatUploadKey}
+                    onAttachmentsChange={setChatAttachments}
+                    onUploadingChange={setChatUploading}
+                    maxFiles={4}
+                    maxSizeMB={20}
+                    bucket="evidence"
+                    pathPrefix="study-chat"
+                    acceptMimeTypes={[
+                      "application/pdf",
+                      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                      "application/vnd.ms-excel",
+                      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                      "text/plain",
+                      "application/json",
+                      "text/csv",
+                      "image/jpeg",
+                      "image/png",
+                      "image/webp",
+                    ]}
+                    maxVideoSeconds={0}
+                  />
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs text-muted-foreground">
+                      {chatAttachments.length ? `${chatAttachments.length} anexo(s) selecionado(s).` : "Nenhum anexo selecionado."}
+                    </p>
+                    <Button type="button" variant="ghost" size="sm" onClick={resetChatAttachments} disabled={!chatAttachments.length && !chatUploading}>
+                      Limpar
+                    </Button>
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
+
             <Textarea
               value={chatInput}
               onChange={(e) => setChatInput(e.target.value)}
