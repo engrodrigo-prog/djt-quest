@@ -70,4 +70,6 @@ export const config = {
   api: {
     bodyParser: { sizeLimit: '20mb' },
   },
+  // Prevent premature termination for slower handlers (e.g., StudyLab with web search).
+  maxDuration: 60,
 };

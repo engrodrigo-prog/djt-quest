@@ -9,9 +9,13 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
 const STUDYLAB_DEFAULT_CHAT_MODEL = "gpt-5-nano-2025-08-07";
-const STUDYLAB_MAX_COMPLETION_TOKENS = 650;
+const STUDYLAB_MAX_COMPLETION_TOKENS = 320;
 const STUDYLAB_WEB_SEARCH_TIMEOUT_MS = 4500;
-const STUDYLAB_OPENAI_TIMEOUT_MS = 12000;
+const STUDYLAB_OPENAI_TIMEOUT_MS = Math.max(
+  5e3,
+  // Default keeps headroom for serverless runtimes while preventing early aborts.
+  Math.min(6e4, Number(process.env.STUDYLAB_OPENAI_TIMEOUT_MS || 45e3))
+);
 const OPENAI_MODEL_STUDYLAB_CHAT = normalizeChatModel(process.env.OPENAI_MODEL_STUDYLAB_CHAT || "", STUDYLAB_DEFAULT_CHAT_MODEL);
 function chooseModel(preferPremium = false) {
   const premium = process.env.OPENAI_MODEL_PREMIUM;
@@ -55,6 +59,12 @@ const extractChatText = (data) => {
   return "";
 };
 const isFatalOpenAiStatus = (status) => status === 401 || status === 403 || status === 429;
+const isAbortError = (err) => {
+  if (!err) return false;
+  if (String(err?.name || "") === "AbortError") return true;
+  const msg = String(err?.message || err || "").toLowerCase();
+  return msg.includes("aborted") || msg.includes("abort");
+};
 const callOpenAiChatCompletion = async (payload) => {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), STUDYLAB_OPENAI_TIMEOUT_MS);
@@ -1195,10 +1205,15 @@ ${webSummary.text}`
     let content = "";
     let usedModel = fallbackModel;
     let lastErrTxt = "";
+    let aborted = false;
+    let attempts = 0;
     for (const model of modelCandidates) {
       for (let attempt = 0; attempt < 2; attempt += 1) {
+        // Avoid stacking multiple long attempts (can exceed serverless max duration).
+        if (attempts >= (useWeb ? 2 : 3)) break;
         let resp = null;
         try {
+          attempts += 1;
           resp = await callOpenAiChatCompletion({
             model,
             messages: openaiMessages,
@@ -1206,13 +1221,17 @@ ${webSummary.text}`
           });
         } catch (e) {
           lastErrTxt = e?.message || "OpenAI request failed";
-          if (attempt === 0) continue;
+          if (isAbortError(e)) {
+            aborted = true;
+            break;
+          }
+          if (attempt === 0 && !useWeb) continue;
           break;
         }
         if (!resp.ok) {
           lastErrTxt = await resp.text().catch(() => `HTTP ${resp.status}`);
           if (isFatalOpenAiStatus(resp.status)) break;
-          if (attempt === 0) continue;
+          if (attempt === 0 && !useWeb) continue;
           break;
         }
         const data = await resp.json().catch(() => null);
@@ -1222,12 +1241,25 @@ ${webSummary.text}`
           break;
         }
         lastErrTxt = "OpenAI retornou resposta vazia";
-        if (attempt === 0) continue;
+        if (attempt === 0 && !useWeb) continue;
       }
       if (content) break;
+      if (aborted) break;
     }
     if (!content) {
-      return res.status(200).json({ success: false, error: `OpenAI error: ${lastErrTxt || "unknown"}` });
+      return res.status(200).json({
+        success: false,
+        error: `OpenAI error: ${lastErrTxt || "unknown"}`,
+        meta: {
+          model_candidates: modelCandidates,
+          used_web_summary: usedWebSummary,
+          use_web: Boolean(use_web),
+          aborted,
+          attempts,
+          timeout_ms: STUDYLAB_OPENAI_TIMEOUT_MS,
+          latency_ms: Date.now() - t0
+        }
+      });
     }
     let resolvedSessionId = typeof session_id === "string" && session_id.trim() ? session_id.trim() : null;
     if (!resolvedSessionId) {
@@ -1364,8 +1396,13 @@ ${webSummary.text}`
       session_id: resolvedSessionId,
       meta: {
         model: usedModel,
+        model_candidates: modelCandidates,
         latency_ms: Date.now() - t0,
         web: usedWebSummary,
+        used_web_summary: usedWebSummary,
+        use_web: Boolean(use_web),
+        attempts,
+        timeout_ms: STUDYLAB_OPENAI_TIMEOUT_MS,
         sources: usedOracleSourcesCount,
         compendium: usedOracleCompendiumCount,
         attachments: normalizedAttachments.length
