@@ -1524,6 +1524,7 @@ Formato da saída:
       (sourceRow && String(sourceRow.scope || "").toLowerCase() === "org" && sourceRow.published !== false);
     const fallbackModel = chooseModel(preferPremium);
     const modelCandidates = pickStudyLabChatModels(fallbackModel);
+    const maxTokens = useWeb ? Math.max(STUDYLAB_MAX_COMPLETION_TOKENS, 520) : STUDYLAB_MAX_COMPLETION_TOKENS;
 
     let content = "";
     let usedModel = fallbackModel;
@@ -1541,7 +1542,9 @@ Formato da saída:
           resp = await callOpenAiChatCompletion({
             model,
             messages: openaiMessages,
-            max_completion_tokens: STUDYLAB_MAX_COMPLETION_TOKENS,
+            // Some models/endpoints still expect `max_tokens`; keep both for compatibility.
+            max_tokens: maxTokens,
+            max_completion_tokens: maxTokens,
           });
         } catch (e: any) {
           lastErrTxt = e?.message || "OpenAI request failed";
@@ -1585,6 +1588,7 @@ Formato da saída:
           aborted,
           attempts,
           timeout_ms: STUDYLAB_OPENAI_TIMEOUT_MS,
+          max_tokens: maxTokens,
           latency_ms: Date.now() - t0,
         },
       });
@@ -1756,20 +1760,21 @@ Formato da saída:
       success: true,
       answer: content,
       session_id: resolvedSessionId,
-      meta: {
-        model: usedModel,
-        model_candidates: modelCandidates,
-        latency_ms: Date.now() - t0,
-        web: usedWebSummary,
-        used_web_summary: usedWebSummary,
-        use_web: Boolean(use_web),
-        attempts,
-        timeout_ms: STUDYLAB_OPENAI_TIMEOUT_MS,
-        sources: usedOracleSourcesCount,
-        compendium: usedOracleCompendiumCount,
-        attachments: normalizedAttachments.length,
-      },
-    });
+        meta: {
+          model: usedModel,
+          model_candidates: modelCandidates,
+          latency_ms: Date.now() - t0,
+          web: usedWebSummary,
+          used_web_summary: usedWebSummary,
+          use_web: Boolean(use_web),
+          attempts,
+          timeout_ms: STUDYLAB_OPENAI_TIMEOUT_MS,
+          max_tokens: maxTokens,
+          sources: usedOracleSourcesCount,
+          compendium: usedOracleCompendiumCount,
+          attachments: normalizedAttachments.length,
+        },
+      });
   } catch (err: any) {
     return res.status(500).json({ error: err?.message || "Unknown error" });
   }

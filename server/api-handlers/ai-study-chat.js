@@ -1203,6 +1203,7 @@ ${webSummary.text}`
     const preferPremium = mode === "oracle" || useWeb || sourceRow && String(sourceRow.scope || "").toLowerCase() === "org" && sourceRow.published !== false;
     const fallbackModel = chooseModel(preferPremium);
     const modelCandidates = pickStudyLabChatModels(fallbackModel);
+    const maxTokens = useWeb ? Math.max(STUDYLAB_MAX_COMPLETION_TOKENS, 520) : STUDYLAB_MAX_COMPLETION_TOKENS;
     let content = "";
     let usedModel = fallbackModel;
     let lastErrTxt = "";
@@ -1218,7 +1219,9 @@ ${webSummary.text}`
           resp = await callOpenAiChatCompletion({
             model,
             messages: openaiMessages,
-            max_completion_tokens: STUDYLAB_MAX_COMPLETION_TOKENS
+            // Some models/endpoints still expect `max_tokens`; keep both for compatibility.
+            max_tokens: maxTokens,
+            max_completion_tokens: maxTokens
           });
         } catch (e) {
           lastErrTxt = e?.message || "OpenAI request failed";
@@ -1258,6 +1261,7 @@ ${webSummary.text}`
           aborted,
           attempts,
           timeout_ms: STUDYLAB_OPENAI_TIMEOUT_MS,
+          max_tokens: maxTokens,
           latency_ms: Date.now() - t0
         }
       });
@@ -1404,6 +1408,7 @@ ${webSummary.text}`
         use_web: Boolean(use_web),
         attempts,
         timeout_ms: STUDYLAB_OPENAI_TIMEOUT_MS,
+        max_tokens: maxTokens,
         sources: usedOracleSourcesCount,
         compendium: usedOracleCompendiumCount,
         attachments: normalizedAttachments.length
