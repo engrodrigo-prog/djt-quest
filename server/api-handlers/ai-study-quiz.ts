@@ -649,12 +649,12 @@ ${joinedContext}`,
       new Set(
         [
           process.env.OPENAI_MODEL_PREMIUM,
-          "gpt-5.2",
-          "gpt-5.2",
+          "gpt-5-2025-08-07",
+          "gpt-5-2025-08-07",
           process.env.OPENAI_MODEL_OVERRIDE,
           process.env.OPENAI_MODEL_FAST,
-          "gpt-5.2-fast",
-          "gpt-5.2-chat-latest",
+          "gpt-5-2025-08-07",
+          "gpt-5-2025-08-07",
           "gpt-5",
         ].filter(Boolean),
       ),
@@ -755,7 +755,7 @@ ${joinedContext}`,
         const refineModel =
           (process.env.OPENAI_MODEL_PREMIUM as string) ||
           (process.env.OPENAI_MODEL_OVERRIDE as string) ||
-          "gpt-5.2";
+          "gpt-5-2025-08-07";
         normalizedQuestions = await refineMilhaoDistractors({
           openaiKey: OPENAI_API_KEY,
           model: refineModel,

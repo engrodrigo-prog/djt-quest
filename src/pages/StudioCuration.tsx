@@ -714,7 +714,7 @@ export default function StudioCuration() {
                       {importLoading ? 'Processando…' : 'Enviar e extrair'}
                     </Button>
                     <Button variant="outline" disabled={!importRow?.id || importLoading} onClick={runAiStructure}>
-                      Estruturar com IA (GPT-5.2)
+                      Estruturar com IA (GPT-5 2025-08-07)
                     </Button>
                     <Button variant="secondary" disabled={!importRow?.id || importLoading} onClick={finalizeImport}>
                       Aprovar import

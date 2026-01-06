@@ -51,7 +51,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       let items: any[] = []
       if (OPENAI_API_KEY && allTexts.length) {
         const system = 'Você é um consultor técnico da DJT (CPFL) que organiza debates de fórum profissional. Use linguagem técnica, neutra e objetiva (pt-BR).'
-        const premium = process.env.OPENAI_MODEL_PREMIUM || process.env.OPENAI_MODEL_OVERRIDE || 'gpt-5.2'
+        const premium = process.env.OPENAI_MODEL_PREMIUM || process.env.OPENAI_MODEL_OVERRIDE || 'gpt-5-2025-08-07'
         const body: any = {
           model: premium,
           temperature: 0.4,
@@ -143,7 +143,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     let items: any[] = []
     if (OPENAI_API_KEY) {
       const system = 'Você é um consultor de aprendizado corporativo (pt-BR). Atribua prioridades e proponha ações (quiz/desafio/campanha/operacional) com escopo (equipes, líderes, toda organização, ou outras áreas) a partir dos tópicos do fórum.'
-      const premium = process.env.OPENAI_MODEL_PREMIUM || process.env.OPENAI_MODEL_OVERRIDE || 'gpt-5.2'
+      const premium = process.env.OPENAI_MODEL_PREMIUM || process.env.OPENAI_MODEL_OVERRIDE || 'gpt-5-2025-08-07'
       const base: any = {
         model: premium, temperature: 0.3,
         messages: [

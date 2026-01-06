@@ -293,7 +293,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const explainModel =
         (process.env.OPENAI_MODEL_PREMIUM as string) ||
         (process.env.OPENAI_MODEL_FAST as string) ||
-        'gpt-5.2';
+        'gpt-5-2025-08-07';
       explanationsByIndex = await generateExplanationsAndDisambiguations({
         model: explainModel,
         language: 'pt-BR',

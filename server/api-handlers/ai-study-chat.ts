@@ -19,8 +19,8 @@ function chooseModel(preferPremium = false) {
   return pickChatModel(preferPremium, {
     premium,
     fast,
-    fallbackFast: "gpt-5.2-fast",
-    fallbackPremium: "gpt-5.2",
+    fallbackFast: "gpt-5-2025-08-07",
+    fallbackPremium: "gpt-5-2025-08-07",
   });
 }
 

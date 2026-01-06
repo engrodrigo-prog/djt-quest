@@ -15,8 +15,8 @@ const extractJson = (content) => {
 
 const pickTextModel = (paramsModel) =>
   normalizeChatModel(
-    paramsModel || process.env.OPENAI_MODEL_PREMIUM || process.env.OPENAI_MODEL_FAST || process.env.MODEL || 'gpt-5.2',
-    'gpt-5.2',
+    paramsModel || process.env.OPENAI_MODEL_PREMIUM || process.env.OPENAI_MODEL_FAST || process.env.MODEL || 'gpt-5-2025-08-07',
+    'gpt-5-2025-08-07',
   );
 
 const pickVisionModel = (paramsModel) =>
@@ -25,8 +25,8 @@ const pickVisionModel = (paramsModel) =>
       process.env.OPENAI_MODEL_VISION ||
       process.env.OPENAI_MODEL_PREMIUM ||
       process.env.OPENAI_MODEL_FAST ||
-      'gpt-5.2',
-    'gpt-5.2',
+      'gpt-5-2025-08-07',
+    'gpt-5-2025-08-07',
   );
 
 async function callOpenAiChatJson({ openaiKey, model, system, user, maxTokens = 1800, temperature = 0.2 }) {

@@ -9,7 +9,7 @@ const MODEL =
   process.env.OPENAI_MODEL_PREMIUM ||
   process.env.OPENAI_MODEL_OVERRIDE ||
   process.env.OPENAI_MODEL_FAST ||
-  'gpt-5.2';
+  'gpt-5-2025-08-07';
 
 const BANNED_TERMS_RE = /smart\s*line|smartline|smarline/i;
 

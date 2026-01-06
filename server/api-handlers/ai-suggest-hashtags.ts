@@ -105,7 +105,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!client) {
       return res.status(200).json({ hashtags: buildFallbackHashtags(text), meta: { warning: 'OPENAI_API_KEY ausente' } });
     }
-    const model = process.env.OPENAI_PREMIUM_MODEL || 'gpt-5.2-fast';
+    const model = process.env.OPENAI_PREMIUM_MODEL || 'gpt-5-2025-08-07';
     const payload: any = {
       model,
       messages: [

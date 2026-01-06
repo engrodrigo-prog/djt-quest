@@ -37,8 +37,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const system = 'Você é um curador que organiza discussões de fórum em português (pt-BR) em um compêndio claro, objetivo e acionável.'
     const userContent = `Organize os principais pontos da discussão abaixo e retorne JSON estrito no formato:\n{ "summary_md":"...", "key_learnings":["..."], "suggested_quizzes":[{"title":"...","description":"..."}], "suggested_challenges":[{"title":"...","description":"..."}] }\n\nRegras:\n- Seja objetivo, linguagem profissional mas humana\n- Evite duplicações entre quizzes e desafios\n- Alinhe com CHAS quando pertinente\n\nDiscussão:\n${corpus}`
 
-    const premium = process.env.OPENAI_MODEL_PREMIUM || process.env.OPENAI_MODEL_OVERRIDE || 'gpt-5.2'
-    const models = Array.from(new Set([premium, 'gpt-5.2', 'gpt-5.2-fast'].filter(Boolean)))
+    const premium = process.env.OPENAI_MODEL_PREMIUM || process.env.OPENAI_MODEL_OVERRIDE || 'gpt-5-2025-08-07'
+    const models = Array.from(new Set([premium, 'gpt-5-2025-08-07', 'gpt-5-2025-08-07'].filter(Boolean)))
     let out = ''
     let lastErr = ''
     for (const model of models) {

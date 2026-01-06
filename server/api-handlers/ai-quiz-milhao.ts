@@ -105,11 +105,11 @@ Observações:
       new Set(
         [
           process.env.OPENAI_MODEL_PREMIUM,
-          'gpt-5.2',
-          'gpt-5.2',
+          'gpt-5-2025-08-07',
+          'gpt-5-2025-08-07',
           process.env.OPENAI_MODEL_FAST,
           process.env.OPENAI_MODEL_OVERRIDE,
-          'gpt-5.2-fast',
+          'gpt-5-2025-08-07',
         ].filter(Boolean),
       ),
     );

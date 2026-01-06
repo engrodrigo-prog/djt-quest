@@ -60,11 +60,11 @@ Responda apenas em JSON válido, sem comentários.`
 
     const models = Array.from(new Set([
       process.env.OPENAI_MODEL_PREMIUM,
-      'gpt-5.2',
-      'gpt-5.2',
+      'gpt-5-2025-08-07',
+      'gpt-5-2025-08-07',
       process.env.OPENAI_MODEL_OVERRIDE,
       process.env.OPENAI_MODEL_FAST,
-      'gpt-5.2-fast',
+      'gpt-5-2025-08-07',
     ].filter(Boolean)))
     let content = ''
     let lastErr = ''

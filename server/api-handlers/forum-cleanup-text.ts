@@ -12,8 +12,8 @@ const OPENAI_TEXT_MODEL = normalizeChatModel(
   process.env.OPENAI_MODEL_FAST ||
     process.env.OPENAI_TEXT_MODEL ||
     process.env.OPENAI_MODEL_OVERRIDE ||
-    'gpt-5.2-fast',
-  'gpt-5.2-fast',
+    'gpt-5-2025-08-07',
+  'gpt-5-2025-08-07',
 );
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
