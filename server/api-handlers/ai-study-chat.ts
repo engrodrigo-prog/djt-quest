@@ -1561,7 +1561,6 @@ Formato da saída:
             input: toResponsesInputMessages(openaiMessages),
             text: { verbosity: "low" },
             reasoning: { effort: "low" },
-            temperature: 0.2,
             max_output_tokens: maxTokens,
           });
         } catch (e: any) {
