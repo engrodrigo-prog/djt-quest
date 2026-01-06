@@ -10,7 +10,7 @@ const pickModel = () =>
   process.env.OPENAI_MODEL_FAST ||
   process.env.OPENAI_MODEL_PREMIUM ||
   process.env.OPENAI_TEXT_MODEL ||
-  "gpt-4.1-mini";
+  "gpt-5.2";
 
 const chunkArray = (arr, size) => {
   const out = [];

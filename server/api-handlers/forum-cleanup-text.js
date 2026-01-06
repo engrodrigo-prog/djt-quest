@@ -5,7 +5,7 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
 const OPENAI_TEXT_MODEL = normalizeChatModel(process.env.OPENAI_MODEL_FAST ||
     process.env.OPENAI_TEXT_MODEL ||
     process.env.OPENAI_MODEL_OVERRIDE ||
-    'gpt-4.1-mini', 'gpt-4.1-mini');
+    'gpt-5.2', 'gpt-5.2');
 export default async function handler(req, res) {
     if (req.method === 'OPTIONS')
         return res.status(204).send('');

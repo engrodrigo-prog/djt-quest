@@ -95,8 +95,8 @@ export async function proofreadPtBrStrings(params: {
       process.env.OPENAI_MODEL_FAST ||
       process.env.OPENAI_TEXT_MODEL ||
       process.env.OPENAI_MODEL_PREMIUM ||
-      'gpt-4.1-mini',
-    'gpt-4.1-mini',
+      'gpt-5.2',
+    'gpt-5.2',
   );
 
   const system = `Você é um revisor ortográfico em PT-BR.

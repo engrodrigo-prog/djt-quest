@@ -19,8 +19,8 @@ function chooseModel(preferPremium = false) {
   return pickChatModel(preferPremium, {
     premium,
     fast,
-    fallbackFast: "gpt-4.1-mini",
-    fallbackPremium: "gpt-4.1",
+    fallbackFast: "gpt-5.2",
+    fallbackPremium: "gpt-5.2",
   });
 }
 

@@ -39,7 +39,7 @@ export default async function handler(req, res) {
         let items = [];
         if (OPENAI_API_KEY) {
             const system = 'Você é um consultor de aprendizado corporativo (pt-BR). Atribua prioridades e proponha ações (quiz/desafio/campanha/operacional) com escopo (equipes, líderes, toda organização, ou outras áreas) a partir dos tópicos do fórum.';
-            const premium = process.env.OPENAI_MODEL_PREMIUM || process.env.OPENAI_MODEL_OVERRIDE || 'gpt-4o';
+            const premium = process.env.OPENAI_MODEL_PREMIUM || process.env.OPENAI_MODEL_OVERRIDE || 'gpt-5.2';
             const base = {
                 model: premium, temperature: 0.3,
                 messages: [
