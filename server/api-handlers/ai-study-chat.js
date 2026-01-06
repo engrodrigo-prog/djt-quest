@@ -10,6 +10,8 @@ const SUPABASE_URL = process.env.SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
 const OPENAI_MODEL_STUDYLAB_CHAT = process.env.OPENAI_MODEL_STUDYLAB_CHAT || "";
 const STUDYLAB_DEFAULT_CHAT_MODEL = "gpt-5-nano-2025-08-07";
+const STUDYLAB_MAX_COMPLETION_TOKENS = 650;
+const STUDYLAB_WEB_SEARCH_TIMEOUT_MS = 4500;
 function chooseModel(preferPremium = false) {
   const premium = process.env.OPENAI_MODEL_PREMIUM;
   const fast = process.env.OPENAI_MODEL_FAST;
@@ -31,7 +33,7 @@ const uniqueStrings = (values) => {
   }
   return out;
 };
-const pickStudyLabChatModels = (fallbackModel) => uniqueStrings([OPENAI_MODEL_STUDYLAB_CHAT, STUDYLAB_DEFAULT_CHAT_MODEL, fallbackModel, process.env.OPENAI_MODEL_FAST]);
+const pickStudyLabChatModels = (fallbackModel) => uniqueStrings([OPENAI_MODEL_STUDYLAB_CHAT, STUDYLAB_DEFAULT_CHAT_MODEL, fallbackModel]);
 const normalizeForMatch = (raw) => String(raw || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, " ").trim();
 const RULES_KEYWORDS = [
   "djt",
@@ -68,8 +70,9 @@ const collectOutputText = (payload) => {
   }).filter(Boolean);
   return chunks.join("\n").trim();
 };
-const fetchWebSearchSummary = async (query, model) => {
+const fetchWebSearchSummary = async (query, model, opts) => {
   if (!OPENAI_API_KEY || !query) return null;
+  const timeoutMs = Math.max(800, Math.min(Number(opts?.timeoutMs) || STUDYLAB_WEB_SEARCH_TIMEOUT_MS, 15e3));
   const tools = ["web_search", "web_search_preview"];
   const input = [
     {
@@ -79,6 +82,8 @@ const fetchWebSearchSummary = async (query, model) => {
     { role: "user", content: query }
   ];
   for (const tool of tools) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const resp = await fetch("https://api.openai.com/v1/responses", {
         method: "POST",
@@ -86,11 +91,12 @@ const fetchWebSearchSummary = async (query, model) => {
           "Content-Type": "application/json",
           Authorization: `Bearer ${OPENAI_API_KEY}`
         },
+        signal: controller.signal,
         body: JSON.stringify({
           model,
           input,
           tools: [{ type: tool }],
-          max_output_tokens: 520
+          max_output_tokens: 260
         })
       });
       const json = await resp.json().catch(() => null);
@@ -104,6 +110,8 @@ const fetchWebSearchSummary = async (query, model) => {
       const text = collectOutputText(json);
       if (text) return { text, tool };
     } catch {
+    } finally {
+      clearTimeout(timer);
     }
   }
   return null;
@@ -279,6 +287,7 @@ async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(204).send("");
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
   try {
+    const t0 = Date.now();
     if (!OPENAI_API_KEY) return res.status(500).json({ error: "Missing OPENAI_API_KEY" });
     const admin = SUPABASE_URL && SERVICE_KEY ? createClient(SUPABASE_URL, SERVICE_KEY, { auth: { autoRefreshToken: false, persistSession: false } }) : null;
     const {
@@ -308,6 +317,10 @@ async function handler(req, res) {
     let joinedContext = "";
     let sourceRow = null;
     let lastUserText = "";
+    let webSummaryPromise = null;
+    let usedWebSummary = false;
+    let usedOracleSourcesCount = 0;
+    let usedOracleCompendiumCount = 0;
     const stripHtml = (html) => html.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
     const fetchUrlContent = async (rawUrl) => {
       try {
@@ -806,9 +819,10 @@ Voc\xEA ajuda colaboradores a encontrar respostas e aprendizados usando toda a b
 
 Regras:
 - Seja claro e pr\xE1tico. Diga o que a pessoa deve fazer, checar ou perguntar em campo (quando fizer sentido).
+- Seja conciso: responda em at\xE9 10 linhas. Se faltar contexto, fa\xE7a 1 pergunta objetiva antes de expandir.
 - Se a resposta depender de uma informa\xE7\xE3o que N\xC3O aparece na base enviada, deixe isso expl\xEDcito e responda de forma geral (sem inventar detalhes).
 - Quando usar a base, cite rapidamente de onde veio: t\xEDtulo da fonte/ocorr\xEAncia.
-- Sugira 1 a 3 pr\xF3ximos passos (ex.: \u201Cquer que eu gere perguntas de quiz sobre isso?\u201D).
+- Sugira 1 pr\xF3ximo passo (ex.: \u201Cquer que eu gere perguntas de quiz sobre isso?\u201D).
 ${focusHint}
 
 Formato:
@@ -833,6 +847,10 @@ Formato da sa\xEDda:
       const lastUserMsg = (normalizedMessagesForQuery.slice().reverse().find((m) => m?.role === "user" && m?.content)?.content || question || "") + "";
       const text = lastUserMsg.toString();
       lastUserText = text;
+      const normalizedQuery = normalizeForMatch(text);
+      const incidentLikely = /\b(ocorrenc|ocorr|acident|inciden|seguranca|epi|nr\s*\d|cipa|quase\s+acident)\b/i.test(normalizedQuery);
+      const useWeb = Boolean(use_web);
+      webSummaryPromise = useWeb && lastUserText ? fetchWebSearchSummary(lastUserText, chooseModel(true), { timeoutMs: STUDYLAB_WEB_SEARCH_TIMEOUT_MS }) : null;
       const stop = /* @__PURE__ */ new Set([
         "de",
         "da",
@@ -877,15 +895,27 @@ Formato da sa\xEDda:
       ).slice(0, 8);
       let sourcesForOracle = [];
       try {
-        const select = "id, user_id, title, summary, full_text, url, topic, category, scope, published, metadata, created_at";
-        const q = admin.from("study_sources").select(select).order("created_at", { ascending: false }).limit(200);
-        if (uid) {
-          if (isLeaderOrStaff) q.or(`user_id.eq.${uid},scope.eq.org`);
-          else q.or(`user_id.eq.${uid},and(scope.eq.org,published.eq.true)`);
-        } else {
-          q.eq("scope", "org").eq("published", true);
+        const selectV2 = "id, user_id, title, summary, url, topic, category, scope, published, metadata, created_at";
+        const selectV1 = "id, user_id, title, summary, url, topic, created_at";
+        const buildQuery = (select) => {
+          const q = admin.from("study_sources").select(select).order("created_at", { ascending: false }).limit(80);
+          if (uid) {
+            if (isLeaderOrStaff) q.or(`user_id.eq.${uid},scope.eq.org`);
+            else q.or(`user_id.eq.${uid},and(scope.eq.org,published.eq.true)`);
+          } else {
+            q.eq("scope", "org").eq("published", true);
+          }
+          return q;
+        };
+        let resp2 = await buildQuery(selectV2);
+        let data2 = resp2?.data;
+        let error = resp2?.error;
+        if (error && /column .*?(category|scope|published|metadata)/i.test(String(error.message || error))) {
+          resp2 = await buildQuery(selectV1);
+          data2 = resp2?.data;
+          error = resp2?.error;
         }
-        const { data: data2 } = await q;
+        if (error) throw error;
         sourcesForOracle = Array.isArray(data2) ? data2 : [];
       } catch {
         sourcesForOracle = [];
@@ -896,16 +926,38 @@ Formato da sa\xEDda:
         for (const k of kws) if (hay.includes(k)) score += 1;
         return score;
       };
-      const rankedSources = sourcesForOracle.map((s) => {
-        const hay = [s.title, s.summary, s.full_text, s.topic, s.category].filter(Boolean).join(" ");
+      const rankedSourcesBase = sourcesForOracle.map((s) => {
+        const hay = [s.title, s.summary, s.topic, s.category].filter(Boolean).join(" ");
         return { s, score: keywords.length ? scoreText(hay, keywords) : 0 };
-      }).filter((x) => keywords.length ? x.score > 0 : true).sort((a, b) => b.score - a.score).slice(0, 5).map((x) => x.s);
+      }).filter((x) => keywords.length ? x.score > 0 : true).sort((a, b) => b.score - a.score).slice(0, 3).map((x) => x.s);
+      const topSourceIds = rankedSourcesBase.map((s) => s?.id).filter(Boolean).slice(0, 3);
+      const fullTextById = /* @__PURE__ */ new Map();
+      if (topSourceIds.length) {
+        try {
+          const { data: data2, error } = await admin.from("study_sources").select("id, full_text").in("id", topSourceIds);
+          if (!error && Array.isArray(data2)) {
+            for (const row of data2) {
+              const id = String(row?.id || "").trim();
+              const ft = String(row?.full_text || "").trim();
+              if (id && ft) fullTextById.set(id, ft);
+            }
+          }
+        } catch {
+        }
+      }
+      const rankedSources = rankedSourcesBase.map((s) => {
+        const id = String(s?.id || "").trim();
+        return id ? { ...s, full_text: fullTextById.get(id) || "" } : s;
+      });
+      usedOracleSourcesCount = rankedSources.length;
       let compendium = [];
-      try {
-        const { data: data2 } = await admin.from("content_imports").select("id, final_approved, created_at").eq("status", "FINAL_APPROVED").filter("final_approved->>kind", "eq", "incident_report").order("created_at", { ascending: false }).limit(200);
-        compendium = Array.isArray(data2) ? data2 : [];
-      } catch {
-        compendium = [];
+      if (incidentLikely) {
+        try {
+          const { data: data2 } = await admin.from("content_imports").select("id, final_approved, created_at").eq("status", "FINAL_APPROVED").filter("final_approved->>kind", "eq", "incident_report").order("created_at", { ascending: false }).limit(80);
+          compendium = Array.isArray(data2) ? data2 : [];
+        } catch {
+          compendium = [];
+        }
       }
       const rankedCompendium = compendium.map((row) => {
         const cat = row?.final_approved?.catalog || row?.final_approved || {};
@@ -921,7 +973,8 @@ Formato da sa\xEDda:
           ...Array.isArray(cat?.learning_points) ? cat.learning_points : []
         ].filter(Boolean).join(" ");
         return { row, cat, score: keywords.length ? scoreText(hay, keywords) : 0 };
-      }).filter((x) => keywords.length ? x.score > 0 : true).sort((a, b) => b.score - a.score).slice(0, 5);
+      }).filter((x) => keywords.length ? x.score > 0 : true).sort((a, b) => b.score - a.score).slice(0, 3);
+      usedOracleCompendiumCount = rankedCompendium.length;
       let forumKbRows = [];
       if (forumKbTags.length) {
         try {
@@ -956,7 +1009,7 @@ ${attachmentContext}`);
             const title = String(s.title || `Fonte ${idx + 1}`);
             const summary = String(s.summary || "").trim();
             const text2 = String(s.full_text || "").trim();
-            const excerpt = text2 ? text2.slice(0, 1800) : "";
+            const excerpt = text2 ? text2.slice(0, 900) : "";
             return `- ${title}
 ` + (summary ? `  Resumo: ${summary}
 ` : "") + (excerpt ? `  Trecho: ${excerpt}
@@ -1080,9 +1133,9 @@ ${context}`
     }
     const useWeb = Boolean(use_web);
     if (mode === "oracle" && useWeb && lastUserText) {
-      const webModel = chooseModel(true);
-      const webSummary = await fetchWebSearchSummary(lastUserText, webModel);
+      const webSummary = await (webSummaryPromise || fetchWebSearchSummary(lastUserText, chooseModel(true), { timeoutMs: STUDYLAB_WEB_SEARCH_TIMEOUT_MS }));
       if (webSummary?.text) {
+        usedWebSummary = true;
         openaiMessages.push({
           role: "system",
           content: `Pesquisa web automatica (resumo):
@@ -1114,7 +1167,7 @@ ${webSummary.text}`
         body: JSON.stringify({
           model,
           messages: openaiMessages,
-          max_completion_tokens: 1200
+          max_completion_tokens: STUDYLAB_MAX_COMPLETION_TOKENS
         })
       });
       if (!resp.ok) {
@@ -1262,7 +1315,19 @@ ${webSummary.text}`
       } catch {
       }
     }
-    return res.status(200).json({ success: true, answer: content, session_id: resolvedSessionId });
+    return res.status(200).json({
+      success: true,
+      answer: content,
+      session_id: resolvedSessionId,
+      meta: {
+        model: usedModel,
+        latency_ms: Date.now() - t0,
+        web: usedWebSummary,
+        sources: usedOracleSourcesCount,
+        compendium: usedOracleCompendiumCount,
+        attachments: normalizedAttachments.length
+      }
+    });
   } catch (err) {
     return res.status(500).json({ error: err?.message || "Unknown error" });
   }

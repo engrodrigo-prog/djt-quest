@@ -204,7 +204,7 @@ export const StudyLab = () => {
   const [chatAttachmentsOpen, setChatAttachmentsOpen] = useState(false);
 
   const [oracleMode, setOracleMode] = useState(true);
-  const [useWeb, setUseWeb] = useState(true);
+  const [useWeb, setUseWeb] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [kbEnabled, setKbEnabled] = useState(false);
   const [kbSelection, setKbSelection] = useState<ForumKbSelection | null>(null);

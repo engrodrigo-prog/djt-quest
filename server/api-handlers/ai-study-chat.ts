@@ -14,6 +14,8 @@ const SUPABASE_URL = process.env.SUPABASE_URL as string;
 const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY) as string;
 const OPENAI_MODEL_STUDYLAB_CHAT = (process.env.OPENAI_MODEL_STUDYLAB_CHAT as string) || "";
 const STUDYLAB_DEFAULT_CHAT_MODEL = "gpt-5-nano-2025-08-07";
+const STUDYLAB_MAX_COMPLETION_TOKENS = 650;
+const STUDYLAB_WEB_SEARCH_TIMEOUT_MS = 4500;
 
 function chooseModel(preferPremium = false) {
   const premium = process.env.OPENAI_MODEL_PREMIUM;
@@ -39,7 +41,7 @@ const uniqueStrings = (values: any[]) => {
 };
 
 const pickStudyLabChatModels = (fallbackModel: string) =>
-  uniqueStrings([OPENAI_MODEL_STUDYLAB_CHAT, STUDYLAB_DEFAULT_CHAT_MODEL, fallbackModel, process.env.OPENAI_MODEL_FAST]);
+  uniqueStrings([OPENAI_MODEL_STUDYLAB_CHAT, STUDYLAB_DEFAULT_CHAT_MODEL, fallbackModel]);
 
 const normalizeForMatch = (raw: string) =>
   String(raw || "")
@@ -90,8 +92,9 @@ const collectOutputText = (payload: any) => {
   return chunks.join("\n").trim();
 };
 
-const fetchWebSearchSummary = async (query: string, model: string) => {
+const fetchWebSearchSummary = async (query: string, model: string, opts?: { timeoutMs?: number }) => {
   if (!OPENAI_API_KEY || !query) return null;
+  const timeoutMs = Math.max(800, Math.min(Number(opts?.timeoutMs) || STUDYLAB_WEB_SEARCH_TIMEOUT_MS, 15000));
   const tools = ["web_search", "web_search_preview"];
   const input = [
     {
@@ -103,6 +106,8 @@ const fetchWebSearchSummary = async (query: string, model: string) => {
   ];
 
   for (const tool of tools) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const resp = await fetch("https://api.openai.com/v1/responses", {
         method: "POST",
@@ -110,11 +115,12 @@ const fetchWebSearchSummary = async (query: string, model: string) => {
           "Content-Type": "application/json",
           Authorization: `Bearer ${OPENAI_API_KEY}`,
         },
+        signal: controller.signal,
         body: JSON.stringify({
           model,
           input,
           tools: [{ type: tool }],
-          max_output_tokens: 520,
+          max_output_tokens: 260,
         }),
       });
       const json = await resp.json().catch(() => null);
@@ -129,6 +135,8 @@ const fetchWebSearchSummary = async (query: string, model: string) => {
       if (text) return { text, tool };
     } catch {
       // ignore and try fallback
+    } finally {
+      clearTimeout(timer);
     }
   }
   return null;
@@ -357,6 +365,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
   try {
+    const t0 = Date.now();
     if (!OPENAI_API_KEY) return res.status(500).json({ error: "Missing OPENAI_API_KEY" });
 
     const admin =
@@ -404,6 +413,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     let joinedContext = "";
     let sourceRow: any = null;
     let lastUserText = "";
+    let webSummaryPromise: Promise<any> | null = null;
+    let usedWebSummary = false;
+    let usedOracleSourcesCount = 0;
+    let usedOracleCompendiumCount = 0;
     const stripHtml = (html: string) =>
       html
         .replace(/<script[\s\S]*?<\/script>/gi, " ")
@@ -1002,9 +1015,10 @@ Você ajuda colaboradores a encontrar respostas e aprendizados usando toda a bas
 
 Regras:
 - Seja claro e prático. Diga o que a pessoa deve fazer, checar ou perguntar em campo (quando fizer sentido).
+- Seja conciso: responda em até 10 linhas. Se faltar contexto, faça 1 pergunta objetiva antes de expandir.
 - Se a resposta depender de uma informação que NÃO aparece na base enviada, deixe isso explícito e responda de forma geral (sem inventar detalhes).
 - Quando usar a base, cite rapidamente de onde veio: título da fonte/ocorrência.
-- Sugira 1 a 3 próximos passos (ex.: “quer que eu gere perguntas de quiz sobre isso?”).
+- Sugira 1 próximo passo (ex.: “quer que eu gere perguntas de quiz sobre isso?”).
 ${focusHint}
 
 Formato:
@@ -1037,6 +1051,15 @@ Formato da saída:
 
       const text = lastUserMsg.toString();
       lastUserText = text;
+      const normalizedQuery = normalizeForMatch(text);
+      const incidentLikely =
+        /\b(ocorrenc|ocorr|acident|inciden|seguranca|epi|nr\s*\d|cipa|quase\s+acident)\b/i.test(normalizedQuery);
+
+      const useWeb = Boolean(use_web);
+      webSummaryPromise =
+        useWeb && lastUserText
+          ? fetchWebSearchSummary(lastUserText, chooseModel(true), { timeoutMs: STUDYLAB_WEB_SEARCH_TIMEOUT_MS })
+          : null;
       const stop = new Set([
         "de",
         "da",
@@ -1089,16 +1112,27 @@ Formato da saída:
       // 1) Study sources (org + user)
       let sourcesForOracle: any[] = [];
       try {
-        const select =
-          "id, user_id, title, summary, full_text, url, topic, category, scope, published, metadata, created_at";
-        const q = admin.from("study_sources").select(select).order("created_at", { ascending: false }).limit(200);
-        if (uid) {
-          if (isLeaderOrStaff) q.or(`user_id.eq.${uid},scope.eq.org`);
-          else q.or(`user_id.eq.${uid},and(scope.eq.org,published.eq.true)`);
-        } else {
-          q.eq("scope", "org").eq("published", true);
+        const selectV2 = "id, user_id, title, summary, url, topic, category, scope, published, metadata, created_at";
+        const selectV1 = "id, user_id, title, summary, url, topic, created_at";
+        const buildQuery = (select: string) => {
+          const q = admin.from("study_sources").select(select).order("created_at", { ascending: false }).limit(80);
+          if (uid) {
+            if (isLeaderOrStaff) q.or(`user_id.eq.${uid},scope.eq.org`);
+            else q.or(`user_id.eq.${uid},and(scope.eq.org,published.eq.true)`);
+          } else {
+            q.eq("scope", "org").eq("published", true);
+          }
+          return q;
+        };
+        let resp = await buildQuery(selectV2);
+        let data = resp?.data;
+        let error = resp?.error;
+        if (error && /column .*?(category|scope|published|metadata)/i.test(String(error.message || error))) {
+          resp = await buildQuery(selectV1);
+          data = resp?.data;
+          error = resp?.error;
         }
-        const { data } = await q;
+        if (error) throw error;
         sourcesForOracle = Array.isArray(data) ? data : [];
       } catch {
         sourcesForOracle = [];
@@ -1111,29 +1145,54 @@ Formato da saída:
         return score;
       };
 
-      const rankedSources = sourcesForOracle
+      const rankedSourcesBase = sourcesForOracle
         .map((s) => {
-          const hay = [s.title, s.summary, s.full_text, s.topic, s.category].filter(Boolean).join(" ");
+          const hay = [s.title, s.summary, s.topic, s.category].filter(Boolean).join(" ");
           return { s, score: keywords.length ? scoreText(hay, keywords) : 0 };
         })
         .filter((x) => (keywords.length ? x.score > 0 : true))
         .sort((a, b) => b.score - a.score)
-        .slice(0, 5)
+        .slice(0, 3)
         .map((x) => x.s);
+
+      // Fetch full_text only for top sources (to reduce payload/latency)
+      const topSourceIds = rankedSourcesBase.map((s: any) => s?.id).filter(Boolean).slice(0, 3);
+      const fullTextById = new Map<string, string>();
+      if (topSourceIds.length) {
+        try {
+          const { data, error } = await admin.from("study_sources").select("id, full_text").in("id", topSourceIds as any);
+          if (!error && Array.isArray(data)) {
+            for (const row of data) {
+              const id = String(row?.id || "").trim();
+              const ft = String(row?.full_text || "").trim();
+              if (id && ft) fullTextById.set(id, ft);
+            }
+          }
+        } catch {
+          // ignore
+        }
+      }
+      const rankedSources = rankedSourcesBase.map((s: any) => {
+        const id = String(s?.id || "").trim();
+        return id ? { ...s, full_text: fullTextById.get(id) || "" } : s;
+      });
+      usedOracleSourcesCount = rankedSources.length;
 
       // 2) Compêndio de ocorrências (aprovadas)
       let compendium: any[] = [];
-      try {
-        const { data } = await admin
-          .from("content_imports")
-          .select("id, final_approved, created_at")
-          .eq("status", "FINAL_APPROVED")
-          .filter("final_approved->>kind", "eq", "incident_report")
-          .order("created_at", { ascending: false })
-          .limit(200);
-        compendium = Array.isArray(data) ? data : [];
-      } catch {
-        compendium = [];
+      if (incidentLikely) {
+        try {
+          const { data } = await admin
+            .from("content_imports")
+            .select("id, final_approved, created_at")
+            .eq("status", "FINAL_APPROVED")
+            .filter("final_approved->>kind", "eq", "incident_report")
+            .order("created_at", { ascending: false })
+            .limit(80);
+          compendium = Array.isArray(data) ? data : [];
+        } catch {
+          compendium = [];
+        }
       }
 
       const rankedCompendium = compendium
@@ -1156,7 +1215,8 @@ Formato da saída:
         })
         .filter((x) => (keywords.length ? x.score > 0 : true))
         .sort((a, b) => b.score - a.score)
-        .slice(0, 5);
+        .slice(0, 3);
+      usedOracleCompendiumCount = rankedCompendium.length;
 
       // 3) Fórum (base por hashtags)
       let forumKbRows: any[] = [];
@@ -1212,7 +1272,7 @@ Formato da saída:
                 const title = String(s.title || `Fonte ${idx + 1}`);
                 const summary = String(s.summary || "").trim();
                 const text = String(s.full_text || "").trim();
-                const excerpt = text ? text.slice(0, 1800) : "";
+                const excerpt = text ? text.slice(0, 900) : "";
                 return (
                   `- ${title}\n` +
                   (summary ? `  Resumo: ${summary}\n` : "") +
@@ -1228,6 +1288,7 @@ Formato da saída:
         contextParts.push(
           "### Compêndio de Ocorrências (resumos)\n" +
             rankedCompendium
+              .slice(0, 3)
               .map((x, idx) => {
                 const cat = x.cat || {};
                 const title = String(cat.title || `Ocorrência ${idx + 1}`);
@@ -1365,9 +1426,10 @@ Formato da saída:
 
     const useWeb = Boolean(use_web);
     if (mode === "oracle" && useWeb && lastUserText) {
-      const webModel = chooseModel(true);
-      const webSummary = await fetchWebSearchSummary(lastUserText, webModel);
+      const webSummary = await (webSummaryPromise ||
+        fetchWebSearchSummary(lastUserText, chooseModel(true), { timeoutMs: STUDYLAB_WEB_SEARCH_TIMEOUT_MS }));
       if (webSummary?.text) {
+        usedWebSummary = true;
         openaiMessages.push({
           role: "system",
           content: `Pesquisa web automatica (resumo):\n${webSummary.text}`,
@@ -1406,7 +1468,7 @@ Formato da saída:
         body: JSON.stringify({
           model,
           messages: openaiMessages,
-          max_completion_tokens: 1200,
+          max_completion_tokens: STUDYLAB_MAX_COMPLETION_TOKENS,
         }),
       });
 
@@ -1592,7 +1654,19 @@ Formato da saída:
       }
     }
 
-    return res.status(200).json({ success: true, answer: content, session_id: resolvedSessionId });
+    return res.status(200).json({
+      success: true,
+      answer: content,
+      session_id: resolvedSessionId,
+      meta: {
+        model: usedModel,
+        latency_ms: Date.now() - t0,
+        web: usedWebSummary,
+        sources: usedOracleSourcesCount,
+        compendium: usedOracleCompendiumCount,
+        attachments: normalizedAttachments.length,
+      },
+    });
   } catch (err: any) {
     return res.status(500).json({ error: err?.message || "Unknown error" });
   }

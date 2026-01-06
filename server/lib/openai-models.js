@@ -5,6 +5,8 @@ const ALLOWED_BASE_MODELS = new Set(["gpt-5-2025-08-07"]);
 const isLegacyAlias = (lower) =>
   lower === "gpt-5.2-thinking" ||
   lower.startsWith("gpt-5.2-thinking-") ||
+  lower === "gpt-5.2-fast" ||
+  lower.startsWith("gpt-5.2-fast-") ||
   lower === "gpt-5.2";
 const isChatModelName = (value) => {
   const lower = String(value || "").toLowerCase().trim();
