@@ -5,17 +5,22 @@ import { createRequire } from "module";
 import { extractPdfText, extractDocxText, extractJsonText, extractPlainText } from "../lib/import-parsers.js";
 import { extractImageTextWithAi } from "../lib/ai-curation-provider.js";
 import { DJT_RULES_ARTICLE } from "../../shared/djt-rules.js";
-import { pickChatModel } from "../lib/openai-models.js";
+import { normalizeChatModel, pickChatModel } from "../lib/openai-models.js";
 
 const require = createRequire(import.meta.url);
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY as string;
 const SUPABASE_URL = process.env.SUPABASE_URL as string;
 const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY) as string;
-const OPENAI_MODEL_STUDYLAB_CHAT = (process.env.OPENAI_MODEL_STUDYLAB_CHAT as string) || "";
 const STUDYLAB_DEFAULT_CHAT_MODEL = "gpt-5-nano-2025-08-07";
 const STUDYLAB_MAX_COMPLETION_TOKENS = 650;
 const STUDYLAB_WEB_SEARCH_TIMEOUT_MS = 4500;
+const STUDYLAB_OPENAI_TIMEOUT_MS = 12000;
+
+const OPENAI_MODEL_STUDYLAB_CHAT = normalizeChatModel(
+  (process.env.OPENAI_MODEL_STUDYLAB_CHAT as string) || "",
+  STUDYLAB_DEFAULT_CHAT_MODEL,
+);
 
 function chooseModel(preferPremium = false) {
   const premium = process.env.OPENAI_MODEL_PREMIUM;
@@ -42,6 +47,50 @@ const uniqueStrings = (values: any[]) => {
 
 const pickStudyLabChatModels = (fallbackModel: string) =>
   uniqueStrings([OPENAI_MODEL_STUDYLAB_CHAT, STUDYLAB_DEFAULT_CHAT_MODEL, fallbackModel]);
+
+const extractChatText = (data: any) => {
+  const choice = data?.choices?.[0];
+  const msg = choice?.message;
+  if (typeof msg?.content === "string") return msg.content;
+  if (Array.isArray(msg?.content)) {
+    const parts = msg.content
+      .map((c: any) => (typeof c?.text === "string" ? c.text : typeof c === "string" ? c : ""))
+      .filter(Boolean);
+    if (parts.length) return parts.join("\n");
+  }
+  if (typeof data?.output_text === "string") return data.output_text;
+  if (Array.isArray(data?.output)) {
+    const chunks = data.output
+      .map((item: any) => {
+        if (typeof item?.content === "string") return item.content;
+        if (Array.isArray(item?.content)) return item.content.map((c: any) => c?.text || c?.content || "").join("\n");
+        return item?.text || "";
+      })
+      .filter(Boolean);
+    if (chunks.length) return chunks.join("\n");
+  }
+  return "";
+};
+
+const isFatalOpenAiStatus = (status: number) => status === 401 || status === 403 || status === 429;
+
+const callOpenAiChatCompletion = async (payload: any) => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), STUDYLAB_OPENAI_TIMEOUT_MS);
+  try {
+    return await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
+      },
+      signal: controller.signal,
+      body: JSON.stringify(payload),
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+};
 
 const normalizeForMatch = (raw: string) =>
   String(raw || "")
@@ -1459,33 +1508,38 @@ Formato da saída:
     let lastErrTxt = "";
 
     for (const model of modelCandidates) {
-      const resp = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${OPENAI_API_KEY}`,
-        },
-        body: JSON.stringify({
-          model,
-          messages: openaiMessages,
-          max_completion_tokens: STUDYLAB_MAX_COMPLETION_TOKENS,
-        }),
-      });
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        let resp: Response | null = null;
+        try {
+          resp = await callOpenAiChatCompletion({
+            model,
+            messages: openaiMessages,
+            max_completion_tokens: STUDYLAB_MAX_COMPLETION_TOKENS,
+          });
+        } catch (e: any) {
+          lastErrTxt = e?.message || "OpenAI request failed";
+          if (attempt === 0) continue;
+          break;
+        }
 
-      if (!resp.ok) {
-        lastErrTxt = await resp.text().catch(() => `HTTP ${resp.status}`);
-        // Evita retry inútil em falhas de auth/rate-limit
-        if (resp.status === 401 || resp.status === 403 || resp.status === 429) break;
-        continue;
+        if (!resp.ok) {
+          lastErrTxt = await resp.text().catch(() => `HTTP ${resp?.status}`);
+          if (isFatalOpenAiStatus(resp.status)) break;
+          if (attempt === 0) continue;
+          break;
+        }
+
+        const data = await resp.json().catch(() => null);
+        content = String(extractChatText(data) || "").trim();
+        if (content) {
+          usedModel = model;
+          break;
+        }
+        lastErrTxt = "OpenAI retornou resposta vazia";
+        if (attempt === 0) continue;
       }
 
-      const data = await resp.json().catch(() => null);
-      content = data?.choices?.[0]?.message?.content || "";
-      if (content) {
-        usedModel = model;
-        break;
-      }
-      lastErrTxt = "OpenAI retornou resposta vazia";
+      if (content) break;
     }
 
     if (!content) {
