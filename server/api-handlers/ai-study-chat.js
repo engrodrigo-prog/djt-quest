@@ -814,7 +814,7 @@ ${metaParts.join("\n\n")}` : ""}`;
 
 Foco do usu\xE1rio (temas da base de conhecimento): ${forumKbFocus}
 - Priorize esse foco ao responder e ao sugerir pr\xF3ximos passos.` : "";
-    const system = mode === "oracle" ? `Voc\xEA \xE9 o Or\xE1culo de Conhecimento do DJT Quest.
+    const system = mode === "oracle" ? `Voc\xEA \xE9 o Cat\xE1logo de Conhecimento do DJT Quest.
 Voc\xEA ajuda colaboradores a encontrar respostas e aprendizados usando toda a base dispon\xEDvel (cat\xE1logo publicado da organiza\xE7\xE3o, materiais do pr\xF3prio usu\xE1rio e comp\xEAndio de ocorr\xEAncias aprovadas).
 
 Regras:

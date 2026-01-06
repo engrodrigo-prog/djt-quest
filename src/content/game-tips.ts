@@ -154,7 +154,7 @@ export const gameTips: Record<string, GameTip> = {
     ].join('\n'),
   },
   'studylab-oracle': {
-    title: 'StudyLab (Oráculo)',
+    title: 'StudyLab (Catálogo)',
     body: [
       'Aqui você guarda a “memória” da área (materiais e ocorrências) e conversa com uma IA que busca nesses conteúdos e, quando habilitado, na web.',
       '',
@@ -164,7 +164,7 @@ export const gameTips: Record<string, GameTip> = {
       '• Pedir sugestões de temas para fóruns e perguntas de quiz a partir do material.',
       '• Publicar materiais no compêndio (público) ou manter privado por alguns dias.',
       '',
-      'Dica: se quiser focar em um documento específico, desligue o “Modo Oráculo” no chat.'
+      'Dica: se quiser focar em um documento específico, desligue o “Modo Catálogo” no chat.'
     ].join('\n'),
   },
   // Pontuação XP – visão rápida para jogadores (pode ser usada em tooltips ou onboarding)

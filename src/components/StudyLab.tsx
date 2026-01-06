@@ -205,7 +205,6 @@ export const StudyLab = () => {
 
   const [oracleMode, setOracleMode] = useState(true);
   const [useWeb, setUseWeb] = useState(false);
-  const [showAdvanced, setShowAdvanced] = useState(false);
   const [kbEnabled, setKbEnabled] = useState(false);
   const [kbSelection, setKbSelection] = useState<ForumKbSelection | null>(null);
 
@@ -679,7 +678,7 @@ export const StudyLab = () => {
         return;
       }
       if (selectedSourceId === FIXED_RULES_ID) {
-        toast.error("Use o Oráculo para perguntar sobre o artigo fixo.");
+        toast.error("Use o Catálogo para perguntar sobre o artigo fixo.");
         return;
       }
       const sel = sources.find((s) => s.id === selectedSourceId);
@@ -779,7 +778,7 @@ export const StudyLab = () => {
               </CardTitle>
               <CardDescription>
                 {oracleMode
-                  ? "Oráculo: busca na sua base + catálogo público."
+                  ? "Catálogo: busca na sua base + catálogo público."
                   : selectedSource
                     ? `Material: ${selectedSource.title}`
                     : "Selecione um material no catálogo."}
@@ -801,7 +800,7 @@ export const StudyLab = () => {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="oracle">Oráculo (toda a base)</SelectItem>
+                  <SelectItem value="oracle">Catálogo (toda a base)</SelectItem>
                   <SelectItem value="source">Material específico</SelectItem>
                 </SelectContent>
               </Select>
@@ -813,35 +812,30 @@ export const StudyLab = () => {
               <Button type="button" variant="outline" size="sm" onClick={handleNewChat}>
                 Nova conversa
               </Button>
-              <Button type="button" variant="ghost" size="sm" onClick={() => setShowAdvanced((s) => !s)}>
-                {showAdvanced ? "Ocultar ajustes" : "Ajustes"}
-              </Button>
             </div>
           </div>
 
-          {showAdvanced && (
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="flex items-center justify-between rounded-md border p-3">
-                <div>
-                  <p className="text-sm font-medium">Pesquisa online</p>
-                  <p className="text-xs text-muted-foreground">Usa web + base (apenas no Oráculo).</p>
-                </div>
-                <Switch checked={useWeb} onCheckedChange={setUseWeb} disabled={!oracleMode} />
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="flex items-center justify-between rounded-md border p-3">
+              <div>
+                <p className="text-sm font-medium">Pesquisa online</p>
+                <p className="text-xs text-muted-foreground">Usa web + base (apenas no Catálogo).</p>
               </div>
-              <div className="flex items-center justify-between rounded-md border p-3">
-                <div>
-                  <p className="text-sm font-medium">Foco por hashtags</p>
-                  <p className="text-xs text-muted-foreground">Ajuda o Oráculo a priorizar temas.</p>
-                </div>
-                <Switch checked={kbEnabled} onCheckedChange={setKbEnabled} />
-              </div>
-              {kbEnabled && (
-                <div className="sm:col-span-2 rounded-md border p-3">
-                  <ForumKbThemeMenu selection={kbSelection} onSelect={setKbSelection} />
-                </div>
-              )}
+              <Switch checked={useWeb} onCheckedChange={setUseWeb} disabled={!oracleMode} />
             </div>
-          )}
+            <div className="flex items-center justify-between rounded-md border p-3">
+              <div>
+                <p className="text-sm font-medium">Foco por hashtags</p>
+                <p className="text-xs text-muted-foreground">Ajuda o Catálogo a priorizar temas.</p>
+              </div>
+              <Switch checked={kbEnabled} onCheckedChange={setKbEnabled} />
+            </div>
+            {kbEnabled && (
+              <div className="sm:col-span-2 rounded-md border p-3">
+                <ForumKbThemeMenu selection={kbSelection} onSelect={setKbSelection} />
+              </div>
+            )}
+          </div>
         </CardHeader>
 
         <CardContent className="space-y-3">
@@ -849,7 +843,7 @@ export const StudyLab = () => {
             {chatMessages.length === 0 && (
               <p className="text-sm text-muted-foreground">
                 {oracleMode
-                  ? "Pergunte qualquer coisa. O Oráculo responde usando sua base (e web se ativado)."
+                  ? "Pergunte qualquer coisa. O Catálogo responde usando sua base (e web se ativado)."
                   : "Escolha um material no catálogo e pergunte sobre ele."}
               </p>
             )}
@@ -898,7 +892,7 @@ export const StudyLab = () => {
                 <DialogHeader>
                   <DialogTitle>Anexos</DialogTitle>
                   <DialogDescription>
-                    Imagens, desenhos, PDFs e documentos ajudam o Oráculo a aprofundar a resposta e ficam registrados no compêndio.
+                    Imagens, desenhos, PDFs e documentos ajudam o Catálogo a aprofundar a resposta e ficam registrados no compêndio.
                   </DialogDescription>
                 </DialogHeader>
                 <div className="space-y-3">

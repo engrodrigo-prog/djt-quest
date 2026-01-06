@@ -109,7 +109,7 @@ export const StudioDashboard = ({ onSelectModule, userRole }: StudioDashboardPro
     },
     {
       id: 'study-lab',
-      title: 'Oráculo de Estudos (IA)',
+      title: 'Catálogo de Estudos (IA)',
       description: 'Enviar PDFs, links e vídeos para gerar quizzes',
       icon: ActivitySquare,
       gradientFrom: 'from-emerald-500',

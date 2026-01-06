@@ -193,7 +193,7 @@ export function ForumKbThemeMenu({
           Foco: <span className="text-white/90">{selected.label}</span> ({selected.tags.length} hashtag(s))
         </p>
       ) : (
-        <p className="text-[11px] text-white/70">Selecione um tema para focar o Oráculo.</p>
+        <p className="text-[11px] text-white/70">Selecione um tema para focar o Catálogo.</p>
       )}
     </div>
   );

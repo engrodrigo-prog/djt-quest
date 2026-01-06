@@ -13,7 +13,7 @@ Data (UTC): 2025-12-17T23:48:23Z
 - Campanhas / Desafios / Avaliações: ciclos, ações e avaliação de entregas
 - Fóruns / SEPBook: posts, interações, moderação e insights
 - Studio: hubs administrativos (usuários, relatórios, curadoria, compêndio)
-- StudyLab: catálogo de conhecimento e chat (“Oráculo”)
+- StudyLab: catálogo de conhecimento e chat (“Catálogo”)
 
 ## Superfícies de UI (alto nível)
 Páginas (React Router, lazy-loaded): `src/pages/*`
@@ -92,4 +92,3 @@ Os maiores arquivos do build são imagens PNG (1.3–3.1 MB cada), por exemplo:
 - Já existe code-splitting por rota via `React.lazy` em `src/App.tsx`.
 - O ganho mais provável no curto prazo é reduzir o peso de imagens e evitar carregar assets grandes fora de tela (lazy-load) + ajustar cache headers.
 - Qualquer mudança deve ser comparada com este baseline (sem piorar >5% nas métricas combinadas).
-

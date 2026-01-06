@@ -1010,7 +1010,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const system =
       mode === "oracle"
-        ? `Você é o Oráculo de Conhecimento do DJT Quest.
+        ? `Você é o Catálogo de Conhecimento do DJT Quest.
 Você ajuda colaboradores a encontrar respostas e aprendizados usando toda a base disponível (catálogo publicado da organização, materiais do próprio usuário e compêndio de ocorrências aprovadas).
 
 Regras:
