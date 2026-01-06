@@ -55,11 +55,22 @@ const pickStudyLabChatModels = (fallbackModel: string) =>
 
 const extractChatText = (data: any) => {
   const choice = data?.choices?.[0];
+  if (typeof choice?.text === "string") return choice.text;
   const msg = choice?.message;
   if (typeof msg?.content === "string") return msg.content;
   if (Array.isArray(msg?.content)) {
     const parts = msg.content
-      .map((c: any) => (typeof c?.text === "string" ? c.text : typeof c === "string" ? c : ""))
+      .map((c: any) =>
+        typeof c?.text === "string"
+          ? c.text
+          : typeof c?.content === "string"
+            ? c.content
+            : typeof c?.value === "string"
+              ? c.value
+              : typeof c === "string"
+                ? c
+                : "",
+      )
       .filter(Boolean);
     if (parts.length) return parts.join("\n");
   }

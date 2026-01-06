@@ -41,10 +41,11 @@ const uniqueStrings = (values) => {
 const pickStudyLabChatModels = (fallbackModel) => uniqueStrings([OPENAI_MODEL_STUDYLAB_CHAT, STUDYLAB_DEFAULT_CHAT_MODEL, fallbackModel]);
 const extractChatText = (data) => {
   const choice = data?.choices?.[0];
+  if (typeof choice?.text === "string") return choice.text;
   const msg = choice?.message;
   if (typeof msg?.content === "string") return msg.content;
   if (Array.isArray(msg?.content)) {
-    const parts = msg.content.map((c) => typeof c?.text === "string" ? c.text : typeof c === "string" ? c : "").filter(Boolean);
+    const parts = msg.content.map((c) => typeof c?.text === "string" ? c.text : typeof c?.content === "string" ? c.content : typeof c?.value === "string" ? c.value : typeof c === "string" ? c : "").filter(Boolean);
     if (parts.length) return parts.join("\n");
   }
   if (typeof data?.output_text === "string") return data.output_text;
