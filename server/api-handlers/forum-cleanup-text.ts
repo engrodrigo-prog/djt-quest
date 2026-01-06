@@ -26,10 +26,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   let language = 'pt-BR';
 
   try {
-    const body = (req.body || {}) as any;
-    const rawTitle = body.title;
-    const rawDescription = body.description;
-    language = typeof body.language === 'string' && body.language.trim() ? body.language : 'pt-BR';
+    const input = (req.body || {}) as any;
+    const rawTitle = input.title;
+    const rawDescription = input.description;
+    language = typeof input.language === 'string' && input.language.trim() ? input.language : 'pt-BR';
 
     safeTitle = typeof rawTitle === 'string' && rawTitle.trim() ? rawTitle : '[sem título]';
     if (!rawDescription || typeof rawDescription !== 'string') {
@@ -64,7 +64,7 @@ Saída: responda SOMENTE em JSON válido, no formato exato:
 Descrição original:
 """${safeDescription}"""`;
 
-    const body: any = {
+    const payload: any = {
       model: OPENAI_TEXT_MODEL,
       messages: [
         { role: 'system', content: system },
@@ -72,8 +72,8 @@ Descrição original:
       ],
       response_format: { type: 'json_object' },
     };
-    if (/^gpt-5/i.test(String(OPENAI_TEXT_MODEL))) body.max_completion_tokens = 400;
-    else body.max_tokens = 400;
+    if (/^gpt-5/i.test(String(OPENAI_TEXT_MODEL))) payload.max_completion_tokens = 400;
+    else payload.max_tokens = 400;
 
     const resp = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -81,7 +81,7 @@ Descrição original:
         Authorization: `Bearer ${OPENAI_API_KEY}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify(payload),
     });
 
     if (!resp.ok) {
