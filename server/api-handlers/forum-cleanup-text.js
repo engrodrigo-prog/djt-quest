@@ -5,7 +5,7 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
 const OPENAI_TEXT_MODEL = normalizeChatModel(process.env.OPENAI_MODEL_FAST ||
     process.env.OPENAI_TEXT_MODEL ||
     process.env.OPENAI_MODEL_OVERRIDE ||
-    'gpt-5.2', 'gpt-5.2');
+    'gpt-5.2-fast', 'gpt-5.2-fast');
 export default async function handler(req, res) {
     if (req.method === 'OPTIONS')
         return res.status(204).send('');
@@ -58,22 +58,26 @@ Saída: responda SOMENTE em JSON válido, no formato exato:
 
 Descrição original:
 """${safeDescription}"""`;
+        const body = {
+            model: OPENAI_TEXT_MODEL,
+            messages: [
+                { role: 'system', content: system },
+                { role: 'user', content: user },
+            ],
+            temperature: 0.15,
+            response_format: { type: 'json_object' },
+        };
+        if (/^gpt-5/i.test(String(OPENAI_TEXT_MODEL)))
+            body.max_completion_tokens = 400;
+        else
+            body.max_tokens = 400;
         const resp = await fetch('https://api.openai.com/v1/chat/completions', {
             method: 'POST',
             headers: {
                 Authorization: `Bearer ${OPENAI_API_KEY}`,
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({
-                model: OPENAI_TEXT_MODEL,
-                messages: [
-                    { role: 'system', content: system },
-                    { role: 'user', content: user },
-                ],
-                temperature: 0.15,
-                response_format: { type: 'json_object' },
-                max_tokens: 400,
-            }),
+            body: JSON.stringify(body),
         });
         if (!resp.ok) {
             const txt = await resp.text().catch(() => '');

@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { Shield, Zap, Trophy, Target, LogOut, Star, Menu, Filter, History, CheckCircle, ListFilter, Trash2, Share2 } from "lucide-react";
+import { Shield, Zap, Trophy, Target, LogOut, Star, Menu, Filter, History, CheckCircle, ListFilter, Trash2, Share2, Bell, MessageSquare, AtSign, ClipboardList } from "lucide-react";
 import { AIStatus } from "@/components/AIStatus";
 import { useNavigate } from "react-router-dom";
 import Navigation from "@/components/Navigation";
@@ -16,6 +16,7 @@ import { getTierInfo, getNextTierLevel } from "@/lib/constants/tiers";
 import { fetchTeamNames } from "@/lib/teamLookup";
 import { buildAbsoluteAppUrl, openWhatsAppShare } from "@/lib/whatsappShare";
 import { useI18n } from "@/contexts/I18nContext";
+import { apiFetch } from "@/lib/api";
 
 interface Campaign {
   id: string;
@@ -54,6 +55,14 @@ const Dashboard = () => {
   const [completedQuizIds, setCompletedQuizIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [openForums, setOpenForums] = useState<Array<{ id: string; title: string; description?: string | null; posts_count?: number | null; last_post_at?: string | null; created_at?: string | null; is_locked?: boolean | null }>>([]);
+  const [pendingCounts, setPendingCounts] = useState({
+    forumMentions: 0,
+    evaluations: 0,
+    leadershipAssignments: 0,
+    campaigns: 0,
+    quizzesPending: 0,
+  });
+  const [sepbookSummary, setSepbookSummary] = useState({ new_posts: 0, mentions: 0 });
   // Desafios passam a ser conduzidos via campanhas e fóruns; seção dedicada de desafios fica oculta.
   const showChallengesSection = false;
 
@@ -240,6 +249,57 @@ const Dashboard = () => {
     loadData();
   }, [user]);
 
+  useEffect(() => {
+    if (!user) return;
+    let active = true;
+    let timer: any;
+
+    const fetchCounts = async () => {
+      if (!active) return;
+      try {
+        const resp = await apiFetch('/api/admin?handler=studio-pending-counts');
+        const json = await resp.json().catch(() => ({}));
+        if (resp.ok) {
+          setPendingCounts({
+            forumMentions: Number(json?.forumMentions || 0),
+            evaluations: Number(json?.evaluations || 0),
+            leadershipAssignments: Number(json?.leadershipAssignments || 0),
+            campaigns: Number(json?.campaigns || 0),
+            quizzesPending: Number(json?.quizzesPending || 0),
+          });
+        }
+      } catch {
+        setPendingCounts({
+          forumMentions: 0,
+          evaluations: 0,
+          leadershipAssignments: 0,
+          campaigns: 0,
+          quizzesPending: 0,
+        });
+      }
+
+      try {
+        const resp2 = await apiFetch('/api/sepbook-summary');
+        const json2 = await resp2.json().catch(() => ({}));
+        if (resp2.ok) {
+          setSepbookSummary({
+            new_posts: Number(json2?.new_posts || 0),
+            mentions: Number(json2?.mentions || 0),
+          });
+        }
+      } catch {
+        setSepbookSummary({ new_posts: 0, mentions: 0 });
+      }
+    };
+
+    fetchCounts();
+    timer = setInterval(fetchCounts, 60000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [user]);
+
   // Memoize calculations to prevent unnecessary recalculations (must be before any conditional returns)
   const tierInfo = useMemo(() => 
     profile ? getTierInfo(profile.tier) : null, 
@@ -257,6 +317,53 @@ const Dashboard = () => {
       : 0,
     [profile, tierInfo]
   );
+
+  const evalTotal = pendingCounts.evaluations + pendingCounts.leadershipAssignments;
+  const notificationItems = [
+    {
+      key: "forumMentions",
+      label: tr("dashboard.notifications.forumMentions"),
+      count: pendingCounts.forumMentions,
+      icon: MessageSquare,
+      action: () => navigate("/forums"),
+    },
+    {
+      key: "sepbookMentions",
+      label: tr("dashboard.notifications.sepbookMentions"),
+      count: sepbookSummary.mentions,
+      icon: AtSign,
+      action: () => navigate("/sepbook"),
+    },
+    {
+      key: "sepbookNew",
+      label: tr("dashboard.notifications.sepbookNew"),
+      count: sepbookSummary.new_posts,
+      icon: Bell,
+      action: () => navigate("/sepbook"),
+    },
+    {
+      key: "evaluations",
+      label: tr("dashboard.notifications.evaluations"),
+      count: evalTotal,
+      icon: ClipboardList,
+      action: () => navigate("/evaluations"),
+      hidden: !isLeader,
+    },
+    {
+      key: "campaigns",
+      label: tr("dashboard.notifications.campaigns"),
+      count: pendingCounts.campaigns,
+      icon: Target,
+      action: () => navigate("/dashboard"),
+    },
+    {
+      key: "quizzesPending",
+      label: tr("dashboard.notifications.quizzesPending"),
+      count: pendingCounts.quizzesPending,
+      icon: Trophy,
+      action: () => navigate("/dashboard"),
+    },
+  ].filter((item) => !item.hidden);
 
   const handleSignOut = async () => {
     await signOut();
@@ -583,6 +690,43 @@ const Dashboard = () => {
                   </p>
                 )}
               </>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="bg-white/5 border border-white/20 text-white backdrop-blur-md shadow-lg">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-lg text-white">
+              <Bell className="h-5 w-5 text-white" />
+              {tr("dashboard.notifications.title")}
+            </CardTitle>
+            <CardDescription className="text-white/80">{tr("dashboard.notifications.subtitle")}</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {notificationItems.filter((item) => item.count > 0).length === 0 ? (
+              <p className="text-sm text-white/70">{tr("dashboard.notifications.empty")}</p>
+            ) : (
+              notificationItems
+                .filter((item) => item.count > 0)
+                .map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <button
+                      key={item.key}
+                      type="button"
+                      onClick={item.action}
+                      className="flex w-full items-center justify-between gap-3 rounded-lg border border-white/20 bg-white/5 px-3 py-2 text-left hover:bg-white/10"
+                    >
+                      <div className="flex items-center gap-2">
+                        <Icon className="h-4 w-4 text-white" />
+                        <span className="text-sm font-medium">{item.label}</span>
+                      </div>
+                      <Badge variant="outline" className="border-white/60 text-white">
+                        {item.count > 99 ? "99+" : item.count}
+                      </Badge>
+                    </button>
+                  );
+                })
             )}
           </CardContent>
         </Card>

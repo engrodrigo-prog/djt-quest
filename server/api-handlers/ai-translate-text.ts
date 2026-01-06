@@ -10,7 +10,7 @@ const pickModel = () =>
   process.env.OPENAI_MODEL_FAST ||
   process.env.OPENAI_MODEL_PREMIUM ||
   process.env.OPENAI_TEXT_MODEL ||
-  "gpt-4o-mini";
+  "gpt-5.2-fast";
 
 const normalizeTarget = (value: any) => {
   const v = String(value || "").trim();
@@ -57,16 +57,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-    const completion = await client.chat.completions.create({
-      model: pickModel(),
+    const model = pickModel();
+    const payload: any = {
+      model,
       messages: [
         { role: "system", content: prompt },
         { role: "user", content: JSON.stringify({ targetLocale, texts }) },
       ],
       response_format: { type: "json_object" as any },
       temperature: 0.2,
-      max_tokens: 1500,
-    });
+    };
+    if (/^gpt-5/i.test(String(model))) payload.max_completion_tokens = 1500;
+    else payload.max_tokens = 1500;
+    const completion = await client.chat.completions.create(payload);
 
     const raw = completion.choices?.[0]?.message?.content || "{}";
     let parsed: any = {};

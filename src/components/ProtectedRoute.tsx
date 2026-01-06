@@ -2,6 +2,7 @@ import { ReactNode, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { CompleteProfile } from '@/components/CompleteProfile';
+import { requiresProfileCompletion } from '@/lib/profileCompletion';
 
 interface ProtectedRouteProps {
   children: ReactNode;
@@ -21,9 +22,7 @@ export function ProtectedRoute({
   const location = useLocation();
 
   const allowedRolesKey = allowedRoles?.join(',') ?? '';
-  const needsProfileCompletion = Boolean(
-    user && profile && (profile.must_change_password || profile.needs_profile_completion),
-  );
+  const needsProfileCompletion = Boolean(user && profile && requiresProfileCompletion(profile));
 
   useEffect(() => {
     const needsRole = requireStudio || requireLeader || allowedRolesKey.length > 0;

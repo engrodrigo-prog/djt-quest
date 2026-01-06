@@ -260,7 +260,18 @@
     "forumPotentialPrefix": "You have {count} open forum(s) — each can yield up to",
     "forumPotentialSuffix": "(5 strong interactions x 100 XP). Join to get closer to the next level.",
     "openForumsTitle": "Open forums",
-    "openForumsDescription": "Join the ongoing discussions"
+    "openForumsDescription": "Join the ongoing discussions",
+    "notifications": {
+      "title": "Notifications",
+      "subtitle": "Mentions, pending items, and quick actions",
+      "empty": "No new notifications right now.",
+      "forumMentions": "Forum mentions",
+      "sepbookMentions": "SEPBook mentions",
+      "sepbookNew": "New SEPBook posts",
+      "evaluations": "Pending evaluations",
+      "campaigns": "Active campaigns",
+      "quizzesPending": "Pending quizzes"
+    }
   },
   "rankings": {
     "title": "DJT Quest Rankings",

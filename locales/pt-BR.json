@@ -260,7 +260,18 @@
     "forumPotentialPrefix": "Você tem {count} fórum(s) aberto(s) — cada um pode render até",
     "forumPotentialSuffix": "(5 interações fortes x 100 XP). Participe para aproximar-se do próximo nível.",
     "openForumsTitle": "Fóruns abertos",
-    "openForumsDescription": "Participe das discussões em andamento"
+    "openForumsDescription": "Participe das discussões em andamento",
+    "notifications": {
+      "title": "Notificações",
+      "subtitle": "Menções, pendências e ações rápidas do seu dia",
+      "empty": "Sem novas notificações no momento.",
+      "forumMentions": "Menções no Fórum",
+      "sepbookMentions": "Menções no SEPBook",
+      "sepbookNew": "Novos posts no SEPBook",
+      "evaluations": "Avaliações pendentes",
+      "campaigns": "Campanhas ativas",
+      "quizzesPending": "Quizzes pendentes"
+    }
   },
   "rankings": {
     "title": "Rankings DJT Quest",

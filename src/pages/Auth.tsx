@@ -29,6 +29,7 @@ interface UserOption {
 
 const LAST_USER_KEY = 'djt_last_user_id';
 const MATRICULA_LOOKUP_MIN_LENGTH = 6;
+const DEFAULT_PASSWORD = '123456';
 
 const normalizeMatricula = (value?: string | null) =>
   (value ?? '').replace(/\D/g, '');
@@ -104,19 +105,22 @@ const Auth = () => {
 
       const authData = await refreshUserSession();
       localStorage.setItem(LAST_USER_KEY, user.id);
-      // Se ainda está com a senha padrão, direciona ao Perfil e abre o diálogo de troca de senha
-      if (password === '123456') {
-        navigate('/profile');
-        setTimeout(() => {
-          window.dispatchEvent(new CustomEvent('open-password-dialog'));
-        }, 300);
-      } else {
-        const next = resolveRedirect();
-        if (next) {
-          navigate(next);
-        } else {
-          navigate(authData?.isLeader ? '/leader-dashboard' : '/dashboard');
+      if (password === DEFAULT_PASSWORD) {
+        const profileId = authData?.profile?.id;
+        if (profileId) {
+          await supabase
+            .from("profiles")
+            .update({ must_change_password: true, needs_profile_completion: true })
+            .eq("id", profileId);
+          await refreshUserSession();
         }
+      }
+
+      const next = resolveRedirect();
+      if (next) {
+        navigate(next);
+      } else {
+        navigate(authData?.isLeader ? '/leader-dashboard' : '/dashboard');
       }
     } catch (error) {
       console.error("Login error:", error);

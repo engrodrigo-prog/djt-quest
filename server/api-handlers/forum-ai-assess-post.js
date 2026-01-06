@@ -27,9 +27,7 @@ export default async function handler(req, res) {
             premium,
             // fallbacks (premium family only)
             'gpt-5.2',
-            'gpt-5.2-fast',
-            'gpt-4.1',
-            'gpt-4o'
+            'gpt-5.2-fast'
         ].filter(Boolean)));
         let content = '';
         let lastErr = '';

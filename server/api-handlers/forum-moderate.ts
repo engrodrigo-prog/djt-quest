@@ -18,10 +18,16 @@ function extractMentionsAndTags(md: string) {
   return { mentions, hashtags }
 }
 
+const normalizeMentionToken = (raw: string) =>
+  String(raw || '')
+    .trim()
+    .replace(/^@+/, '')
+    .toLowerCase();
+
 async function resolveMentionedUserIds(admin: any, rawMentions: string[], opts?: { excludeUserId?: string }) {
   const excludeUserId = opts?.excludeUserId ? String(opts.excludeUserId) : null
   const list = Array.from(
-    new Set((rawMentions || []).map((m) => String(m || '').trim().replace(/^@+/, '')).filter(Boolean)),
+    new Set((rawMentions || []).map((m) => normalizeMentionToken(String(m || ''))).filter(Boolean)),
   ).slice(0, 40)
   if (!list.length) return []
 
@@ -36,13 +42,18 @@ async function resolveMentionedUserIds(admin: any, rawMentions: string[], opts?:
     }
   } catch {}
 
-  try {
-    if (handles.length) {
+  if (handles.length) {
+    try {
+      const { data } = await admin.from('profiles').select('id, mention_handle').in('mention_handle', handles)
+      for (const u of data || []) if (u?.id) out.add(String(u.id))
+    } catch {}
+
+    try {
       const or = handles.map((h) => `email.ilike.${h}@%`).join(',')
       const { data } = await admin.from('profiles').select('id, email').or(or)
       for (const u of data || []) if (u?.id) out.add(String(u.id))
-    }
-  } catch {}
+    } catch {}
+  }
 
   if (excludeUserId) out.delete(excludeUserId)
   return Array.from(out)
@@ -291,6 +302,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               is_read: false,
             }))
             await admin.from('forum_mentions').upsert(rows as any, { onConflict: 'post_id,mentioned_user_id' } as any)
+
+            try {
+              const { data: authorProfile } = await admin
+                .from('profiles')
+                .select('name')
+                .eq('id', uid)
+                .maybeSingle()
+              const authorName = String(authorProfile?.name || 'Alguém')
+              await Promise.all(
+                ids.map((id: string) =>
+                  admin.rpc('create_notification', {
+                    _user_id: id,
+                    _type: 'forum_mention',
+                    _title: 'Você foi mencionado',
+                    _message: `${authorName} mencionou você em um fórum`,
+                    _metadata: { post_id, topic_id: post.topic_id },
+                  }),
+                ),
+              )
+            } catch {}
           }
         }
       } catch {}

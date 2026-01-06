@@ -19,7 +19,7 @@ function chooseModel(preferPremium = false) {
   return pickChatModel(preferPremium, {
     premium,
     fast,
-    fallbackFast: "gpt-5.2",
+    fallbackFast: "gpt-5.2-fast",
     fallbackPremium: "gpt-5.2",
   });
 }
@@ -145,6 +145,65 @@ const mergeHashtags = (...groups: Array<string[] | null | undefined>) => {
   }
   return Array.from(out).slice(0, 24);
 };
+
+const normalizeAttachment = (raw: any) => {
+  if (!raw) return null;
+  if (typeof raw === "string") {
+    const url = raw.trim();
+    return url ? { url } : null;
+  }
+  const url = String(raw?.url || raw?.publicUrl || "").trim();
+  if (!url) return null;
+  const name = String(raw?.name || raw?.filename || raw?.label || "").trim();
+  const mime = String(raw?.mime || raw?.type || "").trim();
+  const size = Number(raw?.size || 0) || 0;
+  return { url, name, mime, size };
+};
+
+const uniqueAttachments = (items: any[]) => {
+  const seen = new Set<string>();
+  const out: any[] = [];
+  for (const item of items) {
+    const url = String(item?.url || "").trim();
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+    out.push({ ...item, url });
+  }
+  return out;
+};
+
+const buildChatTitle = (messages: any[]) => {
+  const firstUser = (messages || []).find((m) => m?.role === "user" && typeof m?.content === "string");
+  const raw = String(firstUser?.content || "").trim();
+  if (!raw) return "Conversa StudyLab";
+  return raw.length > 80 ? `${raw.slice(0, 77)}...` : raw;
+};
+
+const buildChatSummary = (question: string, answer: string) => {
+  const base = String(answer || question || "").trim();
+  if (!base) return "";
+  return base.length > 220 ? `${base.slice(0, 217)}...` : base;
+};
+
+const buildTranscript = (messages: any[], attachments: any[]) => {
+  const parts = (messages || [])
+    .map((m) => {
+      const role = m?.role === "assistant" ? "Assistente" : "Usuário";
+      const content = String(m?.content || "").trim();
+      if (!content) return "";
+      return `${role}:\n${content}`;
+    })
+    .filter(Boolean);
+  const attachmentList = (attachments || [])
+    .map((att: any) => String(att?.url || "").trim())
+    .filter(Boolean);
+  if (attachmentList.length) {
+    parts.push(`Anexos:\n${attachmentList.join("\n")}`);
+  }
+  const joined = parts.join("\n\n").trim();
+  return joined.length > 40000 ? `${joined.slice(0, 39900)}...` : joined;
+};
+
 
 const normalizeOutlineNode = (node: any): any | null => {
   if (!node) return null;
@@ -292,6 +351,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       messages = [],
       question = "",
       source_id = null,
+      session_id = null,
+      attachments = [],
       language = "pt-BR",
       mode = "study",
       kb_tags = [],
@@ -317,6 +378,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       ),
     ).slice(0, 24);
     const forumKbFocus = (kb_focus || "").toString().trim().slice(0, 140);
+
+    const rawAttachments = Array.isArray(attachments) ? attachments : [attachments];
+    const normalizedAttachments = uniqueAttachments(
+      rawAttachments.map((att) => normalizeAttachment(att)).filter(Boolean) as any[],
+    ).slice(0, 5);
 
     let joinedContext = "";
     let sourceRow: any = null;
@@ -446,6 +512,31 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return extractPlainText(buffer).slice(0, 20000);
     };
 
+    const buildAttachmentContext = async (attachments: any[]) => {
+      const items = Array.isArray(attachments) ? attachments : [];
+      if (!items.length) return "";
+      const parts: string[] = [];
+      for (let idx = 0; idx < items.length; idx += 1) {
+        const att = items[idx];
+        const url = String(att?.url || "").trim();
+        if (!url) continue;
+        const label = String(att?.name || `Anexo ${idx + 1}`).trim() || `Anexo ${idx + 1}`;
+        try {
+          const text = await extractFromFileUrl(url, label);
+          const trimmed = String(text || "").trim();
+          if (trimmed) {
+            const clipped = trimmed.length > 3500 ? `${trimmed.slice(0, 3400)}...` : trimmed;
+            parts.push(`### ${label}\n${clipped}`);
+          } else {
+            parts.push(`### ${label}\n[Sem texto extraível]`);
+          }
+        } catch (err: any) {
+          parts.push(`### ${label}\n[Erro ao ler anexo: ${err?.message || "falha"}]`);
+        }
+      }
+      return parts.join("\n\n").trim();
+    };
+
     if (admin && source_id) {
 
       const selectV2 =
@@ -525,6 +616,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             joinedContext = `### Fonte: ${sourceRow.title}\n${baseText}${metaParts.length ? `\n\n### Metadados\n${metaParts.join("\n\n")}` : ""}`;
           }
         }
+      }
+    }
+
+    let attachmentContext = "";
+    if (mode !== "ingest" && normalizedAttachments.length) {
+      try {
+        attachmentContext = await buildAttachmentContext(normalizedAttachments);
+      } catch {
+        attachmentContext = "";
       }
     }
 
@@ -868,6 +968,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ error: "Mensagens inválidas" });
     }
 
+    const lastUserMsgForLog = normalizedMessages
+      .slice()
+      .reverse()
+      .find((m: any) => m?.role === "user" && m?.content)?.content;
+    if (lastUserMsgForLog) {
+      lastUserText = String(lastUserMsgForLog || "");
+    }
+
     const focusHint = forumKbFocus
       ? `\n\nFoco do usuário (temas da base de conhecimento): ${forumKbFocus}\n- Priorize esse foco ao responder e ao sugerir próximos passos.`
       : "";
@@ -1078,6 +1186,9 @@ Formato da saída:
         .slice(0, 6);
 
       const contextParts: string[] = [];
+      if (attachmentContext) {
+        contextParts.push(`### Anexos enviados\n${attachmentContext}`);
+      }
       if (rankedSources.length) {
         contextParts.push(
           "### Catálogo de Estudos (trechos)\n" +
@@ -1164,6 +1275,12 @@ Formato da saída:
         });
       }
     } else {
+      if (attachmentContext) {
+        openaiMessages.push({
+          role: "system",
+          content: `A seguir estão anexos enviados nesta conversa. Use-os como contexto adicional:\n\n${attachmentContext}`,
+        });
+      }
       if (joinedContext) {
         openaiMessages.push({
           role: "system",
@@ -1284,7 +1401,169 @@ Formato da saída:
       return res.status(200).json({ success: false, error: "OpenAI retornou resposta vazia" });
     }
 
-    return res.status(200).json({ success: true, answer: content });
+    let resolvedSessionId =
+      typeof session_id === "string" && session_id.trim() ? session_id.trim() : null;
+    if (!resolvedSessionId) {
+      try {
+        const crypto = require("crypto");
+        resolvedSessionId = crypto?.randomUUID?.() || null;
+      } catch {
+        resolvedSessionId = null;
+      }
+      if (!resolvedSessionId) {
+        resolvedSessionId = `studychat_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      }
+    }
+
+    if (admin && uid) {
+      try {
+        const logMessages = [...normalizedMessages, { role: "assistant", content }];
+        const nowIso = new Date().toISOString();
+
+        let sessionRow: any = null;
+        try {
+          const { data: existing } = await admin
+            .from("study_chat_sessions")
+            .select("id, attachments, title, compendium_source_id")
+            .eq("id", resolvedSessionId)
+            .maybeSingle();
+          sessionRow = existing || null;
+        } catch {
+          sessionRow = null;
+        }
+
+        const mergedAttachments = uniqueAttachments([
+          ...(Array.isArray(sessionRow?.attachments) ? sessionRow.attachments : []),
+          ...normalizedAttachments,
+        ]);
+
+        const title = sessionRow?.title || buildChatTitle(logMessages);
+        const summary = buildChatSummary(lastUserText || "", content);
+        const metadata = {
+          mode,
+          source_id: source_id || null,
+          use_web: Boolean(use_web),
+          kb_tags: forumKbTags,
+          kb_focus: forumKbFocus,
+          model,
+        };
+
+        const sessionPayload: any = {
+          id: resolvedSessionId,
+          user_id: uid,
+          mode,
+          source_id: source_id || null,
+          title,
+          summary,
+          messages: logMessages,
+          attachments: mergedAttachments,
+          metadata,
+          updated_at: nowIso,
+        };
+
+        if (sessionRow?.id) {
+          await admin.from("study_chat_sessions").update(sessionPayload).eq("id", resolvedSessionId);
+        } else {
+          await admin.from("study_chat_sessions").insert({
+            ...sessionPayload,
+            created_at: nowIso,
+          });
+        }
+
+        const transcript = buildTranscript(logMessages, mergedAttachments);
+        const compendiumMeta = {
+          source: "study_chat",
+          session_id: resolvedSessionId,
+          attachments: mergedAttachments,
+          mode,
+          source_id: source_id || null,
+          updated_at: nowIso,
+        };
+
+        const compendiumPayload: any = {
+          user_id: uid,
+          title,
+          kind: "text",
+          summary,
+          full_text: transcript,
+          ingest_status: "ok",
+          ingested_at: nowIso,
+          ingest_error: null,
+          is_persistent: true,
+          last_used_at: nowIso,
+          category: "OUTROS",
+          scope: "user",
+          published: false,
+          metadata: compendiumMeta,
+        };
+
+        let compendiumId = sessionRow?.compendium_source_id || null;
+        if (compendiumId) {
+          try {
+            await admin
+              .from("study_sources")
+              .update({
+                summary,
+                full_text: transcript,
+                last_used_at: nowIso,
+                metadata: compendiumMeta,
+              })
+              .eq("id", compendiumId);
+          } catch {
+            // ignore
+          }
+        } else {
+          try {
+            const { data: created, error } = await admin
+              .from("study_sources")
+              .insert(compendiumPayload as any)
+              .select("id")
+              .maybeSingle();
+            if (error) throw error;
+            compendiumId = created?.id || null;
+          } catch (err: any) {
+            if (/column .*?(category|scope|published|metadata|ingest_status|ingested_at|ingest_error|last_used_at)/i.test(String(err?.message || err))) {
+              const {
+                category: _c,
+                scope: _s,
+                published: _p,
+                metadata: _m,
+                ingest_status: _is,
+                ingested_at: _ia,
+                ingest_error: _ie,
+                last_used_at: _lu,
+                ...legacyPayload
+              } = compendiumPayload;
+              try {
+                const { data: created } = await admin
+                  .from("study_sources")
+                  .insert(legacyPayload as any)
+                  .select("id")
+                  .maybeSingle();
+                compendiumId = created?.id || null;
+              } catch {
+                compendiumId = null;
+              }
+            }
+          }
+
+          if (compendiumId) {
+            try {
+              await admin
+                .from("study_chat_sessions")
+                .update({ compendium_source_id: compendiumId })
+                .eq("id", resolvedSessionId);
+            } catch {
+              // ignore
+            }
+          }
+        }
+      } catch {
+        // best-effort; nunca bloqueia a resposta do chat
+      }
+    }
+
+    return res.status(200).json({ success: true, answer: content, session_id: resolvedSessionId });
   } catch (err: any) {
     return res.status(500).json({ error: err?.message || "Unknown error" });
   }

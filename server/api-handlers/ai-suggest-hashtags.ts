@@ -105,15 +105,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!client) {
       return res.status(200).json({ hashtags: buildFallbackHashtags(text), meta: { warning: 'OPENAI_API_KEY ausente' } });
     }
-    const completion = await client.chat.completions.create({
-      model: process.env.OPENAI_PREMIUM_MODEL || 'gpt-4o-mini',
+    const model = process.env.OPENAI_PREMIUM_MODEL || 'gpt-5.2-fast';
+    const payload: any = {
+      model,
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: text.slice(0, 6000) },
       ],
-      max_tokens: 200,
       response_format: { type: 'json_object' as any },
-    });
+    };
+    if (/^gpt-5/i.test(String(model))) payload.max_completion_tokens = 200;
+    else payload.max_tokens = 200;
+    const completion = await client.chat.completions.create(payload);
 
     const raw =
       completion.choices[0]?.message?.content &&

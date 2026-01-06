@@ -260,7 +260,18 @@
     "forumPotentialPrefix": "你有 {count} 个开放论坛，每个最多可获得",
     "forumPotentialSuffix": "（5 次高质量互动 × 100 XP）。参与以更接近下一级。",
     "openForumsTitle": "开放论坛",
-    "openForumsDescription": "参与正在进行的讨论"
+    "openForumsDescription": "参与正在进行的讨论",
+    "notifications": {
+      "title": "通知",
+      "subtitle": "提及、待办与快捷操作",
+      "empty": "目前没有新通知。",
+      "forumMentions": "论坛提及",
+      "sepbookMentions": "SEPBook 提及",
+      "sepbookNew": "SEPBook 新帖子",
+      "evaluations": "待评估任务",
+      "campaigns": "进行中的活动",
+      "quizzesPending": "待完成测验"
+    }
   },
   "rankings": {
     "title": "DJT Quest 排行榜",

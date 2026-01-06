@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,10 @@ import { toast } from "sonner";
 import { AlertCircle } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useAuth } from "@/contexts/AuthContext";
+import { AvatarCapture } from "@/components/AvatarCapture";
+import { AvatarDisplay } from "@/components/AvatarDisplay";
+import { apiFetch } from "@/lib/api";
+import { getProfileCompletionStatus } from "@/lib/profileCompletion";
 
 interface CompleteProfileProps {
   profile: any;
@@ -18,22 +22,96 @@ export function CompleteProfile({ profile }: CompleteProfileProps) {
   const navigate = useNavigate();
   const { refreshUserSession } = useAuth();
   const [loading, setLoading] = useState(false);
-  const isExternal =
-    ["EXTERNO", "CONVIDADOS"].includes(String(profile?.sigla_area || "").toUpperCase()) ||
-    ["EXTERNO", "CONVIDADOS"].includes(String(profile?.operational_base || "").toUpperCase());
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(
+    profile?.avatar_url || profile?.avatar_thumbnail_url || null,
+  );
+  const [avatarUploading, setAvatarUploading] = useState(false);
   const [formData, setFormData] = useState({
     newPassword: "",
     confirmPassword: "",
     matricula: profile.matricula || "",
     email: profile.email || "",
     operational_base: profile.operational_base || "",
+    date_of_birth: profile.date_of_birth || "",
   });
+
+  const completionStatus = useMemo(
+    () =>
+      getProfileCompletionStatus({
+        ...profile,
+        avatar_url: avatarUrl || profile?.avatar_url,
+        avatar_thumbnail_url: avatarUrl || profile?.avatar_thumbnail_url,
+        date_of_birth: formData.date_of_birth || profile?.date_of_birth,
+        email: formData.email || profile?.email,
+        matricula: formData.matricula || profile?.matricula,
+        operational_base: formData.operational_base || profile?.operational_base,
+      }),
+    [avatarUrl, formData, profile],
+  );
+
+  const handleAvatarCaptured = async (imageBase64: string) => {
+    if (avatarUploading) return;
+    try {
+      setAvatarUploading(true);
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) throw new Error("Não autenticado");
+      const resp = await apiFetch("/api/admin?handler=upload-avatar", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ userId: profile.id, imageBase64 }),
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(data?.error || "Falha ao salvar a foto");
+      setAvatarUrl(data?.avatarUrl || avatarUrl);
+      toast.success("Foto salva com sucesso!");
+    } catch (error) {
+      console.error("Error saving avatar:", error);
+      toast.error("Erro ao salvar a foto");
+    } finally {
+      setAvatarUploading(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
 
     try {
+      if (avatarUploading) {
+        toast.error("Aguarde o upload da foto terminar.");
+        setLoading(false);
+        return;
+      }
+      if (completionStatus.missingAvatar) {
+        toast.error("Envie ou capture uma foto antes de continuar.");
+        setLoading(false);
+        return;
+      }
+      if (completionStatus.missingDob) {
+        toast.error("Informe sua data de nascimento.");
+        setLoading(false);
+        return;
+      }
+      if (completionStatus.missingEmail) {
+        toast.error("Informe seu email.");
+        setLoading(false);
+        return;
+      }
+      if (completionStatus.missingMatricula) {
+        toast.error("Informe sua matrícula.");
+        setLoading(false);
+        return;
+      }
+      if (completionStatus.missingOperationalBase) {
+        toast.error("Informe sua base operacional.");
+        setLoading(false);
+        return;
+      }
+
       // Validar senha
       if (profile.must_change_password) {
         // Não permitir senha igual à atual
@@ -80,6 +158,7 @@ export function CompleteProfile({ profile }: CompleteProfileProps) {
       if (formData.matricula) updates.matricula = formData.matricula;
       if (formData.email) updates.email = formData.email;
       if (formData.operational_base) updates.operational_base = formData.operational_base;
+      if (formData.date_of_birth) updates.date_of_birth = formData.date_of_birth;
 
       const { error: profileError } = await supabase
         .from('profiles')
@@ -121,6 +200,24 @@ export function CompleteProfile({ profile }: CompleteProfileProps) {
                 </AlertDescription>
               </Alert>
             )}
+
+            <div className="space-y-2">
+              <Label>Foto do Perfil *</Label>
+              {!completionStatus.missingAvatar && avatarUrl && (
+                <div className="flex items-center gap-3">
+                  <AvatarDisplay avatarUrl={avatarUrl} name={profile.name || "Avatar"} size="md" />
+                  <span className="text-xs text-muted-foreground">Foto registrada.</span>
+                </div>
+              )}
+              {completionStatus.missingAvatar && (
+                <div className="space-y-2">
+                  <AvatarCapture onCapture={handleAvatarCaptured} />
+                  {avatarUploading && (
+                    <p className="text-xs text-muted-foreground">Salvando foto...</p>
+                  )}
+                </div>
+              )}
+            </div>
 
             {profile.must_change_password && (
               <>
@@ -169,7 +266,7 @@ export function CompleteProfile({ profile }: CompleteProfileProps) {
               </>
             )}
 
-            {!formData.matricula && !isExternal && (
+            {!formData.matricula && !completionStatus.isExternal && (
               <div className="space-y-2">
                 <Label htmlFor="matricula">Matrícula *</Label>
                 <Input
@@ -178,6 +275,19 @@ export function CompleteProfile({ profile }: CompleteProfileProps) {
                   onChange={(e) => setFormData({ ...formData, matricula: e.target.value })}
                   required
                   placeholder="Digite sua matrícula"
+                />
+              </div>
+            )}
+
+            {!formData.date_of_birth && (
+              <div className="space-y-2">
+                <Label htmlFor="date_of_birth">Data de Nascimento *</Label>
+                <Input
+                  id="date_of_birth"
+                  type="date"
+                  value={formData.date_of_birth}
+                  onChange={(e) => setFormData({ ...formData, date_of_birth: e.target.value })}
+                  required
                 />
               </div>
             )}
@@ -209,7 +319,7 @@ export function CompleteProfile({ profile }: CompleteProfileProps) {
               </div>
             )}
 
-            <Button type="submit" className="w-full" disabled={loading}>
+            <Button type="submit" className="w-full" disabled={loading || avatarUploading}>
               {loading ? 'Salvando...' : 'Continuar'}
             </Button>
           </form>

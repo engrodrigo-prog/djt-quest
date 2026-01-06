@@ -146,6 +146,13 @@ const normalizeScope = (raw: unknown): StudyScope => {
 
 const normalizeTopic = (raw: unknown) => (raw || "").toString().trim().toUpperCase().replace(/\s+/g, "_");
 
+const createChatSessionId = () => {
+  if (typeof crypto !== "undefined" && typeof (crypto as any).randomUUID === "function") {
+    return (crypto as any).randomUUID();
+  }
+  return `studychat_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+};
+
 const TOPIC_LABELS: Record<string, string> = {
   LINHAS: "Linhas de Transmissão",
   SUBESTACOES: "Subestações",
@@ -189,6 +196,10 @@ export const StudyLab = () => {
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
+  const [chatAttachments, setChatAttachments] = useState<string[]>([]);
+  const [chatUploading, setChatUploading] = useState(false);
+  const [chatUploadKey, setChatUploadKey] = useState(0);
+  const [chatSessionId, setChatSessionId] = useState<string>(() => createChatSessionId());
 
   const [oracleMode, setOracleMode] = useState(true);
   const [useWeb, setUseWeb] = useState(true);
@@ -630,11 +641,32 @@ export const StudyLab = () => {
     }
   };
 
+  const resetChatAttachments = () => {
+    setChatAttachments([]);
+    setChatUploadKey((prev) => prev + 1);
+  };
+
+  const handleNewChat = () => {
+    setChatMessages([]);
+    setChatInput("");
+    setChatError(null);
+    setChatSessionId(createChatSessionId());
+    resetChatAttachments();
+  };
+
   const handleChatSend = async () => {
     const trimmed = chatInput.trim();
-    if (!trimmed) return;
+    if (!trimmed && chatAttachments.length === 0) return;
     if (!user) {
       toast("Faça login para usar o chat de estudos.");
+      return;
+    }
+    if (!trimmed) {
+      toast.error("Digite uma pergunta para acompanhar o anexo.");
+      return;
+    }
+    if (chatUploading) {
+      toast("Aguarde o upload dos anexos antes de enviar.");
       return;
     }
 
@@ -668,6 +700,8 @@ export const StudyLab = () => {
         body: JSON.stringify({
           mode: oracleMode ? "oracle" : "study",
           ...(oracleMode ? {} : { source_id: selectedSourceId }),
+          session_id: chatSessionId,
+          attachments: chatAttachments.map((url) => ({ url })),
           language: getActiveLocale(),
           ...(oracleMode ? { use_web: useWeb } : {}),
           ...(kbEnabled && kbSelection?.tags?.length ? { kb_tags: kbSelection.tags, kb_focus: kbSelection.label } : {}),
@@ -684,7 +718,11 @@ export const StudyLab = () => {
         setChatError("A IA retornou uma resposta vazia.");
         return;
       }
+      if (typeof json?.session_id === "string" && json.session_id.trim()) {
+        setChatSessionId(json.session_id.trim());
+      }
       setChatMessages((prev) => [...prev, { role: "assistant", content: answer }]);
+      resetChatAttachments();
     } catch (e: any) {
       toast(`Erro no chat de estudos: ${e?.message || e}`);
     } finally {
@@ -770,6 +808,9 @@ export const StudyLab = () => {
                   Escolher material
                 </Button>
               )}
+              <Button type="button" variant="outline" size="sm" onClick={handleNewChat}>
+                Nova conversa
+              </Button>
               <Button type="button" variant="ghost" size="sm" onClick={() => setShowAdvanced((s) => !s)}>
                 {showAdvanced ? "Ocultar ajustes" : "Ajustes"}
               </Button>
@@ -824,6 +865,42 @@ export const StudyLab = () => {
             ))}
           </div>
 
+          <div className="space-y-2 rounded-md border bg-muted/20 p-3">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-sm font-medium">Anexos do chat</p>
+              {chatUploading && (
+                <Badge variant="outline" className="text-[10px]">
+                  enviando…
+                </Badge>
+              )}
+            </div>
+            <AttachmentUploader
+              key={chatUploadKey}
+              onAttachmentsChange={setChatAttachments}
+              onUploadingChange={setChatUploading}
+              maxFiles={4}
+              maxSizeMB={20}
+              bucket="evidence"
+              pathPrefix="study-chat"
+              acceptMimeTypes={[
+                "application/pdf",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "application/vnd.ms-excel",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "text/plain",
+                "application/json",
+                "text/csv",
+                "image/jpeg",
+                "image/png",
+                "image/webp",
+              ]}
+              maxVideoSeconds={0}
+            />
+            <p className="text-xs text-muted-foreground">
+              Imagens, desenhos, PDFs e documentos ajudam o Oráculo a aprofundar a resposta. Eles ficam registrados no compêndio.
+            </p>
+          </div>
+
           <div className="flex gap-2">
             <Textarea
               value={chatInput}
@@ -843,7 +920,11 @@ export const StudyLab = () => {
                 }
               }}
             />
-            <Button type="button" onClick={handleChatSend} disabled={chatLoading || !chatInput.trim()}>
+            <Button
+              type="button"
+              onClick={handleChatSend}
+              disabled={chatLoading || chatUploading || (!chatInput.trim() && chatAttachments.length === 0)}
+            >
               {chatLoading ? "Pensando..." : "Enviar"}
             </Button>
           </div>

@@ -1,14 +1,22 @@
-const DEFAULT_FAST_MODEL = "gpt-5.2";
+const DEFAULT_FAST_MODEL = "gpt-5.2-fast";
 const DEFAULT_PREMIUM_MODEL = "gpt-5.2";
 
+const ALLOWED_BASE_MODELS = new Set(["gpt-5.2", "gpt-5.2-fast"]);
+const isLegacyAlias = (lower) =>
+  lower === "gpt-5.2-thinking" || lower.startsWith("gpt-5.2-thinking-");
 const isChatModelName = (value) => {
   const lower = String(value || "").toLowerCase().trim();
-  return lower.startsWith("gpt-") || lower.startsWith("ft:gpt-");
+  if (isLegacyAlias(lower)) return true;
+  if (ALLOWED_BASE_MODELS.has(lower)) return true;
+  if (lower.startsWith("ft:gpt-5.2")) return true;
+  return false;
 };
 
 const normalizeChatModel = (value, fallback = DEFAULT_FAST_MODEL) => {
   const model = String(value || "").trim();
   if (!model) return fallback;
+  const lower = model.toLowerCase().trim();
+  if (isLegacyAlias(lower)) return "gpt-5.2";
   if (!isChatModelName(model)) return fallback;
   return model;
 };

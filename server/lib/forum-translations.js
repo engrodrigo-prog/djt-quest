@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { normalizeChatModel } from "./openai-models.js";
 
 const SUPPORTED_LOCALES = ["pt-BR", "en", "zh-CN"];
 // We always target all supported locales. Source language is auto-detected per text.
@@ -7,10 +8,13 @@ const DEFAULT_TARGET_LOCALES = [...SUPPORTED_LOCALES];
 const client = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
 
 const pickModel = () =>
-  process.env.OPENAI_MODEL_FAST ||
-  process.env.OPENAI_MODEL_PREMIUM ||
-  process.env.OPENAI_TEXT_MODEL ||
-  "gpt-5.2";
+  normalizeChatModel(
+    process.env.OPENAI_MODEL_FAST ||
+      process.env.OPENAI_MODEL_PREMIUM ||
+      process.env.OPENAI_TEXT_MODEL ||
+      "gpt-5.2-fast",
+    "gpt-5.2-fast"
+  );
 
 const chunkArray = (arr, size) => {
   const out = [];
@@ -62,16 +66,22 @@ export async function translateForumTexts(params) {
 
   for (const batch of chunkArray(tasks, maxPerBatch)) {
     try {
-      const completion = await client.chat.completions.create({
-        model: pickModel(),
+      const model = pickModel();
+      const base = {
+        model,
         messages: [
           { role: "system", content: prompt },
           { role: "user", content: JSON.stringify({ locales, texts: batch.map((b) => b.text) }) },
         ],
         response_format: { type: "json_object" },
         temperature: 0.2,
-        max_tokens: 3500,
-      });
+      };
+      if (/^gpt-5/i.test(String(model))) {
+        base.max_completion_tokens = 3500;
+      } else {
+        base.max_tokens = 3500;
+      }
+      const completion = await client.chat.completions.create(base);
 
       let parsed = {};
       try {

@@ -12,6 +12,7 @@ import { TtsProvider } from "@/lib/tts";
 import { TtsPlayerBar } from "@/components/TtsPlayerBar";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { CompleteProfile } from "./components/CompleteProfile";
+import { requiresProfileCompletion } from "@/lib/profileCompletion";
 import { STUDIO_ALLOWED_ROLES } from "../shared/rbac.js";
 const Home = lazy(() => import("./pages/Home"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
@@ -55,7 +56,7 @@ const ProfileCheckWrapper = ({ children }: { children: React.ReactNode }) => {
     return <div className="min-h-screen flex items-center justify-center">{t("common.loading")}</div>;
   }
 
-  if (profile && (profile.must_change_password || profile.needs_profile_completion)) {
+  if (profile && requiresProfileCompletion(profile)) {
     return <CompleteProfile profile={profile} />;
   }
 

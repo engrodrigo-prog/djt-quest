@@ -5,7 +5,8 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY as string;
 const FAST_MODELS = Array.from(new Set([
   process.env.OPENAI_MODEL_FAST,
   process.env.OPENAI_MODEL_OVERRIDE,
-  'gpt-4.1-mini','gpt-4o-mini','gpt-4o','gpt-3.5-turbo'
+  'gpt-5.2-fast',
+  'gpt-5.2'
 ].filter(Boolean)));
 
 const ORGANIZER_SYSTEM = `Você é um organizador de transcrições. Receberá como ENTRADA um texto bruto gerado por reconhecimento de fala.

@@ -1,5 +1,8 @@
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
-const OPENAI_TEXT_MODEL = process.env.OPENAI_TEXT_MODEL || 'gpt-4o-mini';
+const OPENAI_TEXT_MODEL =
+  process.env.OPENAI_TEXT_MODEL ||
+  process.env.OPENAI_MODEL_FAST ||
+  'gpt-5.2-fast';
 export default async function handler(req, res) {
     if (req.method === 'OPTIONS')
         return res.status(204).send('');
@@ -30,7 +33,9 @@ export default async function handler(req, res) {
                             { role: 'user', content: user },
                         ],
                         temperature: 0.7,
-                        max_tokens: 400,
+                        ...(/^gpt-5/i.test(String(OPENAI_TEXT_MODEL))
+                            ? { max_completion_tokens: 400 }
+                            : { max_tokens: 400 }),
                     }),
                 });
                 if (!resp.ok) {

@@ -11,7 +11,7 @@ const ANON_KEY = (process.env.SUPABASE_ANON_KEY ||
 const SERVICE_KEY = (SERVICE_ROLE_KEY || ANON_KEY) as string;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
 const OPENAI_MODEL_PREMIUM =
-  process.env.OPENAI_MODEL_PREMIUM || process.env.OPENAI_MODEL_OVERRIDE || "gpt-4o";
+  process.env.OPENAI_MODEL_PREMIUM || process.env.OPENAI_MODEL_OVERRIDE || "gpt-5.2";
 
 type RangeKey = "week" | "month" | "quarter" | "semester" | "year";
 

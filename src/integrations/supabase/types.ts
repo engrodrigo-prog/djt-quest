@@ -1190,6 +1190,7 @@ export type Database = {
           avatar_url: string | null
           coord_id: string | null
           created_at: string | null
+          date_of_birth: string | null
           demotion_cooldown_until: string | null
           department_id: string | null
           division_id: string | null
@@ -1197,6 +1198,7 @@ export type Database = {
           id: string
           is_leader: boolean | null
           matricula: string | null
+          mention_handle: string | null
           must_change_password: boolean | null
           name: string
           needs_profile_completion: boolean | null
@@ -1215,6 +1217,7 @@ export type Database = {
           avatar_url?: string | null
           coord_id?: string | null
           created_at?: string | null
+          date_of_birth?: string | null
           demotion_cooldown_until?: string | null
           department_id?: string | null
           division_id?: string | null
@@ -1222,6 +1225,7 @@ export type Database = {
           id: string
           is_leader?: boolean | null
           matricula?: string | null
+          mention_handle?: string | null
           must_change_password?: boolean | null
           name: string
           needs_profile_completion?: boolean | null
@@ -1240,6 +1244,7 @@ export type Database = {
           avatar_url?: string | null
           coord_id?: string | null
           created_at?: string | null
+          date_of_birth?: string | null
           demotion_cooldown_until?: string | null
           department_id?: string | null
           division_id?: string | null
@@ -1247,6 +1252,7 @@ export type Database = {
           id?: string
           is_leader?: boolean | null
           matricula?: string | null
+          mention_handle?: string | null
           must_change_password?: boolean | null
           name?: string
           needs_profile_completion?: boolean | null
