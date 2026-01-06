@@ -12,6 +12,8 @@ const require = createRequire(import.meta.url);
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY as string;
 const SUPABASE_URL = process.env.SUPABASE_URL as string;
 const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY) as string;
+const OPENAI_MODEL_STUDYLAB_CHAT = (process.env.OPENAI_MODEL_STUDYLAB_CHAT as string) || "";
+const STUDYLAB_DEFAULT_CHAT_MODEL = "gpt-5-nano-2025-08-07";
 
 function chooseModel(preferPremium = false) {
   const premium = process.env.OPENAI_MODEL_PREMIUM;
@@ -23,6 +25,21 @@ function chooseModel(preferPremium = false) {
     fallbackPremium: "gpt-5-2025-08-07",
   });
 }
+
+const uniqueStrings = (values: any[]) => {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const v of values || []) {
+    const s = String(v || "").trim();
+    if (!s || seen.has(s)) continue;
+    seen.add(s);
+    out.push(s);
+  }
+  return out;
+};
+
+const pickStudyLabChatModels = (fallbackModel: string) =>
+  uniqueStrings([OPENAI_MODEL_STUDYLAB_CHAT, STUDYLAB_DEFAULT_CHAT_MODEL, fallbackModel, process.env.OPENAI_MODEL_FAST]);
 
 const normalizeForMatch = (raw: string) =>
   String(raw || "")
@@ -1372,30 +1389,45 @@ Formato da saída:
       mode === "oracle" ||
       useWeb ||
       (sourceRow && String(sourceRow.scope || "").toLowerCase() === "org" && sourceRow.published !== false);
-    const model = chooseModel(preferPremium);
+    const fallbackModel = chooseModel(preferPremium);
+    const modelCandidates = pickStudyLabChatModels(fallbackModel);
 
-    const resp = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model,
-        messages: openaiMessages,
-        max_completion_tokens: 1200,
-      }),
-    });
+    let content = "";
+    let usedModel = fallbackModel;
+    let lastErrTxt = "";
 
-    if (!resp.ok) {
-      const txt = await resp.text().catch(() => `HTTP ${resp.status}`);
-      return res.status(200).json({ success: false, error: `OpenAI error: ${txt}` });
+    for (const model of modelCandidates) {
+      const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${OPENAI_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model,
+          messages: openaiMessages,
+          max_completion_tokens: 1200,
+        }),
+      });
+
+      if (!resp.ok) {
+        lastErrTxt = await resp.text().catch(() => `HTTP ${resp.status}`);
+        // Evita retry inútil em falhas de auth/rate-limit
+        if (resp.status === 401 || resp.status === 403 || resp.status === 429) break;
+        continue;
+      }
+
+      const data = await resp.json().catch(() => null);
+      content = data?.choices?.[0]?.message?.content || "";
+      if (content) {
+        usedModel = model;
+        break;
+      }
+      lastErrTxt = "OpenAI retornou resposta vazia";
     }
 
-    const data = await resp.json().catch(() => null);
-    const content = data?.choices?.[0]?.message?.content || "";
     if (!content) {
-      return res.status(200).json({ success: false, error: "OpenAI retornou resposta vazia" });
+      return res.status(200).json({ success: false, error: `OpenAI error: ${lastErrTxt || "unknown"}` });
     }
 
     let resolvedSessionId =
@@ -1442,7 +1474,7 @@ Formato da saída:
           use_web: Boolean(use_web),
           kb_tags: forumKbTags,
           kb_focus: forumKbFocus,
-          model,
+          model: usedModel,
         };
 
         const sessionPayload: any = {
