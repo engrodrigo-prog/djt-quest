@@ -556,7 +556,7 @@ async function handler(req, res) {
       if (i === -1) return "";
       return clean.slice(i + 1).toLowerCase();
     };
-    const IMAGE_EXTS = /* @__PURE__ */ new Set(["png", "jpg", "jpeg", "webp", "gif", "bmp", "tif", "tiff"]);
+    const IMAGE_EXTS = /* @__PURE__ */ new Set(["png", "jpg", "jpeg", "webp", "gif", "bmp", "tif", "tiff", "heic", "heif", "avif"]);
     const isImageAttachment = (att) => {
       const candidate = String(att?.name || att?.url || "");
       const ext = inferExt(candidate);
@@ -1095,6 +1095,7 @@ ${metaParts.join("\n\n")}` : ""}`;
 Foco do usuário (temas da base de conhecimento): ${forumKbFocus}
 - Priorize esse foco ao responder e ao sugerir próximos passos.` : "";
     const langIsEn = String(language || "").toLowerCase().startsWith("en");
+    const imageHint = includeImagesInPrompt ? langIsEn ? "\n\nIf images are attached, identify the object/equipment and extract visible nameplate fields (manufacturer, model, serial, ratings). Only state what you can see; if a field is unreadable, say so." : "\n\nSe houver imagens anexadas, identifique o objeto/equipamento e extraia os campos visíveis da placa (fabricante, modelo, nº de série, tensões/correntes/potência). Só afirme o que estiver visível; se algo estiver ilegível, diga que não dá para ler." : "";
     const qualityHint = qualityKey === "thinking" ? langIsEn ? "\n\nMode: Thinking (more detail). Provide a complete, structured answer, but avoid repetition." : "\n\nModo: Thinking (mais detalhado). Entregue uma resposta completa e estruturada, evitando repetição." : qualityKey === "instant" ? langIsEn ? "\n\nMode: Instant (fast). Keep it short and practical: direct answer + checklist. Do not ramble." : "\n\nModo: Instant (rápido). Seja curto e prático: resposta direta + checklist. Não se estenda." : langIsEn ? "\n\nMode: Auto (balanced). Balance speed and completeness with a practical checklist." : "\n\nModo: Auto (equilibrado). Equilibre rapidez e completude com um checklist prático.";
     const system = mode === "oracle" ? langIsEn ? `You are DJT Quest's Knowledge Catalog and training monitor.
 You help collaborators find answers using the available internal base (published org catalog + the user's materials + approved compendium). When the base is insufficient, rely on the automated web summary (when present).
@@ -1106,6 +1107,7 @@ Rules:
 - If “Automated web search (summary)” exists, use it and cite sources (links) at the end.
 - When using the internal base, cite the source title briefly.
 ${qualityHint}
+${imageHint}
 ${focusHint}
 
 Output format (plain text, no JSON):
@@ -1124,6 +1126,7 @@ Regras:
 - Se houver “Pesquisa web automatica (resumo)”, use-a e cite fontes (links) no fim.
 - Quando usar a base interna, cite rapidamente o título da fonte.
 ${qualityHint}
+${imageHint}
 ${focusHint}
 
 Formato da resposta (texto livre, sem JSON):
@@ -1141,6 +1144,7 @@ Rules:
 - When you rely on a specific material, say so explicitly (e.g., “Based on the selected document…”).
 - Do NOT invent details that are not in the material/attachments.
 ${qualityHint}
+${imageHint}
 ${focusHint}
 
 Output (plain text, no JSON), in ${language}.` : `Você é um tutor de estudos no contexto de treinamento técnico (setor elétrico brasileiro).
@@ -1152,6 +1156,7 @@ Regras:
 - Quando estiver usando um material específico, deixe explícito (ex.: “Com base no documento selecionado…”).
 - NÃO invente detalhes que não estejam no material/anexos.
 ${qualityHint}
+${imageHint}
 ${focusHint}
 
 Formato da saída: texto livre (sem JSON), em ${language}.`;
@@ -1498,7 +1503,7 @@ ${webSummary.text}`
       if (lastUser) systems.push(lastUser);
       return systems.length ? systems : openaiMessages;
     })();
-    const preferPremium = qualityKey === "thinking" || mode === "oracle" || useWeb || sourceRow && String(sourceRow.scope || "").toLowerCase() === "org" && sourceRow.published !== false;
+    const preferPremium = qualityKey === "thinking" || mode === "oracle" || useWeb || includeImagesInPrompt && qualityKey !== "instant" || sourceRow && String(sourceRow.scope || "").toLowerCase() === "org" && sourceRow.published !== false;
     const fallbackModel = chooseModel(preferPremium);
     const baseCandidates = pickStudyLabChatModels(fallbackModel);
     const modelCandidates = (() => {
@@ -1507,6 +1512,10 @@ ${webSummary.text}`
         return uniqueStrings([preferred, ...baseCandidates]);
       }
       if (qualityKey === "thinking") {
+        const preferred = "gpt-5-2025-08-07";
+        return uniqueStrings([preferred, ...baseCandidates]);
+      }
+      if (includeImagesInPrompt) {
         const preferred = "gpt-5-2025-08-07";
         return uniqueStrings([preferred, ...baseCandidates]);
       }

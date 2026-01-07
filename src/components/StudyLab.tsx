@@ -174,7 +174,7 @@ const createChatSessionId = () => {
   return `studychat_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 };
 
-const isImageUrl = (url: string) => /\.(png|jpe?g|webp|gif|bmp|tif|tiff)(\?|#|$)/i.test(url || "");
+const isImageUrl = (url: string) => /\.(png|jpe?g|webp|gif|bmp|tif|tiff|heic|heif|avif)(\?|#|$)/i.test(url || "");
 
 const getAttachmentLabel = (url: string) => {
   if (!url) return "Anexo";
@@ -1251,6 +1251,7 @@ export const StudyLab = () => {
                     maxSizeMB={20}
                     bucket="evidence"
                     pathPrefix="study-chat"
+                    capture="environment"
                     acceptMimeTypes={[
                       "application/pdf",
                       "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -1259,8 +1260,11 @@ export const StudyLab = () => {
                       "text/plain",
                       "application/json",
                       "text/csv",
+                      "image/heic",
+                      "image/heif",
                       "image/jpeg",
                       "image/png",
+                      "image/avif",
                       "image/webp",
                     ]}
                     maxVideoSeconds={0}

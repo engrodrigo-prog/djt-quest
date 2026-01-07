@@ -719,7 +719,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return clean.slice(i + 1).toLowerCase();
     };
 
-    const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "webp", "gif", "bmp", "tif", "tiff"]);
+    const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "webp", "gif", "bmp", "tif", "tiff", "heic", "heif", "avif"]);
     const isImageAttachment = (att: any) => {
       const candidate = String(att?.name || att?.url || "");
       const ext = inferExt(candidate);
@@ -1351,6 +1351,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       : "";
 
     const langIsEn = String(language || "").toLowerCase().startsWith("en");
+    const imageHint =
+      includeImagesInPrompt
+        ? langIsEn
+          ? "\n\nIf images are attached, identify the object/equipment and extract visible nameplate fields (manufacturer, model, serial, ratings). Only state what you can see; if a field is unreadable, say so."
+          : "\n\nSe houver imagens anexadas, identifique o objeto/equipamento e extraia os campos visíveis da placa (fabricante, modelo, nº de série, tensões/correntes/potência). Só afirme o que estiver visível; se algo estiver ilegível, diga que não dá para ler."
+        : "";
     const qualityHint =
       qualityKey === "thinking"
         ? langIsEn
@@ -1376,6 +1382,7 @@ Rules:
 - If “Automated web search (summary)” exists, use it and cite sources (links) at the end.
 - When using the internal base, cite the source title briefly.
 ${qualityHint}
+${imageHint}
 ${focusHint}
 
 Output format (plain text, no JSON):
@@ -1395,6 +1402,7 @@ Regras:
 - Se houver “Pesquisa web automatica (resumo)”, use-a e cite fontes (links) no fim.
 - Quando usar a base interna, cite rapidamente o título da fonte.
 ${qualityHint}
+${imageHint}
 ${focusHint}
 
 Formato da resposta (texto livre, sem JSON):
@@ -1414,6 +1422,7 @@ Rules:
 - When you rely on a specific material, say so explicitly (e.g., “Based on the selected document…”).
 - Do NOT invent details that are not in the material/attachments.
 ${qualityHint}
+${imageHint}
 ${focusHint}
 
 Output (plain text, no JSON), in ${language}.`
@@ -1426,6 +1435,7 @@ Regras:
 - Quando estiver usando um material específico, deixe explícito (ex.: “Com base no documento selecionado…”).
 - NÃO invente detalhes que não estejam no material/anexos.
 ${qualityHint}
+${imageHint}
 ${focusHint}
 
 Formato da saída: texto livre (sem JSON), em ${language}.`;
@@ -1891,6 +1901,7 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
       qualityKey === "thinking" ||
       mode === "oracle" ||
       useWeb ||
+      (includeImagesInPrompt && qualityKey !== "instant") ||
       (sourceRow && String(sourceRow.scope || "").toLowerCase() === "org" && sourceRow.published !== false);
     const fallbackModel = chooseModel(preferPremium);
     const baseCandidates = pickStudyLabChatModels(fallbackModel);
@@ -1900,6 +1911,10 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
         return uniqueStrings([preferred, ...baseCandidates]);
       }
       if (qualityKey === "thinking") {
+        const preferred = "gpt-5-2025-08-07";
+        return uniqueStrings([preferred, ...baseCandidates]);
+      }
+      if (includeImagesInPrompt) {
         const preferred = "gpt-5-2025-08-07";
         return uniqueStrings([preferred, ...baseCandidates]);
       }
