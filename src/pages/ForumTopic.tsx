@@ -16,7 +16,7 @@ import { UserProfilePopover } from '@/components/UserProfilePopover'
 import { SendUserFeedbackDialog } from '@/components/SendUserFeedbackDialog'
 import { VoiceRecorderButton } from '@/components/VoiceRecorderButton'
 import Navigation from '@/components/Navigation'
-import { MoreVertical, Share2, Volume2, Wand2, Trash2, Pencil, Reply, Heart, MessageSquare } from 'lucide-react'
+import { MoreVertical, Share2, Volume2, Wand2, Trash2, Pencil, Reply, Heart, MessageSquare, Plus } from 'lucide-react'
 import { buildAbsoluteAppUrl, openWhatsAppShare } from '@/lib/whatsappShare'
 import { useTts } from '@/lib/tts'
 import { getActiveLocale } from '@/lib/i18n/activeLocale'
@@ -24,6 +24,8 @@ import { localeToOpenAiLanguageTag, localeToSpeechLanguage } from '@/lib/i18n/la
 import { useI18n } from '@/contexts/I18nContext'
 import { translateTextsCached } from '@/lib/i18n/aiTranslate'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 interface Topic {
   id: string;
@@ -73,6 +75,7 @@ export default function ForumTopic() {
   const [cleaning, setCleaning] = useState(false)
   const [attachmentUrls, setAttachmentUrls] = useState<string[]>([])
   const [attachmentsUploading, setAttachmentsUploading] = useState(false)
+  const [composerPlusOpen, setComposerPlusOpen] = useState(false)
   const [editing, setEditing] = useState(false)
   const [editTitle, setEditTitle] = useState('')
   const [editDesc, setEditDesc] = useState('')
@@ -1690,48 +1693,100 @@ export default function ForumTopic() {
                   ))}
                 </div>
               )}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div className="space-y-2">
-                  <p className="text-sm text-muted-foreground">{tr('forumTopic.attachments.optional')}</p>
-                  <AttachmentUploader
-                    onAttachmentsChange={setAttachmentUrls}
-                    onUploadingChange={setAttachmentsUploading}
-                    maxFiles={6}
-                    maxSizeMB={50}
-                    capture="environment"
-                    maxVideoSeconds={90}
-                  />
-                  {attachmentsUploading && (
-                    <p className="text-[11px] text-muted-foreground">{tr('forumTopic.attachments.uploading')}</p>
-                  )}
-                </div>
-                <div className="space-y-2">
-                  <p className="text-sm text-muted-foreground">{tr('forumTopic.audio.optional')}</p>
-                  <div className="flex flex-col gap-2">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <VoiceRecorderButton
-                        size="sm"
-                        label={tr('forumTopic.audio.record')}
-                        onText={(text) => setContent(prev => [prev, text].filter(Boolean).join('\n\n'))}
-                      />
-                      <Input type="file" accept="audio/*" onChange={(e)=>setAudioFile(e.target.files?.[0] || null)} className="sm:max-w-[360px]" />
-                      {audioFile && (
-                        <Button type="button" variant="ghost" size="sm" onClick={() => setAudioFile(null)}>
-                          {tr('forumTopic.audio.remove')}
-                        </Button>
+              <div className="flex items-center justify-between gap-3">
+                <Dialog open={composerPlusOpen} onOpenChange={setComposerPlusOpen}>
+                  <DialogTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="relative h-10 w-10 rounded-full"
+                      title="Anexos e áudio"
+                      aria-label="Anexos e áudio"
+                    >
+                      <Plus className="h-5 w-5" />
+                      {attachmentsUploading && (
+                        <span
+                          className="absolute -bottom-1 -right-1 inline-flex h-3 w-3 rounded-full bg-amber-400"
+                          aria-label="Enviando anexos"
+                          title="Enviando…"
+                        />
                       )}
-                      <Button variant="outline" disabled={!audioFile || transcribing} onClick={handleTranscribe}>
-                        {transcribing ? tr('forumTopic.audio.transcribing') : tr('forumTopic.audio.organize')}
-                      </Button>
-                    </div>
-                    {audioPreviewUrl && (
-                      <audio controls src={audioPreviewUrl} className="w-full" />
-                    )}
-                    <p className="text-[11px] text-muted-foreground">
-                      {tr('forumTopic.audio.hint')}
-                    </p>
-                  </div>
-                </div>
+                      {attachmentUrls.length > 0 && (
+                        <Badge className="absolute -top-2 -right-2 h-5 min-w-[20px] justify-center px-1 text-[10px]">
+                          {attachmentUrls.length}
+                        </Badge>
+                      )}
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="max-w-2xl">
+                    <DialogHeader>
+                      <DialogTitle>Anexos</DialogTitle>
+                      <DialogDescription>
+                        No celular, você pode tirar foto pela câmera ou selecionar arquivos.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <Tabs defaultValue="attachments">
+                      <TabsList className="w-full">
+                        <TabsTrigger value="attachments" className="flex-1">Arquivos</TabsTrigger>
+                        <TabsTrigger value="audio" className="flex-1">Áudio</TabsTrigger>
+                      </TabsList>
+                      <TabsContent value="attachments" className="space-y-3">
+                        <AttachmentUploader
+                          onAttachmentsChange={setAttachmentUrls}
+                          onUploadingChange={setAttachmentsUploading}
+                          maxFiles={6}
+                          maxSizeMB={50}
+                          maxVideoSeconds={90}
+                        />
+                        {attachmentUrls.length > 0 && (
+                          <div className="flex flex-wrap gap-2">
+                            {attachmentUrls.map((url) => (
+                              <a
+                                key={url}
+                                href={url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="rounded-md border bg-background/80 px-2 py-1 text-xs text-foreground"
+                              >
+                                Anexo
+                              </a>
+                            ))}
+                          </div>
+                        )}
+                        {attachmentsUploading && (
+                          <p className="text-[11px] text-muted-foreground">{tr('forumTopic.attachments.uploading')}</p>
+                        )}
+                      </TabsContent>
+                      <TabsContent value="audio" className="space-y-3">
+                        <div className="flex flex-col gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <VoiceRecorderButton
+                              size="sm"
+                              label={tr('forumTopic.audio.record')}
+                              onText={(text) => setContent(prev => [prev, text].filter(Boolean).join('\n\n'))}
+                            />
+                            <Input type="file" accept="audio/*" onChange={(e)=>setAudioFile(e.target.files?.[0] || null)} className="sm:max-w-[360px]" />
+                            {audioFile && (
+                              <Button type="button" variant="ghost" size="sm" onClick={() => setAudioFile(null)}>
+                                {tr('forumTopic.audio.remove')}
+                              </Button>
+                            )}
+                            <Button variant="outline" disabled={!audioFile || transcribing} onClick={handleTranscribe}>
+                              {transcribing ? tr('forumTopic.audio.transcribing') : tr('forumTopic.audio.organize')}
+                            </Button>
+                          </div>
+                          {audioPreviewUrl && (
+                            <audio controls src={audioPreviewUrl} className="w-full" />
+                          )}
+                          <p className="text-[11px] text-muted-foreground">
+                            {tr('forumTopic.audio.hint')}
+                          </p>
+                        </div>
+                      </TabsContent>
+                    </Tabs>
+                  </DialogContent>
+                </Dialog>
               </div>
               <div className="flex justify-end">
                 <Button onClick={handlePost} disabled={!content.trim() || attachmentsUploading}>{tr('forumTopic.actions.publish')}</Button>

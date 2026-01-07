@@ -64,8 +64,10 @@ const getCachedAuth = () => {
   }
 };
 
+const isTimeoutError = (err: any) => String(err?.message || err || '').toLowerCase().includes('timeout');
+
 // Helper to avoid hanging fetches impacting UI loading state
-async function withTimeout<T>(promise: Promise<T>, ms = 3000): Promise<T> {
+async function withTimeout<T>(promise: Promise<T>, ms = 6000): Promise<T> {
   return await Promise.race([
     promise,
     new Promise<T>((_, reject) => setTimeout(() => reject(new Error('timeout')), ms)) as Promise<T>,
@@ -301,7 +303,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       return authData;
     } catch (error: any) {
-      console.warn('Erro ao buscar sessão', error?.message || error);
+      // Avoid noisy console errors on slow networks; cache fallback handles UX.
+      if (!isTimeoutError(error)) {
+        console.warn('Erro ao buscar sessão', error?.message || error);
+      }
 
       // Mantém a sessão corrente como válida
       setUser(providedSession?.user ?? null);
