@@ -25,22 +25,71 @@ export const AvatarCapture = ({ onCapture, onSkip }: AvatarCaptureProps) => {
   const [hasConsented, setHasConsented] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const readAsDataUrl = (blob: Blob) =>
+    new Promise<string>((resolve, reject) => {
+      try {
+        const reader = new FileReader();
+        reader.onload = (e) => resolve(String(e.target?.result || ""));
+        reader.onerror = () => reject(new Error("Falha ao ler arquivo"));
+        reader.readAsDataURL(blob);
+      } catch (e) {
+        reject(e);
+      }
+    });
+
+  const downscaleImage = async (file: File, maxDim = 1400, quality = 0.85) => {
+    const t = String(file?.type || "");
+    if (!t.startsWith("image/")) return await readAsDataUrl(file);
+    if (t === "image/gif") return await readAsDataUrl(file);
+
+    const url = URL.createObjectURL(file);
+    try {
+      const img = new Image();
+      img.src = url;
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = () => reject(new Error("Falha ao carregar imagem"));
+      });
+
+      const w = Number(img.naturalWidth || img.width || 0);
+      const h = Number(img.naturalHeight || img.height || 0);
+      if (!w || !h) return await readAsDataUrl(file);
+
+      const maxSide = Math.max(w, h);
+      const scale = Math.min(1, Math.max(0.05, maxDim / maxSide));
+      const outW = Math.max(1, Math.round(w * scale));
+      const outH = Math.max(1, Math.round(h * scale));
+
+      const canvas = document.createElement("canvas");
+      canvas.width = outW;
+      canvas.height = outH;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return await readAsDataUrl(file);
+      ctx.drawImage(img, 0, 0, outW, outH);
+
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
+      if (!blob) return await readAsDataUrl(file);
+      return await readAsDataUrl(blob);
+    } finally {
+      try {
+        URL.revokeObjectURL(url);
+      } catch {
+        /* ignore */
+      }
+    }
+  };
+
+  const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    // Check file size (max 3MB) — evita exceder limite do Vercel para payloads
-    if (file.size > 3 * 1024 * 1024) {
-      alert("A imagem deve ter no máximo 3MB");
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const result = e.target?.result as string;
+    try {
+      // Fotos de celular frequentemente > 3MB; sempre tentamos otimizar antes de enviar.
+      const result = await downscaleImage(file, 1400, 0.85);
       setCapturedImage(result);
-    };
-    reader.readAsDataURL(file);
+    } catch {
+      alert("Não foi possível ler/otimizar a imagem. Tente novamente.");
+    }
   };
 
   const handleCapture = () => {
@@ -93,9 +142,8 @@ export const AvatarCapture = ({ onCapture, onSkip }: AvatarCaptureProps) => {
                 ref={fileInputRef}
                 type="file"
                 accept="image/*"
-                capture="user"
                 onChange={handleFileSelect}
-                className="hidden"
+                className="sr-only"
               />
 
               <div className="grid grid-cols-2 gap-3">

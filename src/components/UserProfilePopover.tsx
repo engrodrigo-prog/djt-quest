@@ -75,7 +75,7 @@ export function UserProfilePopover({ userId, name, avatarUrl, children }: UserPr
   }, [open, userId]);
 
   const displayName = profile?.name || name || tr("userPopover.userFallback");
-  const displayBase = profile?.operational_base || profile?.sigla_area || tr("userPopover.baseFallback");
+  const displayBase = profile?.operational_base || tr("userPopover.baseFallback");
   const displayPhone = profile?.telefone || tr("userPopover.phoneFallback");
   const avatar = profile?.avatar_thumbnail_url || profile?.avatar_url || avatarUrl || null;
   const digits = useMemo(() => cleanPhone(profile?.telefone), [profile?.telefone]);
@@ -85,11 +85,11 @@ export function UserProfilePopover({ userId, name, avatarUrl, children }: UserPr
   if (!userId) return children;
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+      <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>{children}</PopoverTrigger>
-      <PopoverContent className="w-80">
+      <PopoverContent className="w-96">
         <div className="flex items-center gap-3">
-          <Avatar className="h-14 w-14">
+          <Avatar className="h-24 w-24">
             <AvatarImage src={avatar || undefined} alt={displayName} />
             <AvatarFallback>{initials(displayName)}</AvatarFallback>
           </Avatar>
@@ -101,6 +101,9 @@ export function UserProfilePopover({ userId, name, avatarUrl, children }: UserPr
             <p className="text-xs text-muted-foreground truncate">
               {tr("userPopover.phoneLabel")}: {displayPhone}
             </p>
+            {profile?.sigla_area ? (
+              <p className="text-xs text-muted-foreground truncate">{profile.sigla_area}</p>
+            ) : null}
           </div>
         </div>
 

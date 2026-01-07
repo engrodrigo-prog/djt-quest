@@ -823,6 +823,8 @@ export default function SEPBookIG() {
     });
   }, []);
 
+  const defaultMarkerIcon = useMemo(() => new L.Icon.Default(), []);
+
   const focusMapPost = useCallback(
     (postId: string, opts?: { openPost?: boolean }) => {
       const id = String(postId || "").trim();
@@ -2829,7 +2831,7 @@ export default function SEPBookIG() {
                       <Marker
                         key={x.post.id}
                         position={[Number(x.post.location_lat), Number(x.post.location_lng)]}
-                        {...(mapSelectedId === x.post.id ? { icon: selectedMarkerIcon } : {})}
+                        icon={mapSelectedId === x.post.id ? selectedMarkerIcon : defaultMarkerIcon}
                         eventHandlers={{
                           click: () => handleMapSelection(x.post.id, { openOnSecond: true }),
                         }}
