@@ -302,9 +302,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       // XP por comentário no SEPBook (limitado a 100 XP/mês via função).
       try {
-        if (SERVICE_ROLE_KEY) {
-          await admin.rpc("increment_sepbook_profile_xp", { p_user_id: uid, p_amount: 2 });
-        }
+        await writer.rpc("increment_user_xp", { _user_id: uid, _xp_to_add: 2 });
       } catch {}
 
       // Recalcular menções para o post considerando este novo comentário

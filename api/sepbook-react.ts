@@ -41,6 +41,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const table = isComment ? "sepbook_comment_likes" : "sepbook_likes";
     const idColumn = isComment ? "comment_id" : "post_id";
     let alreadyLiked = false;
+    let didChange = false;
     if (action === "like") {
       try {
         const { data: existing } = await authed
@@ -58,9 +59,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (action === "like") {
       if (!alreadyLiked) {
         await authed.from(table).upsert({ [idColumn]: targetId, user_id: uid } as any).throwOnError();
+        didChange = true;
       }
     } else {
-      await authed.from(table).delete().eq(idColumn, targetId).eq("user_id", uid).throwOnError();
+      let hadLike = false;
+      try {
+        const { data: existing } = await authed
+          .from(table)
+          .select(idColumn)
+          .eq(idColumn, targetId)
+          .eq("user_id", uid)
+          .maybeSingle();
+        hadLike = Boolean(existing);
+      } catch {
+        hadLike = false;
+      }
+      if (hadLike) {
+        await authed.from(table).delete().eq(idColumn, targetId).eq("user_id", uid).throwOnError();
+        didChange = true;
+      }
     }
 
     const { count } = await authed
@@ -73,9 +90,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       await admin.from("sepbook_posts").update({ like_count: count || 0 }).eq("id", targetId);
     }
 
-    if (SERVICE_ROLE_KEY && action === "like" && !alreadyLiked) {
+    const xpDelta = didChange ? (action === "like" ? 1 : -1) : 0;
+    if (xpDelta !== 0) {
       try {
-        await admin.rpc("increment_sepbook_profile_xp", { p_user_id: uid, p_amount: 1 });
+        await authed.rpc("increment_user_xp", { _user_id: uid, _xp_to_add: xpDelta });
       } catch {}
     }
 

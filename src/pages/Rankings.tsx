@@ -70,7 +70,20 @@ interface XpBreakdown {
 const GUEST_TEAM_ID = 'CONVIDADOS';
 const isGuestTeamId = (id: string | null | undefined) => String(id || '').toUpperCase() === GUEST_TEAM_ID;
 const LEADER_EVAL_POINTS = 5;
-const isPhotoUrl = (url: string) => /\.(png|jpe?g|webp|gif|bmp|tif|tiff)(\?|#|$)/i.test(url || '');
+const isPhotoUrl = (url: string) => /\.(png|jpe?g|webp|gif|bmp|tif|tiff|heic|heif|avif)(\?|#|$)/i.test(url || '');
+
+const normalizeAttachmentUrls = (raw: any): string[] => {
+  if (!Array.isArray(raw)) return [];
+  const urls: string[] = [];
+  for (const item of raw) {
+    if (typeof item === 'string' && item.trim()) urls.push(item.trim());
+    else if (item && typeof item === 'object') {
+      const u = (item as any).url || (item as any).publicUrl || (item as any).href || (item as any).src || '';
+      if (typeof u === 'string' && u.trim()) urls.push(u.trim());
+    }
+  }
+  return urls;
+};
 
 function Rankings() {
   const { orgScope } = useAuth();
@@ -442,7 +455,8 @@ function Rankings() {
         const userId = selectedUserId;
         const [
           quizRes,
-          forumRes,
+          forumByUserRes,
+          forumByAuthorRes,
           sepbookPostsRes,
           sepbookCommentsRes,
           sepbookLikesRes,
@@ -450,7 +464,8 @@ function Rankings() {
           evalsRes,
         ] = await Promise.all([
           supabase.from('user_quiz_answers').select('xp_earned').eq('user_id', userId).limit(50000),
-          supabase.from('forum_posts').select('id').eq('user_id', userId).limit(5000),
+          supabase.from('forum_posts').select('id', { count: 'exact', head: true }).eq('user_id', userId),
+          supabase.from('forum_posts').select('id', { count: 'exact', head: true }).eq('author_id', userId),
           supabase.from('sepbook_posts').select('attachments').eq('user_id', userId).limit(2000),
           supabase.from('sepbook_comments').select('id').eq('user_id', userId).limit(5000),
           supabase.from('sepbook_likes').select('post_id').eq('user_id', userId).limit(5000),
@@ -473,13 +488,17 @@ function Rankings() {
         const quizXp = Array.isArray(quizRes.data)
           ? quizRes.data.reduce((sum: number, r: any) => sum + (Number(r?.xp_earned) || 0), 0)
           : 0;
-        const forumPosts = Array.isArray(forumRes.data) ? forumRes.data.length : 0;
+        const forumPosts =
+          Math.max(
+            Number((forumByUserRes as any)?.count || 0),
+            Number((forumByAuthorRes as any)?.count || 0),
+          ) || 0;
         const forumXp = forumPosts * 10;
 
         const sepbookPhotoCount = Array.isArray(sepbookPostsRes.data)
           ? sepbookPostsRes.data.reduce((sum: number, row: any) => {
-              const atts = Array.isArray(row?.attachments) ? row.attachments : [];
-              return sum + atts.filter((url: string) => isPhotoUrl(url)).length;
+              const urls = normalizeAttachmentUrls(row?.attachments);
+              return sum + urls.filter((url: string) => isPhotoUrl(url)).length;
             }, 0)
           : 0;
         const sepbookPostXp = sepbookPhotoCount * 5;

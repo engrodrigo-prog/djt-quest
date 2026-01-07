@@ -555,6 +555,12 @@
       "addHashtags": "Sugerimos adicionar estas hashtags:\n{hashtags}\n\nAdicionar antes de enviar?",
       "addHashtagsEdited": "Sugerir # para este post editado?\n{hashtags}\n\nAdicionar?"
     },
+    "hashtagsDialog": {
+      "title": "Hashtags sugeridas",
+      "applyWithHash": "Aplicar com #",
+      "applyWithoutHash": "Aplicar sem #",
+      "ignore": "Ignorar"
+    },
     "errors": {
       "aiCleanupFailed": "Falha na revisão automática",
       "cleanupFailed": "Falha na revisão automática",

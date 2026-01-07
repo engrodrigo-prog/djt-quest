@@ -106,6 +106,37 @@ export default function ForumTopic() {
   const didScrollToHashRef = useRef(false)
   const translatingRef = useRef(false)
 
+  const [hashtagDialogOpen, setHashtagDialogOpen] = useState(false)
+  const [hashtagDialogTags, setHashtagDialogTags] = useState<string[]>([])
+  const [hashtagDialogVariant, setHashtagDialogVariant] = useState<'addHashtags' | 'addHashtagsEdited'>('addHashtags')
+  const hashtagDialogResolveRef = useRef<((choice: 'withHash' | 'withoutHash' | 'ignore') => void) | null>(null)
+
+  const requestHashtagChoice = useCallback(async (tags: string[], variant: 'addHashtags' | 'addHashtagsEdited' = 'addHashtags') => {
+    return await new Promise<'withHash' | 'withoutHash' | 'ignore'>((resolve) => {
+      hashtagDialogResolveRef.current = resolve
+      setHashtagDialogTags(tags)
+      setHashtagDialogVariant(variant)
+      setHashtagDialogOpen(true)
+    })
+  }, [])
+
+  const resolveHashtagChoice = useCallback((choice: 'withHash' | 'withoutHash' | 'ignore') => {
+    setHashtagDialogOpen(false)
+    const resolve = hashtagDialogResolveRef.current
+    hashtagDialogResolveRef.current = null
+    try {
+      resolve?.(choice)
+    } catch {}
+  }, [])
+
+  const formatHashtags = useCallback((tags: string[], withHash: boolean) => {
+    const normalized = (tags || [])
+      .map((t) => String(t || '').trim())
+      .filter(Boolean)
+      .map((t) => (withHash ? `#${t.replace(/^#+/, '')}` : t.replace(/^#+/, '')))
+    return Array.from(new Set(normalized)).slice(0, 12)
+  }, [])
+
   const topicTitle = translatedTopic.title || topic?.title || ''
   const topicDescription = translatedTopic.description ?? topic?.description ?? ''
   const summaryText = translatedSummary || compendium?.summary_md || ''
@@ -157,16 +188,35 @@ export default function ForumTopic() {
 
   const load = useCallback(async () => {
     if (!id) return
-    const [{ data: t }, { data: p }, { data: c }] = await Promise.all([
+    const [topicRes, postsRes, compendiumRes] = await Promise.all([
       supabase.from('forum_topics').select('*').eq('id', id).maybeSingle(),
-      supabase
-        .from('forum_posts')
-        .select('id,user_id,author_id,content_md,translations,payload,created_at,ai_assessment,parent_post_id,reply_to_user_id,likes_count,author:profiles!forum_posts_user_id_fkey(name,sigla_area,avatar_thumbnail_url)')
-        .eq('topic_id', id)
-        .order('created_at', { ascending: true }),
+      supabase.from('forum_posts').select('*').eq('topic_id', id).order('created_at', { ascending: true }),
       supabase.from('forum_compendia').select('*').eq('topic_id', id).maybeSingle(),
     ])
-    const postsData = (p || []) as any[]
+    const t = topicRes.data as any
+    const c = compendiumRes.data as any
+    const postsData = ((postsRes.data as any[]) || []) as any[]
+
+    const authorIds = Array.from(
+      new Set(
+        postsData
+          .map((row) => (row?.user_id || row?.author_id ? String(row.user_id || row.author_id) : null))
+          .filter(Boolean),
+      ),
+    ) as string[]
+    const authorMap = new Map<string, any>()
+    if (authorIds.length) {
+      try {
+        const { data: authors } = await supabase
+          .from('profiles')
+          .select('id,name,sigla_area,avatar_thumbnail_url')
+          .in('id', authorIds)
+          .limit(1000)
+        for (const a of authors || []) {
+          if (a?.id) authorMap.set(String(a.id), a)
+        }
+      } catch {}
+    }
     let likedSet = new Set<string>()
     if (user?.id && postsData.length) {
       try {
@@ -180,11 +230,15 @@ export default function ForumTopic() {
         likedSet = new Set()
       }
     }
-    const postsWithLikes = postsData.map((post) => ({
-      ...post,
-      likes_count: Number(post?.likes_count || 0),
-      has_liked: likedSet.has(String(post.id)),
-    }))
+    const postsWithLikes = postsData.map((post) => {
+      const authorId = post?.user_id || post?.author_id ? String(post.user_id || post.author_id) : null
+      return {
+        ...post,
+        likes_count: Number(post?.likes_count || 0),
+        has_liked: likedSet.has(String(post.id)),
+        author: authorId ? (authorMap.get(authorId) || null) : null,
+      }
+    })
 
     setTopic(t as any)
     setPosts(postsWithLikes as any)
@@ -681,11 +735,16 @@ export default function ForumTopic() {
       })
       const json = await resp.json().catch(() => ({}))
       if (resp.ok && Array.isArray(json.hashtags) && json.hashtags.length > 0) {
-        const proposal = json.hashtags.filter((h: string) => !text.includes(h))
+        const raw = json.hashtags.map((h: any) => String(h || '').trim()).filter(Boolean)
+        const proposal = raw.filter((h: string) => !text.includes(h) && !text.includes(h.replace(/^#+/, '')))
         if (proposal.length > 0) {
-          if (confirm(tr('forumTopic.confirm.addHashtags', { hashtags: proposal.join(' ') }))) {
-            text = `${text}\n${proposal.join(' ')}`
-            setContent(text)
+          const choice = await requestHashtagChoice(proposal, 'addHashtags')
+          if (choice !== 'ignore') {
+            const tags = formatHashtags(proposal, choice === 'withHash')
+            if (tags.length > 0) {
+              text = `${text}\n${tags.join(' ')}`
+              setContent(text)
+            }
           }
         }
       }
@@ -862,11 +921,16 @@ export default function ForumTopic() {
       })
       const json = await resp.json().catch(()=>({}))
       if (resp.ok && Array.isArray(json.hashtags) && json.hashtags.length > 0) {
-        const proposal = json.hashtags.filter((h: string) => !text.includes(h))
+        const raw = json.hashtags.map((h: any) => String(h || '').trim()).filter(Boolean)
+        const proposal = raw.filter((h: string) => !text.includes(h) && !text.includes(h.replace(/^#+/, '')))
         if (proposal.length > 0) {
-          if (confirm(tr('forumTopic.confirm.addHashtagsEdited', { hashtags: proposal.join(' ') }))) {
-            text = `${text}\n${proposal.join(' ')}`
-            setEditingPostText(text)
+          const choice = await requestHashtagChoice(proposal, 'addHashtagsEdited')
+          if (choice !== 'ignore') {
+            const tags = formatHashtags(proposal, choice === 'withHash')
+            if (tags.length > 0) {
+              text = `${text}\n${tags.join(' ')}`
+              setEditingPostText(text)
+            }
           }
         }
       }
@@ -1009,6 +1073,32 @@ export default function ForumTopic() {
         recipientName={feedbackTarget?.name || null}
         context={feedbackTarget?.context || null}
       />
+      <Dialog
+        open={hashtagDialogOpen}
+        onOpenChange={(open) => {
+          if (!open) resolveHashtagChoice('ignore')
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{tr('forumTopic.hashtagsDialog.title')}</DialogTitle>
+            <DialogDescription>
+              {tr(`forumTopic.confirm.${hashtagDialogVariant}`, { hashtags: hashtagDialogTags.join(' ') })}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+            <Button variant="outline" onClick={() => resolveHashtagChoice('ignore')}>
+              {tr('forumTopic.hashtagsDialog.ignore')}
+            </Button>
+            <Button variant="outline" onClick={() => resolveHashtagChoice('withoutHash')}>
+              {tr('forumTopic.hashtagsDialog.applyWithoutHash')}
+            </Button>
+            <Button onClick={() => resolveHashtagChoice('withHash')}>
+              {tr('forumTopic.hashtagsDialog.applyWithHash')}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
       <div className="container relative mx-auto p-4 md:p-6 max-w-5xl space-y-4">
         <Card>
           <CardHeader>
