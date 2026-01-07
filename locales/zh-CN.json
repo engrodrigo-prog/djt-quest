@@ -94,6 +94,7 @@
     "mapDescription": "此地图仅显示作者允许记录位置（GPS）的发布中的照片。",
     "mapEmpty": "当前筛选条件下没有带照片 + GPS 的发布。",
     "mapViewportEmpty": "当前视图内没有带 GPS 的照片。",
+    "mapHintSelectThenOpen": "单击高亮 • 再次单击打开",
     "location": "位置",
     "photo": "照片",
     "openPost": "打开发布",

@@ -94,6 +94,7 @@
     "mapDescription": "This map shows only photos from posts where the author allowed capturing location (GPS).",
     "mapEmpty": "No posts with photo + GPS found for the current filters.",
     "mapViewportEmpty": "No photos visible in this map area.",
+    "mapHintSelectThenOpen": "Click once to highlight • click again to open",
     "location": "Location",
     "photo": "Photo",
     "openPost": "Open post",

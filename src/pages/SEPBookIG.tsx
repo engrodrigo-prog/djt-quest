@@ -315,9 +315,10 @@ async function extractGpsFromImage(file: File): Promise<{ lat: number; lng: numb
   }
 }
 
-function SepbookFitBounds({ points }: { points: Array<[number, number]> }) {
+function SepbookFitBounds({ points, disabled }: { points: Array<[number, number]>; disabled?: boolean }) {
   const map = useMap();
   useEffect(() => {
+    if (disabled) return;
     if (!map) return;
     if (!points || points.length === 0) return;
     let cancelled = false;
@@ -376,6 +377,30 @@ function SepbookMapViewport({ onBoundsChange }: { onBoundsChange: (bounds: L.Lat
       map.off("zoomend", handler);
     };
   }, [map, onBoundsChange]);
+  return null;
+}
+
+function SepbookMapUserActivity({ onActivity }: { onActivity: () => void }) {
+  const map = useMap();
+  useEffect(() => {
+    if (!map) return;
+    let cancelled = false;
+    const handler = () => {
+      if (cancelled) return;
+      onActivity();
+    };
+    map.on("dragstart", handler);
+    map.on("zoomstart", handler);
+    map.on("mousedown", handler);
+    map.on("touchstart", handler);
+    return () => {
+      cancelled = true;
+      map.off("dragstart", handler);
+      map.off("zoomstart", handler);
+      map.off("mousedown", handler);
+      map.off("touchstart", handler);
+    };
+  }, [map, onActivity]);
   return null;
 }
 
@@ -588,6 +613,7 @@ export default function SEPBookIG() {
   const [mapOpen, setMapOpen] = useState(false);
   const [mapBounds, setMapBounds] = useState<L.LatLngBounds | null>(null);
   const [mapSelectedId, setMapSelectedId] = useState<string | null>(null);
+  const [mapHasInteracted, setMapHasInteracted] = useState(false);
   const mapInstanceRef = useRef<L.Map | null>(null);
 
   const [locationConsent, setLocationConsent] = useState<"allow" | "deny" | "unknown">("unknown");
@@ -769,6 +795,11 @@ export default function SEPBookIG() {
     }, 80);
   }, []);
 
+  const selectedMapPost = useMemo(() => {
+    if (!mapSelectedId) return null;
+    return mapPosts.find((x) => x.post.id === mapSelectedId) || null;
+  }, [mapPosts, mapSelectedId]);
+
   const selectedMarkerIcon = useMemo(() => {
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="48" viewBox="0 0 32 48"><path d="M16 0C7.2 0 0 7.2 0 16c0 12 16 32 16 32s16-20 16-32C32 7.2 24.8 0 16 0z" fill="#fbbf24"/><circle cx="16" cy="16" r="6" fill="#ffffff"/></svg>`;
     const url = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
@@ -793,7 +824,18 @@ export default function SEPBookIG() {
         const lat = Number(target.post.location_lat);
         const lng = Number(target.post.location_lng);
         if (Number.isFinite(lat) && Number.isFinite(lng)) {
-          mapInstanceRef.current.setView([lat, lng], Math.max(mapInstanceRef.current.getZoom(), 14), { animate: true });
+          try {
+            const bounds = mapInstanceRef.current.getBounds?.();
+            const inView = bounds ? bounds.contains(L.latLng(lat, lng)) : false;
+            const nextZoom = Math.max(mapInstanceRef.current.getZoom(), 14);
+            if (!inView) {
+              mapInstanceRef.current.setView([lat, lng], nextZoom, { animate: true });
+            } else if (mapInstanceRef.current.getZoom() < 14) {
+              mapInstanceRef.current.setView([lat, lng], nextZoom, { animate: true });
+            }
+          } catch {
+            mapInstanceRef.current.setView([lat, lng], Math.max(mapInstanceRef.current.getZoom(), 14), { animate: true });
+          }
         }
       }
       if (opts?.openPost) {
@@ -807,6 +849,7 @@ export default function SEPBookIG() {
     (postId: string, opts?: { openOnSecond?: boolean; openPost?: boolean }) => {
       const id = String(postId || "").trim();
       if (!id) return;
+      setMapHasInteracted(true);
       const isSelected = mapSelectedId === id;
       if (!isSelected) {
         focusMapPost(id);
@@ -2712,6 +2755,7 @@ export default function SEPBookIG() {
             }
             setMapBounds(null);
             setMapSelectedId(null);
+            setMapHasInteracted(false);
           }
           setMapOpen(open);
           if (!open) mapInstanceRef.current = null;
@@ -2730,22 +2774,17 @@ export default function SEPBookIG() {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-0 border-t">
               <div className="h-[48vh] md:h-[70vh] border-b md:border-b-0 md:border-r">
-                <div
-                  className="relative h-full w-full"
-                  onMouseEnter={() => mapInstanceRef.current?.scrollWheelZoom.enable()}
-                  onMouseLeave={() => mapInstanceRef.current?.scrollWheelZoom.disable()}
-                >
+                <div className="relative h-full w-full">
                   <MapContainer
                     center={mapCenter}
                     zoom={12}
-                    scrollWheelZoom={false}
+                    scrollWheelZoom
                     zoomControl={false}
                     zoomAnimation={false}
                     fadeAnimation={false}
                     markerZoomAnimation={false}
                     whenCreated={(map) => {
                       mapInstanceRef.current = map;
-                      map.scrollWheelZoom.disable();
                     }}
                     className="h-full w-full"
                   >
@@ -2755,8 +2794,10 @@ export default function SEPBookIG() {
                     />
                     <SepbookFitBounds
                       points={mapPosts.map((x) => [Number(x.post.location_lat), Number(x.post.location_lng)] as [number, number])}
+                      disabled={mapHasInteracted}
                     />
                     <SepbookMapViewport onBoundsChange={setMapBounds} />
+                    <SepbookMapUserActivity onActivity={() => setMapHasInteracted(true)} />
                     {mapPosts.map((x) => (
                       <Marker
                         key={x.post.id}
@@ -2766,31 +2807,65 @@ export default function SEPBookIG() {
                           click: () => handleMapSelection(x.post.id, { openOnSecond: true }),
                         }}
                       >
-                        <Popup>
-                          <div className="space-y-2">
-                            <UserProfilePopover userId={x.post.user_id} name={x.post.author_name} avatarUrl={x.post.author_avatar}>
-                              <button type="button" className="text-[12px] font-semibold hover:underline p-0 bg-transparent border-0">
-                                {formatName(x.post.author_name)}
-                              </button>
-                            </UserProfilePopover>
-                            <div className="text-[12px] text-muted-foreground">{x.post.location_label || tr("sepbook.location")}</div>
-                            {x.imageUrl ? (
-                              <img src={x.imageUrl} alt={tr("sepbook.photo")} className="w-[220px] max-w-full rounded-md border" />
-                            ) : null}
-                            <Button type="button" size="sm" onClick={() => openPostById(x.post.id)}>
-                              {tr("sepbook.openPost")}
-                            </Button>
-                          </div>
-                        </Popup>
                       </Marker>
                     ))}
                   </MapContainer>
+                  {selectedMapPost ? (
+                    <div className="absolute left-3 bottom-3 right-3 z-[1000]">
+                      <div className="flex items-center gap-3 rounded-xl border bg-background/90 backdrop-blur px-3 py-2 shadow-lg">
+                        {selectedMapPost.imageUrl ? (
+                          <button
+                            type="button"
+                            className="p-0 bg-transparent border-0"
+                            onClick={() => handleMapSelection(selectedMapPost.post.id, { openOnSecond: true })}
+                            title={tr("sepbook.openPost")}
+                          >
+                            <img
+                              src={selectedMapPost.imageUrl}
+                              alt={tr("sepbook.photo")}
+                              className="h-12 w-12 rounded-lg object-cover border"
+                            />
+                          </button>
+                        ) : (
+                          <div className="h-12 w-12 rounded-lg border bg-muted" />
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <UserProfilePopover
+                              userId={selectedMapPost.post.user_id}
+                              name={selectedMapPost.post.author_name}
+                              avatarUrl={selectedMapPost.post.author_avatar}
+                            >
+                              <button type="button" className="text-[13px] font-semibold truncate hover:underline p-0 bg-transparent border-0">
+                                {formatName(selectedMapPost.post.author_name)}
+                              </button>
+                            </UserProfilePopover>
+                            <div className="text-[11px] text-muted-foreground truncate">
+                              {new Date(selectedMapPost.post.created_at).toLocaleString()}
+                            </div>
+                          </div>
+                          <div className="text-[12px] text-muted-foreground truncate">
+                            {selectedMapPost.post.location_label || tr("sepbook.location")}
+                          </div>
+                          <div className="text-[11px] text-muted-foreground">
+                            {tr("sepbook.mapHintSelectThenOpen")}
+                          </div>
+                        </div>
+                        <Button type="button" size="sm" onClick={() => openPostById(selectedMapPost.post.id)}>
+                          {tr("sepbook.openPost")}
+                        </Button>
+                      </div>
+                    </div>
+                  ) : null}
                   <div className="absolute right-3 top-3 z-[1000] flex flex-col gap-1">
                     <Button
                       type="button"
                       size="icon"
                       variant="secondary"
-                      onClick={() => mapInstanceRef.current?.zoomIn()}
+                      onClick={() => {
+                        setMapHasInteracted(true);
+                        mapInstanceRef.current?.zoomIn();
+                      }}
                       aria-label={tr("sepbook.zoomIn")}
                     >
                       <ZoomIn className="h-4 w-4" />
@@ -2799,7 +2874,10 @@ export default function SEPBookIG() {
                       type="button"
                       size="icon"
                       variant="secondary"
-                      onClick={() => mapInstanceRef.current?.zoomOut()}
+                      onClick={() => {
+                        setMapHasInteracted(true);
+                        mapInstanceRef.current?.zoomOut();
+                      }}
                       aria-label={tr("sepbook.zoomOut")}
                     >
                       <ZoomOut className="h-4 w-4" />

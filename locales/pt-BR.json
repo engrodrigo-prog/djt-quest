@@ -94,6 +94,7 @@
     "mapDescription": "Aqui aparecem apenas fotos de publicações onde o autor permitiu capturar a localização (GPS).",
     "mapEmpty": "Nenhuma publicação com foto + GPS encontrada nos filtros atuais.",
     "mapViewportEmpty": "Nenhuma foto visível nesta área do mapa.",
+    "mapHintSelectThenOpen": "Clique 1x para destacar • clique 2x para abrir",
     "location": "Localização",
     "photo": "Foto",
     "openPost": "Abrir publicação",
