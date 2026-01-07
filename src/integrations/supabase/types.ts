@@ -2009,6 +2009,60 @@ export type Database = {
           },
         ]
       }
+      user_feedback_messages: {
+        Row: {
+          context_label: string | null
+          context_type: string
+          context_url: string | null
+          created_at: string
+          id: string
+          message: string
+          metadata: Json
+          read_at: string | null
+          recipient_id: string
+          sender_id: string
+        }
+        Insert: {
+          context_label?: string | null
+          context_type?: string
+          context_url?: string | null
+          created_at?: string
+          id?: string
+          message: string
+          metadata?: Json
+          read_at?: string | null
+          recipient_id: string
+          sender_id: string
+        }
+        Update: {
+          context_label?: string | null
+          context_type?: string
+          context_url?: string | null
+          created_at?: string
+          id?: string
+          message?: string
+          metadata?: Json
+          read_at?: string | null
+          recipient_id?: string
+          sender_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_feedback_messages_recipient_id_fkey"
+            columns: ["recipient_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_feedback_messages_sender_id_fkey"
+            columns: ["sender_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_quiz_answers: {
         Row: {
           answered_at: string | null

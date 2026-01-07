@@ -25,6 +25,7 @@ import { QuizHistory } from '@/components/profile/QuizHistory';
 import { ChangePasswordCard } from '@/components/profile/ChangePasswordCard';
 import Navigation from '@/components/Navigation';
 import { ForumMentions } from '@/components/profile/ForumMentions';
+import { UserFeedbackInbox } from '@/components/profile/UserFeedbackInbox';
 import { SepbookPostsCard } from '@/components/profile/SepbookPostsCard';
 import { MyCreatedQuizzesCard } from '@/components/profile/MyCreatedQuizzesCard';
 import { fetchTeamNames } from '@/lib/teamLookup';
@@ -794,6 +795,20 @@ function ProfileContent() {
           <SepbookPostsCard />
           <MyCreatedQuizzesCard />
           <ForumMentions />
+          <Card className="lg:col-span-2">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <User className="h-4 w-4 text-primary" />
+                Feedbacks
+              </CardTitle>
+              <CardDescription className="text-xs">
+                Mensagens privadas enviadas por líderes e administradores.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <UserFeedbackInbox showSent={Boolean(isLeader)} />
+            </CardContent>
+          </Card>
           {coordBonus && coordBonus.coordId && (
             <Card>
               <CardHeader>

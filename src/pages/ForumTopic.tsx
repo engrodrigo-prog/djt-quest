@@ -13,9 +13,10 @@ import { HelpInfo } from '@/components/HelpInfo'
 import { AttachmentUploader } from '@/components/AttachmentUploader'
 import { AttachmentViewer } from '@/components/AttachmentViewer'
 import { UserProfilePopover } from '@/components/UserProfilePopover'
+import { SendUserFeedbackDialog } from '@/components/SendUserFeedbackDialog'
 import { VoiceRecorderButton } from '@/components/VoiceRecorderButton'
 import Navigation from '@/components/Navigation'
-import { MoreVertical, Share2, Volume2, Wand2, Trash2, Pencil, Reply, Heart } from 'lucide-react'
+import { MoreVertical, Share2, Volume2, Wand2, Trash2, Pencil, Reply, Heart, MessageSquare } from 'lucide-react'
 import { buildAbsoluteAppUrl, openWhatsAppShare } from '@/lib/whatsappShare'
 import { useTts } from '@/lib/tts'
 import { getActiveLocale } from '@/lib/i18n/activeLocale'
@@ -51,6 +52,7 @@ interface Post {
   author?: {
     name: string | null;
     sigla_area: string | null;
+    avatar_thumbnail_url?: string | null;
   } | null;
 }
 
@@ -89,6 +91,12 @@ export default function ForumTopic() {
   const [translatedSummary, setTranslatedSummary] = useState<string | null>(null)
   const [postLocalTranslations, setPostLocalTranslations] = useState<Record<string, string>>({})
   const [isTranslating, setIsTranslating] = useState(false)
+  const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false)
+  const [feedbackTarget, setFeedbackTarget] = useState<{
+    userId: string;
+    name?: string | null;
+    context?: { type: string; url?: string | null; label?: string | null } | null;
+  } | null>(null)
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
   const mentionDraftRef = useRef<{ start: number; end: number; query: string } | null>(null)
   const pendingCursorRef = useRef<number | null>(null)
@@ -150,7 +158,7 @@ export default function ForumTopic() {
       supabase.from('forum_topics').select('*').eq('id', id).maybeSingle(),
       supabase
         .from('forum_posts')
-        .select('id,user_id,author_id,content_md,translations,payload,created_at,ai_assessment,parent_post_id,reply_to_user_id,likes_count,author:profiles!forum_posts_author_id_fkey(name,sigla_area)')
+        .select('id,user_id,author_id,content_md,translations,payload,created_at,ai_assessment,parent_post_id,reply_to_user_id,likes_count,author:profiles!forum_posts_user_id_fkey(name,sigla_area,avatar_thumbnail_url)')
         .eq('topic_id', id)
         .order('created_at', { ascending: true }),
       supabase.from('forum_compendia').select('*').eq('topic_id', id).maybeSingle(),
@@ -773,11 +781,23 @@ export default function ForumTopic() {
   const isLeaderMod = Boolean(isLeader && studioAccess)
   const isAdmin = (Array.isArray(roles) && roles.includes('admin')) || (typeof userRole === 'string' && userRole.includes('admin'))
   const canDeleteTopic = isAdmin || userRole?.includes?.('gerente_djt') || userRole?.includes?.('gerente_divisao_djtx')
+  const canGiveFeedback = Boolean(isLeader || studioAccess || isAdmin)
   const permissionLabel = isAdmin
     ? tr('forumTopic.permission.admin')
     : isLeaderMod
       ? tr('forumTopic.permission.moderator')
       : tr('forumTopic.permission.contributor')
+
+  const startFeedback = (opts: { userId: string | null; name?: string | null; context?: { type: string; url?: string | null; label?: string | null } | null }) => {
+    const targetId = String(opts.userId || '').trim()
+    if (!targetId) return
+    if (targetId === user?.id) {
+      toast({ title: 'Você não pode enviar feedback para si mesmo.', variant: 'destructive' })
+      return
+    }
+    setFeedbackTarget({ userId: targetId, name: opts.name || null, context: opts.context || null })
+    setFeedbackDialogOpen(true)
+  }
 
   const sendCompendiumToStudio = (kind: 'quiz' | 'desafio' | 'campanha') => {
     if (!topic) return
@@ -976,6 +996,16 @@ export default function ForumTopic() {
     <div className="relative min-h-screen pb-40">
       <ThemedBackground theme="atitude" />
       <HelpInfo kind="forum" />
+      <SendUserFeedbackDialog
+        open={feedbackDialogOpen}
+        onOpenChange={(open) => {
+          setFeedbackDialogOpen(open)
+          if (!open) setFeedbackTarget(null)
+        }}
+        recipientId={feedbackTarget?.userId || null}
+        recipientName={feedbackTarget?.name || null}
+        context={feedbackTarget?.context || null}
+      />
       <div className="container relative mx-auto p-4 md:p-6 max-w-5xl space-y-4">
         <Card>
           <CardHeader>
@@ -1297,7 +1327,7 @@ export default function ForumTopic() {
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div className="flex-1 min-w-0 space-y-1">
                       <p className="text-[11px] font-semibold text-primary">
-                        <UserProfilePopover userId={authorId} name={p.author?.name} avatarUrl={null}>
+                        <UserProfilePopover userId={authorId} name={p.author?.name} avatarUrl={p.author?.avatar_thumbnail_url || null}>
                           <button type="button" className="text-[11px] font-semibold text-primary">
                             {authorLabel}
                           </button>
@@ -1365,6 +1395,24 @@ export default function ForumTopic() {
 	                            </Button>
 	                          </DropdownMenuTrigger>
 	                          <DropdownMenuContent align="end" className="min-w-[190px]">
+                              {canGiveFeedback && (
+                                <DropdownMenuItem
+                                  onClick={() =>
+                                    startFeedback({
+                                      userId: authorId,
+                                      name: p.author?.name || null,
+                                      context: {
+                                        type: 'forum_post',
+                                        url: `/forum/${encodeURIComponent(id || '')}#post-${encodeURIComponent(p.id)}`,
+                                        label: topicTitle ? `Fórum: ${topicTitle}` : 'Fórum',
+                                      },
+                                    })
+                                  }
+                                >
+                                  <MessageSquare className="h-4 w-4 mr-2" />
+                                  Feedback
+                                </DropdownMenuItem>
+                              )}
 	                            {(isAdmin || p.user_id === user?.id) && (
 	                              <DropdownMenuItem
 	                                onClick={() => handleCleanExistingPost(p)}
@@ -1427,7 +1475,7 @@ export default function ForumTopic() {
                         <div className="whitespace-pre-wrap flex-1 min-w-0 space-y-1">
                           <p className="text-[11px] font-semibold text-muted-foreground flex items-center gap-1">
                             <span className="text-xs">{tr('forumTopic.reply.label')}</span>
-                            <UserProfilePopover userId={replyAuthorId} name={r.author?.name} avatarUrl={null}>
+                            <UserProfilePopover userId={replyAuthorId} name={r.author?.name} avatarUrl={r.author?.avatar_thumbnail_url || null}>
                               <button type="button" className="text-[11px] font-semibold text-muted-foreground">
                                 {rAuthorLabel}
                               </button>
@@ -1496,7 +1544,7 @@ export default function ForumTopic() {
 	                              <Reply className="h-4 w-4" />
 	                              {tr('forumTopic.actions.reply')}
 	                            </Button>
-	                            {(r.user_id === user?.id || (r as any).author_id === user?.id) && (
+	                            {(canGiveFeedback || r.user_id === user?.id || (r as any).author_id === user?.id) && (
 	                              <DropdownMenu>
 	                                <DropdownMenuTrigger asChild>
 	                                  <Button type="button" size="icon" variant="ghost" className="h-9 w-9" aria-label="Mais ações">
@@ -1504,10 +1552,30 @@ export default function ForumTopic() {
 	                                  </Button>
 	                                </DropdownMenuTrigger>
 	                                <DropdownMenuContent align="end" className="min-w-[190px]">
-	                                  <DropdownMenuItem onClick={() => startEditPost(r)}>
-	                                    <Pencil className="h-4 w-4 mr-2" />
-	                                    {tr('forumTopic.actions.edit')}
-	                                  </DropdownMenuItem>
+                                    {canGiveFeedback && (
+                                      <DropdownMenuItem
+                                        onClick={() =>
+                                          startFeedback({
+                                            userId: replyAuthorId,
+                                            name: r.author?.name || null,
+                                            context: {
+                                              type: 'forum_post',
+                                              url: `/forum/${encodeURIComponent(id || '')}#post-${encodeURIComponent(r.id)}`,
+                                              label: topicTitle ? `Fórum: ${topicTitle}` : 'Fórum',
+                                            },
+                                          })
+                                        }
+                                      >
+                                        <MessageSquare className="h-4 w-4 mr-2" />
+                                        Feedback
+                                      </DropdownMenuItem>
+                                    )}
+	                                  {(r.user_id === user?.id || (r as any).author_id === user?.id) && (
+	                                    <DropdownMenuItem onClick={() => startEditPost(r)}>
+	                                      <Pencil className="h-4 w-4 mr-2" />
+	                                      {tr('forumTopic.actions.edit')}
+	                                    </DropdownMenuItem>
+	                                  )}
 	                                </DropdownMenuContent>
 	                              </DropdownMenu>
 	                            )}

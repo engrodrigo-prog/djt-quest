@@ -167,6 +167,10 @@ export default async function handler(req, res) {
         const notifications = await safeCount(
             admin.from('notifications').eq('user_id', userId).eq('read', false)
         );
+        // Feedbacks privados (inbox do perfil)
+        const feedbackMessages = await safeCount(
+            admin.from('user_feedback_messages').eq('recipient_id', userId).is('read_at', null)
+        );
 
         // Campanhas ativas (vigentes por data) — filtradas por alvo de time/coord/div se houver
         let campaigns = 0;
@@ -245,7 +249,7 @@ export default async function handler(req, res) {
             leadershipAssignments,
             forumMentions,
             registrations: pendingRegistrations,
-            notifications,
+            notifications: notifications + feedbackMessages,
             campaigns,
             quizzesPending,
         });

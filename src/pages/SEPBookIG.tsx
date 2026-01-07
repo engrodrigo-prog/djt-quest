@@ -28,6 +28,7 @@ import { useTts } from "@/lib/tts";
 import { AttachmentViewer } from "@/components/AttachmentViewer";
 import { VoiceRecorderButton } from "@/components/VoiceRecorderButton";
 import { UserProfilePopover } from "@/components/UserProfilePopover";
+import { SendUserFeedbackDialog } from "@/components/SendUserFeedbackDialog";
 import { useAuth } from "@/contexts/AuthContext";
 import { useI18n } from "@/contexts/I18nContext";
 import { translateTextsCached } from "@/lib/i18n/aiTranslate";
@@ -601,8 +602,31 @@ export default function SEPBookIG() {
   const routerLocation = useRouterLocation();
   const navigate = useNavigate();
   const { speak, isSpeaking } = useTts();
-  const { user } = useAuth();
+  const { user, isLeader, studioAccess, userRole, roles } = useAuth() as any;
   const { locale, t: tr } = useI18n();
+  const isAdmin = (Array.isArray(roles) && roles.includes("admin")) || (typeof userRole === "string" && userRole.includes("admin"));
+  const canGiveFeedback = Boolean(isLeader || studioAccess || isAdmin);
+
+  const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false);
+  const [feedbackTarget, setFeedbackTarget] = useState<{
+    userId: string;
+    name?: string | null;
+    context?: { type: string; url?: string | null; label?: string | null } | null;
+  } | null>(null);
+
+  const startFeedback = useCallback(
+    (opts: { userId: string | null; name?: string | null; context?: { type: string; url?: string | null; label?: string | null } | null }) => {
+      const targetId = String(opts.userId || "").trim();
+      if (!targetId) return;
+      if (targetId === user?.id) {
+        toast({ title: "Você não pode enviar feedback para si mesmo.", variant: "destructive" });
+        return;
+      }
+      setFeedbackTarget({ userId: targetId, name: opts.name || null, context: opts.context || null });
+      setFeedbackDialogOpen(true);
+    },
+    [toast, user?.id],
+  );
 
   const [posts, setPosts] = useState<SepPost[]>([]);
   const [loadingFeed, setLoadingFeed] = useState(false);
@@ -1944,6 +1968,16 @@ export default function SEPBookIG() {
 
   return (
     <div className="min-h-screen bg-background text-foreground pb-[120px]">
+      <SendUserFeedbackDialog
+        open={feedbackDialogOpen}
+        onOpenChange={(open) => {
+          setFeedbackDialogOpen(open);
+          if (!open) setFeedbackTarget(null);
+        }}
+        recipientId={feedbackTarget?.userId || null}
+        recipientName={feedbackTarget?.name || null}
+        context={feedbackTarget?.context || null}
+      />
       <header className="sticky top-0 z-20 border-b bg-background/80 backdrop-blur">
         <div className="mx-auto flex max-w-[680px] items-center justify-between gap-3 px-3 py-2">
           <div className="min-w-0">
@@ -2079,18 +2113,40 @@ export default function SEPBookIG() {
                       </div>
                     </div>
 
-                    <Button
-                      type="button"
-                      size="icon"
-                      variant="ghost"
-                      onClick={() => {
-                        void copyToClipboard(toast, buildAbsoluteAppUrl(`/sepbook#post-${encodeURIComponent(p.id)}`));
-                      }}
-                      aria-label={tr("sepbook.options")}
-                      title={tr("sepbook.copyLink")}
-                    >
-                      <MoreHorizontal className="h-5 w-5" />
-                    </Button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button type="button" size="icon" variant="ghost" aria-label={tr("sepbook.options")} title={tr("sepbook.options")}>
+                          <MoreHorizontal className="h-5 w-5" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="min-w-[200px]">
+                        <DropdownMenuItem
+                          onClick={() => {
+                            void copyToClipboard(toast, buildAbsoluteAppUrl(`/sepbook#post-${encodeURIComponent(p.id)}`));
+                          }}
+                        >
+                          {tr("sepbook.copyLink")}
+                        </DropdownMenuItem>
+                        {canGiveFeedback && p.user_id !== user?.id && (
+                          <DropdownMenuItem
+                            onClick={() =>
+                              startFeedback({
+                                userId: p.user_id,
+                                name: p.author_name || null,
+                                context: {
+                                  type: "sepbook_post",
+                                  url: `/sepbook#post-${encodeURIComponent(p.id)}`,
+                                  label: caption ? `SEPBook: ${caption.slice(0, 80)}` : "SEPBook",
+                                },
+                              })
+                            }
+                          >
+                            <MessageCircle className="h-4 w-4 mr-2" />
+                            Feedback
+                          </DropdownMenuItem>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
 
                   {Array.isArray(p.attachments) && p.attachments.length > 0 ? (
