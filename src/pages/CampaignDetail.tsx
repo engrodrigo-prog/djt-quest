@@ -12,6 +12,7 @@ import { Target, Hash, MessageSquare, Zap, ArrowLeft, Share2, MapPinned } from "
 import { buildAbsoluteAppUrl, openWhatsAppShare } from "@/lib/whatsappShare";
 import { getActiveLocale } from "@/lib/i18n/activeLocale";
 import { apiFetch } from "@/lib/api";
+import { UserProfilePopover } from "@/components/UserProfilePopover";
 import { MapContainer, Marker, Popup, TileLayer } from "react-leaflet";
 import { useMap } from "react-leaflet";
 import L from "leaflet";
@@ -404,7 +405,11 @@ export default function CampaignDetail() {
                     )}
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center justify-between gap-2">
-                        <div className="text-[13px] font-semibold truncate">{ev.author_name}</div>
+                        <UserProfilePopover userId={ev.user_id} name={ev.author_name} avatarUrl={ev.author_avatar}>
+                          <button type="button" className="text-[13px] font-semibold truncate hover:underline p-0 bg-transparent border-0 text-left">
+                            {ev.author_name}
+                          </button>
+                        </UserProfilePopover>
                         <div className="text-[11px] text-muted-foreground">{new Date(ev.created_at).toLocaleString(getActiveLocale())}</div>
                       </div>
                       <div className="text-[12px] text-muted-foreground truncate">
@@ -656,7 +661,11 @@ export default function CampaignDetail() {
                     <Marker key={x.e.id} position={[Number(x.e.location_lat), Number(x.e.location_lng)]}>
                       <Popup>
                         <div className="space-y-2">
-                          <div className="text-[12px] font-semibold">{x.e.author_name}</div>
+                          <UserProfilePopover userId={x.e.user_id} name={x.e.author_name} avatarUrl={x.e.author_avatar}>
+                            <button type="button" className="text-[12px] font-semibold hover:underline p-0 bg-transparent border-0 text-left">
+                              {x.e.author_name}
+                            </button>
+                          </UserProfilePopover>
                           <div className="text-[12px] text-muted-foreground">{x.e.location_label || "GPS"}</div>
                           {x.imageUrl ? (
                             <img src={x.imageUrl} alt="Evidência" className="w-[220px] max-w-full rounded-md border" />
@@ -678,23 +687,39 @@ export default function CampaignDetail() {
               </div>
               <div className="max-h-[48vh] md:max-h-[70vh] overflow-auto p-4 space-y-3">
                 {mapEvidence.map((x) => (
-                  <button
+                  <div
                     key={`ev-${x.e.id}`}
-                    type="button"
+                    role="button"
+                    tabIndex={0}
                     className="w-full flex items-center gap-3 rounded-xl border p-2 hover:bg-accent/10 text-left"
                     onClick={() => {
                       if (x.e.sepbook_post_id) navigate(`/sepbook#post-${encodeURIComponent(String(x.e.sepbook_post_id))}`);
                     }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        if (x.e.sepbook_post_id) {
+                          navigate(`/sepbook#post-${encodeURIComponent(String(x.e.sepbook_post_id))}`);
+                        }
+                      }
+                    }}
                   >
                     <img src={x.imageUrl || undefined} alt="Evidência" className="h-16 w-16 rounded-lg object-cover border" />
                     <div className="min-w-0 flex-1">
-                      <div className="text-[13px] font-semibold truncate">{x.e.author_name}</div>
+                      <UserProfilePopover userId={x.e.user_id} name={x.e.author_name} avatarUrl={x.e.author_avatar}>
+                        <span
+                          className="text-[13px] font-semibold truncate hover:underline"
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          {x.e.author_name}
+                        </span>
+                      </UserProfilePopover>
                       <div className="text-[12px] text-muted-foreground truncate">{x.e.location_label || "GPS"}</div>
                       <div className="text-[11px] text-muted-foreground truncate">
                         {new Date(x.e.created_at).toLocaleString(getActiveLocale())}
                       </div>
                     </div>
-                  </button>
+                  </div>
                 ))}
               </div>
             </div>

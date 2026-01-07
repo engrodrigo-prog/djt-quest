@@ -246,7 +246,12 @@ export const AvatarRegistrationTool = () => {
                           : "border-border hover:border-primary/40"
                       )}
                     >
-                      <AvatarDisplay name={user.name} avatarUrl={user.avatar_thumbnail_url || user.avatar_url} size="sm" />
+                    <AvatarDisplay
+                      userId={user.id}
+                      name={user.name}
+                      avatarUrl={user.avatar_thumbnail_url || user.avatar_url}
+                      size="sm"
+                    />
                       <div className="flex-1">
                         <p className="font-semibold text-sm">{user.name}</p>
                         <p className="text-xs text-muted-foreground">{user.email}</p>
@@ -280,7 +285,12 @@ export const AvatarRegistrationTool = () => {
               {selectedUser ? (
                 <div className="space-y-4">
                   <div className="flex items-center gap-4">
-                    <AvatarDisplay name={selectedUser.name} avatarUrl={selectedUser.avatar_url} size="lg" />
+                    <AvatarDisplay
+                      userId={selectedUser.id}
+                      name={selectedUser.name}
+                      avatarUrl={selectedUser.avatar_url}
+                      size="lg"
+                    />
                     <div>
                       <p className="font-semibold text-lg">{selectedUser.name}</p>
                       <p className="text-sm text-muted-foreground">{selectedUser.email}</p>

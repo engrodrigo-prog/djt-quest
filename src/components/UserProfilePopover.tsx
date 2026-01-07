@@ -12,9 +12,10 @@ type ProfileInfo = {
   name: string | null;
   operational_base: string | null;
   sigla_area: string | null;
-  phone: string | null;
+  telefone: string | null;
   avatar_url: string | null;
   avatar_thumbnail_url?: string | null;
+  team_id?: string | null;
 };
 
 type UserProfilePopoverProps = {
@@ -44,28 +45,46 @@ export function UserProfilePopover({ userId, name, avatarUrl, children }: UserPr
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [profile, setProfile] = useState<ProfileInfo | null>(null);
+  const [leaderName, setLeaderName] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
     if (!open || !userId) return;
     setLoading(true);
-    supabase
-      .from("profiles")
-      .select("id, name, operational_base, sigla_area, phone, avatar_url, avatar_thumbnail_url")
-      .eq("id", userId)
-      .maybeSingle()
-      .then(({ data }) => {
+    setProfile(null);
+    setLeaderName(null);
+    const loadProfile = async () => {
+      try {
+        const { data } = await supabase
+          .from("profiles")
+          .select("id, name, operational_base, sigla_area, telefone, avatar_url, avatar_thumbnail_url, team_id")
+          .eq("id", userId)
+          .maybeSingle();
         if (!active) return;
         setProfile(data || null);
-      })
-      .catch(() => {
+
+        if (data?.team_id) {
+          const { data: leader } = await supabase
+            .from("profiles")
+            .select("id, name")
+            .eq("team_id", data.team_id)
+            .eq("is_leader", true)
+            .neq("id", data.id)
+            .limit(1)
+            .maybeSingle();
+          if (!active) return;
+          setLeaderName(leader?.name || null);
+        }
+      } catch {
         if (!active) return;
         setProfile(null);
-      })
-      .finally(() => {
-        if (!active) return;
-        setLoading(false);
-      });
+        setLeaderName(null);
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+
+    loadProfile();
     return () => {
       active = false;
     };
@@ -73,9 +92,10 @@ export function UserProfilePopover({ userId, name, avatarUrl, children }: UserPr
 
   const displayName = profile?.name || name || tr("userPopover.userFallback");
   const displayBase = profile?.operational_base || profile?.sigla_area || tr("userPopover.baseFallback");
-  const displayPhone = profile?.phone || tr("userPopover.phoneFallback");
+  const displayPhone = profile?.telefone || tr("userPopover.phoneFallback");
+  const displayLeader = leaderName || tr("userPopover.leaderFallback");
   const avatar = profile?.avatar_thumbnail_url || profile?.avatar_url || avatarUrl || null;
-  const digits = useMemo(() => cleanPhone(profile?.phone), [profile?.phone]);
+  const digits = useMemo(() => cleanPhone(profile?.telefone), [profile?.telefone]);
   const whatsappUrl = digits ? `https://wa.me/${digits}` : null;
   const telUrl = digits ? `tel:${digits}` : null;
 
@@ -84,16 +104,23 @@ export function UserProfilePopover({ userId, name, avatarUrl, children }: UserPr
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>{children}</PopoverTrigger>
-      <PopoverContent className="w-72">
+      <PopoverContent className="w-80">
         <div className="flex items-center gap-3">
-          <Avatar className="h-10 w-10">
+          <Avatar className="h-14 w-14">
             <AvatarImage src={avatar || undefined} alt={displayName} />
             <AvatarFallback>{initials(displayName)}</AvatarFallback>
           </Avatar>
           <div className="min-w-0">
             <p className="text-sm font-semibold truncate">{displayName}</p>
-            <p className="text-xs text-muted-foreground truncate">{displayBase}</p>
-            <p className="text-xs text-muted-foreground truncate">{displayPhone}</p>
+            <p className="text-xs text-muted-foreground truncate">
+              {tr("userPopover.baseLabel")}: {displayBase}
+            </p>
+            <p className="text-xs text-muted-foreground truncate">
+              {tr("userPopover.leaderLabel")}: {displayLeader}
+            </p>
+            <p className="text-xs text-muted-foreground truncate">
+              {tr("userPopover.phoneLabel")}: {displayPhone}
+            </p>
           </div>
         </div>
 
@@ -108,7 +135,7 @@ export function UserProfilePopover({ userId, name, avatarUrl, children }: UserPr
           </Button>
           <Button type="button" size="sm" asChild disabled={!whatsappUrl}>
             <a href={whatsappUrl || "#"} target="_blank" rel="noreferrer" aria-disabled={!whatsappUrl}>
-              <MessageCircle className="h-4 w-4 mr-1" />
+              <MessageCircle className="h-4 w-4 mr-1 text-green-500" />
               {tr("userPopover.whatsapp")}
             </a>
           </Button>

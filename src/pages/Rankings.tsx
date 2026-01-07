@@ -10,6 +10,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { useI18n } from '@/contexts/I18nContext';
 import { getActiveLocale } from '@/lib/i18n/activeLocale';
+import { UserProfilePopover } from '@/components/UserProfilePopover';
 
 interface IndividualRanking {
   rank: number;
@@ -594,20 +595,27 @@ function Rankings() {
                             {getMedalEmoji(ranking.rank)}
                           </span>
                           
-                          <Avatar className="h-12 w-12">
-                            <AvatarImage src={ranking.avatarUrl || ''} />
-                            <AvatarFallback>{ranking.name.split(' ').map(n => n[0]).join('')}</AvatarFallback>
-                          </Avatar>
-
-                          <div className="flex-1">
-                            <p className="font-semibold">{ranking.name}</p>
-                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                              <Badge variant="outline" className="text-xs">
-                                {ranking.tier}
-                              </Badge>
-                              <span>{ranking.teamName}</span>
-                            </div>
-                          </div>
+                          <UserProfilePopover userId={ranking.userId} name={ranking.name} avatarUrl={ranking.avatarUrl}>
+                            <button
+                              type="button"
+                              className="flex items-center gap-4 min-w-0 flex-1 text-left p-0 bg-transparent border-0"
+                              onClick={(event) => event.stopPropagation()}
+                            >
+                              <Avatar className="h-12 w-12">
+                                <AvatarImage src={ranking.avatarUrl || ''} />
+                                <AvatarFallback>{ranking.name.split(' ').map(n => n[0]).join('')}</AvatarFallback>
+                              </Avatar>
+                              <div className="min-w-0">
+                                <p className="font-semibold truncate">{ranking.name}</p>
+                                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                  <Badge variant="outline" className="text-xs">
+                                    {ranking.tier}
+                                  </Badge>
+                                  <span className="truncate">{ranking.teamName}</span>
+                                </div>
+                              </div>
+                            </button>
+                          </UserProfilePopover>
 
                           <div className="text-right">
                             <p className="text-lg font-bold">{ranking.xp.toLocaleString()} XP</p>
@@ -699,19 +707,22 @@ function Rankings() {
                           {getMedalEmoji(ranking.rank)}
                         </span>
                         
-                        <Avatar className="h-12 w-12">
-                          <AvatarImage src={ranking.avatarUrl || ''} />
-                          <AvatarFallback>{ranking.name.split(' ').map(n => n[0]).join('')}</AvatarFallback>
-                        </Avatar>
-
-                        <div className="flex-1">
-                          <p className="font-semibold">{ranking.name}</p>
-                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                            <Badge variant="outline" className="text-xs">
-                              {ranking.tier}
-                            </Badge>
-                          </div>
-                        </div>
+                        <UserProfilePopover userId={ranking.userId} name={ranking.name} avatarUrl={ranking.avatarUrl}>
+                          <button type="button" className="flex items-center gap-4 min-w-0 flex-1 text-left p-0 bg-transparent border-0">
+                            <Avatar className="h-12 w-12">
+                              <AvatarImage src={ranking.avatarUrl || ''} />
+                              <AvatarFallback>{ranking.name.split(' ').map(n => n[0]).join('')}</AvatarFallback>
+                            </Avatar>
+                            <div className="min-w-0">
+                              <p className="font-semibold truncate">{ranking.name}</p>
+                              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                <Badge variant="outline" className="text-xs">
+                                  {ranking.tier}
+                                </Badge>
+                              </div>
+                            </div>
+                          </button>
+                        </UserProfilePopover>
 
                         <div className="text-right">
                           <p className="text-lg font-bold">{ranking.xp.toLocaleString()} XP</p>
@@ -826,16 +837,20 @@ function Rankings() {
                     {leaderRankings.map((r) => (
                       <div key={r.userId} className="flex items-center gap-4 p-4 rounded-lg border bg-transparent hover:bg-white/5 transition-colors">
                         <span className="text-2xl font-bold text-muted-foreground min-w-[3rem]">{getMedalEmoji(r.rank)}</span>
-                        <Avatar className="h-12 w-12">
-                          <AvatarImage src={r.avatarUrl || ''} />
-                          <AvatarFallback>{r.name.split(' ').map(n => n[0]).join('')}</AvatarFallback>
-                        </Avatar>
-                        <div className="flex-1">
-                          <p className="font-semibold">{r.name}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {tr("rankings.leadersStats", { completed: r.completed, quizXp: r.quizXp.toLocaleString() })}
-                          </p>
-                        </div>
+                        <UserProfilePopover userId={r.userId} name={r.name} avatarUrl={r.avatarUrl}>
+                          <button type="button" className="flex items-center gap-4 min-w-0 flex-1 text-left p-0 bg-transparent border-0">
+                            <Avatar className="h-12 w-12">
+                              <AvatarImage src={r.avatarUrl || ''} />
+                              <AvatarFallback>{r.name.split(' ').map(n => n[0]).join('')}</AvatarFallback>
+                            </Avatar>
+                            <div className="min-w-0">
+                              <p className="font-semibold truncate">{r.name}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {tr("rankings.leadersStats", { completed: r.completed, quizXp: r.quizXp.toLocaleString() })}
+                              </p>
+                            </div>
+                          </button>
+                        </UserProfilePopover>
                         <div className="text-right">
                           <p className="text-lg font-bold">{r.score.toLocaleString()}</p>
                           <p className="text-xs text-muted-foreground">{tr("rankings.pointsLabel")}</p>

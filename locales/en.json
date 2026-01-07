@@ -14,6 +14,10 @@
     "userFallback": "User",
     "baseFallback": "Base not provided",
     "phoneFallback": "Phone not provided",
+    "leaderFallback": "Leader not provided",
+    "baseLabel": "Base",
+    "leaderLabel": "Leader",
+    "phoneLabel": "Phone",
     "loading": "Loading…",
     "call": "Call",
     "whatsapp": "WhatsApp"

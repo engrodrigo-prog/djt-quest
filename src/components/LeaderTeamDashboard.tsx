@@ -192,6 +192,7 @@ export function LeaderTeamDashboard() {
                       #{index + 1}
                     </div>
                     <AvatarDisplay
+                      userId={member.id}
                       avatarUrl={member.avatar_url}
                       name={member.name}
                       size="md"

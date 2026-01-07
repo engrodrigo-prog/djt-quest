@@ -12,12 +12,14 @@ import { useToast } from '@/hooks/use-toast';
 import Navigation from '@/components/Navigation';
 import { getActiveLocale } from '@/lib/i18n/activeLocale';
 import { localeToOpenAiLanguageTag } from '@/lib/i18n/language';
+import { UserProfilePopover } from '@/components/UserProfilePopover';
 
 interface PendingEvent {
   id: string;
   title: string;
   description: string;
   submitted_at: string;
+  user_id: string;
   user_name: string;
   sla_status: 'green' | 'yellow' | 'red';
   days_remaining: number;
@@ -52,7 +54,7 @@ const Evaluations = () => {
         .select(`
           event_id,
           events!inner(
-            id, created_at, payload,
+            id, created_at, payload, user_id,
             challenges(title, description),
             profiles:profiles!events_user_id_fkey(name)
           )
@@ -72,6 +74,7 @@ const Evaluations = () => {
           title: event?.challenges?.title || 'Sem título',
           description: payload.description || event?.challenges?.description || 'Sem descrição',
           submitted_at: event?.created_at,
+          user_id: event?.user_id || '',
           user_name: event?.profiles?.name || 'Desconhecido',
           days_remaining: 5 - daysOld,
           sla_status: daysOld < 3 ? 'green' : daysOld < 5 ? 'yellow' : 'red',
@@ -228,7 +231,18 @@ const Evaluations = () => {
                           <div className="flex items-start justify-between">
                             <div className="flex-1">
                               <h3 className="font-semibold">{event.title}</h3>
-                              <p className="text-sm text-muted-foreground">Por: {event.user_name}</p>
+                              <p className="text-sm text-muted-foreground">
+                                Por:{" "}
+                                <UserProfilePopover userId={event.user_id} name={event.user_name}>
+                                  <button
+                                    type="button"
+                                    className="text-sm text-muted-foreground hover:underline p-0 bg-transparent border-0"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    {event.user_name}
+                                  </button>
+                                </UserProfilePopover>
+                              </p>
                             </div>
                             <div className="flex items-center gap-2">
                               <Badge variant={event.sla_status === 'green' ? 'default' : event.sla_status === 'yellow' ? 'secondary' : 'destructive'}>

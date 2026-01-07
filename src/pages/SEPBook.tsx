@@ -9,6 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { AttachmentUploader } from "@/components/AttachmentUploader";
 import { AttachmentViewer } from "@/components/AttachmentViewer";
+import { UserProfilePopover } from "@/components/UserProfilePopover";
 import { ThemedBackground } from "@/components/ThemedBackground";
 import Navigation from "@/components/Navigation";
 import { useToast } from "@/hooks/use-toast";
@@ -845,15 +846,23 @@ export default function SEPBook() {
         className={`flex items-start gap-2 text-[11px] text-muted-foreground ${isReply ? "ml-6" : ""}`}
       >
         {comment.author_avatar && (
-          <img
-            src={comment.author_avatar}
-            alt={comment.author_name}
-            className="h-5 w-5 rounded-full object-cover border border-border/60 mt-0.5"
-          />
+          <UserProfilePopover userId={comment.user_id} name={comment.author_name} avatarUrl={comment.author_avatar}>
+            <button type="button" className="mt-0.5 p-0 bg-transparent border-0">
+              <img
+                src={comment.author_avatar}
+                alt={comment.author_name}
+                className="h-5 w-5 rounded-full object-cover border border-border/60"
+              />
+            </button>
+          </UserProfilePopover>
         )}
         <div className="flex-1 min-w-0 space-y-1">
           <div className="flex items-center gap-1">
-            <span className="font-semibold">{formatName(comment.author_name)}</span>
+            <UserProfilePopover userId={comment.user_id} name={comment.author_name} avatarUrl={comment.author_avatar}>
+              <button type="button" className="font-semibold hover:underline p-0 bg-transparent border-0">
+                {formatName(comment.author_name)}
+              </button>
+            </UserProfilePopover>
             {comment.author_team && (
               <span className="opacity-70">
                 ({comment.author_team}{comment.author_base ? ` • ${comment.author_base}` : ""})
@@ -1787,14 +1796,22 @@ export default function SEPBook() {
               <CardHeader className="pb-2 flex flex-row items-start justify-between gap-2">
                 <div className="flex items-center gap-2">
                   {p.author_avatar && (
-                    <img
-                      src={p.author_avatar}
-                      alt={p.author_name}
-                      className="h-7 w-7 rounded-full object-cover border border-border/60"
-                    />
+                    <UserProfilePopover userId={p.user_id} name={p.author_name} avatarUrl={p.author_avatar}>
+                      <button type="button" className="p-0 bg-transparent border-0">
+                        <img
+                          src={p.author_avatar}
+                          alt={p.author_name}
+                          className="h-7 w-7 rounded-full object-cover border border-border/60"
+                        />
+                      </button>
+                    </UserProfilePopover>
                   )}
                   <div>
-                    <CardTitle className="text-sm">{formatName(p.author_name)}</CardTitle>
+                    <UserProfilePopover userId={p.user_id} name={p.author_name} avatarUrl={p.author_avatar}>
+                      <button type="button" className="p-0 bg-transparent border-0 text-left">
+                        <CardTitle className="text-sm hover:underline">{formatName(p.author_name)}</CardTitle>
+                      </button>
+                    </UserProfilePopover>
                     <CardDescription className="text-xs">
                       {(p.author_team || "DJT")}{p.author_base ? ` • ${p.author_base}` : ""} •{" "}
                       {new Date(p.created_at).toLocaleString(getActiveLocale())}
@@ -1979,7 +1996,12 @@ export default function SEPBook() {
                     {p.repost && (
                       <div className="mt-2 rounded-lg border bg-muted/30 p-2">
                         <p className="text-[11px] text-muted-foreground mb-1">
-                          Repost de <span className="font-semibold">{formatName(p.repost.author_name)}</span>
+                          Repost de{" "}
+                          <UserProfilePopover userId={p.repost.user_id} name={p.repost.author_name} avatarUrl={p.repost.author_avatar}>
+                            <button type="button" className="font-semibold hover:underline p-0 bg-transparent border-0">
+                              {formatName(p.repost.author_name)}
+                            </button>
+                          </UserProfilePopover>
                           {p.repost.author_team ? ` (${p.repost.author_team})` : ""}
                         </p>
                         <div className="text-sm">{renderRichText(p.repost.content_md)}</div>
@@ -2213,18 +2235,23 @@ export default function SEPBook() {
                   .toUpperCase()
                   .slice(0, 2);
                 return (
-                  <div key={`${item.user_id}-${item.created_at || "like"}`} className="flex items-center gap-3">
-                    <Avatar className="h-9 w-9">
-                      <AvatarImage src={item.avatar_url || undefined} alt={item.name} />
-                      <AvatarFallback className="text-[11px]">{initials}</AvatarFallback>
-                    </Avatar>
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium truncate">{item.name || "Colaborador"}</p>
-                      <p className="text-[11px] text-muted-foreground truncate">
-                        {[item.sigla_area, item.operational_base].filter(Boolean).join(" • ") || "DJT"}
-                      </p>
-                    </div>
-                  </div>
+                  <UserProfilePopover userId={item.user_id} name={item.name} avatarUrl={item.avatar_url}>
+                    <button
+                      type="button"
+                      className="flex items-center gap-3 text-left w-full p-0 bg-transparent border-0"
+                    >
+                      <Avatar className="h-9 w-9">
+                        <AvatarImage src={item.avatar_url || undefined} alt={item.name} />
+                        <AvatarFallback className="text-[11px]">{initials}</AvatarFallback>
+                      </Avatar>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium truncate">{item.name || "Colaborador"}</p>
+                        <p className="text-[11px] text-muted-foreground truncate">
+                          {[item.sigla_area, item.operational_base].filter(Boolean).join(" • ") || "DJT"}
+                        </p>
+                      </div>
+                    </button>
+                  </UserProfilePopover>
                 );
               })}
             </div>

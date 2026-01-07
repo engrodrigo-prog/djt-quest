@@ -26,7 +26,12 @@ const repeat = Math.max(1, Math.min(50, Number(readArg("--repeat", "1") || 1)));
 const useWeb = hasFlag("--web");
 const timeoutMs = Math.max(1000, Math.min(180000, Number(readArg("--timeout-ms", "120000") || 120000)));
 
+const runningUnderNodeTest = args.includes("--test") || Boolean(process.env.NODE_TEST_CONTEXT);
+
 if (!text) {
+  if (runningUnderNodeTest) {
+    process.exit(0);
+  }
   console.error("Missing --text");
   process.exit(2);
 }

@@ -2100,7 +2100,11 @@ export default function SEPBookIG() {
 
                     {caption ? (
                       <div className="text-[13px]">
-                        <span className="font-semibold">{formatName(p.author_name)}</span>{" "}
+                        <UserProfilePopover userId={p.user_id} name={p.author_name} avatarUrl={p.author_avatar}>
+                          <button type="button" className="font-semibold hover:underline p-0 bg-transparent border-0">
+                            {formatName(p.author_name)}
+                          </button>
+                        </UserProfilePopover>{" "}
                         {renderRichText(toast, caption)}
                       </div>
                     ) : null}
@@ -2562,18 +2566,20 @@ export default function SEPBookIG() {
           ) : (
             <div className="max-h-[60vh] overflow-auto space-y-2 pr-1">
               {likers.map((u) => (
-                <div key={u.user_id} className="flex items-center gap-3 rounded-lg border px-3 py-2">
-                  <Avatar className="h-9 w-9">
-                    <AvatarImage src={u.avatar_url || undefined} alt={u.name || "Usuário"} />
-                    <AvatarFallback>{initials(u.name)}</AvatarFallback>
-                  </Avatar>
-                  <div className="min-w-0 flex-1">
-                    <div className="text-[13px] font-semibold truncate">{formatName(u.name)}</div>
-                    <div className="text-[12px] text-muted-foreground truncate">
-                      {(u.sigla_area || "DJT") + (u.operational_base ? ` • ${u.operational_base}` : "")}
+                <UserProfilePopover key={u.user_id} userId={u.user_id} name={u.name} avatarUrl={u.avatar_url}>
+                  <button type="button" className="flex items-center gap-3 rounded-lg border px-3 py-2 text-left w-full bg-transparent">
+                    <Avatar className="h-9 w-9">
+                      <AvatarImage src={u.avatar_url || undefined} alt={u.name || "Usuário"} />
+                      <AvatarFallback>{initials(u.name)}</AvatarFallback>
+                    </Avatar>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[13px] font-semibold truncate">{formatName(u.name)}</div>
+                      <div className="text-[12px] text-muted-foreground truncate">
+                        {(u.sigla_area || "DJT") + (u.operational_base ? ` • ${u.operational_base}` : "")}
+                      </div>
                     </div>
-                  </div>
-                </div>
+                  </button>
+                </UserProfilePopover>
               ))}
             </div>
           )}
@@ -2615,14 +2621,22 @@ export default function SEPBookIG() {
                       setAuthorPickerOpen(false);
                     }}
                   >
-                    <Avatar className="h-9 w-9">
-                      <AvatarImage src={a.author_avatar || undefined} alt={a.author_name || "Autor"} />
-                      <AvatarFallback>{initials(a.author_name)}</AvatarFallback>
-                    </Avatar>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-[13px] font-semibold truncate">{formatName(a.author_name)}</div>
-                      <div className="text-[12px] text-muted-foreground truncate">{a.author_team || "DJT"}</div>
-                    </div>
+                    <UserProfilePopover userId={a.user_id} name={a.author_name} avatarUrl={a.author_avatar}>
+                      <button
+                        type="button"
+                        className="flex items-center gap-3 min-w-0 flex-1 text-left p-0 bg-transparent border-0"
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        <Avatar className="h-9 w-9">
+                          <AvatarImage src={a.author_avatar || undefined} alt={a.author_name || "Autor"} />
+                          <AvatarFallback>{initials(a.author_name)}</AvatarFallback>
+                        </Avatar>
+                        <div className="min-w-0 flex-1">
+                          <div className="text-[13px] font-semibold truncate">{formatName(a.author_name)}</div>
+                          <div className="text-[12px] text-muted-foreground truncate">{a.author_team || "DJT"}</div>
+                        </div>
+                      </button>
+                    </UserProfilePopover>
                   </button>
                 ))}
             </div>
@@ -2716,17 +2730,22 @@ export default function SEPBookIG() {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-0 border-t">
               <div className="h-[48vh] md:h-[70vh] border-b md:border-b-0 md:border-r">
-                <div className="relative h-full w-full">
+                <div
+                  className="relative h-full w-full"
+                  onMouseEnter={() => mapInstanceRef.current?.scrollWheelZoom.enable()}
+                  onMouseLeave={() => mapInstanceRef.current?.scrollWheelZoom.disable()}
+                >
                   <MapContainer
                     center={mapCenter}
                     zoom={12}
-                    scrollWheelZoom
+                    scrollWheelZoom={false}
                     zoomControl={false}
                     zoomAnimation={false}
                     fadeAnimation={false}
                     markerZoomAnimation={false}
                     whenCreated={(map) => {
                       mapInstanceRef.current = map;
+                      map.scrollWheelZoom.disable();
                     }}
                     className="h-full w-full"
                   >
@@ -2749,7 +2768,11 @@ export default function SEPBookIG() {
                       >
                         <Popup>
                           <div className="space-y-2">
-                            <div className="text-[12px] font-semibold">{formatName(x.post.author_name)}</div>
+                            <UserProfilePopover userId={x.post.user_id} name={x.post.author_name} avatarUrl={x.post.author_avatar}>
+                              <button type="button" className="text-[12px] font-semibold hover:underline p-0 bg-transparent border-0">
+                                {formatName(x.post.author_name)}
+                              </button>
+                            </UserProfilePopover>
                             <div className="text-[12px] text-muted-foreground">{x.post.location_label || tr("sepbook.location")}</div>
                             {x.imageUrl ? (
                               <img src={x.imageUrl} alt={tr("sepbook.photo")} className="w-[220px] max-w-full rounded-md border" />
@@ -2808,7 +2831,15 @@ export default function SEPBookIG() {
                         }}
                       />
                       <div className="min-w-0 flex-1">
-                        <div className="text-[13px] font-semibold truncate">{formatName(x.post.author_name)}</div>
+                        <UserProfilePopover userId={x.post.user_id} name={x.post.author_name} avatarUrl={x.post.author_avatar}>
+                          <button
+                            type="button"
+                            className="text-[13px] font-semibold truncate hover:underline p-0 bg-transparent border-0 text-left"
+                            onClick={(event) => event.stopPropagation()}
+                          >
+                            {formatName(x.post.author_name)}
+                          </button>
+                        </UserProfilePopover>
                         <div className="text-[12px] text-muted-foreground truncate">
                           {x.post.location_label || tr("sepbook.location")}
                         </div>
