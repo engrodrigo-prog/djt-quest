@@ -28,6 +28,7 @@ async function resolveMentionedUserIds(admin, rawMentions, opts) {
         return [];
     const emails = list.filter((m) => m.includes('@'));
     const handles = list.filter((m) => !m.includes('@'));
+    const handleNameHints = handles.map((h) => h.replace(/[._-]+/g, ' ').trim()).filter(Boolean).slice(0, 12);
     const out = new Set();
     try {
         if (emails.length) {
@@ -54,6 +55,16 @@ async function resolveMentionedUserIds(admin, rawMentions, opts) {
                     out.add(String(u.id));
         }
         catch { }
+        if (handleNameHints.length) {
+            try {
+                const or = handleNameHints.map((h) => `name.ilike.%${h.split(/\s+/).join('%')}%`).join(',');
+                const { data } = await admin.from('profiles').select('id, name').or(or);
+                for (const u of data || [])
+                    if (u?.id)
+                        out.add(String(u.id));
+            }
+            catch { }
+        }
     }
     if (excludeUserId)
         out.delete(excludeUserId);
@@ -149,6 +160,13 @@ export default async function handler(req, res) {
         }
         if (error)
             return res.status(400).json({ error: error.message });
+        // XP por participação no fórum: +10 XP por postagem (tópico ou resposta).
+        try {
+            await authed.rpc('increment_user_xp', { _user_id: uid, _xp_to_add: 10 });
+        }
+        catch (xpErr) {
+            console.error('Erro ao aplicar XP por participação em fórum:', xpErr);
+        }
         // Register mentions best-effort
         if (mentions.length) {
             try {

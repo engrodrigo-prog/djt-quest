@@ -75,6 +75,21 @@ const extractJson = (content: string) => {
   }
 };
 
+const collectOutputText = (payload: any) => {
+  if (typeof payload?.output_text === 'string') return payload.output_text.trim();
+  const output = Array.isArray(payload?.output) ? payload.output : [];
+  const chunks = output
+    .map((item: any) => {
+      if (typeof item?.content === 'string') return item.content;
+      if (Array.isArray(item?.content)) {
+        return item.content.map((c: any) => c?.text || c?.content || '').join('\n');
+      }
+      return item?.text || '';
+    })
+    .filter(Boolean);
+  return chunks.join('\n').trim();
+};
+
 export async function proofreadPtBrStrings(params: {
   openaiKey?: string;
   strings: string[];
@@ -112,22 +127,47 @@ Retorne APENAS JSON válido: {"strings": ["...","..."]} mantendo o mesmo número
     content: JSON.stringify({ strings: inputStrings }),
   };
 
-  const resp = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${openaiKey}`,
-    },
-    body: JSON.stringify({
-      model,
-      messages: [{ role: 'system', content: system }, user],
-    }),
-  });
+  const useResponses = /^gpt-5/i.test(String(model));
+  let content = '';
 
-  if (!resp.ok) return { output: inputStrings };
+  if (useResponses) {
+    const resp = await fetch('https://api.openai.com/v1/responses', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${openaiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        input: [
+          { role: 'system', content: [{ type: 'input_text', text: system }] },
+          { role: 'user', content: [{ type: 'input_text', text: user.content }] },
+        ],
+        text: { verbosity: 'low' },
+        reasoning: { effort: 'low' },
+        max_output_tokens: 1200,
+      }),
+    });
+    if (!resp.ok) return { output: inputStrings };
+    const json = await resp.json().catch(() => null);
+    content = collectOutputText(json) || '';
+  } else {
+    const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${openaiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: 'system', content: system }, user],
+      }),
+    });
+    if (!resp.ok) return { output: inputStrings };
+    const json = await resp.json().catch(() => null);
+    content = json?.choices?.[0]?.message?.content || '';
+  }
 
-  const json = await resp.json().catch(() => null);
-  const content = json?.choices?.[0]?.message?.content;
   const parsed = extractJson(content || '');
   const out = Array.isArray(parsed?.strings) ? parsed.strings.map((s: any) => String(s ?? '')) : null;
   if (!out || out.length !== inputStrings.length) return { output: inputStrings, usedModel: model };

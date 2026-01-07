@@ -24,6 +24,7 @@ const STUDYLAB_OPENAI_TIMEOUT_MS = Math.max(
   // Default keeps headroom for serverless runtimes while preventing early aborts.
   Math.min(60000, Number(process.env.STUDYLAB_OPENAI_TIMEOUT_MS || 45000)),
 );
+const STUDYLAB_HISTORY_LIMIT = Math.max(6, Math.min(16, Number(process.env.STUDYLAB_HISTORY_LIMIT || 10)));
 
 const OPENAI_MODEL_STUDYLAB_CHAT = normalizeChatModel(
   (process.env.OPENAI_MODEL_STUDYLAB_CHAT as string) || "",
@@ -99,13 +100,85 @@ const isAbortError = (err: any) => {
   return msg.includes("aborted") || msg.includes("abort");
 };
 
-const toResponsesInputMessages = (messages: Array<{ role: string; content: string }>) =>
+const toResponsesInputMessages = (
+  messages: Array<{ role: string; content: string | Array<any> }>,
+) =>
   (messages || [])
-    .map((m) => ({
-      role: m?.role,
-      content: [{ type: "input_text", text: String(m?.content || "") }],
-    }))
-    .filter((m) => m.role && m.content?.[0]?.text);
+    .map((m) => {
+      const role = String(m?.role || "").trim();
+      const isAssistant = role === "assistant";
+      const rawContent = (m as any)?.content;
+      let contentItems: any[] = [];
+
+      if (Array.isArray(rawContent)) {
+        contentItems = rawContent
+          .map((item) => {
+            if (!item) return null;
+            if (typeof item === "string") {
+              return isAssistant
+                ? { type: "output_text", text: item }
+                : { type: "input_text", text: item };
+            }
+            const t = String(item?.type || "").trim();
+            if (t === "input_text" || t === "output_text") {
+              const text = String(item?.text || item?.content || "");
+              if (!text) return null;
+              return isAssistant ? { type: "output_text", text } : { type: "input_text", text };
+            }
+            if (!isAssistant && (t === "input_image" || t === "image_url")) {
+              const imageUrl = item?.image_url?.url || item?.url || "";
+              if (!imageUrl) return null;
+              return { type: "input_image", image_url: { url: imageUrl } };
+            }
+            return null;
+          })
+          .filter(Boolean);
+      } else {
+        const text = String(rawContent || "");
+        if (text) {
+          contentItems = [
+            isAssistant ? { type: "output_text", text } : { type: "input_text", text },
+          ];
+        }
+      }
+
+      return { role, content: contentItems };
+    })
+    .filter((m) => m.role && Array.isArray(m.content) && m.content.length);
+
+const toResponsesTextMessages = (messages: Array<{ role: string; content: string | Array<any> }>) =>
+  (messages || [])
+    .map((m) => {
+      const role = String(m?.role || "").trim();
+      if (!role) return null;
+      const normalizedRole = role === "assistant" || role === "system" ? role : "user";
+      const rawContent = (m as any)?.content;
+      let text = "";
+      if (Array.isArray(rawContent)) {
+        text = rawContent
+          .map((item) => {
+            if (!item) return "";
+            if (typeof item === "string") return item;
+            const t = String(item?.type || "").trim();
+            if (t === "input_text" || t === "output_text") {
+              return String(item?.text || item?.content || "");
+            }
+            if (t === "input_image" || t === "image_url") {
+              const url = item?.image_url?.url || item?.url || "";
+              return url ? `Imagem: ${url}` : "";
+            }
+            return String(item?.text || item?.content || "");
+          })
+          .filter(Boolean)
+          .join("\n");
+      } else {
+        text = String(rawContent || "");
+      }
+      const trimmed = text.trim();
+      if (!trimmed) return null;
+      return { role: normalizedRole, content: trimmed };
+    })
+    .filter(Boolean);
 
 const callOpenAiResponse = async (payload: any) => {
   const controller = new AbortController();
@@ -576,6 +649,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return clean.slice(i + 1).toLowerCase();
     };
 
+    const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "webp", "gif", "bmp", "tif", "tiff"]);
+    const isImageAttachment = (att: any) => {
+      const candidate = String(att?.name || att?.url || "");
+      const ext = inferExt(candidate);
+      return IMAGE_EXTS.has(ext);
+    };
+    const promptImageAttachments = normalizedAttachments.filter(isImageAttachment).slice(0, 2);
+    const includeImagesInPrompt = promptImageAttachments.length > 0;
+
     const fetchBinary = async (rawUrl: string) => {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 12000);
@@ -654,6 +736,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const url = String(att?.url || "").trim();
         if (!url) continue;
         const label = String(att?.name || `Anexo ${idx + 1}`).trim() || `Anexo ${idx + 1}`;
+        if (includeImagesInPrompt && isImageAttachment(att)) {
+          parts.push(`### ${label}\n[Imagem enviada para interpretação direta pela IA]`);
+          continue;
+        }
         try {
           const text = await extractFromFileUrl(url, label);
           const trimmed = String(text || "").trim();
@@ -1543,10 +1629,53 @@ Formato da saída:
       openaiMessages.push({ role: "system", content: buildRulesContext() });
     }
 
-    for (const m of normalizedMessages) {
+    const modelMessages = normalizedMessages.slice(-STUDYLAB_HISTORY_LIMIT);
+    const lastUserIndex = (() => {
+      for (let i = modelMessages.length - 1; i >= 0; i -= 1) {
+        if (modelMessages[i]?.role === "user") return i;
+      }
+      return -1;
+    })();
+    const attachmentOnlyPrompt = String(language || "").toLowerCase().startsWith("en")
+      ? "Analyze the attached files and answer using the study context."
+      : "Analise os anexos enviados e responda usando o contexto de estudo.";
+
+    for (let i = 0; i < modelMessages.length; i += 1) {
+      const m = modelMessages[i];
       if (!m || !m.role || !m.content) continue;
       const role = m.role === "assistant" ? "assistant" : "user";
-      openaiMessages.push({ role, content: m.content });
+      if (role === "user" && i === lastUserIndex && promptImageAttachments.length) {
+        const rawText = typeof m.content === "string"
+          ? m.content
+          : Array.isArray(m.content)
+            ? m.content
+                .map((item: any) =>
+                  typeof item === "string"
+                    ? item
+                    : typeof item?.text === "string"
+                      ? item.text
+                      : typeof item?.content === "string"
+                        ? item.content
+                        : "",
+                )
+                .filter(Boolean)
+                .join("\n")
+            : "";
+        const trimmedText = String(rawText || "").trim();
+        const contentItems: any[] = [];
+        contentItems.push({
+          type: "input_text",
+          text: trimmedText || attachmentOnlyPrompt,
+        });
+        for (const att of promptImageAttachments) {
+          const url = String(att?.url || "").trim();
+          if (!url) continue;
+          contentItems.push({ type: "input_image", image_url: { url } });
+        }
+        openaiMessages.push({ role, content: contentItems });
+      } else {
+        openaiMessages.push({ role, content: m.content });
+      }
     }
 
     const preferPremium =
@@ -1562,6 +1691,7 @@ Formato da saída:
     let lastErrTxt = "";
     let aborted = false;
     let attempts = 0;
+    let forceTextOnly = false;
 
     for (const model of modelCandidates) {
       for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -1570,9 +1700,12 @@ Formato da saída:
         let resp: Response | null = null;
         try {
           attempts += 1;
+          const inputPayload = forceTextOnly
+            ? toResponsesTextMessages(openaiMessages)
+            : toResponsesInputMessages(openaiMessages);
           resp = await callOpenAiResponse({
             model,
-            input: toResponsesInputMessages(openaiMessages),
+            input: inputPayload,
             text: { verbosity: "low" },
             reasoning: { effort: "low" },
             max_output_tokens: maxTokens,
@@ -1589,6 +1722,10 @@ Formato da saída:
 
         if (!resp.ok) {
           lastErrTxt = await resp.text().catch(() => `HTTP ${resp?.status}`);
+          if (!forceTextOnly && /input_text.*output_text|output_text.*refusal|invalid value/i.test(lastErrTxt)) {
+            forceTextOnly = true;
+            continue;
+          }
           if (isFatalOpenAiStatus(resp.status)) break;
           if (attempt === 0 && !useWeb) continue;
           break;

@@ -31,25 +31,52 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const uid = userData?.user?.id;
     if (!uid) return res.status(401).json({ error: "Unauthorized" });
 
-    const { post_id, action } = req.body || {};
-    if (!post_id || !["like", "unlike"].includes(action)) {
+    const { post_id, comment_id, action } = req.body || {};
+    const targetId = comment_id || post_id;
+    const isComment = Boolean(comment_id);
+    if (!targetId || !["like", "unlike"].includes(action)) {
       return res.status(400).json({ error: "Dados inválidos" });
     }
 
+    const table = isComment ? "sepbook_comment_likes" : "sepbook_likes";
+    const idColumn = isComment ? "comment_id" : "post_id";
+    let alreadyLiked = false;
     if (action === "like") {
-      await authed.from("sepbook_likes").upsert({ post_id, user_id: uid } as any).throwOnError();
+      try {
+        const { data: existing } = await authed
+          .from(table)
+          .select(idColumn)
+          .eq(idColumn, targetId)
+          .eq("user_id", uid)
+          .maybeSingle();
+        alreadyLiked = Boolean(existing);
+      } catch {
+        alreadyLiked = false;
+      }
+    }
+
+    if (action === "like") {
+      if (!alreadyLiked) {
+        await authed.from(table).upsert({ [idColumn]: targetId, user_id: uid } as any).throwOnError();
+      }
     } else {
-      await authed.from("sepbook_likes").delete().eq("post_id", post_id).eq("user_id", uid).throwOnError();
+      await authed.from(table).delete().eq(idColumn, targetId).eq("user_id", uid).throwOnError();
     }
 
     const { count } = await authed
-      .from("sepbook_likes")
-      .select("post_id", { count: "exact", head: true })
-      .eq("post_id", post_id);
+      .from(table)
+      .select(idColumn, { count: "exact", head: true })
+      .eq(idColumn, targetId);
 
     // Best-effort count cache (requires service role or trigger-based maintenance)
-    if (SERVICE_ROLE_KEY) {
-      await admin.from("sepbook_posts").update({ like_count: count || 0 }).eq("id", post_id);
+    if (SERVICE_ROLE_KEY && !isComment) {
+      await admin.from("sepbook_posts").update({ like_count: count || 0 }).eq("id", targetId);
+    }
+
+    if (SERVICE_ROLE_KEY && action === "like" && !alreadyLiked) {
+      try {
+        await admin.rpc("increment_sepbook_profile_xp", { p_user_id: uid, p_amount: 1 });
+      } catch {}
     }
 
     return res.status(200).json({ success: true, like_count: count || 0 });

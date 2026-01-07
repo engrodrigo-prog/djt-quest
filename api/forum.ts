@@ -11,6 +11,7 @@ import forumAiAssessPost from '../server/api-handlers/forum-ai-assess-post.js';
 import forumTopInsights from '../server/api-handlers/forum-top-insights.js';
 import forumApplyMonthlyBonus from '../server/api-handlers/forum-apply-monthly-bonus.js';
 import forumTranslate from '../server/api-handlers/forum-translate.js';
+import forumLike from '../server/api-handlers/forum-like.js';
 
 type Handler = (req: VercelRequest, res: VercelResponse) => any | Promise<any>;
 
@@ -23,6 +24,7 @@ const handlers: Record<string, Handler> = {
   'top-insights': forumTopInsights,
   'apply-monthly-bonus': forumApplyMonthlyBonus,
   translate: forumTranslate,
+  like: forumLike,
 };
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {

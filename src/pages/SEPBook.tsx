@@ -61,6 +61,7 @@ interface SepComment {
   id: string;
   post_id: string;
   user_id: string;
+  parent_id?: string | null;
   author_name: string;
   author_team?: string | null;
   author_avatar?: string | null;
@@ -68,6 +69,9 @@ interface SepComment {
   content_md: string;
   attachments?: string[];
   created_at: string;
+  updated_at?: string | null;
+  like_count?: number;
+  has_liked?: boolean;
 }
 
 interface SepLikeUser {
@@ -136,6 +140,11 @@ export default function SEPBook() {
   const [likesModalItems, setLikesModalItems] = useState<SepLikeUser[]>([]);
   const [likesModalLoading, setLikesModalLoading] = useState(false);
   const [newComment, setNewComment] = useState<Record<string, string>>({});
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
+  const [editingCommentText, setEditingCommentText] = useState<string>("");
+  const [editingCommentSaving, setEditingCommentSaving] = useState(false);
+  const [commentLikeLoading, setCommentLikeLoading] = useState<Record<string, boolean>>({});
+  const [replyTarget, setReplyTarget] = useState<{ postId: string; commentId: string; authorName: string } | null>(null);
   const commentsByPostRef = useRef(commentsByPost);
   useEffect(() => {
     commentsByPostRef.current = commentsByPost;
@@ -608,6 +617,7 @@ export default function SEPBook() {
         }
       } catch {}
     }
+    const replyToCommentId = replyTarget?.postId === post.id ? replyTarget.commentId : null;
     try {
       const { data: session } = await supabase.auth.getSession();
       const token = session.session?.access_token;
@@ -618,7 +628,12 @@ export default function SEPBook() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ post_id: post.id, content_md: finalText, attachments }),
+        body: JSON.stringify({
+          post_id: post.id,
+          content_md: finalText,
+          attachments,
+          ...(replyToCommentId ? { parent_id: replyToCommentId } : {}),
+        }),
       });
       const json = await resp.json();
       if (!resp.ok) throw new Error(json?.error || "Falha ao comentar");
@@ -629,6 +644,9 @@ export default function SEPBook() {
       }));
       setNewComment((prev) => ({ ...prev, [post.id]: "" }));
       setCommentAttachments((prev) => ({ ...prev, [post.id]: [] }));
+      if (replyToCommentId) {
+        setReplyTarget(null);
+      }
       setPosts((prev) =>
         prev.map((p) =>
           p.id === post.id ? { ...p, comment_count: (p.comment_count || 0) + 1 } : p
@@ -637,6 +655,333 @@ export default function SEPBook() {
     } catch (e: any) {
       toast({ title: "Erro ao comentar", description: e?.message || "Tente novamente", variant: "destructive" });
     }
+  };
+
+  const startEditComment = (comment: SepComment) => {
+    setEditingCommentId(comment.id);
+    setEditingCommentText(comment.content_md || "");
+  };
+
+  const cancelEditComment = () => {
+    setEditingCommentId(null);
+    setEditingCommentText("");
+  };
+
+  const handleCleanupCommentDraft = async (postId: string) => {
+    const text = (newComment[postId] || "").trim();
+    if (text.length < 3) {
+      toast({ title: "Nada para revisar", description: "Digite o comentário antes de pedir correção." });
+      return;
+    }
+    try {
+      const resp = await fetch("/api/ai?handler=cleanup-text", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: "Comentário SEPBook",
+          description: text,
+          language: localeToOpenAiLanguageTag(getActiveLocale()),
+        }),
+      });
+      const j = await resp.json().catch(() => ({}));
+      const usedAI = j?.meta?.usedAI !== false;
+      if (!resp.ok || !j?.cleaned?.description) {
+        throw new Error(j?.error || "Falha na revisão automática");
+      }
+      if (!usedAI) {
+        toast({
+          title: "Não foi possível revisar agora",
+          description: "IA indisponível no momento. Tente novamente mais tarde.",
+          variant: "destructive",
+        });
+        return;
+      }
+      const cleaned = String(j.cleaned.description || text).trim();
+      if (cleaned === text) {
+        toast({ title: "Nenhuma correção necessária", description: "Não encontrei ajustes para fazer." });
+        return;
+      }
+      setNewComment((prev) => ({ ...prev, [postId]: cleaned }));
+    } catch (e: any) {
+      toast({ title: "Não foi possível revisar agora", description: e?.message || "Tente novamente mais tarde.", variant: "destructive" });
+    }
+  };
+
+  const handleCleanupCommentEdit = async () => {
+    const text = editingCommentText.trim();
+    if (text.length < 3) {
+      toast({ title: "Nada para revisar", description: "Digite o comentário antes de pedir correção." });
+      return;
+    }
+    try {
+      const resp = await fetch("/api/ai?handler=cleanup-text", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: "Comentário SEPBook",
+          description: text,
+          language: localeToOpenAiLanguageTag(getActiveLocale()),
+        }),
+      });
+      const j = await resp.json().catch(() => ({}));
+      const usedAI = j?.meta?.usedAI !== false;
+      if (!resp.ok || !j?.cleaned?.description) {
+        throw new Error(j?.error || "Falha na revisão automática");
+      }
+      if (!usedAI) {
+        toast({
+          title: "Não foi possível revisar agora",
+          description: "IA indisponível no momento. Tente novamente mais tarde.",
+          variant: "destructive",
+        });
+        return;
+      }
+      const cleaned = String(j.cleaned.description || text).trim();
+      if (cleaned === text) {
+        toast({ title: "Nenhuma correção necessária", description: "Não encontrei ajustes para fazer." });
+        return;
+      }
+      setEditingCommentText(cleaned);
+    } catch (e: any) {
+      toast({ title: "Não foi possível revisar agora", description: e?.message || "Tente novamente mais tarde.", variant: "destructive" });
+    }
+  };
+
+  const handleSaveCommentEdit = async (postId: string, comment: SepComment) => {
+    const text = editingCommentText.trim();
+    if (text.length < 2 && !(comment.attachments && comment.attachments.length > 0)) {
+      toast({ title: "Texto obrigatório", description: "Digite um comentário ou mantenha um anexo." });
+      return;
+    }
+    setEditingCommentSaving(true);
+    try {
+      const { data: session } = await supabase.auth.getSession();
+      const token = session.session?.access_token;
+      if (!token) throw new Error("Não autenticado");
+      const resp = await fetch("/api/sepbook-comments", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ comment_id: comment.id, content_md: text }),
+      });
+      const json = await resp.json();
+      if (!resp.ok) throw new Error(json?.error || "Falha ao atualizar comentário");
+      const updated: SepComment = json.comment;
+      setCommentsByPost((prev) => ({
+        ...prev,
+        [postId]: (prev[postId] || []).map((c) => (c.id === comment.id ? { ...c, ...updated } : c)),
+      }));
+      cancelEditComment();
+    } catch (e: any) {
+      toast({ title: "Erro ao salvar comentário", description: e?.message || "Tente novamente", variant: "destructive" });
+    } finally {
+      setEditingCommentSaving(false);
+    }
+  };
+
+  const toggleCommentLike = async (postId: string, comment: SepComment) => {
+    if (!user) {
+      toast({ title: "Faça login para curtir comentários." });
+      return;
+    }
+    if (commentLikeLoading[comment.id]) return;
+    const nextLiked = !comment.has_liked;
+    const optimisticCount = Math.max(0, (comment.like_count || 0) + (nextLiked ? 1 : -1));
+    setCommentLikeLoading((prev) => ({ ...prev, [comment.id]: true }));
+    setCommentsByPost((prev) => ({
+      ...prev,
+      [postId]: (prev[postId] || []).map((c) =>
+        c.id === comment.id ? { ...c, has_liked: nextLiked, like_count: optimisticCount } : c,
+      ),
+    }));
+    try {
+      const { data: session } = await supabase.auth.getSession();
+      const token = session.session?.access_token;
+      if (!token) throw new Error("Não autenticado");
+      const resp = await fetch("/api/sepbook-react", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          comment_id: comment.id,
+          action: nextLiked ? "like" : "unlike",
+        }),
+      });
+      const json = await resp.json();
+      if (!resp.ok) throw new Error(json?.error || "Falha ao curtir comentário");
+      if (typeof json?.like_count === "number") {
+        setCommentsByPost((prev) => ({
+          ...prev,
+          [postId]: (prev[postId] || []).map((c) =>
+            c.id === comment.id ? { ...c, like_count: json.like_count } : c,
+          ),
+        }));
+      }
+    } catch (e: any) {
+      setCommentsByPost((prev) => ({
+        ...prev,
+        [postId]: (prev[postId] || []).map((c) =>
+          c.id === comment.id ? { ...c, has_liked: comment.has_liked, like_count: comment.like_count } : c,
+        ),
+      }));
+      toast({ title: "Erro ao curtir", description: e?.message || "Tente novamente", variant: "destructive" });
+    } finally {
+      setCommentLikeLoading((prev) => ({ ...prev, [comment.id]: false }));
+    }
+  };
+
+  const renderCommentItem = (postId: string, comment: SepComment, isReply = false) => {
+    const isEditing = editingCommentId === comment.id;
+    const canEdit = comment.user_id === user?.id;
+    const wasEdited = Boolean(comment.updated_at && comment.updated_at !== comment.created_at);
+    return (
+      <div
+        key={comment.id}
+        id={`comment-${comment.id}`}
+        className={`flex items-start gap-2 text-[11px] text-muted-foreground ${isReply ? "ml-6" : ""}`}
+      >
+        {comment.author_avatar && (
+          <img
+            src={comment.author_avatar}
+            alt={comment.author_name}
+            className="h-5 w-5 rounded-full object-cover border border-border/60 mt-0.5"
+          />
+        )}
+        <div className="flex-1 min-w-0 space-y-1">
+          <div className="flex items-center gap-1">
+            <span className="font-semibold">{formatName(comment.author_name)}</span>
+            {comment.author_team && (
+              <span className="opacity-70">
+                ({comment.author_team}{comment.author_base ? ` • ${comment.author_base}` : ""})
+              </span>
+            )}
+            {wasEdited && <span className="text-[10px] opacity-60">editado</span>}
+          </div>
+          {isEditing ? (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                <span>Revisar antes de salvar</span>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="h-6 w-6"
+                  onClick={handleCleanupCommentEdit}
+                >
+                  <Wand2 className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+              <Textarea
+                rows={3}
+                value={editingCommentText}
+                onChange={(e) => setEditingCommentText(e.target.value)}
+              />
+              <div className="flex justify-end gap-2">
+                <Button type="button" size="sm" variant="outline" onClick={cancelEditComment}>
+                  Cancelar
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => handleSaveCommentEdit(postId, comment)}
+                  disabled={editingCommentSaving}
+                >
+                  Salvar
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <>
+              {comment.content_md?.trim() ? (
+                <div className="block">{renderRichText(comment.content_md)}</div>
+              ) : null}
+              {comment.attachments && comment.attachments.length > 0 && (
+                <div className="mt-2">
+                  <AttachmentViewer urls={comment.attachments} mediaLayout="grid" />
+                </div>
+              )}
+            </>
+          )}
+        </div>
+        {!isEditing && (
+          <div className="flex items-center gap-1.5 flex-shrink-0">
+            <button
+              type="button"
+              className="inline-flex items-center justify-center h-7 w-7 rounded-full border border-border/50 hover:bg-accent disabled:opacity-60"
+              onClick={() => toggleCommentLike(postId, comment)}
+              title={comment.has_liked ? "Descurtir" : "Curtir"}
+              aria-label={comment.has_liked ? "Descurtir" : "Curtir"}
+              disabled={commentLikeLoading[comment.id]}
+            >
+              <Heart className={`h-3.5 w-3.5 ${comment.has_liked ? "fill-red-500 text-red-500" : ""}`} />
+            </button>
+            <span className="text-[10px]">{comment.like_count || 0}</span>
+            {!isReply && (
+              <button
+                type="button"
+                className="inline-flex items-center justify-center h-7 w-7 rounded-full border border-border/50 hover:bg-accent"
+                onClick={() =>
+                  setReplyTarget({
+                    postId,
+                    commentId: comment.id,
+                    authorName: formatName(comment.author_name),
+                  })
+                }
+                title="Responder"
+                aria-label="Responder"
+              >
+                <MessageSquare className="h-3.5 w-3.5" />
+              </button>
+            )}
+            {canEdit && (
+              <button
+                type="button"
+                className="inline-flex items-center justify-center h-7 w-7 rounded-full border border-border/50 hover:bg-accent"
+                onClick={() => startEditComment(comment)}
+                title="Editar comentário"
+                aria-label="Editar comentário"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </button>
+            )}
+            <button
+              type="button"
+              className="inline-flex items-center justify-center h-7 w-7 rounded-full border border-border/50 hover:bg-accent disabled:opacity-60"
+              onClick={() => speakText(comment.content_md)}
+              title="Ouvir este comentário"
+              aria-label="Ouvir este comentário"
+              disabled={isSpeaking || !comment.content_md?.trim()}
+            >
+              <Volume2 className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              className="inline-flex items-center justify-center h-7 w-7 rounded-full border border-border/50 hover:bg-accent"
+              onClick={() => {
+                const url = buildAbsoluteAppUrl(
+                  `/sepbook?comment=${encodeURIComponent(comment.id)}#post-${encodeURIComponent(postId)}`,
+                );
+                const preview = (comment.content_md || "").trim().replace(/\s+/g, " ").slice(0, 140);
+                openWhatsAppShare({
+                  message: preview
+                    ? `Comentário no SEPBook (DJT Quest):\n"${preview}${preview.length >= 140 ? "…" : ""}"`
+                    : "Comentário no SEPBook (DJT Quest):",
+                  url,
+                });
+              }}
+              title="Compartilhar este comentário no WhatsApp"
+              aria-label="Compartilhar comentário no WhatsApp"
+            >
+              <Share2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
+      </div>
+    );
   };
 
   const handleCleanupContent = async () => {
@@ -1738,72 +2083,25 @@ export default function SEPBook() {
                     ) : (commentsByPost[p.id] || []).length === 0 ? (
                       <p className="text-[11px] text-muted-foreground">Seja o primeiro a comentar.</p>
                     ) : (
-                      <div className="space-y-1">
-                        {(commentsByPost[p.id] || []).map((c) => (
-                          <div
-                            key={c.id}
-                            id={`comment-${c.id}`}
-                            className="flex items-start gap-2 text-[11px] text-muted-foreground"
-                          >
-                            {c.author_avatar && (
-                              <img
-                                src={c.author_avatar}
-                                alt={c.author_name}
-                                className="h-5 w-5 rounded-full object-cover border border-border/60 mt-0.5"
-                              />
-                            )}
-                            <div className="flex-1 min-w-0">
-                              <div>
-                                <span className="font-semibold">{formatName(c.author_name)}</span>
-                                {c.author_team && (
-                                  <span className="ml-1 opacity-70">
-                                    ({c.author_team}{c.author_base ? ` • ${c.author_base}` : ""})
-                                  </span>
-                                )}
-                              </div>
-                              {c.content_md?.trim() ? (
-                                <div className="block">{renderRichText(c.content_md)}</div>
-                              ) : null}
-                              {c.attachments && c.attachments.length > 0 && (
-                                <div className="mt-2">
-                                  <AttachmentViewer urls={c.attachments} mediaLayout="grid" />
-                                </div>
-                              )}
+                      <div className="space-y-2">
+                        {(() => {
+                          const allComments = commentsByPost[p.id] || [];
+                          const rootComments = allComments.filter((c) => !c.parent_id);
+                          const repliesByParent = new Map<string, SepComment[]>();
+                          allComments.forEach((c) => {
+                            if (!c.parent_id) return;
+                            const key = String(c.parent_id);
+                            const list = repliesByParent.get(key) || [];
+                            list.push(c);
+                            repliesByParent.set(key, list);
+                          });
+                          return rootComments.map((c) => (
+                            <div key={c.id} className="space-y-2">
+                              {renderCommentItem(p.id, c, false)}
+                              {(repliesByParent.get(c.id) || []).map((r) => renderCommentItem(p.id, r, true))}
                             </div>
-                            <div className="flex items-center gap-2 flex-shrink-0">
-                              <button
-                                type="button"
-                                className="inline-flex items-center justify-center h-7 w-7 rounded-full border border-border/50 hover:bg-accent disabled:opacity-60"
-                                onClick={() => speakText(c.content_md)}
-                                title="Ouvir este comentário"
-                                aria-label="Ouvir este comentário"
-                                disabled={isSpeaking || !c.content_md?.trim()}
-                              >
-                                <Volume2 className="h-3.5 w-3.5" />
-                              </button>
-                              <button
-                                type="button"
-                                className="inline-flex items-center justify-center h-7 w-7 rounded-full border border-border/50 hover:bg-accent"
-                                onClick={() => {
-                                  const url = buildAbsoluteAppUrl(
-                                    `/sepbook?comment=${encodeURIComponent(c.id)}#post-${encodeURIComponent(p.id)}`,
-                                  );
-                                  const preview = (c.content_md || "").trim().replace(/\s+/g, " ").slice(0, 140);
-                                  openWhatsAppShare({
-                                    message: preview
-                                      ? `Comentário no SEPBook (DJT Quest):\n"${preview}${preview.length >= 140 ? "…" : ""}"`
-                                      : "Comentário no SEPBook (DJT Quest):",
-                                    url,
-                                  });
-                                }}
-                                title="Compartilhar este comentário no WhatsApp"
-                                aria-label="Compartilhar comentário no WhatsApp"
-                              >
-                                <Share2 className="h-3.5 w-3.5" />
-                              </button>
-                            </div>
-                          </div>
-                        ))}
+                          ));
+                        })()}
                       </div>
                     )}
                     <div className="space-y-2">
@@ -1827,11 +2125,44 @@ export default function SEPBook() {
                       {commentUploading[p.id] && (
                         <p className="text-[11px] text-muted-foreground">Enviando fotos...</p>
                       )}
-                      <div className="flex items-center gap-1">
-                        <input
-                          type="text"
-                          className="flex-1 rounded-md border bg-background px-2 py-1 text-[11px]"
-                          placeholder="Escreva um comentário..."
+                      {replyTarget?.postId === p.id && (
+                        <div className="flex items-center justify-between rounded-md border px-2 py-1 text-[11px] text-muted-foreground">
+                          <span>Respondendo a {replyTarget.authorName}</span>
+                          <button
+                            type="button"
+                            className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-border/60 hover:bg-accent"
+                            onClick={() => setReplyTarget(null)}
+                            title="Cancelar resposta"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </div>
+                      )}
+                      <div className="flex items-center gap-2">
+                        <VoiceRecorderButton
+                          onText={(text) =>
+                            setNewComment((prev) => ({
+                              ...prev,
+                              [p.id]: [prev[p.id], text].filter((v) => v && v.trim().length > 0).join("\n\n"),
+                            }))
+                          }
+                          size="sm"
+                          label="Falar"
+                        />
+                        <button
+                          type="button"
+                          className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border/60 hover:bg-accent"
+                          onClick={() => handleCleanupCommentDraft(p.id)}
+                          title="Revisar ortografia e pontuação"
+                        >
+                          <Wand2 className="h-3 w-3" />
+                        </button>
+                      </div>
+                      <div className="flex items-start gap-1">
+                        <Textarea
+                          rows={2}
+                          className="flex-1 text-[11px]"
+                          placeholder={replyTarget?.postId === p.id ? "Escreva sua resposta..." : "Escreva um comentário..."}
                           value={newComment[p.id] || ""}
                           onChange={(e) =>
                             setNewComment((prev) => ({ ...prev, [p.id]: e.target.value }))
@@ -1840,10 +2171,10 @@ export default function SEPBook() {
                         <button
                           type="button"
                           onClick={() => handleAddComment(p)}
-                          className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground"
+                          className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-primary text-primary-foreground"
                           title="Enviar comentário"
                         >
-                          <Send className="h-3 w-3" />
+                          <Send className="h-4 w-4" />
                         </button>
                       </div>
                     </div>

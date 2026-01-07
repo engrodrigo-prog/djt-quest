@@ -61,9 +61,11 @@ type HierarchySort = 'ranking' | 'name';
 
 type CoordinationRow = { id: string; name: string };
 type TeamRow = { id: string; name: string; coordination_id: string };
-type MemberRow = { id: string; name: string; xp: number; tier: string; team_id: string | null; coord_id: string | null };
+type MemberRow = { id: string; name: string; xp: number; tier: string; team_id: string | null; coord_id: string | null; sigla_area?: string | null; operational_base?: string | null };
 type TeamNode = { id: string; name: string; members: MemberRow[]; totalXp: number };
 type CoordinationNode = { id: string; name: string; teams: TeamNode[]; totalXp: number; memberCount: number };
+const GUEST_TEAM_ID = "CONVIDADOS";
+const isGuestValue = (value?: string | null) => String(value || "").trim().toUpperCase() === GUEST_TEAM_ID;
 
 export default function LeaderDashboard() {
   const { user, profile, orgScope, signOut } = useAuth() as any;
@@ -299,7 +301,7 @@ export default function LeaderDashboard() {
 
       const { data: memberRows, error: memberErr } = await (supabase as any)
         .from("profiles")
-        .select("id, name, xp, tier, team_id, coord_id")
+        .select("id, name, xp, tier, team_id, coord_id, sigla_area, operational_base")
         .eq("division_id", divisionId)
         .eq("is_leader", false);
       if (memberErr) throw memberErr;
@@ -326,6 +328,15 @@ export default function LeaderDashboard() {
         memberCount: 0,
       });
 
+      const guestCoordId = "guest";
+      nodeByCoord.set(guestCoordId, {
+        id: guestCoordId,
+        name: "Convidados",
+        teams: [],
+        totalXp: 0,
+        memberCount: 0,
+      });
+
       const ensureTeamNode = (coordNode: CoordinationNode, teamId: string, teamName: string) => {
         const existing = coordNode.teams.find((t) => t.id === teamId);
         if (existing) return existing;
@@ -341,18 +352,20 @@ export default function LeaderDashboard() {
         const tier = String((m as any)?.tier || "").trim() || "";
         const team_id = (m as any)?.team_id ? String((m as any).team_id) : null;
         const coord_id = (m as any)?.coord_id ? String((m as any).coord_id) : null;
+        const isGuest = isGuestValue((m as any)?.sigla_area) || isGuestValue((m as any)?.operational_base) || isGuestValue(team_id);
 
         const fallbackCoord = team_id ? String(teamById.get(team_id)?.coordination_id || "") : "";
-        const resolvedCoordId = coord_id || fallbackCoord || unknownCoordId;
+        const resolvedCoordId = isGuest ? guestCoordId : (coord_id || fallbackCoord || unknownCoordId);
         const coordNode = nodeByCoord.get(resolvedCoordId) || nodeByCoord.get(unknownCoordId)!;
 
         const resolvedTeamName = (() => {
+          if (isGuest) return "Convidados";
           if (!team_id) return "Sem equipe";
           const t = teamById.get(team_id);
           return String(t?.name || "").trim() || "Equipe";
         })();
 
-        const teamNode = ensureTeamNode(coordNode, team_id || "none", resolvedTeamName);
+        const teamNode = ensureTeamNode(coordNode, isGuest ? GUEST_TEAM_ID : (team_id || "none"), resolvedTeamName);
         teamNode.members.push({ id, name, xp, tier, team_id, coord_id });
         teamNode.totalXp += xp;
         coordNode.totalXp += xp;
@@ -360,7 +373,7 @@ export default function LeaderDashboard() {
       }
 
       const nodes = Array.from(nodeByCoord.values())
-        .filter((c) => c.memberCount > 0 || c.id !== unknownCoordId)
+        .filter((c) => c.memberCount > 0)
         .sort((a, b) => a.name.localeCompare(b.name));
 
       setHierarchy(nodes);

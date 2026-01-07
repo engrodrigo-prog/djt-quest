@@ -51,7 +51,7 @@ interface StudySource {
   last_used_at: string | null;
 }
 
-type ChatMessage = { role: "user" | "assistant"; content: string };
+type ChatMessage = { role: "user" | "assistant"; content: string; attachments?: string[] };
 
 const STUDY_CATEGORIES = [
   "MANUAIS",
@@ -152,6 +152,20 @@ const createChatSessionId = () => {
     return (crypto as any).randomUUID();
   }
   return `studychat_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+};
+
+const isImageUrl = (url: string) => /\.(png|jpe?g|webp|gif|bmp|tif|tiff)(\?|#|$)/i.test(url || "");
+
+const getAttachmentLabel = (url: string) => {
+  if (!url) return "Anexo";
+  try {
+    const clean = url.split("?")[0].split("#")[0];
+    const name = decodeURIComponent(clean.split("/").pop() || "Anexo");
+    return name || "Anexo";
+  } catch {
+    const name = url.split("/").pop();
+    return name || "Anexo";
+  }
 };
 
 const TOPIC_LABELS: Record<string, string> = {
@@ -664,13 +678,10 @@ export const StudyLab = () => {
 
   const handleChatSend = async () => {
     const trimmed = chatInput.trim();
-    if (!trimmed && chatAttachments.length === 0) return;
+    const attachmentsForMessage = chatAttachments.slice();
+    if (!trimmed && attachmentsForMessage.length === 0) return;
     if (!user) {
       toast("Faça login para usar o chat de estudos.");
-      return;
-    }
-    if (!trimmed) {
-      toast.error("Digite uma pergunta para acompanhar o anexo.");
       return;
     }
     if (chatUploading) {
@@ -695,7 +706,19 @@ export const StudyLab = () => {
       }
     }
 
-    const nextMessages = [...chatMessages, { role: "user", content: trimmed } as ChatMessage];
+    const attachmentPrompt = getActiveLocale().toLowerCase().startsWith("en")
+      ? "Analyze the attached files and answer using the study context."
+      : "Analise os anexos enviados e responda usando o contexto de estudo.";
+    const payloadQuestion = trimmed || (attachmentsForMessage.length ? attachmentPrompt : "");
+    const displayContent = trimmed || (attachmentsForMessage.length ? "Anexos enviados." : "");
+    const nextMessages = [
+      ...chatMessages,
+      { role: "user", content: displayContent, attachments: attachmentsForMessage } as ChatMessage,
+    ];
+    const payloadMessages = [
+      ...chatMessages.map((m) => ({ role: m.role, content: m.content })),
+      { role: "user", content: payloadQuestion },
+    ];
     setChatMessages(nextMessages);
     setChatInput("");
     setChatLoading(true);
@@ -709,11 +732,11 @@ export const StudyLab = () => {
           mode: oracleMode ? "oracle" : "study",
           ...(oracleMode ? {} : { source_id: selectedSourceId }),
           session_id: chatSessionId,
-          attachments: chatAttachments.map((url) => ({ url })),
+          attachments: attachmentsForMessage.map((url) => ({ url })),
           language: getActiveLocale(),
           ...(oracleMode ? { use_web: useWeb } : {}),
           ...(kbEnabled && kbSelection?.tags?.length ? { kb_tags: kbSelection.tags, kb_focus: kbSelection.label } : {}),
-          messages: nextMessages,
+          messages: payloadMessages,
         }),
       });
       const json = await resp.json().catch(() => ({} as any));
@@ -777,7 +800,7 @@ export const StudyLab = () => {
 
       <Card>
         <CardHeader className="space-y-2">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="space-y-0.5">
               <CardTitle className="text-base flex items-center gap-2">
                 <MessageCircle className="h-4 w-4" />
@@ -785,64 +808,57 @@ export const StudyLab = () => {
               </CardTitle>
               <CardDescription>
                 {oracleMode
-                  ? "Catálogo: busca na sua base + catálogo público."
+                  ? "Catálogo: busca na sua base + compêndio."
                   : selectedSource
                     ? `Material: ${selectedSource.title}`
                     : "Selecione um material no catálogo."}
               </CardDescription>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Select
-                value={oracleMode ? "oracle" : "source"}
-                onValueChange={(v) => {
-                  if (v === "oracle") {
-                    setOracleMode(true);
-                  } else {
-                    setOracleMode(false);
-                    if (!selectedSourceId || selectedSourceId === FIXED_RULES_ID) setCatalogOpen(true);
-                  }
-                }}
-              >
-                <SelectTrigger className="h-9 w-[220px]">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="oracle">Catálogo (toda a base)</SelectItem>
-                  <SelectItem value="source">Material específico</SelectItem>
-                </SelectContent>
-              </Select>
-              {!oracleMode && (
-                <Button type="button" variant="outline" size="sm" onClick={() => setCatalogOpen(true)}>
-                  Escolher material
-                </Button>
-              )}
-              <Button type="button" variant="outline" size="sm" onClick={handleNewChat}>
-                Nova conversa
-              </Button>
-            </div>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="flex items-center justify-between rounded-md border p-3">
-              <div>
-                <p className="text-sm font-medium">Pesquisa online</p>
-                <p className="text-xs text-muted-foreground">Automaticamente quando não encontrar na base.</p>
-              </div>
-              <Switch checked={useWeb} onCheckedChange={setUseWeb} disabled={!oracleMode} />
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-2 rounded-full border px-3 py-1.5">
+              <Switch
+                id="studylab-catalog-toggle"
+                checked={oracleMode}
+                onCheckedChange={(checked) => {
+                  setOracleMode(checked);
+                  if (!checked && (!selectedSourceId || selectedSourceId === FIXED_RULES_ID)) {
+                    setCatalogOpen(true);
+                  }
+                }}
+              />
+              <Label htmlFor="studylab-catalog-toggle" className="text-xs font-medium">
+                Catálogo
+              </Label>
             </div>
-            <div className="flex items-center justify-between rounded-md border p-3">
-              <div>
-                <p className="text-sm font-medium">Foco por hashtags</p>
-                <p className="text-xs text-muted-foreground">Ajuda o Catálogo a priorizar temas.</p>
-              </div>
-              <Switch checked={kbEnabled} onCheckedChange={setKbEnabled} />
+            <div className="flex items-center gap-2 rounded-full border px-3 py-1.5">
+              <Switch id="studylab-web-toggle" checked={useWeb} onCheckedChange={setUseWeb} disabled={!oracleMode} />
+              <Label htmlFor="studylab-web-toggle" className="text-xs font-medium">
+                Pesquisa web
+              </Label>
             </div>
-            {kbEnabled && (
-              <div className="sm:col-span-2 rounded-md border p-3">
-                <ForumKbThemeMenu selection={kbSelection} onSelect={setKbSelection} />
-              </div>
+            <div className="flex items-center gap-2 rounded-full border px-3 py-1.5">
+              <Switch id="studylab-kb-toggle" checked={kbEnabled} onCheckedChange={setKbEnabled} />
+              <Label htmlFor="studylab-kb-toggle" className="text-xs font-medium">
+                Foco hashtags
+              </Label>
+            </div>
+            {!oracleMode && (
+              <Button type="button" variant="outline" size="sm" onClick={() => setCatalogOpen(true)}>
+                Escolher material
+              </Button>
             )}
+            <Button type="button" variant="outline" size="sm" onClick={handleNewChat}>
+              Nova conversa
+            </Button>
           </div>
+
+          {kbEnabled && (
+            <div className="rounded-md border p-3">
+              <ForumKbThemeMenu selection={kbSelection} onSelect={setKbSelection} />
+            </div>
+          )}
         </CardHeader>
 
         <CardContent className="flex flex-col gap-3">
@@ -863,9 +879,42 @@ export const StudyLab = () => {
                   ].join(" ")}
                 >
                   {m.content}
+                  {m.attachments && m.attachments.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {m.attachments.map((url, aIdx) =>
+                        isImageUrl(url) ? (
+                          <a key={`${url}-${aIdx}`} href={url} target="_blank" rel="noreferrer">
+                            <img
+                              src={url}
+                              alt={getAttachmentLabel(url)}
+                              className="h-20 w-24 rounded-md border object-cover"
+                              loading="lazy"
+                            />
+                          </a>
+                        ) : (
+                          <a
+                            key={`${url}-${aIdx}`}
+                            href={url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="rounded-md border bg-background/80 px-2 py-1 text-xs text-foreground"
+                          >
+                            {getAttachmentLabel(url)}
+                          </a>
+                        ),
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
+            {chatLoading && (
+              <div className="mb-2 flex justify-start">
+                <div className="max-w-[70%] rounded-2xl border bg-background px-3 py-2 text-sm text-muted-foreground">
+                  Pensando...
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="flex gap-2 items-end">

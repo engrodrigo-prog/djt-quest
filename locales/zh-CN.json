@@ -10,6 +10,14 @@
     "en": "英语",
     "zh-CN": "中文（简体）"
   },
+  "userPopover": {
+    "userFallback": "用户",
+    "baseFallback": "未填写基地",
+    "phoneFallback": "未填写电话",
+    "loading": "加载中…",
+    "call": "拨打",
+    "whatsapp": "WhatsApp"
+  },
   "nav": {
     "dashboard": "首页",
     "forums": "论坛",
@@ -81,6 +89,7 @@
     "mapTitle": "地图 • 含 GPS 的发布",
     "mapDescription": "此地图仅显示作者允许记录位置（GPS）的发布中的照片。",
     "mapEmpty": "当前筛选条件下没有带照片 + GPS 的发布。",
+    "mapViewportEmpty": "当前视图内没有带 GPS 的照片。",
     "location": "位置",
     "photo": "照片",
     "openPost": "打开发布",
@@ -93,6 +102,18 @@
     "photoNoGpsDeny": "不使用",
     "photoNoGpsAllow": "使用位置",
     "attachment": "附件",
+    "voice": "语音",
+    "cleanup": "AI 校对",
+    "reply": "回复",
+    "replyingTo": "回复 {name}",
+    "cancelReply": "取消回复",
+    "edit": "编辑",
+    "save": "保存",
+    "cancel": "取消",
+    "edited": "已编辑",
+    "unlike": "取消点赞",
+    "zoomIn": "放大",
+    "zoomOut": "缩小",
     "remove": "移除"
   },
   "auth": {

@@ -10,6 +10,14 @@
     "en": "English",
     "zh-CN": "Chinese (Simplified)"
   },
+  "userPopover": {
+    "userFallback": "User",
+    "baseFallback": "Base not provided",
+    "phoneFallback": "Phone not provided",
+    "loading": "Loading…",
+    "call": "Call",
+    "whatsapp": "WhatsApp"
+  },
   "nav": {
     "dashboard": "Home",
     "forums": "Forums",
@@ -81,6 +89,7 @@
     "mapTitle": "Map • posts with GPS",
     "mapDescription": "This map shows only photos from posts where the author allowed capturing location (GPS).",
     "mapEmpty": "No posts with photo + GPS found for the current filters.",
+    "mapViewportEmpty": "No photos visible in this map area.",
     "location": "Location",
     "photo": "Photo",
     "openPost": "Open post",
@@ -93,7 +102,19 @@
     "photoNoGpsDeny": "Don't use",
     "photoNoGpsAllow": "Use location",
     "attachment": "Attachment",
-    "remove": "Remove"
+    "remove": "Remove",
+    "voice": "Audio",
+    "cleanup": "Review text",
+    "reply": "Reply",
+    "replyingTo": "Replying to",
+    "cancelReply": "Cancel reply",
+    "edit": "Edit",
+    "save": "Save",
+    "cancel": "Cancel",
+    "edited": "edited",
+    "unlike": "Unlike",
+    "zoomIn": "Zoom in",
+    "zoomOut": "Zoom out"
   },
   "auth": {
     "title": "DJT Quest - Login",
@@ -295,7 +316,19 @@
     "leadersFormula": "Points = (completed reviews × {points}) + quiz XP",
     "leadersEmpty": "No leaders found (or you don't have permission to read reviews).",
     "leadersStats": "Reviews: {completed} • Quizzes: {quizXp} XP",
-    "pointsLabel": "Points"
+    "pointsLabel": "Points",
+    "breakdownTitle": "XP Breakdown",
+    "breakdownSubtitle": "Based on recorded activity.",
+    "breakdownLoading": "Loading details...",
+    "breakdown": {
+      "quiz": "Quizzes",
+      "forum": "Forum (posts)",
+      "sepbookPhotos": "SEPBook (photos)",
+      "sepbookComments": "SEPBook (comments)",
+      "sepbookLikes": "SEPBook (likes)",
+      "campaigns": "Campaigns/actions",
+      "evaluations": "Evaluations"
+    }
   },
   "forums": {
     "backToDashboard": "← Back to dashboard",
@@ -386,7 +419,7 @@
     },
     "forum": {
       "title": "How scoring works (forum)",
-      "b1": "Engagement is calculated monthly (quantity + quality; AI helps evaluate).",
+      "b1": "Each post or reply adds +10 XP.",
       "b2": "The Top 10 of the month can receive a 5%–20% bonus on monthly XP (quizzes + actions), if enabled in Studio.",
       "b3": "Posts with images, real cases and transcribed audio enrich learning.",
       "b4": "Leaders can close topics and turn discussions into compendiums, quizzes and challenges."

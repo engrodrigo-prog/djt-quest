@@ -51,9 +51,25 @@ interface LeaderRanking {
   score: number;
 }
 
+interface XpBreakdown {
+  quizXp: number;
+  forumPosts: number;
+  forumXp: number;
+  sepbookPhotoCount: number;
+  sepbookPostXp: number;
+  sepbookComments: number;
+  sepbookCommentXp: number;
+  sepbookLikes: number;
+  sepbookLikeXp: number;
+  campaignsXp: number;
+  evaluationsCompleted: number;
+  evaluationsXp: number;
+}
+
 const GUEST_TEAM_ID = 'CONVIDADOS';
 const isGuestTeamId = (id: string | null | undefined) => String(id || '').toUpperCase() === GUEST_TEAM_ID;
-const LEADER_EVAL_POINTS = 100;
+const LEADER_EVAL_POINTS = 5;
+const isPhotoUrl = (url: string) => /\.(png|jpe?g|webp|gif|bmp|tif|tiff)(\?|#|$)/i.test(url || '');
 
 function Rankings() {
   const { orgScope } = useAuth();
@@ -67,6 +83,8 @@ function Rankings() {
   const [activeTab, setActiveTab] = useState<'individual' | 'myteam' | 'teams' | 'divisions' | 'leaders'>('individual');
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [breakdownLoading, setBreakdownLoading] = useState(false);
+  const [selectedBreakdown, setSelectedBreakdown] = useState<XpBreakdown | null>(null);
 
   const fetchRankings = useCallback(async () => {
     try {
@@ -74,7 +92,7 @@ function Rankings() {
       const [profilesResult, teamsResult, divisionsResult, coordsResult, eventsResult, challengesResult, evalQueueResult] = await Promise.all([
         supabase
           .from('profiles')
-          .select('id, name, xp, avatar_url, tier, team_id, coord_id, division_id, is_leader, studio_access')
+          .select('id, name, xp, avatar_url, tier, team_id, coord_id, division_id, sigla_area, operational_base, is_leader, studio_access')
           .limit(1000),
         supabase
           .from('teams')
@@ -110,6 +128,10 @@ function Rankings() {
       const allProfiles = profilesResult.data || [];
       const isLeaderProfile = (p: any) => Boolean(p?.is_leader || p?.studio_access);
       const profilesData = allProfiles.filter((profile: any) => !isLeaderProfile(profile));
+      const isGuestProfile = (p: any) =>
+        isGuestTeamId(p?.team_id) ||
+        isGuestTeamId(p?.sigla_area) ||
+        isGuestTeamId(p?.operational_base);
 
       if (profilesData.length) {
         const teamMap = (teamsResult.data || []).reduce<Record<string, string>>((acc, team) => {
@@ -155,11 +177,21 @@ function Rankings() {
 
         // Build team members map (exclude leaders)
         const teamMembers = profilesData.reduce<Record<string, string[]>>((acc, p: any) => {
+          const isGuest = isGuestProfile(p);
+          if (isGuest) {
+            if (!acc[GUEST_TEAM_ID]) acc[GUEST_TEAM_ID] = [];
+            acc[GUEST_TEAM_ID].push(p.id);
+            return acc;
+          }
           if (!p.team_id || isGuestTeamId(p.team_id)) return acc;
           if (!acc[p.team_id]) acc[p.team_id] = [];
           acc[p.team_id].push(p.id);
           return acc;
         }, {});
+        const teamsWithMembers = teams.filter((team) => (teamMembers[team.id] || []).length > 0);
+        if ((teamMembers[GUEST_TEAM_ID] || []).length > 0) {
+          teamsWithMembers.push({ id: GUEST_TEAM_ID, name: "Convidados", coord_id: null });
+        }
 
         const now = new Date();
         const msBack = 90 * 24 * 60 * 60 * 1000; // janela padrão 90 dias
@@ -170,7 +202,11 @@ function Rankings() {
         const events = (eventsResult.data as Array<{ user_id: string; final_points: number; created_at: string }>);
         const achievedByTeam: Record<string, number> = {};
         const memberTeamByUser: Record<string, string> = {};
-        Object.keys(teamMembers).forEach((teamId) => teamMembers[teamId].forEach((uid) => { memberTeamByUser[uid] = teamId; }));
+        Object.keys(teamMembers).forEach((teamId) =>
+          teamMembers[teamId].forEach((uid) => {
+            memberTeamByUser[uid] = teamId;
+          }),
+        );
         for (const ev of events) {
           if (!ev.user_id) continue;
           const tId = memberTeamByUser[ev.user_id];
@@ -188,9 +224,9 @@ function Rankings() {
           return true;
         });
         const possibleByTeam: Record<string, number> = {};
-        for (const team of teams) {
+        for (const team of teamsWithMembers) {
           const memberCount = (teamMembers[team.id] || []).length;
-          const divisionId = team.coord_id ? coordToDiv[team.coord_id] : null;
+            const divisionId = team.coord_id ? coordToDiv[team.coord_id] : null;
           let possible = 0;
           for (const ch of challenges) {
             const tTeams: string[] | null = Array.isArray(ch.target_team_ids) ? ch.target_team_ids : null;
@@ -208,7 +244,7 @@ function Rankings() {
           possibleByTeam[team.id] = possible;
         }
 
-        const teamData = teams
+        const teamData = teamsWithMembers
           .filter((t) => t.id !== 'DJT')
           .map((team) => {
             const memberCount = (teamMembers[team.id] || []).length;
@@ -236,9 +272,26 @@ function Rankings() {
           return base;
         };
 
+        // Team members and member->team map
+        const teamMembers = profilesData.reduce<Record<string, string[]>>((acc, p: any) => {
+          const isGuest = isGuestProfile(p);
+          if (isGuest) {
+            if (!acc[GUEST_TEAM_ID]) acc[GUEST_TEAM_ID] = [];
+            acc[GUEST_TEAM_ID].push(p.id);
+            return acc;
+          }
+          if (!p.team_id || isGuestTeamId(p.team_id)) return acc;
+          if (!acc[p.team_id]) acc[p.team_id] = [];
+          acc[p.team_id].push(p.id);
+          return acc;
+        }, {});
+        const memberTeamByUser: Record<string, string> = {};
+        Object.keys(teamMembers).forEach((teamId) => teamMembers[teamId].forEach((uid) => { memberTeamByUser[uid] = teamId; }));
+
         // Map teams by division (prefer coord->division, fallback por prefixo do teamId)
         const teamsByDivision: Record<string, string[]> = {};
         for (const t of teams) {
+          if ((teamMembers[t.id] || []).length === 0) continue;
           let dId: string | null = null;
           if (t.coord_id && coordToDiv[t.coord_id]) {
             dId = coordToDiv[t.coord_id] as string;
@@ -254,16 +307,6 @@ function Rankings() {
         const msBack = 90 * 24 * 60 * 60 * 1000;
         const start = new Date(now.getTime() - msBack);
         const startMs = start.getTime();
-
-        // Team members and member->team map
-        const teamMembers = profilesData.reduce<Record<string, string[]>>((acc, p: any) => {
-          if (!p.team_id || isGuestTeamId(p.team_id)) return acc;
-          if (!acc[p.team_id]) acc[p.team_id] = [];
-          acc[p.team_id].push(p.id);
-          return acc;
-        }, {});
-        const memberTeamByUser: Record<string, string> = {};
-        Object.keys(teamMembers).forEach((teamId) => teamMembers[teamId].forEach((uid) => { memberTeamByUser[uid] = teamId; }));
 
         // Achieved per division
         const events = (eventsResult.data as Array<{ user_id: string; final_points: number; created_at: string }>);
@@ -386,6 +429,101 @@ function Rankings() {
     fetchRankings();
   }, [fetchRankings]);
 
+  useEffect(() => {
+    if (!selectedUserId) {
+      setSelectedBreakdown(null);
+      return;
+    }
+    let cancelled = false;
+    setBreakdownLoading(true);
+    (async () => {
+      try {
+        const userId = selectedUserId;
+        const [
+          quizRes,
+          forumRes,
+          sepbookPostsRes,
+          sepbookCommentsRes,
+          sepbookLikesRes,
+          eventsRes,
+          evalsRes,
+        ] = await Promise.all([
+          supabase.from('user_quiz_answers').select('xp_earned').eq('user_id', userId).limit(50000),
+          supabase.from('forum_posts').select('id').eq('user_id', userId).limit(5000),
+          supabase.from('sepbook_posts').select('attachments').eq('user_id', userId).limit(2000),
+          supabase.from('sepbook_comments').select('id').eq('user_id', userId).limit(5000),
+          supabase.from('sepbook_likes').select('post_id').eq('user_id', userId).limit(5000),
+          supabase.from('events').select('final_points').eq('user_id', userId).limit(5000),
+          supabase.from('evaluation_queue').select('completed_at').eq('assigned_to', userId).limit(5000),
+        ]);
+
+        let commentLikesCount = 0;
+        try {
+          const { data: commentLikes } = await supabase
+            .from('sepbook_comment_likes')
+            .select('comment_id')
+            .eq('user_id', userId)
+            .limit(5000);
+          commentLikesCount = Array.isArray(commentLikes) ? commentLikes.length : 0;
+        } catch {
+          commentLikesCount = 0;
+        }
+
+        const quizXp = Array.isArray(quizRes.data)
+          ? quizRes.data.reduce((sum: number, r: any) => sum + (Number(r?.xp_earned) || 0), 0)
+          : 0;
+        const forumPosts = Array.isArray(forumRes.data) ? forumRes.data.length : 0;
+        const forumXp = forumPosts * 10;
+
+        const sepbookPhotoCount = Array.isArray(sepbookPostsRes.data)
+          ? sepbookPostsRes.data.reduce((sum: number, row: any) => {
+              const atts = Array.isArray(row?.attachments) ? row.attachments : [];
+              return sum + atts.filter((url: string) => isPhotoUrl(url)).length;
+            }, 0)
+          : 0;
+        const sepbookPostXp = sepbookPhotoCount * 5;
+
+        const sepbookComments = Array.isArray(sepbookCommentsRes.data) ? sepbookCommentsRes.data.length : 0;
+        const sepbookCommentXp = sepbookComments * 2;
+
+        const sepbookLikes = (Array.isArray(sepbookLikesRes.data) ? sepbookLikesRes.data.length : 0) + commentLikesCount;
+        const sepbookLikeXp = sepbookLikes;
+
+        const campaignsXp = Array.isArray(eventsRes.data)
+          ? eventsRes.data.reduce((sum: number, row: any) => sum + (Number(row?.final_points) || 0), 0)
+          : 0;
+
+        const evaluationsCompleted = Array.isArray(evalsRes.data)
+          ? evalsRes.data.filter((row: any) => row?.completed_at).length
+          : 0;
+        const evaluationsXp = evaluationsCompleted * LEADER_EVAL_POINTS;
+
+        if (!cancelled) {
+          setSelectedBreakdown({
+            quizXp,
+            forumPosts,
+            forumXp,
+            sepbookPhotoCount,
+            sepbookPostXp,
+            sepbookComments,
+            sepbookCommentXp,
+            sepbookLikes,
+            sepbookLikeXp,
+            campaignsXp,
+            evaluationsCompleted,
+            evaluationsXp,
+          });
+        }
+      } finally {
+        if (!cancelled) setBreakdownLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedUserId]);
+
   const getMedalEmoji = (position: number) => {
     if (position === 1) return '🥇';
     if (position === 2) return '🥈';
@@ -445,37 +583,89 @@ function Rankings() {
                   <p className="text-center py-8 text-muted-foreground">{tr("common.loading")}</p>
                 ) : (
                   <div className="space-y-6">
-                    {individualRankings.map((ranking) => (
-                      <div
-                        key={ranking.userId}
-                        onClick={()=>setSelectedUserId(ranking.userId)}
-                        className={`flex items-center gap-4 p-4 rounded-lg border bg-white/5 hover:bg-white/10 transition-colors cursor-pointer ${selectedUserId===ranking.userId ? 'ring-1 ring-primary/40 bg-white/10' : ''}`}
-                      >
-                        <span className="text-2xl font-bold text-muted-foreground min-w-[3rem]">
-                          {getMedalEmoji(ranking.rank)}
-                        </span>
-                        
-                        <Avatar className="h-12 w-12">
-                          <AvatarImage src={ranking.avatarUrl || ''} />
-                          <AvatarFallback>{ranking.name.split(' ').map(n => n[0]).join('')}</AvatarFallback>
-                        </Avatar>
+                    <div className="space-y-6">
+                      {individualRankings.map((ranking) => (
+                        <div
+                          key={ranking.userId}
+                          onClick={() => setSelectedUserId(ranking.userId)}
+                          className={`flex items-center gap-4 p-4 rounded-lg border bg-white/5 hover:bg-white/10 transition-colors cursor-pointer ${selectedUserId===ranking.userId ? 'ring-1 ring-primary/40 bg-white/10' : ''}`}
+                        >
+                          <span className="text-2xl font-bold text-muted-foreground min-w-[3rem]">
+                            {getMedalEmoji(ranking.rank)}
+                          </span>
+                          
+                          <Avatar className="h-12 w-12">
+                            <AvatarImage src={ranking.avatarUrl || ''} />
+                            <AvatarFallback>{ranking.name.split(' ').map(n => n[0]).join('')}</AvatarFallback>
+                          </Avatar>
 
-                        <div className="flex-1">
-                          <p className="font-semibold">{ranking.name}</p>
-                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                            <Badge variant="outline" className="text-xs">
-                              {ranking.tier}
-                            </Badge>
-                            <span>{ranking.teamName}</span>
+                          <div className="flex-1">
+                            <p className="font-semibold">{ranking.name}</p>
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                              <Badge variant="outline" className="text-xs">
+                                {ranking.tier}
+                              </Badge>
+                              <span>{ranking.teamName}</span>
+                            </div>
+                          </div>
+
+                          <div className="text-right">
+                            <p className="text-lg font-bold">{ranking.xp.toLocaleString()} XP</p>
+                            <p className="text-sm text-muted-foreground">{tr("rankings.levelLabel", { level: ranking.level })}</p>
                           </div>
                         </div>
-
-                        <div className="text-right">
-                          <p className="text-lg font-bold">{ranking.xp.toLocaleString()} XP</p>
-                          <p className="text-sm text-muted-foreground">{tr("rankings.levelLabel", { level: ranking.level })}</p>
+                      ))}
+                    </div>
+                    {selectedUserId && (
+                      <div className="rounded-lg border bg-white/5 p-4">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <p className="text-sm font-semibold">{tr("rankings.breakdownTitle")}</p>
+                            <p className="text-xs text-muted-foreground">{tr("rankings.breakdownSubtitle")}</p>
+                          </div>
+                          {breakdownLoading && (
+                            <span className="text-xs text-muted-foreground">{tr("rankings.breakdownLoading")}</span>
+                          )}
                         </div>
+                        {selectedBreakdown && (
+                          <div className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
+                            <div>
+                              {tr("rankings.breakdown.quiz")}:{" "}
+                              <span className="font-semibold">{selectedBreakdown.quizXp.toLocaleString()}</span> XP
+                            </div>
+                            <div>
+                              {tr("rankings.breakdown.forum")}:{" "}
+                              <span className="font-semibold">{selectedBreakdown.forumPosts}</span>{" "}
+                              → {selectedBreakdown.forumXp.toLocaleString()} XP
+                            </div>
+                            <div>
+                              {tr("rankings.breakdown.sepbookPhotos")}:{" "}
+                              <span className="font-semibold">{selectedBreakdown.sepbookPhotoCount}</span>{" "}
+                              → {selectedBreakdown.sepbookPostXp.toLocaleString()} XP
+                            </div>
+                            <div>
+                              {tr("rankings.breakdown.sepbookComments")}:{" "}
+                              <span className="font-semibold">{selectedBreakdown.sepbookComments}</span>{" "}
+                              → {selectedBreakdown.sepbookCommentXp.toLocaleString()} XP
+                            </div>
+                            <div>
+                              {tr("rankings.breakdown.sepbookLikes")}:{" "}
+                              <span className="font-semibold">{selectedBreakdown.sepbookLikes}</span>{" "}
+                              → {selectedBreakdown.sepbookLikeXp.toLocaleString()} XP
+                            </div>
+                            <div>
+                              {tr("rankings.breakdown.campaigns")}:{" "}
+                              <span className="font-semibold">{selectedBreakdown.campaignsXp.toLocaleString()}</span> XP
+                            </div>
+                            <div>
+                              {tr("rankings.breakdown.evaluations")}:{" "}
+                              <span className="font-semibold">{selectedBreakdown.evaluationsCompleted}</span>{" "}
+                              → {selectedBreakdown.evaluationsXp.toLocaleString()} XP
+                            </div>
+                          </div>
+                        )}
                       </div>
-                    ))}
+                    )}
                   </div>
                 )}
               </CardContent>

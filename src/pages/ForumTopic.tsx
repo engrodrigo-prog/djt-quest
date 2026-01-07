@@ -12,9 +12,10 @@ import { useAuth } from '@/contexts/AuthContext'
 import { HelpInfo } from '@/components/HelpInfo'
 import { AttachmentUploader } from '@/components/AttachmentUploader'
 import { AttachmentViewer } from '@/components/AttachmentViewer'
+import { UserProfilePopover } from '@/components/UserProfilePopover'
 import { VoiceRecorderButton } from '@/components/VoiceRecorderButton'
 import Navigation from '@/components/Navigation'
-import { MoreVertical, Share2, Volume2, Wand2, Trash2, Pencil, Reply } from 'lucide-react'
+import { MoreVertical, Share2, Volume2, Wand2, Trash2, Pencil, Reply, Heart } from 'lucide-react'
 import { buildAbsoluteAppUrl, openWhatsAppShare } from '@/lib/whatsappShare'
 import { useTts } from '@/lib/tts'
 import { getActiveLocale } from '@/lib/i18n/activeLocale'
@@ -45,6 +46,8 @@ interface Post {
   parent_post_id?: string | null;
   reply_to_user_id?: string | null;
   translations?: Record<string, string> | null;
+  likes_count?: number;
+  has_liked?: boolean;
   author?: {
     name: string | null;
     sigla_area: string | null;
@@ -78,6 +81,7 @@ export default function ForumTopic() {
   const [mentionActiveIndex, setMentionActiveIndex] = useState(0)
   const [mentionDraft, setMentionDraft] = useState<{ start: number; end: number; query: string } | null>(null)
   const [cleaningPostId, setCleaningPostId] = useState<string | null>(null)
+  const [likingPosts, setLikingPosts] = useState<Record<string, boolean>>({})
   const [replyToPostId, setReplyToPostId] = useState<string | null>(null)
   const [replyToExcerpt, setReplyToExcerpt] = useState<string>('')
   const [translatedTopic, setTranslatedTopic] = useState<{ title?: string; description?: string }>({})
@@ -146,17 +150,84 @@ export default function ForumTopic() {
       supabase.from('forum_topics').select('*').eq('id', id).maybeSingle(),
       supabase
         .from('forum_posts')
-        .select('id,user_id,author_id,content_md,translations,payload,created_at,ai_assessment,parent_post_id,reply_to_user_id,author:profiles!forum_posts_author_id_fkey(name,sigla_area)')
+        .select('id,user_id,author_id,content_md,translations,payload,created_at,ai_assessment,parent_post_id,reply_to_user_id,likes_count,author:profiles!forum_posts_author_id_fkey(name,sigla_area)')
         .eq('topic_id', id)
         .order('created_at', { ascending: true }),
       supabase.from('forum_compendia').select('*').eq('topic_id', id).maybeSingle(),
     ])
+    const postsData = (p || []) as any[]
+    let likedSet = new Set<string>()
+    if (user?.id && postsData.length) {
+      try {
+        const { data: likedRows } = await supabase
+          .from('forum_likes')
+          .select('post_id')
+          .eq('user_id', user.id)
+          .in('post_id', postsData.map((row) => row.id))
+        likedSet = new Set((likedRows || []).map((row) => String(row.post_id)))
+      } catch {
+        likedSet = new Set()
+      }
+    }
+    const postsWithLikes = postsData.map((post) => ({
+      ...post,
+      likes_count: Number(post?.likes_count || 0),
+      has_liked: likedSet.has(String(post.id)),
+    }))
+
     setTopic(t as any)
-    setPosts((p || []) as any)
+    setPosts(postsWithLikes as any)
     setCompendium((c as any) || null)
-  }, [id])
+  }, [id, user?.id])
 
   useEffect(() => { load() }, [load])
+
+  const togglePostLike = async (post: Post) => {
+    if (!user) {
+      toast({ title: 'Faça login para curtir posts.' })
+      return
+    }
+    if (likingPosts[post.id]) return
+    const nextLiked = !post.has_liked
+    const optimisticCount = Math.max(0, (post.likes_count || 0) + (nextLiked ? 1 : -1))
+    setLikingPosts((prev) => ({ ...prev, [post.id]: true }))
+    setPosts((prev) =>
+      prev.map((p) => (p.id === post.id ? { ...p, has_liked: nextLiked, likes_count: optimisticCount } : p)),
+    )
+    try {
+      const { data: session } = await supabase.auth.getSession()
+      const token = session.session?.access_token
+      if (!token) throw new Error('Não autenticado')
+      const resp = await fetch('/api/forum?handler=like', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ post_id: post.id, action: nextLiked ? 'like' : 'unlike' }),
+      })
+      const json = await resp.json().catch(() => ({}))
+      if (!resp.ok) throw new Error(json?.error || 'Falha ao curtir')
+      if (typeof json?.like_count === 'number') {
+        setPosts((prev) =>
+          prev.map((p) => (p.id === post.id ? { ...p, likes_count: json.like_count } : p)),
+        )
+      }
+    } catch (e: any) {
+      setPosts((prev) =>
+        prev.map((p) =>
+          p.id === post.id ? { ...p, has_liked: post.has_liked, likes_count: post.likes_count } : p,
+        ),
+      )
+      toast({
+        title: 'Erro ao curtir',
+        description: e?.message || tr('forumTopic.toast.tryAgain'),
+        variant: 'destructive',
+      })
+    } finally {
+      setLikingPosts((prev) => ({ ...prev, [post.id]: false }))
+    }
+  }
 
   useEffect(() => {
     if (!topic) return
@@ -1161,6 +1232,7 @@ export default function ForumTopic() {
                 if (sigla) return `[${sigla}]`
                 return name || tr('forumTopic.author.fallback')
               })()
+              const authorId = p.user_id || (p as any).author_id || null
               return (
             <Card key={p.id} id={`post-${p.id}`}>
               <CardContent className="p-4 space-y-2">
@@ -1225,7 +1297,11 @@ export default function ForumTopic() {
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div className="flex-1 min-w-0 space-y-1">
                       <p className="text-[11px] font-semibold text-primary">
-                        {authorLabel}
+                        <UserProfilePopover userId={authorId} name={p.author?.name} avatarUrl={null}>
+                          <button type="button" className="text-[11px] font-semibold text-primary">
+                            {authorLabel}
+                          </button>
+                        </UserProfilePopover>
                       </p>
                       <div className="text-sm whitespace-pre-wrap break-words">{postText}</div>
                     </div>
@@ -1254,6 +1330,21 @@ export default function ForumTopic() {
 	                        >
 	                          <Volume2 className="h-4 w-4" />
 	                        </Button>
+                          <div className="flex items-center gap-1">
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="ghost"
+                              className="h-9 w-9"
+                              onClick={() => togglePostLike(p)}
+                              title={p.has_liked ? "Descurtir" : "Curtir"}
+                              aria-label={p.has_liked ? "Descurtir" : "Curtir"}
+                              disabled={likingPosts[p.id]}
+                            >
+                              <Heart className={`h-4 w-4 ${p.has_liked ? "fill-red-500 text-red-500" : ""}`} />
+                            </Button>
+                            <span className="text-[11px] text-muted-foreground">{p.likes_count || 0}</span>
+                          </div>
 	                        <Button
 	                          type="button"
 	                          size="sm"
@@ -1330,12 +1421,17 @@ export default function ForumTopic() {
                         if (sigla) return `[${sigla}]`
                         return name || tr('forumTopic.author.fallback')
                       })()
+                      const replyAuthorId = r.user_id || (r as any).author_id || null
                       return (
                       <div key={r.id} id={`post-${r.id}`} className="flex flex-col gap-3 text-sm text-muted-foreground sm:flex-row sm:items-start sm:justify-between">
                         <div className="whitespace-pre-wrap flex-1 min-w-0 space-y-1">
                           <p className="text-[11px] font-semibold text-muted-foreground flex items-center gap-1">
                             <span className="text-xs">{tr('forumTopic.reply.label')}</span>
-                            <span>{rAuthorLabel}</span>
+                            <UserProfilePopover userId={replyAuthorId} name={r.author?.name} avatarUrl={null}>
+                              <button type="button" className="text-[11px] font-semibold text-muted-foreground">
+                                {rAuthorLabel}
+                              </button>
+                            </UserProfilePopover>
                           </p>
                           <div className="break-words">{replyText}</div>
 	                          {(() => {
@@ -1372,6 +1468,21 @@ export default function ForumTopic() {
 	                            >
 	                              <Volume2 className="h-4 w-4" />
 	                            </Button>
+                              <div className="flex items-center gap-1">
+                                <Button
+                                  type="button"
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-9 w-9"
+                                  onClick={() => togglePostLike(r)}
+                                  title={r.has_liked ? "Descurtir" : "Curtir"}
+                                  aria-label={r.has_liked ? "Descurtir" : "Curtir"}
+                                  disabled={likingPosts[r.id]}
+                                >
+                                  <Heart className={`h-4 w-4 ${r.has_liked ? "fill-red-500 text-red-500" : ""}`} />
+                                </Button>
+                                <span className="text-[11px] text-muted-foreground">{r.likes_count || 0}</span>
+                              </div>
 	                            <Button
 	                              type="button"
 	                              size="sm"

@@ -30,6 +30,7 @@ async function resolveMentionedUserIds(admin, rawMentions, opts) {
         return [];
     const emails = list.filter((m) => m.includes('@'));
     const handles = list.filter((m) => !m.includes('@'));
+    const handleNameHints = handles.map((h) => h.replace(/[._-]+/g, ' ').trim()).filter(Boolean).slice(0, 12);
     const out = new Set();
     try {
         if (emails.length) {
@@ -56,6 +57,16 @@ async function resolveMentionedUserIds(admin, rawMentions, opts) {
                     out.add(String(u.id));
         }
         catch { }
+        if (handleNameHints.length) {
+            try {
+                const or = handleNameHints.map((h) => `name.ilike.%${h.split(/\s+/).join('%')}%`).join(',');
+                const { data } = await admin.from('profiles').select('id, name').or(or);
+                for (const u of data || [])
+                    if (u?.id)
+                        out.add(String(u.id));
+            }
+            catch { }
+        }
     }
     if (excludeUserId)
         out.delete(excludeUserId);

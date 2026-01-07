@@ -1,3 +1,5 @@
+/// <reference lib="deno.ns" />
+// @ts-expect-error Deno resolves remote modules at runtime.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.76.1';
 
 const corsHeaders = {
@@ -25,7 +27,7 @@ const normTeamCode = (raw?: string | null) =>
     .replace(/^-|-$/g, '')
     .slice(0, 32)
 
-Deno.serve(async (req) => {
+Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
@@ -124,14 +126,14 @@ Deno.serve(async (req) => {
     }
 
     // Check if user has permission (coordinator or higher)
-    const { data: roles, error: rolesError } = await supabaseAdmin
+    const { data: rolesRows, error: rolesError } = await supabaseAdmin
       .from('user_roles')
       .select('role')
       .eq('user_id', user.id);
 
     if (rolesError) throw rolesError;
 
-    const hasPermission = roles?.some((r) =>
+    const hasPermission = rolesRows?.some((r: { role: string }) =>
       ['admin', 'coordenador_djtx', 'gerente_divisao_djtx', 'gerente_djt'].includes(r.role)
     );
 
@@ -140,7 +142,7 @@ Deno.serve(async (req) => {
     }
 
     const body = await req.json() as ApprovalRequest;
-    const { registrationId, notes, roles, assign_content_curator } = body;
+    const { registrationId, notes, assign_content_curator } = body;
 
     // Fetch pending registration
     const { data: registration, error: fetchError } = await supabaseAdmin
@@ -277,7 +279,9 @@ Deno.serve(async (req) => {
     }
 
     // Assign roles: invited (guest) or colaborador (internal), plus optional content_curator
-    const requestedRoles = Array.isArray(roles) ? roles.map((r) => String(r || '').trim()).filter(Boolean) : []
+    const requestedRoles = Array.isArray(body.roles)
+      ? body.roles.map((r: string) => String(r || '').trim()).filter(Boolean)
+      : []
     const wantsCurator = Boolean(assign_content_curator) || requestedRoles.includes('content_curator')
     const baseRole = isGuest ? 'invited' : 'colaborador'
     const rolesToAssign = [baseRole, ...(wantsCurator ? ['content_curator'] : [])]

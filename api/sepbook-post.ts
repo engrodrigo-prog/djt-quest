@@ -21,6 +21,8 @@ const extractCampaignTitles = (md: string) => {
   return Array.from(new Set(out.map((t) => t.replace(/\s+/g, " ").trim()).filter(Boolean))).slice(0, 3);
 };
 
+const isPhotoUrl = (url: string) => /\.(png|jpe?g|webp|gif|bmp|tif|tiff)(\?|#|$)/i.test(url || "");
+
 async function resolveCampaignByTitle(reader: any, titleRaw: string) {
   const title = String(titleRaw || "").replace(/\s+/g, " ").trim();
   if (!title) return null;
@@ -245,11 +247,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       await recomputeSepbookMentionsForPost(post.id);
     } catch {}
 
-    // XP por engajamento no SEPBook (post completo) — limitado a 100 XP/mês por usuário.
+    // XP por engajamento no SEPBook (5 XP por foto) — limitado a 100 XP/mês por usuário.
     // Por enquanto, aplica apenas para o autor; participantes adicionais dependem de migração estável em produção.
     try {
       if (SERVICE_ROLE_KEY) {
-        await admin.rpc("increment_sepbook_profile_xp", { p_user_id: uid, p_amount: 5 }).catch(() => {});
+        const photoCount = atts.filter((url: string) => isPhotoUrl(url)).length;
+        const xpAmount = photoCount * 5;
+        if (xpAmount > 0) {
+          await admin.rpc("increment_sepbook_profile_xp", { p_user_id: uid, p_amount: xpAmount }).catch(() => {});
+        }
       }
     } catch {}
 

@@ -63,7 +63,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (!SERVICE_ROLE_KEY && !authed) return res.status(401).json({ error: "Unauthorized" });
 
       const reader = SERVICE_ROLE_KEY ? admin : authed;
-      const baseSelect = "id, post_id, user_id, content_md, created_at";
+      const baseSelect = "id, post_id, user_id, content_md, created_at, parent_id, updated_at";
       const selectWithAttachments = `${baseSelect}, attachments, translations`;
       let data: any[] | null = null;
       let error: any = null;
@@ -75,10 +75,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         .limit(100);
       data = attempt.data as any;
       error = attempt.error as any;
-      if (error && /attachments|translations/i.test(String(error.message || ""))) {
+      if (error && /attachments|translations|parent_id|updated_at/i.test(String(error.message || ""))) {
         const fallback = await reader
           .from("sepbook_comments")
-          .select(baseSelect)
+          .select("id, post_id, user_id, content_md, created_at")
           .eq("post_id", postId)
           .order("created_at", { ascending: true })
           .limit(100);
@@ -94,6 +94,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           });
         }
         return res.status(400).json({ error: error.message });
+      }
+
+      let uid: string | null = null;
+      if (token && (SERVICE_ROLE_KEY || authed)) {
+        try {
+          const userData = SERVICE_ROLE_KEY ? await admin.auth.getUser(token) : await authed.auth.getUser();
+          uid = userData?.data?.user?.id || null;
+        } catch {
+          uid = null;
+        }
       }
 
       const userIds = Array.from(new Set((data || []).map((c) => c.user_id)));
@@ -113,6 +123,29 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         profileMap.set(p.id, { name: p.name, sigla_area: p.sigla_area, avatar_url: p.avatar_url, operational_base: (p as any).operational_base || null });
       });
 
+      const commentIds = (data || []).map((c) => c.id).filter(Boolean);
+      let likes: any[] = [];
+      try {
+        if (commentIds.length) {
+          const { data: likesRows } = await reader
+            .from("sepbook_comment_likes")
+            .select("comment_id, user_id")
+            .in("comment_id", commentIds)
+            .limit(2000);
+          likes = (likesRows as any[]) || [];
+        }
+      } catch {
+        likes = [];
+      }
+      const likeCounts = new Map<string, number>();
+      const likedByUser = new Set<string>();
+      for (const row of likes || []) {
+        const cid = String(row?.comment_id || "");
+        if (!cid) continue;
+        likeCounts.set(cid, (likeCounts.get(cid) || 0) + 1);
+        if (uid && row?.user_id === uid) likedByUser.add(cid);
+      }
+
       const items = (data || []).map((c) => {
         const prof = profileMap.get(c.user_id) || { name: "Colaborador", sigla_area: null, avatar_url: null, operational_base: null };
         const attachments = Array.isArray(c.attachments) ? c.attachments.filter(Boolean) : [];
@@ -121,6 +154,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           id: c.id,
           post_id: c.post_id,
           user_id: c.user_id,
+          parent_id: c?.parent_id || null,
           author_name: prof.name,
           author_team: prof.sigla_area,
           author_avatar: prof.avatar_url,
@@ -129,6 +163,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           attachments,
           translations,
           created_at: c.created_at,
+          updated_at: c?.updated_at || null,
+          like_count: likeCounts.get(String(c.id)) || 0,
+          has_liked: likedByUser.has(String(c.id)),
         };
       });
 
@@ -154,13 +191,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
       if (!uid) return res.status(401).json({ error: "Unauthorized" });
 
-      const { post_id, content_md } = req.body || {};
+      const { post_id, content_md, parent_id } = req.body || {};
       const rawAttachments = Array.isArray(req.body?.attachments) ? req.body.attachments : [];
       const attachments = rawAttachments
         .filter((item: any) => typeof item === "string" && item.trim())
         .slice(0, 3);
       const targetLocales = localesForAllTargets(req.body?.locales);
       const postId = String(post_id || "").trim();
+      const parentId = parent_id ? String(parent_id).trim() : null;
       const text = String(content_md || "").trim();
       if (!postId || (text.length < 2 && attachments.length === 0)) {
         return res.status(400).json({ error: "post_id e texto/foto obrigatórios" });
@@ -178,6 +216,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
 
       const profileReader = SERVICE_ROLE_KEY ? admin : authed;
+      if (parentId) {
+        try {
+          const { data: parent } = await profileReader
+            .from("sepbook_comments")
+            .select("id, post_id")
+            .eq("id", parentId)
+            .maybeSingle();
+          if (!parent || String(parent.post_id || "") !== postId) {
+            return res.status(400).json({ error: "parent_id inválido para este post" });
+          }
+        } catch {
+          return res.status(400).json({ error: "parent_id inválido para este post" });
+        }
+      }
       const { data: profile } = await profileReader
         .from("profiles")
         .select("name, sigla_area")
@@ -191,6 +243,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         content_md: normalizedText,
         attachments,
         translations,
+        ...(parentId ? { parent_id: parentId } : {}),
       };
 
       let data: any = null;
@@ -247,15 +300,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         } catch {}
       }
 
-      // XP extra para comentários mais ricos: >30 chars, com # e @ (limitado a 100 XP/mês no SEPBook)
+      // XP por comentário no SEPBook (limitado a 100 XP/mês via função).
       try {
-        const normalized = text || "";
-        if (
-          normalized.length >= 30 &&
-          normalized.includes("#") &&
-          /@[A-Za-z0-9_.-]+/.test(normalized)
-        ) {
-          await admin.rpc("increment_sepbook_profile_xp", { p_user_id: uid, p_amount: 1 });
+        if (SERVICE_ROLE_KEY) {
+          await admin.rpc("increment_sepbook_profile_xp", { p_user_id: uid, p_amount: 2 });
         }
       } catch {}
 
@@ -271,6 +319,123 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           ...data,
           author_name: profile?.name || "Colaborador",
           author_team: profile?.sigla_area || null,
+          like_count: 0,
+          has_liked: false,
+        },
+      });
+    }
+
+    if (req.method === "PATCH") {
+      if (!authHeader?.startsWith("Bearer ")) return res.status(401).json({ error: "Unauthorized" });
+      let uid: string | null = null;
+      if (SERVICE_ROLE_KEY) {
+        try {
+          const { data: userData, error: authErr } = await admin.auth.getUser(token);
+          if (!authErr) uid = userData?.user?.id || null;
+        } catch {
+          uid = null;
+        }
+      } else if (authed) {
+        const { data: userData, error: authErr } = await authed.auth.getUser();
+        if (authErr) return res.status(401).json({ error: "Unauthorized" });
+        uid = userData?.user?.id || null;
+      } else {
+        return res.status(500).json({ error: "Missing Supabase anon key" });
+      }
+      if (!uid) return res.status(401).json({ error: "Unauthorized" });
+
+      const { comment_id, content_md } = req.body || {};
+      const commentId = String(comment_id || "").trim();
+      if (!commentId) return res.status(400).json({ error: "comment_id obrigatório" });
+      const rawAttachments = Array.isArray(req.body?.attachments) ? req.body.attachments : null;
+      const nextAttachments = rawAttachments
+        ? rawAttachments.filter((item: any) => typeof item === "string" && item.trim()).slice(0, 3)
+        : null;
+      const text = String(content_md || "").trim();
+      const normalizedText = text.length >= 2 ? text : "";
+      const targetLocales = localesForAllTargets(req.body?.locales);
+
+      const reader = SERVICE_ROLE_KEY ? admin : authed;
+      const { data: existing, error: fetchErr } = await reader
+        .from("sepbook_comments")
+        .select("id, post_id, user_id, attachments, translations, parent_id")
+        .eq("id", commentId)
+        .maybeSingle();
+      if (fetchErr) return res.status(400).json({ error: fetchErr.message });
+      if (!existing) return res.status(404).json({ error: "Comentário não encontrado" });
+      if (existing.user_id !== uid) return res.status(403).json({ error: "Sem permissão para editar este comentário" });
+
+      const effectiveAttachments = nextAttachments ?? (Array.isArray(existing.attachments) ? existing.attachments : []);
+      if (normalizedText.length < 2 && effectiveAttachments.length === 0) {
+        return res.status(400).json({ error: "Texto ou anexo obrigatório" });
+      }
+
+      let translations: any = existing?.translations && typeof existing.translations === "object" ? existing.translations : { "pt-BR": normalizedText || "" };
+      if (normalizedText) {
+        translations = { "pt-BR": normalizedText };
+        try {
+          const [map] = await translateForumTexts({ texts: [normalizedText], targetLocales, maxPerBatch: 6 } as any);
+          if (map && typeof map === "object") translations = map;
+        } catch {
+          // keep base locale only
+        }
+      }
+
+      let updateError: any = null;
+      try {
+        const { error } = await reader
+          .from("sepbook_comments")
+          .update({
+            content_md: normalizedText,
+            attachments: effectiveAttachments,
+            translations,
+          } as any)
+          .eq("id", commentId);
+        updateError = error;
+        if (updateError && /column .*translations.* does not exist/i.test(String(updateError.message || ""))) throw updateError;
+      } catch {
+        const { error } = await reader
+          .from("sepbook_comments")
+          .update({
+            content_md: normalizedText,
+            attachments: effectiveAttachments,
+          } as any)
+          .eq("id", commentId);
+        updateError = error;
+      }
+      if (updateError) return res.status(400).json({ error: updateError.message || "Falha ao atualizar comentário" });
+
+      try {
+        if (!SERVICE_ROLE_KEY) throw new Error("no service role");
+        await recomputeSepbookMentionsForPost(existing.post_id);
+      } catch {}
+
+      let profile: any = null;
+      try {
+        const { data: profileData } = await reader
+          .from("profiles")
+          .select("name, sigla_area, avatar_url, operational_base")
+          .eq("id", uid)
+          .maybeSingle();
+        profile = profileData || null;
+      } catch {
+        profile = null;
+      }
+
+      return res.status(200).json({
+        success: true,
+        comment: {
+          id: existing.id,
+          post_id: existing.post_id,
+          user_id: uid,
+          parent_id: existing.parent_id || null,
+          content_md: normalizedText,
+          attachments: effectiveAttachments,
+          translations,
+          author_name: profile?.name || "Colaborador",
+          author_team: profile?.sigla_area || null,
+          author_avatar: profile?.avatar_url || null,
+          author_base: profile?.operational_base || null,
         },
       });
     }

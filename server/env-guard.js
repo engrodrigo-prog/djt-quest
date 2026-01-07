@@ -1,4 +1,5 @@
 import { getSupabaseUrlFromEnv } from "./lib/supabase-url.js";
+import { normalizeChatModel } from "./lib/openai-models.js";
 
 export const DJT_QUEST_SUPABASE_PROJECT_REF = "eyuehdefoedxcunxiyvb";
 export const DJT_QUEST_SUPABASE_HOST = `${DJT_QUEST_SUPABASE_PROJECT_REF}.supabase.co`;
@@ -35,6 +36,20 @@ export const assertDjtQuestSupabaseUrl = (rawUrl, opts = {}) => {
 
 export const assertDjtQuestServerEnv = (opts = {}) => {
   const { requireSupabaseUrl = false, allowLocal = true } = opts;
+
+  // Normalize OpenAI model aliases (e.g., gpt-5 -> snapshot) so downstream handlers are consistent.
+  const normalizeEnvModel = (key) => {
+    const raw = process.env[key];
+    if (!raw || typeof raw !== "string") return;
+    const normalized = normalizeChatModel(raw, raw);
+    process.env[key] = normalized;
+  };
+
+  normalizeEnvModel("OPENAI_MODEL_FAST");
+  normalizeEnvModel("OPENAI_MODEL_PREMIUM");
+  normalizeEnvModel("OPENAI_MODEL_STUDYLAB_CHAT");
+  normalizeEnvModel("OPENAI_TEXT_MODEL");
+  normalizeEnvModel("OPENAI_MODEL_OVERRIDE");
 
   const resolved = getSupabaseUrlFromEnv(process.env, { expectedHostname: DJT_QUEST_SUPABASE_HOST, allowLocal });
 

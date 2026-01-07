@@ -10,6 +10,14 @@
     "en": "English",
     "zh-CN": "中文"
   },
+  "userPopover": {
+    "userFallback": "Usuário",
+    "baseFallback": "Base não informada",
+    "phoneFallback": "Telefone não informado",
+    "loading": "Carregando…",
+    "call": "Ligar",
+    "whatsapp": "WhatsApp"
+  },
   "nav": {
     "dashboard": "Início",
     "forums": "Fóruns",
@@ -81,6 +89,7 @@
     "mapTitle": "Mapa • publicações com GPS",
     "mapDescription": "Aqui aparecem apenas fotos de publicações onde o autor permitiu capturar a localização (GPS).",
     "mapEmpty": "Nenhuma publicação com foto + GPS encontrada nos filtros atuais.",
+    "mapViewportEmpty": "Nenhuma foto visível nesta área do mapa.",
     "location": "Localização",
     "photo": "Foto",
     "openPost": "Abrir publicação",
@@ -93,7 +102,19 @@
     "photoNoGpsDeny": "Não usar",
     "photoNoGpsAllow": "Usar localização",
     "attachment": "Anexo",
-    "remove": "Remover"
+    "remove": "Remover",
+    "voice": "Áudio",
+    "cleanup": "Revisar texto",
+    "reply": "Responder",
+    "replyingTo": "Respondendo a",
+    "cancelReply": "Cancelar resposta",
+    "edit": "Editar",
+    "save": "Salvar",
+    "cancel": "Cancelar",
+    "edited": "editado",
+    "unlike": "Descurtir",
+    "zoomIn": "Aproximar",
+    "zoomOut": "Afastar"
   },
   "auth": {
     "title": "DJT Quest - Login",
@@ -295,7 +316,19 @@
     "leadersFormula": "Pontos = (avaliações concluídas × {points}) + XP em quizzes",
     "leadersEmpty": "Nenhum líder encontrado (ou você não tem permissão para ler avaliações).",
     "leadersStats": "Avaliações: {completed} • Quizzes: {quizXp} XP",
-    "pointsLabel": "Pontos"
+    "pointsLabel": "Pontos",
+    "breakdownTitle": "Detalhamento de XP",
+    "breakdownSubtitle": "Baseado em atividades registradas.",
+    "breakdownLoading": "Carregando detalhes...",
+    "breakdown": {
+      "quiz": "Quizzes",
+      "forum": "Fórum (posts)",
+      "sepbookPhotos": "SEPBook (fotos)",
+      "sepbookComments": "SEPBook (comentários)",
+      "sepbookLikes": "SEPBook (curtidas)",
+      "campaigns": "Campanhas/ações",
+      "evaluations": "Avaliações"
+    }
   },
   "forums": {
     "backToDashboard": "← Voltar ao painel",
@@ -386,7 +419,7 @@
     },
     "forum": {
       "title": "Como pontua (fórum)",
-      "b1": "O engajamento é contabilizado mensalmente (quantidade + qualidade; a IA ajuda a avaliar).",
+      "b1": "Cada post ou resposta soma +10 XP.",
       "b2": "O Top 10 do mês pode receber bônus de 5% a 20% no XP mensal (quizzes + ações), se habilitado no Studio.",
       "b3": "Postagens com imagens, casos reais e áudio transcrito enriquecem o aprendizado.",
       "b4": "Líderes podem fechar temas e transformar discussões em compêndios, quizzes e desafios."

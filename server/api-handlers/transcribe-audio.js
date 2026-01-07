@@ -1,5 +1,5 @@
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const OPENAI_MODEL_AUDIO = process.env.OPENAI_MODEL_AUDIO || '';
+const OPENAI_MODEL_AUDIO = process.env.OPENAI_MODEL_AUDIO || 'gpt-audio-2025-08-28';
 const OPENAI_TRANSCRIBE_MODEL = process.env.OPENAI_TRANSCRIBE_MODEL || '';
 const FAST_MODELS = Array.from(new Set([
     process.env.OPENAI_MODEL_FAST,

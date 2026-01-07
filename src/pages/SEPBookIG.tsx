@@ -26,9 +26,12 @@ import { cn } from "@/lib/utils";
 import { buildAbsoluteAppUrl, openWhatsAppShare } from "@/lib/whatsappShare";
 import { useTts } from "@/lib/tts";
 import { AttachmentViewer } from "@/components/AttachmentViewer";
+import { VoiceRecorderButton } from "@/components/VoiceRecorderButton";
+import { UserProfilePopover } from "@/components/UserProfilePopover";
 import { useAuth } from "@/contexts/AuthContext";
 import { useI18n } from "@/contexts/I18nContext";
 import { translateTextsCached } from "@/lib/i18n/aiTranslate";
+import { localeToOpenAiLanguageTag } from "@/lib/i18n/language";
 import { MapContainer, Marker, Popup, TileLayer, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
@@ -38,17 +41,23 @@ import markerShadowUrl from "leaflet/dist/images/marker-shadow.png";
 import {
   AtSign,
   Camera,
+  Check,
   Heart,
   Image as ImageIcon,
   MessageCircle,
   MapPinned,
   MoreHorizontal,
+  Pencil,
   Plus,
+  Reply,
   Send,
   Share2,
   SlidersHorizontal,
   Volume2,
+  Wand2,
   X,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react";
 
 L.Icon.Default.mergeOptions({
@@ -88,6 +97,10 @@ type SepComment = {
   content_md: string;
   translations?: Record<string, string> | null;
   attachments?: string[];
+  parent_id?: string | null;
+  like_count?: number;
+  has_liked?: boolean;
+  updated_at?: string | null;
   created_at: string;
 };
 
@@ -337,6 +350,35 @@ function SepbookFitBounds({ points }: { points: Array<[number, number]> }) {
   return null;
 }
 
+function SepbookMapViewport({ onBoundsChange }: { onBoundsChange: (bounds: L.LatLngBounds) => void }) {
+  const map = useMap();
+  useEffect(() => {
+    if (!map) return;
+    let cancelled = false;
+    const handler = () => {
+      if (cancelled) return;
+      try {
+        onBoundsChange(map.getBounds());
+      } catch {
+        /* ignore */
+      }
+    };
+    try {
+      map.whenReady(() => handler());
+    } catch {
+      handler();
+    }
+    map.on("moveend", handler);
+    map.on("zoomend", handler);
+    return () => {
+      cancelled = true;
+      map.off("moveend", handler);
+      map.off("zoomend", handler);
+    };
+  }, [map, onBoundsChange]);
+  return null;
+}
+
 const maybeDownscaleImage = async (file: File, maxImageDimension: number, imageQuality: number): Promise<File> => {
   if (typeof document === "undefined") return file;
   if (!file.type.startsWith("image/")) return file;
@@ -544,6 +586,8 @@ export default function SEPBookIG() {
   const [campaignOptions, setCampaignOptions] = useState<CampaignSuggestion[]>([]);
   const [campaignOptionsLoading, setCampaignOptionsLoading] = useState(false);
   const [mapOpen, setMapOpen] = useState(false);
+  const [mapBounds, setMapBounds] = useState<L.LatLngBounds | null>(null);
+  const [mapSelectedId, setMapSelectedId] = useState<string | null>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
 
   const [locationConsent, setLocationConsent] = useState<"allow" | "deny" | "unknown">("unknown");
@@ -577,6 +621,15 @@ export default function SEPBookIG() {
   const [commentSubmitting, setCommentSubmitting] = useState(false);
   const commentCameraRef = useRef<HTMLInputElement | null>(null);
   const commentGalleryRef = useRef<HTMLInputElement | null>(null);
+  const commentInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const [commentLiking, setCommentLiking] = useState<Record<string, boolean>>({});
+  const [replyTarget, setReplyTarget] = useState<SepComment | null>(null);
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
+  const [editingCommentText, setEditingCommentText] = useState("");
+  const [editingCommentSaving, setEditingCommentSaving] = useState(false);
+  const [cleaningComment, setCleaningComment] = useState(false);
+  const [cleaningCommentEdit, setCleaningCommentEdit] = useState(false);
+  const [cleaningComposer, setCleaningComposer] = useState(false);
 
   const [mentionsOpen, setMentionsOpen] = useState(false);
   const [mentionsLoading, setMentionsLoading] = useState(false);
@@ -682,6 +735,16 @@ export default function SEPBookIG() {
       .filter((x) => Boolean(x.imageUrl));
   }, [visiblePosts]);
 
+  const visibleMapPosts = useMemo(() => {
+    if (!mapBounds) return mapPosts;
+    return mapPosts.filter((x) => {
+      const lat = Number(x.post.location_lat);
+      const lng = Number(x.post.location_lng);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+      return mapBounds.contains(L.latLng(lat, lng));
+    });
+  }, [mapBounds, mapPosts]);
+
   const mapCenter = useMemo<[number, number]>(() => {
     if (!mapPosts.length) return [-23.55052, -46.633308]; // fallback: São Paulo
     const sum = mapPosts.reduce(
@@ -705,6 +768,40 @@ export default function SEPBookIG() {
       if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
     }, 80);
   }, []);
+
+  const selectedMarkerIcon = useMemo(() => {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="48" viewBox="0 0 32 48"><path d="M16 0C7.2 0 0 7.2 0 16c0 12 16 32 16 32s16-20 16-32C32 7.2 24.8 0 16 0z" fill="#fbbf24"/><circle cx="16" cy="16" r="6" fill="#ffffff"/></svg>`;
+    const url = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
+    return new L.Icon({
+      iconUrl: url,
+      iconSize: [32, 48],
+      iconAnchor: [16, 48],
+      popupAnchor: [0, -44],
+      shadowUrl: markerShadowUrl,
+      shadowSize: [41, 41],
+      shadowAnchor: [13, 41],
+    });
+  }, []);
+
+  const focusMapPost = useCallback(
+    (postId: string, opts?: { openPost?: boolean }) => {
+      const id = String(postId || "").trim();
+      if (!id) return;
+      setMapSelectedId(id);
+      const target = mapPosts.find((x) => x.post.id === id);
+      if (target && mapInstanceRef.current) {
+        const lat = Number(target.post.location_lat);
+        const lng = Number(target.post.location_lng);
+        if (Number.isFinite(lat) && Number.isFinite(lng)) {
+          mapInstanceRef.current.setView([lat, lng], Math.max(mapInstanceRef.current.getZoom(), 14), { animate: true });
+        }
+      }
+      if (opts?.openPost) {
+        openPostById(id);
+      }
+    },
+    [mapPosts, openPostById],
+  );
 
   useEffect(() => {
     setLocationConsent(readLocationConsent());
@@ -895,6 +992,35 @@ export default function SEPBookIG() {
     [locale],
   );
 
+  const runCleanup = useCallback(
+    async (input: { text: string; title: string }) => {
+      const base = String(input.text || "").trim();
+      if (base.length < 3) {
+        return { ok: false, reason: "too_short" as const };
+      }
+      const resp = await fetch("/api/ai?handler=cleanup-text", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: input.title,
+          description: base,
+          language: localeToOpenAiLanguageTag(locale),
+        }),
+      });
+      const json = await resp.json().catch(() => ({}));
+      const usedAI = json?.meta?.usedAI !== false;
+      if (!resp.ok || !json?.cleaned?.description) {
+        return { ok: false, reason: "failed" as const, error: json?.error };
+      }
+      if (!usedAI) {
+        return { ok: false, reason: "unavailable" as const };
+      }
+      const cleaned = String(json.cleaned.description || base).trim();
+      return { ok: true, cleaned, changed: cleaned !== base };
+    },
+    [locale],
+  );
+
   const loadFeed = useCallback(async () => {
     setLoadingFeed(true);
     setFeedWarning(null);
@@ -939,6 +1065,9 @@ export default function SEPBookIG() {
       setCommentsOpenFor(id);
       setCommentText("");
       setCommentMentionQuery("");
+      setReplyTarget(null);
+      setEditingCommentId(null);
+      setEditingCommentText("");
       commentMedia.forEach((m) => m.previewUrl && URL.revokeObjectURL(m.previewUrl));
       setCommentMedia([]);
       if (!commentsByPost[id]) await loadComments(id);
@@ -986,6 +1115,54 @@ export default function SEPBookIG() {
     [toast],
   );
 
+  const toggleCommentLike = useCallback(
+    async (postId: string, comment: SepComment) => {
+      const cid = String(comment?.id || "").trim();
+      if (!cid) return;
+      if (commentLiking[cid]) return;
+      const wasLiked = Boolean(comment.has_liked);
+      const nextLiked = !wasLiked;
+      setCommentLiking((prev) => ({ ...prev, [cid]: true }));
+      setCommentsByPost((prev) => ({
+        ...prev,
+        [postId]: (prev[postId] || []).map((c) =>
+          c.id === cid
+            ? { ...c, has_liked: nextLiked, like_count: Math.max(0, (c.like_count || 0) + (nextLiked ? 1 : -1)) }
+            : c,
+        ),
+      }));
+      try {
+        const resp = await apiFetch("/api/sepbook-react", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ comment_id: cid, action: nextLiked ? "like" : "unlike" }),
+        });
+        const json = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(json?.error || "Falha ao reagir");
+        const nextCount = typeof json.like_count === "number" ? json.like_count : undefined;
+        if (typeof nextCount === "number") {
+          setCommentsByPost((prev) => ({
+            ...prev,
+            [postId]: (prev[postId] || []).map((c) => (c.id === cid ? { ...c, like_count: nextCount } : c)),
+          }));
+        }
+      } catch (e: any) {
+        setCommentsByPost((prev) => ({
+          ...prev,
+          [postId]: (prev[postId] || []).map((c) =>
+            c.id === cid
+              ? { ...c, has_liked: wasLiked, like_count: Math.max(0, (c.like_count || 0) + (wasLiked ? 1 : -1)) }
+              : c,
+          ),
+        }));
+        toast({ title: "Curtida", description: e?.message || "Não foi possível reagir", variant: "destructive" });
+      } finally {
+        setCommentLiking((prev) => ({ ...prev, [cid]: false }));
+      }
+    },
+    [commentLiking, toast],
+  );
+
   const openLikes = useCallback(
     async (postId: string) => {
       const id = String(postId || "").trim();
@@ -1028,6 +1205,158 @@ export default function SEPBookIG() {
       url,
     });
   }, [getCommentDisplayText]);
+
+  const renderCommentItem = (postId: string, comment: SepComment, isReply = false) => {
+    const text = String(getCommentDisplayText(comment) || "").trim();
+    const hasAtt = Array.isArray(comment.attachments) && comment.attachments.length > 0;
+    const isOwn = Boolean(user?.id && comment.user_id === user.id);
+    const isEditing = editingCommentId === comment.id;
+    const likeCount = Math.max(0, Number(comment.like_count || 0));
+    const wasEdited =
+      comment.updated_at &&
+      new Date(comment.updated_at).getTime() - new Date(comment.created_at).getTime() > 1000;
+
+    return (
+      <div key={comment.id} id={`comment-${comment.id}`} className={cn("flex items-start gap-2", isReply && "pl-4 border-l border-border/60")}>
+        <UserProfilePopover userId={comment.user_id} name={comment.author_name} avatarUrl={comment.author_avatar}>
+          <Avatar className="h-8 w-8">
+            <AvatarImage src={comment.author_avatar || undefined} alt={comment.author_name || "Autor"} />
+            <AvatarFallback>{initials(comment.author_name)}</AvatarFallback>
+          </Avatar>
+        </UserProfilePopover>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <UserProfilePopover userId={comment.user_id} name={comment.author_name} avatarUrl={comment.author_avatar}>
+                <button type="button" className="text-[13px] font-semibold truncate">
+                  {formatName(comment.author_name)}
+                </button>
+              </UserProfilePopover>{" "}
+              {comment.author_team ? <span className="text-[12px] text-muted-foreground">{comment.author_team}</span> : null}
+            </div>
+            <div className="flex items-center gap-1">
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                className="h-8 w-8"
+                onClick={() => void speakText(text)}
+                disabled={isSpeaking || !text}
+                aria-label={tr("sepbook.listen")}
+                title={tr("sepbook.listen")}
+              >
+                <Volume2 className="h-4 w-4" />
+              </Button>
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                className="h-8 w-8"
+                onClick={() => commentsOpenFor && shareComment(commentsOpenFor, comment)}
+                aria-label={tr("sepbook.share")}
+                title={tr("sepbook.share")}
+              >
+                <Share2 className="h-4 w-4" />
+              </Button>
+              {isOwn && !isEditing ? (
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="h-8 w-8"
+                  onClick={() => startEditComment(comment)}
+                  aria-label={tr("sepbook.edit")}
+                  title={tr("sepbook.edit")}
+                >
+                  <Pencil className="h-4 w-4" />
+                </Button>
+              ) : null}
+            </div>
+          </div>
+
+          {isEditing ? (
+            <div className="mt-1 space-y-2">
+              <Textarea
+                rows={3}
+                value={editingCommentText}
+                onChange={(e) => setEditingCommentText(e.target.value)}
+              />
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={handleCleanupCommentEdit}
+                  disabled={cleaningCommentEdit}
+                >
+                  <Wand2 className="h-4 w-4 mr-1" />
+                  {tr("sepbook.cleanup")}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => saveCommentEdit(postId, comment)}
+                  disabled={editingCommentSaving}
+                >
+                  <Check className="h-4 w-4 mr-1" />
+                  {tr("sepbook.save")}
+                </Button>
+                <Button type="button" size="sm" variant="ghost" onClick={cancelEditComment} disabled={editingCommentSaving}>
+                  <X className="h-4 w-4 mr-1" />
+                  {tr("sepbook.cancel")}
+                </Button>
+              </div>
+              {hasAtt ? (
+                <AttachmentViewer urls={comment.attachments || []} postId={comment.post_id} mediaLayout="grid" />
+              ) : null}
+            </div>
+          ) : (
+            <>
+              {text ? <div className="text-[13px] mt-0.5">{renderRichText(toast, text)}</div> : null}
+              {hasAtt ? (
+                <AttachmentViewer urls={comment.attachments || []} postId={comment.post_id} mediaLayout="grid" />
+              ) : null}
+            </>
+          )}
+
+          <div className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground">
+            <span>{new Date(comment.created_at).toLocaleString()}</span>
+            {wasEdited ? <span>{tr("sepbook.edited")}</span> : null}
+          </div>
+
+          {!isEditing && (
+            <div className="mt-1 flex items-center gap-2">
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                className="h-8 w-8"
+                onClick={() => void toggleCommentLike(postId, comment)}
+                disabled={commentLiking[comment.id]}
+                aria-label={comment.has_liked ? tr("sepbook.unlike") : tr("sepbook.like")}
+                title={comment.has_liked ? tr("sepbook.unlike") : tr("sepbook.like")}
+              >
+                <Heart className={cn("h-4 w-4", comment.has_liked && "fill-rose-500 text-rose-500")} />
+              </Button>
+              <span className="text-[12px] text-muted-foreground">{likeCount}</span>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  setReplyTarget(comment);
+                  requestAnimationFrame(() => commentInputRef.current?.focus());
+                }}
+              >
+                <Reply className="h-4 w-4 mr-1" />
+                {tr("sepbook.reply")}
+              </Button>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
 
   const removeMediaItem = useCallback(async (item: MediaItem, setState: (updater: any) => void) => {
     if (item.previewUrl) {
@@ -1157,6 +1486,146 @@ export default function SEPBookIG() {
     [commentMedia, composerMedia, toast],
   );
 
+  const handleCleanupComposer = useCallback(async () => {
+    if (cleaningComposer) return;
+    setCleaningComposer(true);
+    try {
+      const result = await runCleanup({ text: composerText, title: "Publicação SEPBook" });
+      if (!result.ok) {
+        if (result.reason === "too_short") {
+          toast({ title: "Nada para revisar", description: "Digite um texto antes de pedir correção." });
+        } else {
+          toast({
+            title: "Não foi possível revisar",
+            description: "IA indisponível no momento. Tente novamente mais tarde.",
+            variant: "destructive",
+          });
+        }
+        return;
+      }
+      if (!result.changed) {
+        toast({ title: "Nenhuma correção necessária", description: "Não encontrei ajustes para fazer." });
+        return;
+      }
+      setComposerText(result.cleaned);
+      toast({ title: "Texto revisado", description: "Ortografia e pontuação ajustadas." });
+    } catch (e: any) {
+      toast({ title: "Não foi possível revisar", description: e?.message || "Tente novamente.", variant: "destructive" });
+    } finally {
+      setCleaningComposer(false);
+    }
+  }, [cleaningComposer, composerText, runCleanup, toast]);
+
+  const handleCleanupCommentDraft = useCallback(async () => {
+    if (cleaningComment) return;
+    setCleaningComment(true);
+    try {
+      const result = await runCleanup({ text: commentText, title: "Comentário SEPBook" });
+      if (!result.ok) {
+        if (result.reason === "too_short") {
+          toast({ title: "Nada para revisar", description: "Digite um comentário antes de pedir correção." });
+        } else {
+          toast({
+            title: "Não foi possível revisar",
+            description: "IA indisponível no momento. Tente novamente mais tarde.",
+            variant: "destructive",
+          });
+        }
+        return;
+      }
+      if (!result.changed) {
+        toast({ title: "Nenhuma correção necessária", description: "Não encontrei ajustes para fazer." });
+        return;
+      }
+      setCommentText(result.cleaned);
+    } catch (e: any) {
+      toast({ title: "Não foi possível revisar", description: e?.message || "Tente novamente.", variant: "destructive" });
+    } finally {
+      setCleaningComment(false);
+    }
+  }, [cleaningComment, commentText, runCleanup, toast]);
+
+  const handleCleanupCommentEdit = useCallback(async () => {
+    if (cleaningCommentEdit) return;
+    setCleaningCommentEdit(true);
+    try {
+      const result = await runCleanup({ text: editingCommentText, title: "Comentário SEPBook" });
+      if (!result.ok) {
+        if (result.reason === "too_short") {
+          toast({ title: "Nada para revisar", description: "Digite um comentário antes de pedir correção." });
+        } else {
+          toast({
+            title: "Não foi possível revisar",
+            description: "IA indisponível no momento. Tente novamente mais tarde.",
+            variant: "destructive",
+          });
+        }
+        return;
+      }
+      if (!result.changed) {
+        toast({ title: "Nenhuma correção necessária", description: "Não encontrei ajustes para fazer." });
+        return;
+      }
+      setEditingCommentText(result.cleaned);
+    } catch (e: any) {
+      toast({ title: "Não foi possível revisar", description: e?.message || "Tente novamente.", variant: "destructive" });
+    } finally {
+      setCleaningCommentEdit(false);
+    }
+  }, [cleaningCommentEdit, editingCommentText, runCleanup, toast]);
+
+  const startEditComment = useCallback((comment: SepComment) => {
+    setEditingCommentId(comment.id);
+    setEditingCommentText(String(comment.content_md || ""));
+  }, []);
+
+  const cancelEditComment = useCallback(() => {
+    setEditingCommentId(null);
+    setEditingCommentText("");
+  }, []);
+
+  const saveCommentEdit = useCallback(
+    async (postId: string, comment: SepComment) => {
+      const text = String(editingCommentText || "").trim();
+      if (text.length < 2 && !(comment.attachments && comment.attachments.length > 0)) {
+        toast({ title: "Texto obrigatório", description: "Digite um comentário ou mantenha um anexo." });
+        return;
+      }
+      setEditingCommentSaving(true);
+      try {
+        const resp = await apiFetch("/api/sepbook-comments", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            comment_id: comment.id,
+            content_md: text,
+            attachments: comment.attachments || [],
+          }),
+        });
+        const json = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(json?.error || "Falha ao atualizar comentário");
+        const updated = json?.comment || {
+          ...comment,
+          content_md: text,
+          translations: { ...(comment.translations || {}), "pt-BR": text },
+          updated_at: new Date().toISOString(),
+        };
+        setCommentsByPost((prev) => ({
+          ...prev,
+          [postId]: (prev[postId] || []).map((c) => (c.id === comment.id ? { ...c, ...updated } : c)),
+        }));
+        setFallbackTranslations((prev) => ({ ...prev, [`comment:${comment.id}`]: text }));
+        cancelEditComment();
+        toast({ title: "Comentário atualizado" });
+      } catch (e: any) {
+        toast({ title: "Erro ao atualizar", description: e?.message || "Tente novamente", variant: "destructive" });
+      } finally {
+        setEditingCommentSaving(false);
+      }
+    },
+    [cancelEditComment, editingCommentText, toast],
+  );
+
   const submitPost = useCallback(async () => {
     const text = String(composerText || "").trim();
     const uploading = composerUploading || composerMedia.some((m) => m.uploading);
@@ -1213,7 +1682,12 @@ export default function SEPBookIG() {
       const resp = await apiFetch("/api/sepbook-comments", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ post_id: postId, content_md: text, attachments: uploadedCommentUrls }),
+        body: JSON.stringify({
+          post_id: postId,
+          content_md: text,
+          attachments: uploadedCommentUrls,
+          parent_id: replyTarget?.id || null,
+        }),
       });
       const json = await resp.json().catch(() => ({}));
       if (!resp.ok) throw new Error(json?.error || "Falha ao comentar");
@@ -1224,6 +1698,7 @@ export default function SEPBookIG() {
       }
       setCommentText("");
       setCommentMentionQuery("");
+      setReplyTarget(null);
       commentMedia.forEach((m) => m.previewUrl && URL.revokeObjectURL(m.previewUrl));
       setCommentMedia([]);
     } catch (e: any) {
@@ -1231,7 +1706,7 @@ export default function SEPBookIG() {
     } finally {
       setCommentSubmitting(false);
     }
-  }, [commentMedia, commentText, commentUploading, commentsOpenFor, toast, uploadedCommentUrls]);
+  }, [commentMedia, commentText, commentUploading, commentsOpenFor, replyTarget, toast, uploadedCommentUrls]);
 
   const loadMentionsInbox = useCallback(async () => {
     setMentionsLoading(true);
@@ -1484,13 +1959,19 @@ export default function SEPBookIG() {
                 <article key={p.id} id={`post-${p.id}`} className="border-b">
                   <div className="flex items-center justify-between gap-2 px-3 py-2">
                     <div className="flex items-center gap-2 min-w-0">
-                      <Avatar className="h-9 w-9">
-                        <AvatarImage src={p.author_avatar || undefined} alt={p.author_name || "Autor"} />
-                        <AvatarFallback>{initials(p.author_name)}</AvatarFallback>
-                      </Avatar>
+                      <UserProfilePopover userId={p.user_id} name={p.author_name} avatarUrl={p.author_avatar}>
+                        <Avatar className="h-9 w-9">
+                          <AvatarImage src={p.author_avatar || undefined} alt={p.author_name || "Autor"} />
+                          <AvatarFallback>{initials(p.author_name)}</AvatarFallback>
+                        </Avatar>
+                      </UserProfilePopover>
                       <div className="min-w-0">
                         <div className="flex items-center gap-2 min-w-0">
-                          <span className="text-[13px] font-semibold truncate">{formatName(p.author_name)}</span>
+                          <UserProfilePopover userId={p.user_id} name={p.author_name} avatarUrl={p.author_avatar}>
+                            <button type="button" className="text-[13px] font-semibold truncate">
+                              {formatName(p.author_name)}
+                            </button>
+                          </UserProfilePopover>
                           {p.author_team ? (
                             <span className="text-[12px] text-muted-foreground truncate">{p.author_team}</span>
                           ) : null}
@@ -1659,6 +2140,24 @@ export default function SEPBookIG() {
           <div className="px-3 pb-3 space-y-3">
             {renderMediaThumbs(composerMedia, (m) => removeMediaItem(m, setComposerMedia))}
 
+            <div className="flex flex-wrap items-center gap-2">
+              <VoiceRecorderButton
+                size="sm"
+                label={tr("sepbook.voice")}
+                onText={(text) => setComposerText((prev) => [prev, text].filter(Boolean).join("\n\n"))}
+              />
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={handleCleanupComposer}
+                disabled={cleaningComposer}
+              >
+                <Wand2 className="h-4 w-4 mr-1" />
+                {tr("sepbook.cleanup")}
+              </Button>
+            </div>
+
             <div className="flex items-center gap-2">
               <Button
                 type="button"
@@ -1794,6 +2293,9 @@ export default function SEPBookIG() {
             setCommentsOpenFor(null);
             setCommentText("");
             setCommentMentionQuery("");
+            setReplyTarget(null);
+            setEditingCommentId(null);
+            setEditingCommentText("");
             commentMedia.forEach((m) => m.previewUrl && URL.revokeObjectURL(m.previewUrl));
             setCommentMedia([]);
             setCommentUploading(false);
@@ -1816,7 +2318,12 @@ export default function SEPBookIG() {
               {activePost && (
                 <div className="mb-3 rounded-xl border bg-muted/20 px-3 py-2">
                   <div className="text-[12px] text-muted-foreground">
-                    {formatName(activePost.author_name)} {activePost.author_team ? `• ${activePost.author_team}` : ""}
+                    <UserProfilePopover userId={activePost.user_id} name={activePost.author_name} avatarUrl={activePost.author_avatar}>
+                      <button type="button" className="font-semibold">
+                        {formatName(activePost.author_name)}
+                      </button>
+                    </UserProfilePopover>{" "}
+                    {activePost.author_team ? `• ${activePost.author_team}` : ""}
                   </div>
                   {String(getPostDisplayText(activePost) || "").trim() ? (
                     <div className="text-[13px] mt-1">{renderRichText(toast, getPostDisplayText(activePost))}</div>
@@ -1830,64 +2337,47 @@ export default function SEPBookIG() {
                 <div className="py-6 text-sm text-muted-foreground">{tr("sepbook.firstComment")}</div>
               ) : (
                 <div className="space-y-3">
-                  {(commentsOpenFor ? commentsByPost[commentsOpenFor] || [] : []).map((c) => {
-                    const text = String(getCommentDisplayText(c) || "").trim();
-                    const hasAtt = Array.isArray(c.attachments) && c.attachments.length > 0;
-                    return (
-                      <div key={c.id} id={`comment-${c.id}`} className="flex items-start gap-2">
-                        <Avatar className="h-8 w-8">
-                          <AvatarImage src={c.author_avatar || undefined} alt={c.author_name || "Autor"} />
-                          <AvatarFallback>{initials(c.author_name)}</AvatarFallback>
-                        </Avatar>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="min-w-0">
-                              <span className="text-[13px] font-semibold">{formatName(c.author_name)}</span>{" "}
-                              {c.author_team ? <span className="text-[12px] text-muted-foreground">{c.author_team}</span> : null}
-                            </div>
-                            <div className="flex items-center gap-1">
-                              <Button
-                                type="button"
-                                size="icon"
-                                variant="ghost"
-                                className="h-8 w-8"
-                                onClick={() => void speakText(text)}
-                                disabled={isSpeaking || !text}
-                                aria-label={tr("sepbook.listen")}
-                                title={tr("sepbook.listen")}
-                              >
-                                <Volume2 className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                type="button"
-                                size="icon"
-                                variant="ghost"
-                                className="h-8 w-8"
-                                onClick={() => commentsOpenFor && shareComment(commentsOpenFor, c)}
-                                aria-label={tr("sepbook.share")}
-                                title={tr("sepbook.share")}
-                              >
-                                <Share2 className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          </div>
-
-                          {text ? <div className="text-[13px] mt-0.5">{renderRichText(toast, text)}</div> : null}
-                          {hasAtt ? (
-                            <AttachmentViewer urls={c.attachments || []} postId={c.post_id} mediaLayout="grid" />
-                          ) : null}
-                          <div className="text-[11px] text-muted-foreground mt-1">
-                            {new Date(c.created_at).toLocaleString()}
-                          </div>
-                        </div>
-                      </div>
+                  {(() => {
+                    const allComments = commentsOpenFor ? commentsByPost[commentsOpenFor] || [] : [];
+                    const sorted = [...allComments].sort(
+                      (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
                     );
-                  })}
+                    const repliesByParent = new Map<string, SepComment[]>();
+                    const rootComments: SepComment[] = [];
+                    for (const c of sorted) {
+                      const parentId = c.parent_id ? String(c.parent_id) : "";
+                      if (parentId) {
+                        const list = repliesByParent.get(parentId) || [];
+                        list.push(c);
+                        repliesByParent.set(parentId, list);
+                      } else {
+                        rootComments.push(c);
+                      }
+                    }
+                    return rootComments.map((c) => (
+                      <div key={c.id} className="space-y-2">
+                        {renderCommentItem(commentsOpenFor!, c)}
+                        {(repliesByParent.get(c.id) || []).map((r) => renderCommentItem(commentsOpenFor!, r, true))}
+                      </div>
+                    ));
+                  })()}
                 </div>
               )}
             </ScrollArea>
 
             <div className="border-t bg-background px-3 py-3 space-y-2">
+              {replyTarget && (
+                <div className="flex items-center justify-between gap-2 rounded-xl border bg-muted/30 px-3 py-2 text-[12px]">
+                  <span>
+                    {tr("sepbook.replyingTo")}{" "}
+                    <strong>{formatName(replyTarget.author_name)}</strong>
+                  </span>
+                  <Button type="button" size="sm" variant="ghost" onClick={() => setReplyTarget(null)}>
+                    {tr("sepbook.cancelReply")}
+                  </Button>
+                </div>
+              )}
+
               {renderMediaThumbs(commentMedia, (m) => removeMediaItem(m, setCommentMedia))}
 
               {commentMentionQuery && commentMentions.items.length > 0 && (
@@ -1908,6 +2398,24 @@ export default function SEPBookIG() {
                   </div>
                 </div>
               )}
+
+              <div className="flex flex-wrap items-center gap-2">
+                <VoiceRecorderButton
+                  size="sm"
+                  label={tr("sepbook.voice")}
+                  onText={(text) => setCommentText((prev) => [prev, text].filter(Boolean).join("\n\n"))}
+                />
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={handleCleanupCommentDraft}
+                  disabled={cleaningComment}
+                >
+                  <Wand2 className="h-4 w-4 mr-1" />
+                  {tr("sepbook.cleanup")}
+                </Button>
+              </div>
 
               <div className="flex items-end gap-2">
                 <Button
@@ -1950,6 +2458,7 @@ export default function SEPBookIG() {
                 />
 
                 <Textarea
+                  ref={commentInputRef}
                   value={commentText}
                   onChange={(e) => setCommentText(e.target.value)}
                   placeholder={tr("sepbook.commentPlaceholder")}
@@ -2169,6 +2678,8 @@ export default function SEPBookIG() {
             } catch {
               /* ignore */
             }
+            setMapBounds(null);
+            setMapSelectedId(null);
           }
           setMapOpen(open);
           if (!open) mapInstanceRef.current = null;
@@ -2187,70 +2698,109 @@ export default function SEPBookIG() {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-0 border-t">
               <div className="h-[48vh] md:h-[70vh] border-b md:border-b-0 md:border-r">
-                <MapContainer
-                  center={mapCenter}
-                  zoom={12}
-                  scrollWheelZoom={false}
-                  zoomAnimation={false}
-                  fadeAnimation={false}
-                  markerZoomAnimation={false}
-                  whenCreated={(map) => {
-                    mapInstanceRef.current = map;
-                  }}
-                  className="h-full w-full"
-                >
-                  <TileLayer
-                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                  />
-                  <SepbookFitBounds
-                    points={mapPosts.map((x) => [Number(x.post.location_lat), Number(x.post.location_lng)] as [number, number])}
-                  />
-                  {mapPosts.map((x) => (
-                    <Marker
-                      key={x.post.id}
-                      position={[Number(x.post.location_lat), Number(x.post.location_lng)]}
+                <div className="relative h-full w-full">
+                  <MapContainer
+                    center={mapCenter}
+                    zoom={12}
+                    scrollWheelZoom
+                    zoomControl={false}
+                    zoomAnimation={false}
+                    fadeAnimation={false}
+                    markerZoomAnimation={false}
+                    whenCreated={(map) => {
+                      mapInstanceRef.current = map;
+                    }}
+                    className="h-full w-full"
+                  >
+                    <TileLayer
+                      attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                      url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                    />
+                    <SepbookFitBounds
+                      points={mapPosts.map((x) => [Number(x.post.location_lat), Number(x.post.location_lng)] as [number, number])}
+                    />
+                    <SepbookMapViewport onBoundsChange={setMapBounds} />
+                    {mapPosts.map((x) => (
+                      <Marker
+                        key={x.post.id}
+                        position={[Number(x.post.location_lat), Number(x.post.location_lng)]}
+                        icon={mapSelectedId === x.post.id ? selectedMarkerIcon : undefined}
+                        eventHandlers={{
+                          click: () => focusMapPost(x.post.id),
+                        }}
+                      >
+                        <Popup>
+                          <div className="space-y-2">
+                            <div className="text-[12px] font-semibold">{formatName(x.post.author_name)}</div>
+                            <div className="text-[12px] text-muted-foreground">{x.post.location_label || tr("sepbook.location")}</div>
+                            {x.imageUrl ? (
+                              <img src={x.imageUrl} alt={tr("sepbook.photo")} className="w-[220px] max-w-full rounded-md border" />
+                            ) : null}
+                            <Button type="button" size="sm" onClick={() => openPostById(x.post.id)}>
+                              {tr("sepbook.openPost")}
+                            </Button>
+                          </div>
+                        </Popup>
+                      </Marker>
+                    ))}
+                  </MapContainer>
+                  <div className="absolute right-3 top-3 z-[1000] flex flex-col gap-1">
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="secondary"
+                      onClick={() => mapInstanceRef.current?.zoomIn()}
+                      aria-label={tr("sepbook.zoomIn")}
                     >
-                      <Popup>
-                        <div className="space-y-2">
-                          <div className="text-[12px] font-semibold">{formatName(x.post.author_name)}</div>
-                          <div className="text-[12px] text-muted-foreground">{x.post.location_label || tr("sepbook.location")}</div>
-                          {x.imageUrl ? (
-                            <img src={x.imageUrl} alt={tr("sepbook.photo")} className="w-[220px] max-w-full rounded-md border" />
-                          ) : null}
-                          <Button type="button" size="sm" onClick={() => openPostById(x.post.id)}>
-                            {tr("sepbook.openPost")}
-                          </Button>
-                        </div>
-                      </Popup>
-                    </Marker>
-                  ))}
-                </MapContainer>
+                      <ZoomIn className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="secondary"
+                      onClick={() => mapInstanceRef.current?.zoomOut()}
+                      aria-label={tr("sepbook.zoomOut")}
+                    >
+                      <ZoomOut className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
               </div>
               <div className="max-h-[48vh] md:max-h-[70vh] overflow-auto p-4 space-y-3">
-                {mapPosts.map((x) => (
-                  <button
-                    key={`gps-${x.post.id}`}
-                    type="button"
-                    className="w-full flex items-center gap-3 rounded-xl border p-2 hover:bg-muted text-left"
-                    onClick={() => openPostById(x.post.id)}
-                  >
-                    <img
-                      src={x.imageUrl || undefined}
-                      alt={tr("sepbook.photo")}
-                      className="h-16 w-16 rounded-lg object-cover border"
-                    />
-                    <div className="min-w-0 flex-1">
-                      <div className="text-[13px] font-semibold truncate">{formatName(x.post.author_name)}</div>
-                      <div className="text-[12px] text-muted-foreground truncate">
-                        {x.post.location_label || tr("sepbook.location")}
+                {visibleMapPosts.length === 0 ? (
+                  <div className="text-sm text-muted-foreground">{tr("sepbook.mapViewportEmpty")}</div>
+                ) : (
+                  visibleMapPosts.map((x) => (
+                    <button
+                      key={`gps-${x.post.id}`}
+                      type="button"
+                      className={cn(
+                        "w-full flex items-center gap-3 rounded-xl border p-2 hover:bg-muted text-left",
+                        mapSelectedId === x.post.id && "border-amber-400/80 bg-amber-100/10",
+                      )}
+                      onClick={() => focusMapPost(x.post.id)}
+                    >
+                      <img
+                        src={x.imageUrl || undefined}
+                        alt={tr("sepbook.photo")}
+                        className="h-16 w-16 rounded-lg object-cover border"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          focusMapPost(x.post.id, { openPost: true });
+                        }}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-[13px] font-semibold truncate">{formatName(x.post.author_name)}</div>
+                        <div className="text-[12px] text-muted-foreground truncate">
+                          {x.post.location_label || tr("sepbook.location")}
+                        </div>
+                        <div className="text-[11px] text-muted-foreground truncate">
+                          {new Date(x.post.created_at).toLocaleString()}
+                        </div>
                       </div>
-                      <div className="text-[11px] text-muted-foreground truncate">
-                        {new Date(x.post.created_at).toLocaleString()}
-                      </div>
-                    </div>
-                  </button>
-                ))}
+                    </button>
+                  ))
+                )}
               </div>
             </div>
           )}

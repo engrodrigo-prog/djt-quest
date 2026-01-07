@@ -19,6 +19,7 @@ const STUDYLAB_OPENAI_TIMEOUT_MS = Math.max(
   // Default keeps headroom for serverless runtimes while preventing early aborts.
   Math.min(6e4, Number(process.env.STUDYLAB_OPENAI_TIMEOUT_MS || 45e3))
 );
+const STUDYLAB_HISTORY_LIMIT = Math.max(6, Math.min(16, Number(process.env.STUDYLAB_HISTORY_LIMIT || 10)));
 const OPENAI_MODEL_STUDYLAB_CHAT = normalizeChatModel(process.env.OPENAI_MODEL_STUDYLAB_CHAT || "", STUDYLAB_DEFAULT_CHAT_MODEL);
 function chooseModel(preferPremium = false) {
   const premium = process.env.OPENAI_MODEL_PREMIUM;
@@ -69,10 +70,65 @@ const isAbortError = (err) => {
   const msg = String(err?.message || err || "").toLowerCase();
   return msg.includes("aborted") || msg.includes("abort");
 };
-const toResponsesInputMessages = (messages) => (messages || []).map((m) => ({
-  role: m?.role,
-  content: [{ type: "input_text", text: String(m?.content || "") }]
-})).filter((m) => m.role && m.content?.[0]?.text);
+const toResponsesInputMessages = (messages) => (messages || []).map((m) => {
+  const role = String(m?.role || "").trim();
+  const isAssistant = role === "assistant";
+  const rawContent = m?.content;
+  let contentItems = [];
+  if (Array.isArray(rawContent)) {
+    contentItems = rawContent.map((item) => {
+      if (!item) return null;
+      if (typeof item === "string") {
+        return isAssistant ? { type: "output_text", text: item } : { type: "input_text", text: item };
+      }
+      const t = String(item?.type || "").trim();
+      if (t === "input_text" || t === "output_text") {
+        const text = String(item?.text || item?.content || "");
+        if (!text) return null;
+        return isAssistant ? { type: "output_text", text } : { type: "input_text", text };
+      }
+      if (!isAssistant && (t === "input_image" || t === "image_url")) {
+        const imageUrl = item?.image_url?.url || item?.url || "";
+        if (!imageUrl) return null;
+        return { type: "input_image", image_url: { url: imageUrl } };
+      }
+      return null;
+    }).filter(Boolean);
+  } else {
+    const text = String(rawContent || "");
+    if (text) {
+      contentItems = [isAssistant ? { type: "output_text", text } : { type: "input_text", text }];
+    }
+  }
+  return { role, content: contentItems };
+}).filter((m) => m.role && Array.isArray(m.content) && m.content.length);
+const toResponsesTextMessages = (messages) => (messages || []).map((m) => {
+  const role = String(m?.role || "").trim();
+  if (!role) return null;
+  const normalizedRole = role === "assistant" || role === "system" ? role : "user";
+  const rawContent = m?.content;
+  let text = "";
+  if (Array.isArray(rawContent)) {
+    text = rawContent.map((item) => {
+      if (!item) return "";
+      if (typeof item === "string") return item;
+      const t = String(item?.type || "").trim();
+      if (t === "input_text" || t === "output_text") {
+        return String(item?.text || item?.content || "");
+      }
+      if (t === "input_image" || t === "image_url") {
+        const url = item?.image_url?.url || item?.url || "";
+        return url ? `Imagem: ${url}` : "";
+      }
+      return String(item?.text || item?.content || "");
+    }).filter(Boolean).join("\n");
+  } else {
+    text = String(rawContent || "");
+  }
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+  return { role: normalizedRole, content: trimmed };
+}).filter(Boolean);
 const callOpenAiChatCompletion = async (payload) => {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), STUDYLAB_OPENAI_TIMEOUT_MS);
@@ -441,6 +497,14 @@ async function handler(req, res) {
       if (i === -1) return "";
       return clean.slice(i + 1).toLowerCase();
     };
+    const IMAGE_EXTS = /* @__PURE__ */ new Set(["png", "jpg", "jpeg", "webp", "gif", "bmp", "tif", "tiff"]);
+    const isImageAttachment = (att) => {
+      const candidate = String(att?.name || att?.url || "");
+      const ext = inferExt(candidate);
+      return IMAGE_EXTS.has(ext);
+    };
+    const promptImageAttachments = normalizedAttachments.filter(isImageAttachment).slice(0, 2);
+    const includeImagesInPrompt = promptImageAttachments.length > 0;
     const fetchBinary = async (rawUrl) => {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 12e3);
@@ -506,6 +570,11 @@ Link do arquivo: ${rawUrl}`;
         const url = String(att?.url || "").trim();
         if (!url) continue;
         const label = String(att?.name || `Anexo ${idx + 1}`).trim() || `Anexo ${idx + 1}`;
+        if (includeImagesInPrompt && isImageAttachment(att)) {
+          parts.push(`### ${label}
+[Imagem enviada para interpreta\xE7\xE3o direta pela IA]`);
+          continue;
+        }
         try {
           const text = await extractFromFileUrl(url, label);
           const trimmed = String(text || "").trim();
@@ -1226,10 +1295,35 @@ ${webSummary.text}`
     if (mode === "oracle" && lastUserText && shouldInjectRules(lastUserText)) {
       openaiMessages.push({ role: "system", content: buildRulesContext() });
     }
-    for (const m of normalizedMessages) {
+    const modelMessages = normalizedMessages.slice(-STUDYLAB_HISTORY_LIMIT);
+    const lastUserIndex = (() => {
+      for (let i = modelMessages.length - 1; i >= 0; i -= 1) {
+        if (modelMessages[i]?.role === "user") return i;
+      }
+      return -1;
+    })();
+    const attachmentOnlyPrompt = String(language || "").toLowerCase().startsWith("en") ? "Analyze the attached files and answer using the study context." : "Analise os anexos enviados e responda usando o contexto de estudo.";
+    for (let i = 0; i < modelMessages.length; i += 1) {
+      const m = modelMessages[i];
       if (!m || !m.role || !m.content) continue;
       const role = m.role === "assistant" ? "assistant" : "user";
-      openaiMessages.push({ role, content: m.content });
+      if (role === "user" && i === lastUserIndex && promptImageAttachments.length) {
+        const rawText = typeof m.content === "string" ? m.content : Array.isArray(m.content) ? m.content.map((item) => typeof item === "string" ? item : typeof item?.text === "string" ? item.text : typeof item?.content === "string" ? item.content : "").filter(Boolean).join("\n") : "";
+        const trimmedText = String(rawText || "").trim();
+        const contentItems = [];
+        contentItems.push({
+          type: "input_text",
+          text: trimmedText || attachmentOnlyPrompt
+        });
+        for (const att of promptImageAttachments) {
+          const url = String(att?.url || "").trim();
+          if (!url) continue;
+          contentItems.push({ type: "input_image", image_url: { url } });
+        }
+        openaiMessages.push({ role, content: contentItems });
+      } else {
+        openaiMessages.push({ role, content: m.content });
+      }
     }
     const preferPremium = mode === "oracle" || useWeb || sourceRow && String(sourceRow.scope || "").toLowerCase() === "org" && sourceRow.published !== false;
     const fallbackModel = chooseModel(preferPremium);
@@ -1240,6 +1334,7 @@ ${webSummary.text}`
     let lastErrTxt = "";
     let aborted = false;
     let attempts = 0;
+    let forceTextOnly = false;
     for (const model of modelCandidates) {
       for (let attempt = 0; attempt < 2; attempt += 1) {
         // Avoid stacking multiple long attempts (can exceed serverless max duration).
@@ -1247,9 +1342,10 @@ ${webSummary.text}`
         let resp = null;
         try {
           attempts += 1;
+          const inputPayload = forceTextOnly ? toResponsesTextMessages(openaiMessages) : toResponsesInputMessages(openaiMessages);
           resp = await callOpenAiChatCompletion({
             model,
-            input: toResponsesInputMessages(openaiMessages),
+            input: inputPayload,
             text: { verbosity: "low" },
             reasoning: { effort: "low" },
             max_output_tokens: maxTokens
@@ -1265,6 +1361,10 @@ ${webSummary.text}`
         }
         if (!resp.ok) {
           lastErrTxt = await resp.text().catch(() => `HTTP ${resp.status}`);
+          if (!forceTextOnly && /input_text.*output_text|output_text.*refusal|invalid value/i.test(lastErrTxt)) {
+            forceTextOnly = true;
+            continue;
+          }
           if (isFatalOpenAiStatus(resp.status)) break;
           if (attempt === 0 && !useWeb) continue;
           break;

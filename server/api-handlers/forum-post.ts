@@ -39,6 +39,10 @@ async function resolveMentionedUserIds(admin: any, rawMentions: string[], opts?:
 
   const emails = list.filter((m) => m.includes('@'))
   const handles = list.filter((m) => !m.includes('@'))
+  const handleNameHints = handles
+    .map((h) => h.replace(/[._-]+/g, ' ').trim())
+    .filter(Boolean)
+    .slice(0, 12)
 
   const out = new Set<string>()
   try {
@@ -60,6 +64,16 @@ async function resolveMentionedUserIds(admin: any, rawMentions: string[], opts?:
       const { data } = await admin.from('profiles').select('id, email').or(or)
       for (const u of data || []) if (u?.id) out.add(String(u.id))
     } catch {}
+
+    if (handleNameHints.length) {
+      try {
+        const or = handleNameHints
+          .map((h) => `name.ilike.%${h.split(/\s+/).join('%')}%`)
+          .join(',')
+        const { data } = await admin.from('profiles').select('id, name').or(or)
+        for (const u of data || []) if (u?.id) out.add(String(u.id))
+      } catch {}
+    }
   }
 
   if (excludeUserId) out.delete(excludeUserId)
@@ -199,34 +213,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     } catch {}
 
-    // Regras de XP por participação no fórum:
-    // • Cada interação "contundente" (>= 50 caracteres) rende 100 XP.
-    // • Limite de 5 interações por tópico por colaborador (máximo 500 XP por fórum).
+    // XP por participação no fórum: +10 XP por postagem (tópico ou resposta).
     try {
-      const trimmed = String(content_md || '').trim()
-      if (trimmed.length >= 50) {
-        // Contar quantos posts contundentes o usuário já tem neste tópico
-        const { data: strongPosts, error: countErr } = await authed
-          .from('forum_posts')
-          .select('id, content_md')
-          .eq('topic_id', topic_id)
-          .eq('user_id', uid)
-
-        if (!countErr && Array.isArray(strongPosts)) {
-          const qualifying = strongPosts.filter((p: any) => String(p.content_md || '').trim().length >= 50)
-          const count = qualifying.length
-          if (count <= 5) {
-            // Esta interação ainda está dentro do limite de 5 por tópico → +100 XP
-            try {
-              await authed.rpc('increment_user_xp', { _user_id: uid, _xp_to_add: 100 })
-            } catch (xpErr) {
-              console.error('Erro ao aplicar XP por participação em fórum:', xpErr)
-            }
-          }
-        }
-      }
-    } catch (xpWrapErr) {
-      console.error('Erro ao processar XP de fórum:', xpWrapErr)
+      await authed.rpc('increment_user_xp', { _user_id: uid, _xp_to_add: 10 })
+    } catch (xpErr) {
+      console.error('Erro ao aplicar XP por participação em fórum:', xpErr)
     }
 
     // Register mentions best-effort
