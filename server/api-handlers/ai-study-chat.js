@@ -10,7 +10,10 @@ const SUPABASE_URL = process.env.SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
 const STUDYLAB_DEFAULT_CHAT_MODEL = "gpt-5-nano-2025-08-07";
 const STUDYLAB_MAX_COMPLETION_TOKENS = 320;
-const STUDYLAB_WEB_SEARCH_TIMEOUT_MS = 4500;
+const STUDYLAB_WEB_SEARCH_TIMEOUT_MS = Math.max(
+  1500,
+  Math.min(3e4, Number(process.env.STUDYLAB_WEB_SEARCH_TIMEOUT_MS || 12e3))
+);
 const STUDYLAB_OPENAI_TIMEOUT_MS = Math.max(
   5e3,
   // Default keeps headroom for serverless runtimes while preventing early aborts.
@@ -129,16 +132,22 @@ const collectOutputText = (payload) => {
   }).filter(Boolean);
   return chunks.join("\n").trim();
 };
-const fetchWebSearchSummary = async (query, model, opts) => {
+const fetchWebSearchSummary = async (query, opts) => {
   if (!OPENAI_API_KEY || !query) return null;
-  const timeoutMs = Math.max(800, Math.min(Number(opts?.timeoutMs) || STUDYLAB_WEB_SEARCH_TIMEOUT_MS, 15e3));
+  const timeoutMs = Math.max(1200, Math.min(Number(opts?.timeoutMs) || STUDYLAB_WEB_SEARCH_TIMEOUT_MS, 3e4));
   const tools = ["web_search", "web_search_preview"];
+  const model = STUDYLAB_DEFAULT_CHAT_MODEL;
   const input = [
     {
       role: "system",
-      content: "Responda com um resumo objetivo (5 a 8 bullets) e inclua as principais fontes consultadas no fim."
+      content: [
+        {
+          type: "input_text",
+          text: "Use a ferramenta de pesquisa na web UMA vez e então responda com um resumo objetivo (6 a 10 bullets) + fontes (3 a 6 links) no fim. Seja direto."
+        }
+      ]
     },
-    { role: "user", content: query }
+    { role: "user", content: [{ type: "input_text", text: query }] }
   ];
   for (const tool of tools) {
     const controller = new AbortController();
@@ -155,7 +164,11 @@ const fetchWebSearchSummary = async (query, model, opts) => {
           model,
           input,
           tools: [{ type: tool }],
-          max_output_tokens: 260
+          tool_choice: { type: tool },
+          max_tool_calls: 1,
+          text: { verbosity: "low" },
+          reasoning: { effort: "low" },
+          max_output_tokens: 900
         })
       });
       const json = await resp.json().catch(() => null);
@@ -166,6 +179,9 @@ const fetchWebSearchSummary = async (query, model, opts) => {
         }
         return null;
       }
+      const output = Array.isArray(json?.output) ? json.output : [];
+      const usedTool = output.some((o) => o?.type === "web_search_call");
+      if (!usedTool) continue;
       const text = collectOutputText(json);
       if (text) return { text, tool };
     } catch {
@@ -376,8 +392,8 @@ async function handler(req, res) {
     let joinedContext = "";
     let sourceRow = null;
     let lastUserText = "";
-    let webSummaryPromise = null;
     let usedWebSummary = false;
+    let oracleBestScore = 0;
     let usedOracleSourcesCount = 0;
     let usedOracleCompendiumCount = 0;
     const stripHtml = (html) => html.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
@@ -880,6 +896,7 @@ Regras:
 - Seja claro e pr\xE1tico. Diga o que a pessoa deve fazer, checar ou perguntar em campo (quando fizer sentido).
 - Seja conciso: responda em at\xE9 10 linhas. Se faltar contexto, fa\xE7a 1 pergunta objetiva antes de expandir.
 - Se a resposta depender de uma informa\xE7\xE3o que N\xC3O aparece na base enviada, deixe isso expl\xEDcito e responda de forma geral (sem inventar detalhes).
+- Se houver \u201CPesquisa web automatica (resumo)\u201D, use-a para complementar quando a base n\xE3o cobrir o tema e cite as fontes do resumo.
 - Quando usar a base, cite rapidamente de onde veio: t\xEDtulo da fonte/ocorr\xEAncia.
 - Sugira 1 pr\xF3ximo passo (ex.: \u201Cquer que eu gere perguntas de quiz sobre isso?\u201D).
 ${focusHint}
@@ -908,8 +925,6 @@ Formato da sa\xEDda:
       lastUserText = text;
       const normalizedQuery = normalizeForMatch(text);
       const incidentLikely = /\b(ocorrenc|ocorr|acident|inciden|seguranca|epi|nr\s*\d|cipa|quase\s+acident)\b/i.test(normalizedQuery);
-      const useWeb = Boolean(use_web);
-      webSummaryPromise = useWeb && lastUserText ? fetchWebSearchSummary(lastUserText, chooseModel(true), { timeoutMs: STUDYLAB_WEB_SEARCH_TIMEOUT_MS }) : null;
       const stop = /* @__PURE__ */ new Set([
         "de",
         "da",
@@ -985,10 +1000,12 @@ Formato da sa\xEDda:
         for (const k of kws) if (hay.includes(k)) score += 1;
         return score;
       };
-      const rankedSourcesBase = sourcesForOracle.map((s) => {
+      const rankedSourcesScored = sourcesForOracle.map((s) => {
         const hay = [s.title, s.summary, s.topic, s.category].filter(Boolean).join(" ");
         return { s, score: keywords.length ? scoreText(hay, keywords) : 0 };
-      }).filter((x) => keywords.length ? x.score > 0 : true).sort((a, b) => b.score - a.score).slice(0, 3).map((x) => x.s);
+      }).filter((x) => keywords.length ? x.score > 0 : true).sort((a, b) => b.score - a.score);
+      const bestSourceScore = rankedSourcesScored[0]?.score || 0;
+      const rankedSourcesBase = rankedSourcesScored.slice(0, 3).map((x) => x.s);
       const topSourceIds = rankedSourcesBase.map((s) => s?.id).filter(Boolean).slice(0, 3);
       const fullTextById = /* @__PURE__ */ new Map();
       if (topSourceIds.length) {
@@ -1033,6 +1050,7 @@ Formato da sa\xEDda:
         ].filter(Boolean).join(" ");
         return { row, cat, score: keywords.length ? scoreText(hay, keywords) : 0 };
       }).filter((x) => keywords.length ? x.score > 0 : true).sort((a, b) => b.score - a.score).slice(0, 3);
+      const bestCompendiumScore = rankedCompendium[0]?.score || 0;
       usedOracleCompendiumCount = rankedCompendium.length;
       let forumKbRows = [];
       if (forumKbTags.length) {
@@ -1057,6 +1075,8 @@ Formato da sa\xEDda:
         const hay = [title, text2, ...Array.isArray(row?.hashtags) ? row.hashtags : []].filter(Boolean).join(" ");
         return { row, text: text2, score: keywords.length ? scoreText(hay, keywords) : 0 };
       }).filter((x) => keywords.length ? x.score > 0 : true).sort((a, b) => b.score - a.score).slice(0, 6);
+      const bestForumScore = rankedForumKb[0]?.score || 0;
+      oracleBestScore = Math.max(bestSourceScore, bestCompendiumScore, bestForumScore);
       const contextParts = [];
       if (attachmentContext) {
         contextParts.push(`### Anexos enviados
@@ -1191,8 +1211,9 @@ ${context}`
       }
     }
     const useWeb = Boolean(use_web);
-    if (mode === "oracle" && useWeb && lastUserText) {
-      const webSummary = await (webSummaryPromise || fetchWebSearchSummary(lastUserText, chooseModel(true), { timeoutMs: STUDYLAB_WEB_SEARCH_TIMEOUT_MS }));
+    const shouldSearchWeb = mode === "oracle" && useWeb && lastUserText && oracleBestScore < 2;
+    if (shouldSearchWeb) {
+      const webSummary = await fetchWebSearchSummary(lastUserText, { timeoutMs: STUDYLAB_WEB_SEARCH_TIMEOUT_MS });
       if (webSummary?.text) {
         usedWebSummary = true;
         openaiMessages.push({
@@ -1268,6 +1289,7 @@ ${webSummary.text}`
           model_candidates: modelCandidates,
           used_web_summary: usedWebSummary,
           use_web: Boolean(use_web),
+          oracle_best_score: oracleBestScore,
           aborted,
           attempts,
           timeout_ms: STUDYLAB_OPENAI_TIMEOUT_MS,
@@ -1416,6 +1438,7 @@ ${webSummary.text}`
         web: usedWebSummary,
         used_web_summary: usedWebSummary,
         use_web: Boolean(use_web),
+        oracle_best_score: oracleBestScore,
         attempts,
         timeout_ms: STUDYLAB_OPENAI_TIMEOUT_MS,
         max_output_tokens: maxTokens,

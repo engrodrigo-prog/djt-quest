@@ -202,15 +202,22 @@ export const StudyLab = () => {
   const [chatUploadKey, setChatUploadKey] = useState(0);
   const [chatSessionId, setChatSessionId] = useState<string>(() => createChatSessionId());
   const [chatAttachmentsOpen, setChatAttachmentsOpen] = useState(false);
+  const chatViewportRef = useRef<HTMLDivElement | null>(null);
 
   const [oracleMode, setOracleMode] = useState(true);
-  const [useWeb, setUseWeb] = useState(false);
+  const [useWeb, setUseWeb] = useState(true);
   const [kbEnabled, setKbEnabled] = useState(false);
   const [kbSelection, setKbSelection] = useState<ForumKbSelection | null>(null);
 
   useEffect(() => {
     if (uploadOpen) insertedUrlsRef.current.clear();
   }, [uploadOpen]);
+
+  useEffect(() => {
+    const el = chatViewportRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [chatMessages.length, chatLoading]);
 
   const isFixedSource = (s: StudySource) => s.id === FIXED_RULES_ID;
   const isPublicSource = (s: StudySource) => normalizeScope(s.scope) === "org" && s.published !== false;
@@ -819,7 +826,7 @@ export const StudyLab = () => {
             <div className="flex items-center justify-between rounded-md border p-3">
               <div>
                 <p className="text-sm font-medium">Pesquisa online</p>
-                <p className="text-xs text-muted-foreground">Usa web + base (apenas no Catálogo).</p>
+                <p className="text-xs text-muted-foreground">Automaticamente quando não encontrar na base.</p>
               </div>
               <Switch checked={useWeb} onCheckedChange={setUseWeb} disabled={!oracleMode} />
             </div>
@@ -838,12 +845,12 @@ export const StudyLab = () => {
           </div>
         </CardHeader>
 
-        <CardContent className="space-y-3">
-          <div className="h-[360px] overflow-y-auto rounded-md border bg-muted/30 p-3">
+        <CardContent className="flex flex-col gap-3">
+          <div ref={chatViewportRef} className="min-h-[55vh] overflow-y-auto rounded-md border bg-muted/30 p-3">
             {chatMessages.length === 0 && (
               <p className="text-sm text-muted-foreground">
                 {oracleMode
-                  ? "Pergunte qualquer coisa. O Catálogo responde usando sua base (e web se ativado)."
+                  ? "Pergunte qualquer coisa. O Catálogo responde usando sua base (e pesquisa online quando necessário)."
                   : "Escolha um material no catálogo e pergunte sobre ele."}
               </p>
             )}
@@ -861,7 +868,7 @@ export const StudyLab = () => {
             ))}
           </div>
 
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-end">
             <Dialog open={chatAttachmentsOpen} onOpenChange={setChatAttachmentsOpen}>
               <DialogTrigger asChild>
                 <Button

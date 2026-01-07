@@ -112,7 +112,16 @@ export default async function handler(req, res) {
         if (!reg.date_of_birth) {
             return res.status(400).json({ error: 'Data de nascimento ausente na solicitação. Peça ao usuário para reenviar o cadastro.' });
         }
-        if (!inScope(reg.sigla_area, scope))
+        const overrideSiglaRaw = typeof body?.override_sigla_area === 'string' ? body.override_sigla_area : null;
+        const overrideBaseRaw = typeof body?.override_operational_base === 'string' ? body.override_operational_base : null;
+        const forceGuest = Boolean(body?.force_guest) ||
+            String(overrideSiglaRaw || '').trim().toUpperCase() === GUEST_TEAM_ID ||
+            String(overrideBaseRaw || '').trim().toUpperCase() === GUEST_TEAM_ID;
+        const desiredSigla = forceGuest ? GUEST_TEAM_ID : normTeamCode(overrideSiglaRaw || reg.sigla_area) || normTeamCode(reg.sigla_area);
+        const desiredBase = forceGuest ? GUEST_TEAM_ID : String(overrideBaseRaw || reg.operational_base || '').trim().slice(0, 80);
+        if (!desiredSigla)
+            return res.status(400).json({ error: 'Sigla/base inválida. Ajuste antes de aprovar.' });
+        if (!inScope(desiredSigla, scope))
             return res.status(403).json({ error: 'Fora do escopo' });
         // Prevent duplicate approvals
         const { data: existingProfile } = await admin
@@ -139,8 +148,8 @@ export default async function handler(req, res) {
             name: reg.name,
             email: reg.email,
             matricula: reg.matricula,
-            operational_base: reg.operational_base,
-            sigla_area: reg.sigla_area,
+            operational_base: desiredBase || reg.operational_base,
+            sigla_area: desiredSigla,
             date_of_birth: reg.date_of_birth,
             must_change_password: true,
             needs_profile_completion: true,
@@ -149,7 +158,7 @@ export default async function handler(req, res) {
             await admin.auth.admin.deleteUser(newUserId);
             return res.status(400).json({ error: profErr.message });
         }
-        const regSigla = String(reg.sigla_area || '').trim().toUpperCase();
+        const regSigla = String(desiredSigla || '').trim().toUpperCase();
         const isGuest = regSigla === 'EXTERNO' || regSigla === GUEST_TEAM_ID;
         if (isGuest) {
             try {
@@ -168,7 +177,7 @@ export default async function handler(req, res) {
                 .eq('id', newUserId);
         }
         else {
-            const desiredTeamId = normTeamCode(reg.sigla_area);
+            const desiredTeamId = normTeamCode(desiredSigla);
             if (desiredTeamId) {
                 try {
                     const { data: existing } = await admin.from('teams').select('id').eq('id', desiredTeamId).maybeSingle();
@@ -216,7 +225,7 @@ export default async function handler(req, res) {
                     return null;
                 return { divisionId, coordId, teamId };
             };
-            const org = await deriveOrg(reg.sigla_area || reg.operational_base);
+            const org = await deriveOrg(desiredSigla || desiredBase || reg.sigla_area || reg.operational_base);
             if (org) {
                 await admin.from('profiles').update({ division_id: org.divisionId, coord_id: org.coordId, team_id: org.teamId }).eq('id', newUserId);
             }
@@ -241,7 +250,14 @@ export default async function handler(req, res) {
         // Update registration
         await admin
             .from('pending_registrations')
-            .update({ status: 'approved', reviewed_by: requesterId, reviewed_at: new Date().toISOString(), review_notes: body.notes || null })
+            .update({
+            status: 'approved',
+            reviewed_by: requesterId,
+            reviewed_at: new Date().toISOString(),
+            review_notes: body.notes || null,
+            sigla_area: desiredSigla,
+            operational_base: desiredBase || reg.operational_base,
+        })
             .eq('id', body.registrationId);
 
         // Audit (best-effort)
@@ -252,7 +268,7 @@ export default async function handler(req, res) {
                 entity_type: 'pending_registration',
                 entity_id: String(body.registrationId),
                 before_json: reg,
-                after_json: { user_id: newUserId, roles: rolesToAssign },
+                after_json: { user_id: newUserId, roles: rolesToAssign, sigla_area: desiredSigla, operational_base: desiredBase || reg.operational_base },
             });
         }
         catch { }

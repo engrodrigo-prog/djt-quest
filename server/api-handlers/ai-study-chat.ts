@@ -15,7 +15,10 @@ const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABA
 const STUDYLAB_DEFAULT_CHAT_MODEL = "gpt-5-nano-2025-08-07";
 // Keep answers short to reduce latency and avoid timeouts.
 const STUDYLAB_MAX_COMPLETION_TOKENS = 320;
-const STUDYLAB_WEB_SEARCH_TIMEOUT_MS = 4500;
+const STUDYLAB_WEB_SEARCH_TIMEOUT_MS = Math.max(
+  1500,
+  Math.min(30000, Number(process.env.STUDYLAB_WEB_SEARCH_TIMEOUT_MS || 12000)),
+);
 const STUDYLAB_OPENAI_TIMEOUT_MS = Math.max(
   5000,
   // Default keeps headroom for serverless runtimes while preventing early aborts.
@@ -180,17 +183,22 @@ const collectOutputText = (payload: any) => {
   return chunks.join("\n").trim();
 };
 
-const fetchWebSearchSummary = async (query: string, model: string, opts?: { timeoutMs?: number }) => {
+const fetchWebSearchSummary = async (query: string, opts?: { timeoutMs?: number }) => {
   if (!OPENAI_API_KEY || !query) return null;
-  const timeoutMs = Math.max(800, Math.min(Number(opts?.timeoutMs) || STUDYLAB_WEB_SEARCH_TIMEOUT_MS, 15000));
+  const timeoutMs = Math.max(1200, Math.min(Number(opts?.timeoutMs) || STUDYLAB_WEB_SEARCH_TIMEOUT_MS, 30000));
   const tools = ["web_search", "web_search_preview"];
+  const model = STUDYLAB_DEFAULT_CHAT_MODEL;
   const input = [
     {
       role: "system",
-      content:
-        "Responda com um resumo objetivo (5 a 8 bullets) e inclua as principais fontes consultadas no fim.",
+      content: [
+        {
+          type: "input_text",
+          text: "Use a ferramenta de pesquisa na web UMA vez e então responda com um resumo objetivo (6 a 10 bullets) + fontes (3 a 6 links) no fim. Seja direto.",
+        },
+      ],
     },
-    { role: "user", content: query },
+    { role: "user", content: [{ type: "input_text", text: query }] },
   ];
 
   for (const tool of tools) {
@@ -208,7 +216,11 @@ const fetchWebSearchSummary = async (query: string, model: string, opts?: { time
           model,
           input,
           tools: [{ type: tool }],
-          max_output_tokens: 260,
+          tool_choice: { type: tool },
+          max_tool_calls: 1,
+          text: { verbosity: "low" },
+          reasoning: { effort: "low" },
+          max_output_tokens: 900,
         }),
       });
       const json = await resp.json().catch(() => null);
@@ -219,6 +231,9 @@ const fetchWebSearchSummary = async (query: string, model: string, opts?: { time
         }
         return null;
       }
+      const output = Array.isArray(json?.output) ? json.output : [];
+      const usedTool = output.some((o: any) => o?.type === "web_search_call");
+      if (!usedTool) continue;
       const text = collectOutputText(json);
       if (text) return { text, tool };
     } catch {
@@ -501,8 +516,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     let joinedContext = "";
     let sourceRow: any = null;
     let lastUserText = "";
-    let webSummaryPromise: Promise<any> | null = null;
     let usedWebSummary = false;
+    let oracleBestScore = 0;
     let usedOracleSourcesCount = 0;
     let usedOracleCompendiumCount = 0;
     const stripHtml = (html: string) =>
@@ -1105,6 +1120,7 @@ Regras:
 - Seja claro e prático. Diga o que a pessoa deve fazer, checar ou perguntar em campo (quando fizer sentido).
 - Seja conciso: responda em até 10 linhas. Se faltar contexto, faça 1 pergunta objetiva antes de expandir.
 - Se a resposta depender de uma informação que NÃO aparece na base enviada, deixe isso explícito e responda de forma geral (sem inventar detalhes).
+- Se houver “Pesquisa web automatica (resumo)”, use-a para complementar quando a base não cobrir o tema e cite as fontes do resumo.
 - Quando usar a base, cite rapidamente de onde veio: título da fonte/ocorrência.
 - Sugira 1 próximo passo (ex.: “quer que eu gere perguntas de quiz sobre isso?”).
 ${focusHint}
@@ -1142,12 +1158,6 @@ Formato da saída:
       const normalizedQuery = normalizeForMatch(text);
       const incidentLikely =
         /\b(ocorrenc|ocorr|acident|inciden|seguranca|epi|nr\s*\d|cipa|quase\s+acident)\b/i.test(normalizedQuery);
-
-      const useWeb = Boolean(use_web);
-      webSummaryPromise =
-        useWeb && lastUserText
-          ? fetchWebSearchSummary(lastUserText, chooseModel(true), { timeoutMs: STUDYLAB_WEB_SEARCH_TIMEOUT_MS })
-          : null;
       const stop = new Set([
         "de",
         "da",
@@ -1233,15 +1243,15 @@ Formato da saída:
         return score;
       };
 
-      const rankedSourcesBase = sourcesForOracle
+      const rankedSourcesScored = sourcesForOracle
         .map((s) => {
           const hay = [s.title, s.summary, s.topic, s.category].filter(Boolean).join(" ");
           return { s, score: keywords.length ? scoreText(hay, keywords) : 0 };
         })
         .filter((x) => (keywords.length ? x.score > 0 : true))
-        .sort((a, b) => b.score - a.score)
-        .slice(0, 3)
-        .map((x) => x.s);
+        .sort((a, b) => b.score - a.score);
+      const bestSourceScore = rankedSourcesScored[0]?.score || 0;
+      const rankedSourcesBase = rankedSourcesScored.slice(0, 3).map((x) => x.s);
 
       // Fetch full_text only for top sources (to reduce payload/latency)
       const topSourceIds = rankedSourcesBase.map((s: any) => s?.id).filter(Boolean).slice(0, 3);
@@ -1304,6 +1314,7 @@ Formato da saída:
         .filter((x) => (keywords.length ? x.score > 0 : true))
         .sort((a, b) => b.score - a.score)
         .slice(0, 3);
+      const bestCompendiumScore = rankedCompendium[0]?.score || 0;
       usedOracleCompendiumCount = rankedCompendium.length;
 
       // 3) Fórum (base por hashtags)
@@ -1347,6 +1358,8 @@ Formato da saída:
         .filter((x) => (keywords.length ? x.score > 0 : true))
         .sort((a, b) => b.score - a.score)
         .slice(0, 6);
+      const bestForumScore = rankedForumKb[0]?.score || 0;
+      oracleBestScore = Math.max(bestSourceScore, bestCompendiumScore, bestForumScore);
 
       const contextParts: string[] = [];
       if (attachmentContext) {
@@ -1513,9 +1526,10 @@ Formato da saída:
     }
 
     const useWeb = Boolean(use_web);
-    if (mode === "oracle" && useWeb && lastUserText) {
-      const webSummary = await (webSummaryPromise ||
-        fetchWebSearchSummary(lastUserText, chooseModel(true), { timeoutMs: STUDYLAB_WEB_SEARCH_TIMEOUT_MS }));
+    // Web search: only when the catalog match is weak (otherwise keep latency low).
+    const shouldSearchWeb = mode === "oracle" && useWeb && lastUserText && oracleBestScore < 2;
+    if (shouldSearchWeb) {
+      const webSummary = await fetchWebSearchSummary(lastUserText, { timeoutMs: STUDYLAB_WEB_SEARCH_TIMEOUT_MS });
       if (webSummary?.text) {
         usedWebSummary = true;
         openaiMessages.push({
@@ -1602,6 +1616,7 @@ Formato da saída:
           model_candidates: modelCandidates,
           used_web_summary: usedWebSummary,
           use_web: Boolean(use_web),
+          oracle_best_score: oracleBestScore,
           aborted,
           attempts,
           timeout_ms: STUDYLAB_OPENAI_TIMEOUT_MS,
@@ -1784,6 +1799,7 @@ Formato da saída:
         web: usedWebSummary,
         used_web_summary: usedWebSummary,
         use_web: Boolean(use_web),
+        oracle_best_score: oracleBestScore,
         attempts,
         timeout_ms: STUDYLAB_OPENAI_TIMEOUT_MS,
         max_output_tokens: maxTokens,

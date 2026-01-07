@@ -33,6 +33,9 @@ export function PendingRegistrationsManager() {
   const { toast } = useToast();
   const { orgScope, userRole, isLeader, profile } = useAuth() as any;
   const [registrations, setRegistrations] = useState<PendingRegistration[]>([]);
+  const [overrides, setOverrides] = useState<
+    Record<string, { sigla_area: string; operational_base: string; force_guest: boolean }>
+  >({});
   const [loading, setLoading] = useState(true);
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [reviewNotes, setReviewNotes] = useState<{ [key: string]: string }>({});
@@ -112,6 +115,9 @@ export function PendingRegistrationsManager() {
           registrationId,
           notes: notes || '',
           assign_content_curator: Boolean(assignCurator[registrationId]),
+          override_sigla_area: overrides[registrationId]?.sigla_area || undefined,
+          override_operational_base: overrides[registrationId]?.operational_base || undefined,
+          force_guest: Boolean(overrides[registrationId]?.force_guest),
         }),
       });
       if (!resp.ok) {
@@ -125,6 +131,9 @@ export function PendingRegistrationsManager() {
           registrationId,
           notes: notes || "",
           assign_content_curator: Boolean(assignCurator[registrationId]),
+          override_sigla_area: overrides[registrationId]?.sigla_area || undefined,
+          override_operational_base: overrides[registrationId]?.operational_base || undefined,
+          force_guest: Boolean(overrides[registrationId]?.force_guest),
         },
       });
       if (error) throw error;
@@ -231,6 +240,35 @@ export function PendingRegistrationsManager() {
     const s = String(r.sigla_area || "").trim().toUpperCase();
     return s === "CONVIDADOS" || s === "EXTERNO";
   };
+
+  const ensureOverrides = (list: PendingRegistration[]) => {
+    setOverrides((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      const ids = new Set(list.map((r) => String(r.id)));
+      for (const r of list) {
+        if (next[r.id]) continue;
+        const force_guest = isGuestRegistration(r);
+        next[r.id] = {
+          sigla_area: force_guest ? "CONVIDADOS" : String(r.sigla_area || "").trim(),
+          operational_base: force_guest ? "CONVIDADOS" : String(r.operational_base || "").trim(),
+          force_guest,
+        };
+        changed = true;
+      }
+      for (const id of Object.keys(next)) {
+        if (!ids.has(String(id))) {
+          delete next[id];
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  };
+
+  useEffect(() => {
+    if (registrations.length) ensureOverrides(registrations);
+  }, [registrations]);
 
   const matchesSearch = (r: PendingRegistration, q: string) => {
     const hay = [
@@ -411,10 +449,86 @@ export function PendingRegistrationsManager() {
                   )}
                   <div className="flex items-center gap-2">
                     <MapPin className="h-4 w-4 text-muted-foreground" />
-                    <span>{registration.operational_base}</span>
+                    <span>{overrides[registration.id]?.operational_base || registration.operational_base}</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Badge variant="secondary">{registration.sigla_area}</Badge>
+                    <Badge variant="secondary">{overrides[registration.id]?.sigla_area || registration.sigla_area}</Badge>
+                  </div>
+                </div>
+
+                <div className="rounded-md border p-3 space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <Label className="text-sm">Ajustar antes de aprovar</Label>
+                      <p className="text-xs text-muted-foreground">
+                        Se o solicitante escolheu a equipe/base errada, corrija aqui (ex.: marcar como CONVIDADOS).
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Label htmlFor={`guest-${registration.id}`} className="text-xs text-muted-foreground">
+                        Convidado
+                      </Label>
+                      <Switch
+                        id={`guest-${registration.id}`}
+                        checked={Boolean(overrides[registration.id]?.force_guest)}
+                        onCheckedChange={(v) =>
+                          setOverrides((prev) => ({
+                            ...prev,
+                            [registration.id]: {
+                              sigla_area: v ? "CONVIDADOS" : prev[registration.id]?.sigla_area || registration.sigla_area,
+                              operational_base: v
+                                ? "CONVIDADOS"
+                                : prev[registration.id]?.operational_base || registration.operational_base,
+                              force_guest: Boolean(v),
+                            },
+                          }))
+                        }
+                      />
+                    </div>
+                  </div>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div className="space-y-1">
+                      <Label htmlFor={`sigla-${registration.id}`} className="text-xs">
+                        Sigla/Equipe
+                      </Label>
+                      <Input
+                        id={`sigla-${registration.id}`}
+                        value={overrides[registration.id]?.sigla_area || ""}
+                        onChange={(e) =>
+                          setOverrides((prev) => ({
+                            ...prev,
+                            [registration.id]: {
+                              sigla_area: e.target.value,
+                              operational_base: prev[registration.id]?.operational_base || registration.operational_base,
+                              force_guest: Boolean(prev[registration.id]?.force_guest),
+                            },
+                          }))
+                        }
+                        disabled={Boolean(overrides[registration.id]?.force_guest)}
+                        placeholder="Ex.: DJTV-PJU"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor={`base-${registration.id}`} className="text-xs">
+                        Base Operacional
+                      </Label>
+                      <Input
+                        id={`base-${registration.id}`}
+                        value={overrides[registration.id]?.operational_base || ""}
+                        onChange={(e) =>
+                          setOverrides((prev) => ({
+                            ...prev,
+                            [registration.id]: {
+                              sigla_area: prev[registration.id]?.sigla_area || registration.sigla_area,
+                              operational_base: e.target.value,
+                              force_guest: Boolean(prev[registration.id]?.force_guest),
+                            },
+                          }))
+                        }
+                        disabled={Boolean(overrides[registration.id]?.force_guest)}
+                        placeholder="Ex.: Piraju"
+                      />
+                    </div>
                   </div>
                 </div>
 

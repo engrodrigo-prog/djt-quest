@@ -10,9 +10,20 @@ interface ApprovalRequest {
   notes?: string;
   roles?: string[];
   assign_content_curator?: boolean;
+  override_sigla_area?: string;
+  override_operational_base?: string;
+  force_guest?: boolean;
 }
 
 const GUEST_TEAM_ID = 'CONVIDADOS'
+const normTeamCode = (raw?: string | null) =>
+  String(raw || '')
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9-]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 32)
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -128,7 +139,8 @@ Deno.serve(async (req) => {
       throw new Error('Insufficient permissions');
     }
 
-    const { registrationId, notes, roles, assign_content_curator } = await req.json() as ApprovalRequest;
+    const body = await req.json() as ApprovalRequest;
+    const { registrationId, notes, roles, assign_content_curator } = body;
 
     // Fetch pending registration
     const { data: registration, error: fetchError } = await supabaseAdmin
@@ -140,6 +152,27 @@ Deno.serve(async (req) => {
 
     if (fetchError || !registration) {
       throw new Error('Registration not found or already processed');
+    }
+
+    if (!registration.date_of_birth) {
+      throw new Error('Data de nascimento ausente na solicitação. Peça ao usuário para reenviar o cadastro.');
+    }
+
+    const overrideSiglaRaw = typeof body.override_sigla_area === 'string' ? body.override_sigla_area : null
+    const overrideBaseRaw = typeof body.override_operational_base === 'string' ? body.override_operational_base : null
+    const forceGuest =
+      Boolean(body.force_guest) ||
+      String(overrideSiglaRaw || '').trim().toUpperCase() === GUEST_TEAM_ID ||
+      String(overrideBaseRaw || '').trim().toUpperCase() === GUEST_TEAM_ID
+
+    const desiredSigla = forceGuest
+      ? GUEST_TEAM_ID
+      : normTeamCode(overrideSiglaRaw || registration.sigla_area) || normTeamCode(registration.sigla_area)
+    const desiredBase = forceGuest
+      ? GUEST_TEAM_ID
+      : String(overrideBaseRaw || registration.operational_base || '').trim().slice(0, 80)
+    if (!desiredSigla) {
+      throw new Error('Sigla/base inválida. Ajuste antes de aprovar.');
     }
 
     // Prevent duplicate approvals for same email
@@ -179,10 +212,11 @@ Deno.serve(async (req) => {
         name: registration.name,
         email: registration.email,
         matricula: registration.matricula,
-        operational_base: registration.operational_base,
-        sigla_area: registration.sigla_area,
+        operational_base: desiredBase || registration.operational_base,
+        sigla_area: desiredSigla,
         must_change_password: true,
         needs_profile_completion: true,
+        date_of_birth: registration.date_of_birth,
       }, { onConflict: 'id' });
 
     if (profileError) {
@@ -194,7 +228,7 @@ Deno.serve(async (req) => {
 
     console.log('Profile created');
 
-    const regSigla = String(registration.sigla_area || '').trim().toUpperCase()
+    const regSigla = String(desiredSigla || '').trim().toUpperCase()
     const isGuest = regSigla === 'EXTERNO' || regSigla === GUEST_TEAM_ID
 
     const ensureTeamExists = async (teamId: string, name: string) => {
@@ -228,7 +262,7 @@ Deno.serve(async (req) => {
       if (regSigla) await ensureTeamExists(regSigla, regSigla)
 
       // Attach org hierarchy if possible
-      const org = await deriveOrgUnits(registration.sigla_area || registration.operational_base)
+      const org = await deriveOrgUnits(desiredSigla || desiredBase || registration.sigla_area || registration.operational_base)
       if (org) {
         const { error: orgErr } = await supabaseAdmin
           .from('profiles')
@@ -272,6 +306,8 @@ Deno.serve(async (req) => {
         reviewed_by: user.id,
         reviewed_at: new Date().toISOString(),
         review_notes: notes || null,
+        sigla_area: desiredSigla,
+        operational_base: desiredBase || registration.operational_base,
       })
       .eq('id', registrationId);
 
@@ -290,7 +326,7 @@ Deno.serve(async (req) => {
         entity_type: 'pending_registration',
         entity_id: String(registrationId),
         before_json: registration as any,
-        after_json: { user_id: newUser.user.id, roles: rolesToAssign } as any,
+        after_json: { user_id: newUser.user.id, roles: rolesToAssign, sigla_area: desiredSigla, operational_base: desiredBase || registration.operational_base } as any,
       } as any)
     } catch {
       // ignore
