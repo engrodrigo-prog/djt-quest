@@ -2724,7 +2724,7 @@ export default function SEPBookIG() {
                       <Marker
                         key={x.post.id}
                         position={[Number(x.post.location_lat), Number(x.post.location_lng)]}
-                        icon={mapSelectedId === x.post.id ? selectedMarkerIcon : undefined}
+                        {...(mapSelectedId === x.post.id ? { icon: selectedMarkerIcon } : {})}
                         eventHandlers={{
                           click: () => focusMapPost(x.post.id),
                         }}
