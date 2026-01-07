@@ -1,7 +1,16 @@
 import { createClient } from '@supabase/supabase-js';
 import { translateForumTexts, localesForAllTargets } from '../lib/forum-translations.js';
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY);
+import { loadLocalEnvIfNeeded } from '../lib/load-local-env.js';
+import { getSupabaseUrlFromEnv } from '../lib/supabase-url.js';
+import { DJT_QUEST_SUPABASE_HOST } from '../env-guard.js';
+loadLocalEnvIfNeeded();
+const SUPABASE_URL = getSupabaseUrlFromEnv(process.env, { expectedHostname: DJT_QUEST_SUPABASE_HOST, allowLocal: true });
+const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const ANON_KEY = (process.env.SUPABASE_ANON_KEY ||
+    process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+    process.env.VITE_SUPABASE_ANON_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY);
+const SERVICE_KEY = (SERVICE_ROLE_KEY || ANON_KEY);
 function extractMentionsAndTags(md) {
     // Captura @email completo ou identificadores simples (equipes/siglas)
     const mentionMatches = Array.from(md.matchAll(/@([A-Za-z0-9_.-]+@[A-Za-z0-9_.-]+|[A-Za-z0-9_.-]+)/g));
@@ -58,18 +67,32 @@ export default async function handler(req, res) {
     try {
         if (!SUPABASE_URL || !SERVICE_KEY)
             return res.status(500).json({ error: 'Missing Supabase config' });
-        const admin = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { autoRefreshToken: false, persistSession: false } });
         const authHeader = req.headers['authorization'];
         if (!authHeader?.startsWith('Bearer '))
             return res.status(401).json({ error: 'Unauthorized' });
         const token = authHeader.slice(7);
-        const { data: userData } = await admin.auth.getUser(token);
+        const authed = createClient(SUPABASE_URL, ANON_KEY || SERVICE_KEY, {
+            auth: { autoRefreshToken: false, persistSession: false },
+            global: { headers: { Authorization: `Bearer ${token}` } },
+        });
+        const { data: userData, error: authErr } = await authed.auth.getUser();
+        if (authErr)
+            return res.status(401).json({ error: 'Unauthorized' });
         const uid = userData?.user?.id;
         if (!uid)
             return res.status(401).json({ error: 'Unauthorized' });
         const { topic_id, content_md, payload = {}, parent_post_id = null, reply_to_user_id = null, attachment_urls = [] } = req.body || {};
         if (!topic_id || typeof content_md !== 'string' || content_md.trim().length < 1)
             return res.status(400).json({ error: 'Invalid payload' });
+        try {
+            const { data: topic } = await authed.from('forum_topics').select('is_active,is_locked').eq('id', topic_id).maybeSingle();
+            if (!topic)
+                return res.status(404).json({ error: 'Topic not found' });
+            if (topic.is_active === false || topic.is_locked === true) {
+                return res.status(400).json({ error: 'Topic is closed or locked' });
+            }
+        }
+        catch { }
         const { mentions, hashtags } = extractMentionsAndTags(content_md);
         const targetLocales = localesForAllTargets(req.body?.locales);
         let translations = { 'pt-BR': content_md.trim() };
@@ -97,7 +120,7 @@ export default async function handler(req, res) {
         // Try insert including legacy attachment_urls column; if it fails due to column missing, retry without it
         let post, error;
         try {
-            const { data, error: err } = await admin
+            const { data, error: err } = await authed
                 .from('forum_posts')
                 .insert({ ...insertPayload, attachment_urls: Array.isArray(attachment_urls) ? attachment_urls : null })
                 .select()
@@ -110,7 +133,7 @@ export default async function handler(req, res) {
                 throw error;
         }
         catch (_) {
-            const { data, error: err } = await admin
+            const { data, error: err } = await authed
                 .from('forum_posts')
                 .insert(insertPayload)
                 .select()
@@ -119,7 +142,7 @@ export default async function handler(req, res) {
             error = err;
             if (error && /column .*translations.* does not exist/i.test(error.message)) {
                 const { translations: _omit, ...rest } = insertPayload;
-                const { data: d2, error: err2 } = await admin.from('forum_posts').insert(rest).select().single();
+                const { data: d2, error: err2 } = await authed.from('forum_posts').insert(rest).select().single();
                 post = d2;
                 error = err2;
             }
@@ -129,7 +152,10 @@ export default async function handler(req, res) {
         // Register mentions best-effort
         if (mentions.length) {
             try {
-                const ids = await resolveMentionedUserIds(admin, mentions, { excludeUserId: uid });
+                const writer = SERVICE_ROLE_KEY
+                    ? createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { autoRefreshToken: false, persistSession: false } })
+                    : authed;
+                const ids = await resolveMentionedUserIds(writer, mentions, { excludeUserId: uid });
                 if (ids.length) {
                     const rows = ids.map((id) => ({
                         mentioned_user_id: id,
@@ -137,14 +163,14 @@ export default async function handler(req, res) {
                         post_id: post.id,
                         is_read: false,
                     }));
-                    await admin.from('forum_mentions').upsert(rows, { onConflict: 'post_id,mentioned_user_id' });
-                    const { data: authorProfile } = await admin
+                    await writer.from('forum_mentions').upsert(rows, { onConflict: 'post_id,mentioned_user_id' });
+                    const { data: authorProfile } = await writer
                         .from('profiles')
                         .select('name')
                         .eq('id', uid)
                         .maybeSingle();
                     const authorName = String(authorProfile?.name || 'Alguém');
-                    await Promise.all(ids.map((id) => admin.rpc('create_notification', {
+                    await Promise.all(ids.map((id) => writer.rpc('create_notification', {
                         _user_id: id,
                         _type: 'forum_mention',
                         _title: 'Você foi mencionado',
@@ -187,13 +213,13 @@ export default async function handler(req, res) {
                     try {
                         const listFolder = folder;
                         const searchName = filename;
-                        const { data: files } = await admin.storage.from('forum-attachments').list(listFolder, { search: searchName });
+                        const { data: files } = await authed.storage.from('forum-attachments').list(listFolder, { search: searchName });
                         const found = (files || []).find((f) => f.name === filename);
                         fileSize = found?.metadata?.size || found?.size || 0;
                     }
                     catch { }
                     try {
-                        await admin.from('forum_attachment_metadata').insert({
+                        await authed.from('forum_attachment_metadata').insert({
                             post_id: post.id,
                             storage_path: path,
                             file_type: fileType,
@@ -206,7 +232,7 @@ export default async function handler(req, res) {
                     // Attempt to invoke image metadata extraction function in background
                     if (fileType === 'image') {
                         try {
-                            await admin.functions.invoke('extract-image-metadata', { body: { storage_path: path, post_id: post.id } });
+                            await authed.functions.invoke('extract-image-metadata', { body: { storage_path: path, post_id: post.id } });
                         }
                         catch { }
                     }

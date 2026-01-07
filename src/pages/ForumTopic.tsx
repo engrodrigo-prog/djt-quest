@@ -833,6 +833,7 @@ export default function ForumTopic() {
       if (!save.ok) throw new Error(j2?.error || tr('forumTopic.errors.saveReviewFailed'))
 
       setPosts(prev => prev.map(p => p.id === post.id ? { ...p, content_md: trimmedCleaned } : p))
+      try { await load() } catch {}
       toast({ title: tr('forumTopic.toast.textReviewedTitle'), description: tr('forumTopic.toast.textReviewedDesc') })
     } catch (e:any) {
       toast({
