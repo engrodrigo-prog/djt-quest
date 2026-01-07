@@ -803,6 +803,24 @@ export default function SEPBookIG() {
     [mapPosts, openPostById],
   );
 
+  const handleMapSelection = useCallback(
+    (postId: string, opts?: { openOnSecond?: boolean; openPost?: boolean }) => {
+      const id = String(postId || "").trim();
+      if (!id) return;
+      const isSelected = mapSelectedId === id;
+      if (!isSelected) {
+        focusMapPost(id);
+        return;
+      }
+      if (opts?.openPost || opts?.openOnSecond) {
+        focusMapPost(id, { openPost: true });
+      } else {
+        focusMapPost(id);
+      }
+    },
+    [focusMapPost, mapSelectedId],
+  );
+
   useEffect(() => {
     setLocationConsent(readLocationConsent());
   }, []);
@@ -2726,7 +2744,7 @@ export default function SEPBookIG() {
                         position={[Number(x.post.location_lat), Number(x.post.location_lng)]}
                         {...(mapSelectedId === x.post.id ? { icon: selectedMarkerIcon } : {})}
                         eventHandlers={{
-                          click: () => focusMapPost(x.post.id),
+                          click: () => handleMapSelection(x.post.id, { openOnSecond: true }),
                         }}
                       >
                         <Popup>
@@ -2778,7 +2796,7 @@ export default function SEPBookIG() {
                         "w-full flex items-center gap-3 rounded-xl border p-2 hover:bg-muted text-left",
                         mapSelectedId === x.post.id && "border-amber-400/80 bg-amber-100/10",
                       )}
-                      onClick={() => focusMapPost(x.post.id)}
+                      onClick={() => handleMapSelection(x.post.id, { openOnSecond: true })}
                     >
                       <img
                         src={x.imageUrl || undefined}
@@ -2786,7 +2804,7 @@ export default function SEPBookIG() {
                         className="h-16 w-16 rounded-lg object-cover border"
                         onClick={(e) => {
                           e.stopPropagation();
-                          focusMapPost(x.post.id, { openPost: true });
+                          handleMapSelection(x.post.id, { openOnSecond: true });
                         }}
                       />
                       <div className="min-w-0 flex-1">
