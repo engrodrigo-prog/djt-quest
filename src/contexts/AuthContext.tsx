@@ -65,9 +65,10 @@ const getCachedAuth = () => {
 };
 
 const isTimeoutError = (err: any) => String(err?.message || err || '').toLowerCase().includes('timeout');
+const isDev = typeof import.meta !== 'undefined' && Boolean((import.meta as any)?.env?.DEV);
 
 // Helper to avoid hanging fetches impacting UI loading state
-async function withTimeout<T>(promise: Promise<T>, ms = 6000): Promise<T> {
+async function withTimeout<T>(promise: Promise<T>, ms = 12000): Promise<T> {
   return await Promise.race([
     promise,
     new Promise<T>((_, reject) => setTimeout(() => reject(new Error('timeout')), ms)) as Promise<T>,
@@ -232,11 +233,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             Authorization: `Bearer ${currentSession.access_token}`,
           },
         }),
-        8000
+        15000
       );
 
       if (error) {
-        console.warn('auth-me falhou', error.message || error);
+        if (isDev) console.warn('auth-me falhou', error.message || error);
         // Não derruba a sessão; apenas mantém usuário básico sem papel carregado
         setUser(currentSession.user ?? null);
         setSession(currentSession);
@@ -304,9 +305,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return authData;
     } catch (error: any) {
       // Avoid noisy console errors on slow networks; cache fallback handles UX.
-      if (!isTimeoutError(error)) {
-        console.warn('Erro ao buscar sessão', error?.message || error);
-      }
+      if (isDev && !isTimeoutError(error)) console.warn('Erro ao buscar sessão', error?.message || error);
 
       // Mantém a sessão corrente como válida
       setUser(providedSession?.user ?? null);

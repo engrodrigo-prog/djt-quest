@@ -12,7 +12,7 @@ type ProfileInfo = {
   name: string | null;
   operational_base: string | null;
   sigla_area: string | null;
-  telefone: string | null;
+  phone: string | null;
   avatar_url: string | null;
   avatar_thumbnail_url?: string | null;
   team_id?: string | null;
@@ -55,7 +55,7 @@ export function UserProfilePopover({ userId, name, avatarUrl, children }: UserPr
       try {
         const { data } = await supabase
           .from("profiles")
-          .select("id, name, operational_base, sigla_area, telefone, avatar_url, avatar_thumbnail_url, team_id")
+          .select("id, name, operational_base, sigla_area, phone, avatar_url, avatar_thumbnail_url, team_id")
           .eq("id", userId)
           .maybeSingle();
         if (!active) return;
@@ -76,9 +76,9 @@ export function UserProfilePopover({ userId, name, avatarUrl, children }: UserPr
 
   const displayName = profile?.name || name || tr("userPopover.userFallback");
   const displayBase = profile?.operational_base || tr("userPopover.baseFallback");
-  const displayPhone = profile?.telefone || tr("userPopover.phoneFallback");
+  const displayPhone = profile?.phone || tr("userPopover.phoneFallback");
   const avatar = profile?.avatar_thumbnail_url || profile?.avatar_url || avatarUrl || null;
-  const digits = useMemo(() => cleanPhone(profile?.telefone), [profile?.telefone]);
+  const digits = useMemo(() => cleanPhone(profile?.phone), [profile?.phone]);
   const whatsappUrl = digits ? `https://wa.me/${digits}` : null;
   const telUrl = digits ? `tel:${digits}` : null;
 
@@ -87,9 +87,9 @@ export function UserProfilePopover({ userId, name, avatarUrl, children }: UserPr
   return (
       <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>{children}</PopoverTrigger>
-      <PopoverContent className="w-96">
-        <div className="flex items-center gap-3">
-          <Avatar className="h-24 w-24">
+      <PopoverContent className="w-[420px]">
+        <div className="flex items-start gap-4">
+          <Avatar className="h-32 w-32">
             <AvatarImage src={avatar || undefined} alt={displayName} />
             <AvatarFallback>{initials(displayName)}</AvatarFallback>
           </Avatar>

@@ -3,7 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
-import { Upload, X, Image, Music, Video, FileText } from "lucide-react";
+import { Upload, X, Image, Music, Video, FileText, Camera } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface Attachment {
@@ -31,7 +31,7 @@ interface AttachmentUploaderProps {
   bucket?: string;
   /** Optional path prefix inside the bucket (e.g., 'campaigns', 'challenges') */
   pathPrefix?: string;
-  /** Hint to open camera on mobile: 'environment' (back), 'user' (front) or true */
+  /** Enable a "Take photo" button on mobile: 'environment' (back), 'user' (front) or true */
   capture?: boolean | 'environment' | 'user';
   /** Opcional: limitar duração de vídeos (em segundos) */
   maxVideoSeconds?: number;
@@ -81,6 +81,13 @@ export const AttachmentUploader = ({
   const [isDragging, setIsDragging] = useState(false);
   const allowedMimeSet = new Set<string>(acceptMimeTypes && acceptMimeTypes.length > 0 ? acceptMimeTypes : Object.keys(ALLOWED_TYPES));
   const inputId = useMemo(() => `file-upload-${Math.random().toString(36).slice(2)}`, []);
+  const cameraInputId = useMemo(() => `camera-upload-${Math.random().toString(36).slice(2)}`, []);
+  const cameraEnabled = Boolean(capture);
+  const cameraCaptureValue = useMemo(() => {
+    if (!cameraEnabled) return undefined;
+    if (typeof capture === 'string') return capture;
+    return true;
+  }, [cameraEnabled, capture]);
 
   const validateFile = useCallback((file: File): string | null => {
     if (!allowedMimeSet.has(file.type)) {
@@ -398,8 +405,18 @@ export const AttachmentUploader = ({
           disabled={attachments.length >= maxFiles}
           className="hidden"
           id={inputId}
-          {...(capture ? { capture: typeof capture === 'boolean' ? undefined : capture } : {})}
         />
+        {cameraEnabled && (
+          <input
+            type="file"
+            accept="image/*"
+            onChange={(e) => handleFiles(e.target.files)}
+            disabled={attachments.length >= maxFiles}
+            className="hidden"
+            id={cameraInputId}
+            {...(cameraCaptureValue ? { capture: cameraCaptureValue as any } : {})}
+          />
+        )}
         <Button
           type="button"
           variant="outline"
@@ -409,6 +426,19 @@ export const AttachmentUploader = ({
         >
           Selecionar Arquivos
         </Button>
+        {cameraEnabled && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={attachments.length >= maxFiles}
+            onClick={() => document.getElementById(cameraInputId)?.click()}
+            className="ml-2"
+          >
+            <Camera className="mr-2 h-4 w-4" />
+            Tirar foto
+          </Button>
+        )}
       </div>
 
       {attachments.length > 0 && (

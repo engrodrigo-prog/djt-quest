@@ -1738,6 +1738,7 @@ export default function ForumTopic() {
                           maxFiles={6}
                           maxSizeMB={50}
                           maxVideoSeconds={90}
+                          capture="environment"
                         />
                         {attachmentUrls.length > 0 && (
                           <div className="flex flex-wrap gap-2">

@@ -148,6 +148,7 @@ export default async function handler(req, res) {
             name: reg.name,
             email: reg.email,
             matricula: reg.matricula,
+            phone: reg.telefone || null,
             operational_base: desiredBase || reg.operational_base,
             sigla_area: desiredSigla,
             date_of_birth: reg.date_of_birth,

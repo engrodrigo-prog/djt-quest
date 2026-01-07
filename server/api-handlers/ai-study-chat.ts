@@ -16,7 +16,7 @@ const STUDYLAB_DEFAULT_CHAT_MODEL = "gpt-5-nano-2025-08-07";
 // Keep answers reasonably short to reduce latency and avoid timeouts.
 const STUDYLAB_MAX_COMPLETION_TOKENS = Math.max(
   240,
-  Math.min(1200, Number(process.env.STUDYLAB_MAX_COMPLETION_TOKENS || 520)),
+  Math.min(2000, Number(process.env.STUDYLAB_MAX_COMPLETION_TOKENS || 700)),
 );
 const STUDYLAB_WEB_SEARCH_TIMEOUT_MS = Math.max(
   1500,
@@ -1351,6 +1351,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       : "";
 
     const langIsEn = String(language || "").toLowerCase().startsWith("en");
+    const qualityHint =
+      qualityKey === "thinking"
+        ? langIsEn
+          ? "\n\nMode: Thinking (more detail). Provide a complete, structured answer, but avoid repetition."
+          : "\n\nModo: Thinking (mais detalhado). Entregue uma resposta completa e estruturada, evitando repetição."
+        : qualityKey === "instant"
+          ? langIsEn
+            ? "\n\nMode: Instant (fast). Keep it short and practical: direct answer + checklist. Do not ramble."
+            : "\n\nModo: Instant (rápido). Seja curto e prático: resposta direta + checklist. Não se estenda."
+          : langIsEn
+            ? "\n\nMode: Auto (balanced). Balance speed and completeness with a practical checklist."
+            : "\n\nModo: Auto (equilibrado). Equilibre rapidez e completude com um checklist prático.";
     const system =
       mode === "oracle"
         ? langIsEn
@@ -1363,6 +1375,7 @@ Rules:
 - Do NOT fabricate manufacturer specs, model numbers, or procedures not present in the base/web summary. If you can't find it, say so.
 - If “Automated web search (summary)” exists, use it and cite sources (links) at the end.
 - When using the internal base, cite the source title briefly.
+${qualityHint}
 ${focusHint}
 
 Output format (plain text, no JSON):
@@ -1381,6 +1394,7 @@ Regras:
 - NÃO invente especificações, dados de fabricantes/modelos ou procedimentos que não estejam na base/resumo web. Se não encontrar, diga que não encontrou.
 - Se houver “Pesquisa web automatica (resumo)”, use-a e cite fontes (links) no fim.
 - Quando usar a base interna, cite rapidamente o título da fonte.
+${qualityHint}
 ${focusHint}
 
 Formato da resposta (texto livre, sem JSON):
@@ -1399,6 +1413,7 @@ Rules:
 - Explain step-by-step, clear but technically accurate.
 - When you rely on a specific material, say so explicitly (e.g., “Based on the selected document…”).
 - Do NOT invent details that are not in the material/attachments.
+${qualityHint}
 ${focusHint}
 
 Output (plain text, no JSON), in ${language}.`
@@ -1410,6 +1425,7 @@ Regras:
 - Explique passo a passo, com clareza e precisão técnica.
 - Quando estiver usando um material específico, deixe explícito (ex.: “Com base no documento selecionado…”).
 - NÃO invente detalhes que não estejam no material/anexos.
+${qualityHint}
 ${focusHint}
 
 Formato da saída: texto livre (sem JSON), em ${language}.`;
@@ -1889,12 +1905,17 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
       }
       return baseCandidates;
     })();
-    const maxTokensBase =
+    let maxTokensBase =
       qualityKey === "thinking"
         ? Math.max(STUDYLAB_MAX_COMPLETION_TOKENS, 1200)
         : useWeb
           ? Math.max(STUDYLAB_MAX_COMPLETION_TOKENS, 900)
           : STUDYLAB_MAX_COMPLETION_TOKENS;
+    if (mode === "oracle") {
+      const oracleFloor =
+        qualityKey === "thinking" ? 1800 : qualityKey === "auto" ? 1400 : 1200;
+      maxTokensBase = Math.max(maxTokensBase, oracleFloor);
+    }
     let usedMaxTokens = maxTokensBase;
 
     let content = "";
@@ -1904,9 +1925,11 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
     let attempts = 0;
     let forceTextOnly = false;
     let useMinimalPrompt = false;
-    const verbosity = mode === "oracle" || useWeb || includeImagesInPrompt ? "medium" : "low";
+    let finalIncompleteReason: string | null = null;
+    const verbosity = qualityKey === "instant" ? "low" : mode === "oracle" || useWeb || includeImagesInPrompt ? "medium" : "low";
     const reasoningEffort = qualityKey === "thinking" ? "medium" : "low";
-    const maxOutputCap = qualityKey === "thinking" ? 1600 : 1400;
+    const maxOutputCap =
+      qualityKey === "thinking" ? 2000 : qualityKey === "instant" ? 1400 : 1800;
 
     for (const model of modelCandidates) {
       let modelMaxTokens = maxTokensBase;
@@ -1962,10 +1985,11 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
         if (content) {
           usedModel = model;
           usedMaxTokens = modelMaxTokens;
+          finalIncompleteReason = incompleteReason || null;
           break;
         }
         if (incompleteReason === "max_output_tokens" && modelMaxTokens < maxOutputCap) {
-          modelMaxTokens = Math.min(modelMaxTokens + 380, maxOutputCap);
+          modelMaxTokens = Math.min(modelMaxTokens + 480, maxOutputCap);
           lastErrTxt = "OpenAI retornou resposta truncada";
           continue;
         }
@@ -2186,6 +2210,8 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
         used_web_summary: usedWebSummary,
         use_web: Boolean(use_web),
         oracle_best_score: oracleBestScore,
+        incomplete_reason: finalIncompleteReason,
+        truncated: finalIncompleteReason === "max_output_tokens",
         attempts,
         timeout_ms: STUDYLAB_OPENAI_TIMEOUT_MS,
         max_output_tokens: usedMaxTokens,

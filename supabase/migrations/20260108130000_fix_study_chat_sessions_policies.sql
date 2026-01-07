@@ -5,6 +5,7 @@ alter table public.study_chat_sessions enable row level security;
 -- Consolidate read policies (avoid multiple permissive policies)
 drop policy if exists "StudyChatSessions: owner read" on public.study_chat_sessions;
 drop policy if exists "StudyChatSessions: staff read" on public.study_chat_sessions;
+drop policy if exists "StudyChatSessions: read own or staff" on public.study_chat_sessions;
 create policy "StudyChatSessions: read own or staff"
   on public.study_chat_sessions
   as permissive for select

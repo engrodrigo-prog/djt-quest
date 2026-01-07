@@ -214,6 +214,7 @@ Deno.serve(async (req: Request) => {
         name: registration.name,
         email: registration.email,
         matricula: registration.matricula,
+        phone: registration.telefone || null,
         operational_base: desiredBase || registration.operational_base,
         sigla_area: desiredSigla,
         must_change_password: true,
