@@ -20,6 +20,10 @@ const STUDYLAB_OPENAI_TIMEOUT_MS = Math.max(
   Math.min(6e4, Number(process.env.STUDYLAB_OPENAI_TIMEOUT_MS || 45e3))
 );
 const STUDYLAB_HISTORY_LIMIT = Math.max(6, Math.min(16, Number(process.env.STUDYLAB_HISTORY_LIMIT || 10)));
+const STUDYLAB_INLINE_IMAGE_BYTES = Math.max(
+  256000,
+  Math.min(3e6, Number(process.env.STUDYLAB_INLINE_IMAGE_BYTES || 1500000))
+);
 const OPENAI_MODEL_STUDYLAB_CHAT = normalizeChatModel(process.env.OPENAI_MODEL_STUDYLAB_CHAT || "", STUDYLAB_DEFAULT_CHAT_MODEL);
 function chooseModel(preferPremium = false) {
   const premium = process.env.OPENAI_MODEL_PREMIUM;
@@ -70,8 +74,13 @@ const isAbortError = (err) => {
   const msg = String(err?.message || err || "").toLowerCase();
   return msg.includes("aborted") || msg.includes("abort");
 };
+const normalizeResponseRole = (raw) => {
+  const role = String(raw || "").trim().toLowerCase();
+  if (role === "assistant" || role === "system" || role === "user") return role;
+  return "user";
+};
 const toResponsesInputMessages = (messages) => (messages || []).map((m) => {
-  const role = String(m?.role || "").trim();
+  const role = normalizeResponseRole(m?.role);
   const isAssistant = role === "assistant";
   const rawContent = m?.content;
   let contentItems = [];
@@ -88,9 +97,9 @@ const toResponsesInputMessages = (messages) => (messages || []).map((m) => {
         return isAssistant ? { type: "output_text", text } : { type: "input_text", text };
       }
       if (!isAssistant && (t === "input_image" || t === "image_url")) {
-        const imageUrl = item?.image_url?.url || item?.url || "";
+        const imageUrl = typeof item?.image_url === "string" ? item.image_url : item?.image_url?.url || item?.url || "";
         if (!imageUrl) return null;
-        return { type: "input_image", image_url: { url: imageUrl } };
+        return { type: "input_image", image_url: imageUrl };
       }
       return null;
     }).filter(Boolean);
@@ -103,9 +112,8 @@ const toResponsesInputMessages = (messages) => (messages || []).map((m) => {
   return { role, content: contentItems };
 }).filter((m) => m.role && Array.isArray(m.content) && m.content.length);
 const toResponsesTextMessages = (messages) => (messages || []).map((m) => {
-  const role = String(m?.role || "").trim();
-  if (!role) return null;
-  const normalizedRole = role === "assistant" || role === "system" ? role : "user";
+  const normalizedRole = normalizeResponseRole(m?.role);
+  if (!normalizedRole) return null;
   const rawContent = m?.content;
   let text = "";
   if (Array.isArray(rawContent)) {
@@ -117,7 +125,7 @@ const toResponsesTextMessages = (messages) => (messages || []).map((m) => {
         return String(item?.text || item?.content || "");
       }
       if (t === "input_image" || t === "image_url") {
-        const url = item?.image_url?.url || item?.url || "";
+        const url = typeof item?.image_url === "string" ? item.image_url : item?.image_url?.url || item?.url || "";
         return url ? `Imagem: ${url}` : "";
       }
       return String(item?.text || item?.content || "");
@@ -170,6 +178,32 @@ const shouldInjectRules = (text) => {
 const buildRulesContext = () => `Base fixa (Regras do DJT Quest):
 ${DJT_RULES_ARTICLE.title}
 ${DJT_RULES_ARTICLE.body}`;
+const extractMessageText = (rawContent) => {
+  if (Array.isArray(rawContent)) {
+    return rawContent.map((item) => {
+      if (!item) return "";
+      if (typeof item === "string") return item;
+      const t = String(item?.type || "").trim();
+      if (t === "input_text" || t === "output_text") {
+        return String(item?.text || item?.content || "");
+      }
+      if (t === "input_image" || t === "image_url") {
+        const url = typeof item?.image_url === "string" ? item.image_url : item?.image_url?.url || item?.url || "";
+        return url ? `Imagem: ${url}` : "";
+      }
+      return String(item?.text || item?.content || "");
+    }).filter(Boolean).join("\n").trim();
+  }
+  if (typeof rawContent === "string") return rawContent.trim();
+  if (rawContent == null) return "";
+  return String(rawContent).trim();
+};
+const normalizeIncomingMessages = (rawMessages) => (Array.isArray(rawMessages) ? rawMessages : []).map((m) => {
+  const role = m?.role === "assistant" ? "assistant" : "user";
+  const content = extractMessageText(m?.content);
+  if (!content) return null;
+  return { role, content };
+}).filter(Boolean);
 const collectOutputText = (payload) => {
   if (typeof payload?.output_text === "string") return payload.output_text.trim();
   const output = Array.isArray(payload?.output) ? payload.output : [];
@@ -504,7 +538,7 @@ async function handler(req, res) {
       return IMAGE_EXTS.has(ext);
     };
     const promptImageAttachments = normalizedAttachments.filter(isImageAttachment).slice(0, 2);
-    const includeImagesInPrompt = promptImageAttachments.length > 0;
+    let includeImagesInPrompt = promptImageAttachments.length > 0;
     const fetchBinary = async (rawUrl) => {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 12e3);
@@ -514,6 +548,30 @@ async function handler(req, res) {
       const ab = await resp2.arrayBuffer();
       const contentType = resp2.headers.get("content-type") || "";
       return { buffer: Buffer.from(ab), contentType };
+    };
+    const buildPromptImageInputs = async (attachments) => {
+      const items = [];
+      for (const att of attachments) {
+        const url = String(att?.url || "").trim();
+        if (!url) continue;
+        if (url.startsWith("data:")) {
+          items.push({ type: "input_image", image_url: url });
+          continue;
+        }
+        try {
+          const { buffer, contentType } = await fetchBinary(url);
+          if (buffer.length > STUDYLAB_INLINE_IMAGE_BYTES) {
+            items.push({ type: "input_image", image_url: url });
+            continue;
+          }
+          const mime = contentType || `image/${inferExt(url) || "jpeg"}`;
+          const dataUrl = `data:${mime};base64,${buffer.toString("base64")}`;
+          items.push({ type: "input_image", image_url: dataUrl });
+        } catch {
+          items.push({ type: "input_image", image_url: url });
+        }
+      }
+      return items;
     };
     const extractFromFileUrl = async (rawUrl, hint = "") => {
       const { buffer, contentType } = await fetchBinary(rawUrl);
@@ -659,6 +717,8 @@ ${metaParts.join("\n\n")}` : ""}`;
         }
       }
     }
+    const promptImageInputs = includeImagesInPrompt ? await buildPromptImageInputs(promptImageAttachments) : [];
+    includeImagesInPrompt = promptImageInputs.length > 0;
     let attachmentContext = "";
     if (mode !== "ingest" && normalizedAttachments.length) {
       try {
@@ -943,7 +1003,7 @@ ${metaParts.join("\n\n")}` : ""}`;
       }
       return res.status(200).json({ success: true, ingested: true });
     }
-    const normalizedMessages = Array.isArray(messages) ? messages : [];
+    const normalizedMessages = normalizeIncomingMessages(messages);
     if (normalizedMessages.length === 0 && typeof question === "string" && question.trim()) {
       normalizedMessages.push({ role: "user", content: question.trim() });
     }
@@ -988,7 +1048,7 @@ Formato da sa\xEDda:
 - Voc\xEA pode usar bullets e listas curtas, mas n\xE3o use nenhum formato de JSON.`;
     const openaiMessages = [{ role: "system", content: system }];
     if (mode === "oracle" && admin) {
-      const normalizedMessagesForQuery = Array.isArray(messages) ? messages : [];
+      const normalizedMessagesForQuery = normalizeIncomingMessages(messages);
       const lastUserMsg = (normalizedMessagesForQuery.slice().reverse().find((m) => m?.role === "user" && m?.content)?.content || question || "") + "";
       const text = lastUserMsg.toString();
       lastUserText = text;
@@ -1307,7 +1367,7 @@ ${webSummary.text}`
       const m = modelMessages[i];
       if (!m || !m.role || !m.content) continue;
       const role = m.role === "assistant" ? "assistant" : "user";
-      if (role === "user" && i === lastUserIndex && promptImageAttachments.length) {
+      if (role === "user" && i === lastUserIndex && promptImageInputs.length) {
         const rawText = typeof m.content === "string" ? m.content : Array.isArray(m.content) ? m.content.map((item) => typeof item === "string" ? item : typeof item?.text === "string" ? item.text : typeof item?.content === "string" ? item.content : "").filter(Boolean).join("\n") : "";
         const trimmedText = String(rawText || "").trim();
         const contentItems = [];
@@ -1315,44 +1375,54 @@ ${webSummary.text}`
           type: "input_text",
           text: trimmedText || attachmentOnlyPrompt
         });
-        for (const att of promptImageAttachments) {
-          const url = String(att?.url || "").trim();
-          if (!url) continue;
-          contentItems.push({ type: "input_image", image_url: { url } });
-        }
+        contentItems.push(...promptImageInputs);
         openaiMessages.push({ role, content: contentItems });
       } else {
         openaiMessages.push({ role, content: m.content });
       }
     }
+    const minimalOpenAiMessages = (() => {
+      const systems = openaiMessages.filter((m) => m?.role === "system");
+      const lastUser = [...openaiMessages].reverse().find((m) => m?.role === "user");
+      if (lastUser) systems.push(lastUser);
+      return systems.length ? systems : openaiMessages;
+    })();
     const preferPremium = mode === "oracle" || useWeb || sourceRow && String(sourceRow.scope || "").toLowerCase() === "org" && sourceRow.published !== false;
     const fallbackModel = chooseModel(preferPremium);
     const modelCandidates = pickStudyLabChatModels(fallbackModel);
-    const maxTokens = useWeb ? Math.max(STUDYLAB_MAX_COMPLETION_TOKENS, 520) : STUDYLAB_MAX_COMPLETION_TOKENS;
+    const maxTokensBase = useWeb ? Math.max(STUDYLAB_MAX_COMPLETION_TOKENS, 520) : STUDYLAB_MAX_COMPLETION_TOKENS;
+    let usedMaxTokens = maxTokensBase;
     let content = "";
     let usedModel = fallbackModel;
     let lastErrTxt = "";
     let aborted = false;
     let attempts = 0;
     let forceTextOnly = false;
+    let useMinimalPrompt = false;
     for (const model of modelCandidates) {
+      let modelMaxTokens = maxTokensBase;
       for (let attempt = 0; attempt < 2; attempt += 1) {
         // Avoid stacking multiple long attempts (can exceed serverless max duration).
         if (attempts >= (useWeb ? 2 : 3)) break;
         let resp = null;
         try {
           attempts += 1;
-          const inputPayload = forceTextOnly ? toResponsesTextMessages(openaiMessages) : toResponsesInputMessages(openaiMessages);
+          const promptMessages = useMinimalPrompt ? minimalOpenAiMessages : openaiMessages;
+          const inputPayload = forceTextOnly ? toResponsesTextMessages(promptMessages) : toResponsesInputMessages(promptMessages);
           resp = await callOpenAiChatCompletion({
             model,
             input: inputPayload,
             text: { verbosity: "low" },
             reasoning: { effort: "low" },
-            max_output_tokens: maxTokens
+            max_output_tokens: modelMaxTokens
           });
         } catch (e) {
           lastErrTxt = e?.message || "OpenAI request failed";
           if (isAbortError(e)) {
+            if (!useMinimalPrompt) {
+              useMinimalPrompt = true;
+              continue;
+            }
             aborted = true;
             break;
           }
@@ -1370,10 +1440,22 @@ ${webSummary.text}`
           break;
         }
         const data = await resp.json().catch(() => null);
+        const incompleteReason = data?.incomplete_details?.reason;
         content = String(collectOutputText(data) || extractChatText(data) || "").trim();
         if (content) {
           usedModel = model;
+          usedMaxTokens = modelMaxTokens;
           break;
+        }
+        if (incompleteReason === "max_output_tokens" && modelMaxTokens < 900) {
+          modelMaxTokens = Math.min(modelMaxTokens + 320, 900);
+          lastErrTxt = "OpenAI retornou resposta truncada";
+          continue;
+        }
+        if (!useMinimalPrompt && attempt === 0 && !useWeb) {
+          useMinimalPrompt = true;
+          lastErrTxt = "OpenAI retornou resposta vazia";
+          continue;
         }
         lastErrTxt = "OpenAI retornou resposta vazia";
         if (attempt === 0 && !useWeb) continue;
@@ -1393,7 +1475,7 @@ ${webSummary.text}`
           aborted,
           attempts,
           timeout_ms: STUDYLAB_OPENAI_TIMEOUT_MS,
-          max_output_tokens: maxTokens,
+          max_output_tokens: usedMaxTokens,
           latency_ms: Date.now() - t0
         }
       });
@@ -1541,7 +1623,7 @@ ${webSummary.text}`
         oracle_best_score: oracleBestScore,
         attempts,
         timeout_ms: STUDYLAB_OPENAI_TIMEOUT_MS,
-        max_output_tokens: maxTokens,
+        max_output_tokens: usedMaxTokens,
         sources: usedOracleSourcesCount,
         compendium: usedOracleCompendiumCount,
         attachments: normalizedAttachments.length
