@@ -20,7 +20,7 @@ const STUDYLAB_WEB_SEARCH_TIMEOUT_MS = Math.max(
 const STUDYLAB_OPENAI_TIMEOUT_MS = Math.max(
   5e3,
   // Default keeps headroom for serverless runtimes while preventing early aborts.
-  Math.min(6e4, Number(process.env.STUDYLAB_OPENAI_TIMEOUT_MS || 45e3))
+  Math.min(6e4, Number(process.env.STUDYLAB_OPENAI_TIMEOUT_MS || 55e3))
 );
 const STUDYLAB_HISTORY_LIMIT = Math.max(6, Math.min(16, Number(process.env.STUDYLAB_HISTORY_LIMIT || 10)));
 const STUDYLAB_INLINE_IMAGE_BYTES = Math.max(
@@ -156,9 +156,9 @@ const toResponsesTextMessages = (messages) => (messages || []).map((m) => {
     ]
   };
 }).filter(Boolean);
-const callOpenAiChatCompletion = async (payload) => {
+const callOpenAiChatCompletion = async (payload, timeoutMs) => {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), STUDYLAB_OPENAI_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs || STUDYLAB_OPENAI_TIMEOUT_MS);
   try {
     return await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
@@ -473,6 +473,9 @@ async function handler(req, res) {
   try {
     const t0 = Date.now();
     if (!OPENAI_API_KEY) return res.status(500).json({ error: "Missing OPENAI_API_KEY" });
+    const requestDeadlineMs = Math.max(45e3, Math.min(59e3, Number(process.env.STUDYLAB_REQUEST_DEADLINE_MS || 58e3)));
+    const timeLeftMs = () => Math.max(0, requestDeadlineMs - (Date.now() - t0));
+    const WEB_RESERVE_FOR_OPENAI_MS = 42e3;
     const admin = SUPABASE_URL && SERVICE_KEY ? createClient(SUPABASE_URL, SERVICE_KEY, { auth: { autoRefreshToken: false, persistSession: false } }) : null;
     const {
       messages = [],
@@ -483,10 +486,12 @@ async function handler(req, res) {
       language = "pt-BR",
       mode = "study",
       save_compendium = false,
+      quality = "auto",
       kb_tags = [],
       kb_focus = "",
       use_web = false
     } = req.body || {};
+    const qualityKey = String(quality || "auto").toLowerCase();
     const allowDevIngest = mode === "ingest" && process.env.DJT_ALLOW_DEV_INGEST === "1" && process.env.NODE_ENV !== "production" && process.env.VERCEL_ENV !== "production";
     const forumKbTagsRaw = Array.isArray(kb_tags) ? kb_tags : typeof kb_tags === "string" ? kb_tags.split(",") : [];
     const forumKbTags = Array.from(
@@ -1442,7 +1447,8 @@ ${context}`
     const webAllowed = use_web !== false;
     const shouldSearchWeb = mode === "oracle" && webAllowed && lastUserText && oracleBestScore < 2;
     if (shouldSearchWeb) {
-      const webSummary = await fetchWebSearchSummary(lastUserText, { timeoutMs: STUDYLAB_WEB_SEARCH_TIMEOUT_MS });
+      const webTimeout = Math.min(STUDYLAB_WEB_SEARCH_TIMEOUT_MS, Math.max(1500, timeLeftMs() - WEB_RESERVE_FOR_OPENAI_MS));
+      const webSummary = await fetchWebSearchSummary(lastUserText, { timeoutMs: webTimeout });
       if (webSummary?.text) {
         usedWebSummary = true;
         openaiMessages.push({
@@ -1487,10 +1493,21 @@ ${webSummary.text}`
       if (lastUser) systems.push(lastUser);
       return systems.length ? systems : openaiMessages;
     })();
-    const preferPremium = mode === "oracle" || useWeb || sourceRow && String(sourceRow.scope || "").toLowerCase() === "org" && sourceRow.published !== false;
+    const preferPremium = qualityKey === "thinking" || mode === "oracle" || useWeb || sourceRow && String(sourceRow.scope || "").toLowerCase() === "org" && sourceRow.published !== false;
     const fallbackModel = chooseModel(preferPremium);
-    const modelCandidates = pickStudyLabChatModels(fallbackModel);
-    const maxTokensBase = useWeb ? Math.max(STUDYLAB_MAX_COMPLETION_TOKENS, 520) : STUDYLAB_MAX_COMPLETION_TOKENS;
+    const baseCandidates = pickStudyLabChatModels(fallbackModel);
+    const modelCandidates = (() => {
+      if (qualityKey === "instant") {
+        const preferred = "gpt-5-nano-2025-08-07";
+        return uniqueStrings([preferred, ...baseCandidates]);
+      }
+      if (qualityKey === "thinking") {
+        const preferred = "gpt-5-2025-08-07";
+        return uniqueStrings([preferred, ...baseCandidates]);
+      }
+      return baseCandidates;
+    })();
+    const maxTokensBase = qualityKey === "thinking" ? Math.max(STUDYLAB_MAX_COMPLETION_TOKENS, 1200) : useWeb ? Math.max(STUDYLAB_MAX_COMPLETION_TOKENS, 900) : STUDYLAB_MAX_COMPLETION_TOKENS;
     let usedMaxTokens = maxTokensBase;
     let content = "";
     let usedModel = fallbackModel;
@@ -1500,6 +1517,8 @@ ${webSummary.text}`
     let forceTextOnly = false;
     let useMinimalPrompt = false;
     const verbosity = mode === "oracle" || useWeb || includeImagesInPrompt ? "medium" : "low";
+    const reasoningEffort = qualityKey === "thinking" ? "medium" : "low";
+    const maxOutputCap = qualityKey === "thinking" ? 1600 : 1400;
     for (const model of modelCandidates) {
       let modelMaxTokens = maxTokensBase;
       for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -1510,13 +1529,14 @@ ${webSummary.text}`
           attempts += 1;
           const promptMessages = useMinimalPrompt ? minimalOpenAiMessages : openaiMessages;
           const inputPayload = forceTextOnly ? toResponsesTextMessages(promptMessages) : toResponsesInputMessages(promptMessages);
+          const openAiTimeout = Math.max(5e3, Math.min(STUDYLAB_OPENAI_TIMEOUT_MS, timeLeftMs() - 1200));
           resp = await callOpenAiChatCompletion({
             model,
             input: inputPayload,
             text: { verbosity },
-            reasoning: { effort: "low" },
+            reasoning: { effort: reasoningEffort },
             max_output_tokens: modelMaxTokens
-          });
+          }, openAiTimeout);
         } catch (e) {
           lastErrTxt = e?.message || "OpenAI request failed";
           if (isAbortError(e)) {
@@ -1548,8 +1568,8 @@ ${webSummary.text}`
           usedMaxTokens = modelMaxTokens;
           break;
         }
-        if (incompleteReason === "max_output_tokens" && modelMaxTokens < 900) {
-          modelMaxTokens = Math.min(modelMaxTokens + 320, 900);
+        if (incompleteReason === "max_output_tokens" && modelMaxTokens < maxOutputCap) {
+          modelMaxTokens = Math.min(modelMaxTokens + 380, maxOutputCap);
           lastErrTxt = "OpenAI retornou resposta truncada";
           continue;
         }

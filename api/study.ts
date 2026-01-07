@@ -4,12 +4,14 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { assertDjtQuestServerEnv } from "../server/env-guard.js";
 import purgeExpired from "../server/api-handlers/study-purge-expired.js";
 import cleanCache from "../server/api-handlers/study-clean-cache.js";
+import deleteSource from "../server/api-handlers/study-delete-source.js";
 
 type Handler = (req: VercelRequest, res: VercelResponse) => any | Promise<any>;
 
 const handlers: Record<string, Handler> = {
   "purge-expired": purgeExpired,
   "clean-cache": cleanCache,
+  "delete-source": deleteSource,
 };
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { LibraryBig, MessageCircle, Plus } from "lucide-react";
+import { LibraryBig, MessageCircle, Plus, Trash2 } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -200,7 +200,7 @@ const TOPIC_LABELS: Record<string, string> = {
 };
 
 export const StudyLab = () => {
-  const { user, studioAccess } = useAuth();
+  const { user, studioAccess, roles } = useAuth();
   const navigate = useNavigate();
 
   const [sources, setSources] = useState<StudySource[]>([]);
@@ -244,8 +244,20 @@ export const StudyLab = () => {
 
   const [oracleMode, setOracleMode] = useState(true);
   const [useWeb, setUseWeb] = useState(true);
+  const [chatQuality, setChatQuality] = useState<"auto" | "instant" | "thinking">("auto");
   const [kbEnabled, setKbEnabled] = useState(false);
   const [kbSelection, setKbSelection] = useState<ForumKbSelection | null>(null);
+  const chatAbortRef = useRef<AbortController | null>(null);
+
+  const isStaff = useMemo(() => {
+    const set = new Set((roles || []).map((r) => String(r || "").toLowerCase()));
+    return (
+      set.has("admin") ||
+      set.has("gerente_djt") ||
+      set.has("gerente_divisao_djtx") ||
+      set.has("coordenador_djtx")
+    );
+  }, [roles]);
 
   useEffect(() => {
     if (uploadOpen) insertedUrlsRef.current.clear();
@@ -739,11 +751,28 @@ export const StudyLab = () => {
   };
 
   const handleNewChat = () => {
+    try {
+      chatAbortRef.current?.abort();
+    } catch {
+      // ignore
+    }
+    chatAbortRef.current = null;
     setChatMessages([]);
     setChatInput("");
     setChatError(null);
     setChatSessionId(createChatSessionId());
     resetChatAttachments();
+  };
+
+  const stopGenerating = () => {
+    try {
+      chatAbortRef.current?.abort();
+    } catch {
+      // ignore
+    }
+    chatAbortRef.current = null;
+    setChatLoading(false);
+    setChatError("Geração interrompida.");
   };
 
   const reingestSource = async (sourceId: string) => {
@@ -833,6 +862,34 @@ export const StudyLab = () => {
     }
   };
 
+  const handleDeleteSource = async (sourceId: string) => {
+    if (!user) {
+      toast("Faça login para remover materiais.");
+      return;
+    }
+    const s = sources.find((row) => row.id === sourceId) || null;
+    const name = s?.title?.trim() || "este material";
+    const ok = window.confirm(`Apagar "${name}" do Catálogo?\n\nEssa ação não pode ser desfeita.`);
+    if (!ok) return;
+    try {
+      const resp = await apiFetch("/api/study?handler=delete-source", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ source_id: sourceId }),
+      });
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok || json?.success === false) {
+        toast.error(json?.error || "Não foi possível apagar o material.");
+        return;
+      }
+      if (selectedSourceId === sourceId) setSelectedSourceId(null);
+      await fetchSources();
+      toast.success("Material apagado.");
+    } catch (e: any) {
+      toast.error(e?.message || "Não foi possível apagar o material.");
+    }
+  };
+
   const handleChatSend = async () => {
     const trimmed = chatInput.trim();
     const attachmentsForMessage = chatAttachments.slice();
@@ -882,9 +939,12 @@ export const StudyLab = () => {
     setChatError(null);
 
     try {
+      const controller = new AbortController();
+      chatAbortRef.current = controller;
       const resp = await apiFetch("/api/ai?handler=study-chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
         body: JSON.stringify({
           mode: oracleMode ? "oracle" : "study",
           ...(oracleMode ? {} : { source_id: selectedSourceId }),
@@ -893,6 +953,7 @@ export const StudyLab = () => {
           language: getActiveLocale(),
           save_compendium: false,
           ...(oracleMode ? { use_web: useWeb } : {}),
+          quality: chatQuality,
           ...(kbEnabled && kbSelection?.tags?.length ? { kb_tags: kbSelection.tags, kb_focus: kbSelection.label } : {}),
           messages: payloadMessages,
         }),
@@ -913,9 +974,14 @@ export const StudyLab = () => {
       setChatMessages((prev) => [...prev, { role: "assistant", content: answer }]);
       resetChatAttachments();
     } catch (e: any) {
+      if (String(e?.name || "") === "AbortError") {
+        setChatError("Geração interrompida.");
+        return;
+      }
       toast(`Erro no chat de estudos: ${e?.message || e}`);
     } finally {
       setChatLoading(false);
+      chatAbortRef.current = null;
     }
   };
 
@@ -1003,6 +1069,40 @@ export const StudyLab = () => {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-1 rounded-full border p-1">
+              <Button
+                type="button"
+                size="sm"
+                variant={chatQuality === "auto" ? "default" : "ghost"}
+                className="h-8 rounded-full px-3 text-xs"
+                onClick={() => setChatQuality("auto")}
+                disabled={chatLoading}
+              >
+                Auto
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={chatQuality === "instant" ? "default" : "ghost"}
+                className="h-8 rounded-full px-3 text-xs"
+                onClick={() => setChatQuality("instant")}
+                disabled={chatLoading}
+                title="Mais rápido (respostas menores)"
+              >
+                Instant
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={chatQuality === "thinking" ? "default" : "ghost"}
+                className="h-8 rounded-full px-3 text-xs"
+                onClick={() => setChatQuality("thinking")}
+                disabled={chatLoading}
+                title="Mais detalhado (pode demorar mais)"
+              >
+                Thinking
+              </Button>
+            </div>
             <div className="flex items-center gap-2 rounded-full border px-3 py-1.5">
               <Switch
                 id="studylab-catalog-toggle"
@@ -1038,6 +1138,11 @@ export const StudyLab = () => {
             <Button type="button" variant="outline" size="sm" onClick={handleNewChat}>
               Nova conversa
             </Button>
+            {chatLoading && (
+              <Button type="button" variant="outline" size="sm" onClick={stopGenerating}>
+                Parar
+              </Button>
+            )}
           </div>
 
           {kbEnabled && (
@@ -1376,6 +1481,7 @@ export const StudyLab = () => {
                     const subtitle = String(meta?.ai?.subtitle || meta?.subtitle || "").trim();
                     const ingestFailed = s.ingest_status === "failed";
                     const reingesting = reingestingSourceId === s.id;
+                    const canDelete = !isFixedSource(s) && (isStaff || (user && s.user_id === user.id));
                     return (
                       <div
                         key={s.id}
@@ -1438,6 +1544,22 @@ export const StudyLab = () => {
                                 Abrir
                               </Button>
                             )}
+                            {canDelete && (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="icon"
+                                className="h-8 w-8"
+                                title="Apagar material"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteSource(s.id);
+                                }}
+                                disabled={catalogRefreshing || ingesting || Boolean(reingestingSourceId)}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            )}
                             {!isFixedSource(s) && ingestFailed && (
                               <Button
                                 type="button"
@@ -1449,14 +1571,14 @@ export const StudyLab = () => {
                                   reingestSource(s.id);
                                 }}
                               >
-                                {reingesting ? "Reprocessando…" : "Reprocessar"}
-                              </Button>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
+                        {reingesting ? "Reprocessando…" : "Reprocessar"}
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
                 </div>
               </TabsContent>
             </Tabs>
@@ -1465,16 +1587,28 @@ export const StudyLab = () => {
               <div className="rounded-md border p-3 space-y-2">
                 <div className="flex items-center justify-between gap-2">
                   <p className="text-sm font-medium">Índice</p>
-                  {studioAccess && selectedSource.id !== FIXED_RULES_ID && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => navigate(`/studio?module=quiz&seed_source=${selectedSource.id}`)}
-                    >
-                      Criar quiz
-                    </Button>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {studioAccess && selectedSource.id !== FIXED_RULES_ID && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => navigate(`/studio?module=quiz&seed_source=${selectedSource.id}`)}
+                      >
+                        Criar quiz
+                      </Button>
+                    )}
+                    {selectedSource.id !== FIXED_RULES_ID && (isStaff || (user && selectedSource.user_id === user.id)) && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleDeleteSource(selectedSource.id)}
+                      >
+                        Apagar
+                      </Button>
+                    )}
+                  </div>
                 </div>
                 {selectedSource.ingest_status === "failed" && selectedSource.id !== FIXED_RULES_ID && (
                   <div className="flex items-center justify-between gap-2">
