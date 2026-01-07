@@ -315,7 +315,15 @@ async function extractGpsFromImage(file: File): Promise<{ lat: number; lng: numb
   }
 }
 
-function SepbookFitBounds({ points, disabled }: { points: Array<[number, number]>; disabled?: boolean }) {
+function SepbookFitBounds({
+  points,
+  disabled,
+  token,
+}: {
+  points: Array<[number, number]>;
+  disabled?: boolean;
+  token?: number;
+}) {
   const map = useMap();
   useEffect(() => {
     if (disabled) return;
@@ -347,7 +355,7 @@ function SepbookFitBounds({ points, disabled }: { points: Array<[number, number]
     return () => {
       cancelled = true;
     };
-  }, [map, points]);
+  }, [map, points, disabled, token]);
   return null;
 }
 
@@ -614,6 +622,7 @@ export default function SEPBookIG() {
   const [mapBounds, setMapBounds] = useState<L.LatLngBounds | null>(null);
   const [mapSelectedId, setMapSelectedId] = useState<string | null>(null);
   const [mapHasInteracted, setMapHasInteracted] = useState(false);
+  const [mapFitToken, setMapFitToken] = useState(0);
   const mapInstanceRef = useRef<L.Map | null>(null);
 
   const [locationConsent, setLocationConsent] = useState<"allow" | "deny" | "unknown">("unknown");
@@ -1950,7 +1959,18 @@ export default function SEPBookIG() {
             >
               <AtSign className="h-5 w-5" />
             </Button>
-            <Button type="button" size="icon" variant="ghost" onClick={() => setMapOpen(true)} aria-label={tr("sepbook.map")}>
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              onClick={() => {
+                setMapSelectedId(null);
+                setMapHasInteracted(false);
+                setMapFitToken((v) => v + 1);
+                setMapOpen(true);
+              }}
+              aria-label={tr("sepbook.map")}
+            >
               <MapPinned className="h-5 w-5" />
             </Button>
             <DropdownMenu>
@@ -2757,6 +2777,12 @@ export default function SEPBookIG() {
             setMapSelectedId(null);
             setMapHasInteracted(false);
           }
+          if (open) {
+            setMapBounds(null);
+            setMapSelectedId(null);
+            setMapHasInteracted(false);
+            setMapFitToken((v) => v + 1);
+          }
           setMapOpen(open);
           if (!open) mapInstanceRef.current = null;
         }}
@@ -2795,6 +2821,7 @@ export default function SEPBookIG() {
                     <SepbookFitBounds
                       points={mapPosts.map((x) => [Number(x.post.location_lat), Number(x.post.location_lng)] as [number, number])}
                       disabled={mapHasInteracted}
+                      token={mapFitToken}
                     />
                     <SepbookMapViewport onBoundsChange={setMapBounds} />
                     <SepbookMapUserActivity onActivity={() => setMapHasInteracted(true)} />

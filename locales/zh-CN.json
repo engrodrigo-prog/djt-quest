@@ -15,7 +15,7 @@
     "baseFallback": "未填写基地",
     "phoneFallback": "未填写电话",
     "leaderFallback": "未填写负责人",
-    "baseLabel": "基地",
+    "baseLabel": "工作基地",
     "leaderLabel": "负责人",
     "phoneLabel": "电话",
     "loading": "加载中…",

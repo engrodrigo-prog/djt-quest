@@ -15,7 +15,7 @@
     "baseFallback": "Base não informada",
     "phoneFallback": "Telefone não informado",
     "leaderFallback": "Líder não informado",
-    "baseLabel": "Base",
+    "baseLabel": "Base operacional",
     "leaderLabel": "Líder",
     "phoneLabel": "Telefone",
     "loading": "Carregando…",

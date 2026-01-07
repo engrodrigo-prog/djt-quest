@@ -15,7 +15,7 @@
     "baseFallback": "Base not provided",
     "phoneFallback": "Phone not provided",
     "leaderFallback": "Leader not provided",
-    "baseLabel": "Base",
+    "baseLabel": "Operational base",
     "leaderLabel": "Leader",
     "phoneLabel": "Phone",
     "loading": "Loading…",

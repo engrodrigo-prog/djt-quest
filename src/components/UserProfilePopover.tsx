@@ -45,14 +45,12 @@ export function UserProfilePopover({ userId, name, avatarUrl, children }: UserPr
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [profile, setProfile] = useState<ProfileInfo | null>(null);
-  const [leaderName, setLeaderName] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
     if (!open || !userId) return;
     setLoading(true);
     setProfile(null);
-    setLeaderName(null);
     const loadProfile = async () => {
       try {
         const { data } = await supabase
@@ -62,23 +60,9 @@ export function UserProfilePopover({ userId, name, avatarUrl, children }: UserPr
           .maybeSingle();
         if (!active) return;
         setProfile(data || null);
-
-        if (data?.team_id) {
-          const { data: leader } = await supabase
-            .from("profiles")
-            .select("id, name")
-            .eq("team_id", data.team_id)
-            .eq("is_leader", true)
-            .neq("id", data.id)
-            .limit(1)
-            .maybeSingle();
-          if (!active) return;
-          setLeaderName(leader?.name || null);
-        }
       } catch {
         if (!active) return;
         setProfile(null);
-        setLeaderName(null);
       } finally {
         if (active) setLoading(false);
       }
@@ -93,7 +77,6 @@ export function UserProfilePopover({ userId, name, avatarUrl, children }: UserPr
   const displayName = profile?.name || name || tr("userPopover.userFallback");
   const displayBase = profile?.operational_base || profile?.sigla_area || tr("userPopover.baseFallback");
   const displayPhone = profile?.telefone || tr("userPopover.phoneFallback");
-  const displayLeader = leaderName || tr("userPopover.leaderFallback");
   const avatar = profile?.avatar_thumbnail_url || profile?.avatar_url || avatarUrl || null;
   const digits = useMemo(() => cleanPhone(profile?.telefone), [profile?.telefone]);
   const whatsappUrl = digits ? `https://wa.me/${digits}` : null;
@@ -114,9 +97,6 @@ export function UserProfilePopover({ userId, name, avatarUrl, children }: UserPr
             <p className="text-sm font-semibold truncate">{displayName}</p>
             <p className="text-xs text-muted-foreground truncate">
               {tr("userPopover.baseLabel")}: {displayBase}
-            </p>
-            <p className="text-xs text-muted-foreground truncate">
-              {tr("userPopover.leaderLabel")}: {displayLeader}
             </p>
             <p className="text-xs text-muted-foreground truncate">
               {tr("userPopover.phoneLabel")}: {displayPhone}
