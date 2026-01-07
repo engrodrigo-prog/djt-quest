@@ -9,7 +9,10 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
 const STUDYLAB_DEFAULT_CHAT_MODEL = "gpt-5-nano-2025-08-07";
-const STUDYLAB_MAX_COMPLETION_TOKENS = 320;
+const STUDYLAB_MAX_COMPLETION_TOKENS = Math.max(
+  240,
+  Math.min(1200, Number(process.env.STUDYLAB_MAX_COMPLETION_TOKENS || 520))
+);
 const STUDYLAB_WEB_SEARCH_TIMEOUT_MS = Math.max(
   1500,
   Math.min(3e4, Number(process.env.STUDYLAB_WEB_SEARCH_TIMEOUT_MS || 12e3))
@@ -46,7 +49,15 @@ const uniqueStrings = (values) => {
   }
   return out;
 };
-const pickStudyLabChatModels = (fallbackModel) => uniqueStrings([OPENAI_MODEL_STUDYLAB_CHAT, STUDYLAB_DEFAULT_CHAT_MODEL, fallbackModel]);
+const pickStudyLabChatModels = (fallbackModel) => uniqueStrings([
+  OPENAI_MODEL_STUDYLAB_CHAT,
+  STUDYLAB_DEFAULT_CHAT_MODEL,
+  fallbackModel,
+  // Compatibility fallbacks in case the environment key does not have access to GPT-5 models.
+  process.env.OPENAI_MODEL_COMPAT,
+  "gpt-4.1-mini",
+  "gpt-4o-mini"
+]);
 const extractChatText = (data) => {
   const choice = data?.choices?.[0];
   if (typeof choice?.text === "string") return choice.text;
@@ -135,7 +146,15 @@ const toResponsesTextMessages = (messages) => (messages || []).map((m) => {
   }
   const trimmed = text.trim();
   if (!trimmed) return null;
-  return { role: normalizedRole, content: trimmed };
+  return {
+    role: normalizedRole,
+    content: [
+      {
+        type: normalizedRole === "assistant" ? "output_text" : "input_text",
+        text: trimmed
+      }
+    ]
+  };
 }).filter(Boolean);
 const callOpenAiChatCompletion = async (payload) => {
   const controller = new AbortController();
@@ -774,10 +793,33 @@ ${metaParts.join("\n\n")}` : ""}`;
 - mudancas_implementadas: ${(incident.mudancas_implementadas || "").toString().slice(0, 800)}
 
 ` : "";
-        const baseMaterial = trimmed.slice(0, 6e3);
-        const userContent = isIncident ? `Leia o conte\xFAdo abaixo e responda APENAS em JSON v\xE1lido no formato:
+        const materialFileName = (() => {
+          const sp = String(sourceRow?.storage_path || "").trim();
+          if (!sp) return "";
+          const name = sp.split("/").pop() || "";
+          return name;
+        })();
+        const materialHost = (() => {
+          const u = String(sourceRow?.url || "").trim();
+          if (!u) return "";
+          try {
+            return new URL(u).hostname.replace(/^www\./, "");
+          } catch {
+            return "";
+          }
+        })();
+        const materialHints = [
+          sourceRow?.title ? `Título atual: ${String(sourceRow.title).slice(0, 140)}` : "",
+          sourceRow?.kind ? `Tipo: ${String(sourceRow.kind)}` : "",
+          materialHost ? `Host: ${materialHost}` : "",
+          materialFileName ? `Arquivo: ${materialFileName}` : "",
+          category ? `Categoria atual (se houver): ${category}` : ""
+        ].filter(Boolean).join("\n");
+        const baseMaterial = trimmed.slice(0, 9e3);
+        const userContent = isIncident ? `Leia o conteúdo abaixo e responda APENAS em JSON válido no formato:
 {
   "title": "...",
+  "subtitle": "...",
   "summary": "...",
   "category": "MANUAIS",
   "topic": "LINHAS",
@@ -789,8 +831,9 @@ ${metaParts.join("\n\n")}` : ""}`;
   "mudancas": ["..."]
 }
 
-- title: t\xEDtulo curto.
-- summary: 2 a 4 frases, em portugu\xEAs.
+- title: título curto e específico (6 a 12 palavras). Evite títulos genéricos.
+- subtitle: 1 frase curta com escopo e público-alvo (não repita o título).
+- summary: 2 a 4 frases, em português.
 - category: escolha UMA categoria entre: ${allowedCategories.join(", ")}.
 - topic: escolha UMA categoria entre: ${allowedTopics.join(", ")}.
 - hashtags: 4 a 8 hashtags curtas (sem espa\xE7os), use termos do material.
@@ -799,9 +842,10 @@ ${metaParts.join("\n\n")}` : ""}`;
 - aprendizados/cuidados/mudancas: 3 a 7 itens cada (use [] se n\xE3o tiver evid\xEAncia no texto/formul\xE1rio).
 - N\xC3O invente detalhes que n\xE3o estejam no material ou no formul\xE1rio.
 
-` + incidentContext + "### Material\n" + baseMaterial : `Leia o material abaixo e responda APENAS em JSON v\xE1lido no formato:
+` + (materialHints ? `### Contexto do item\n${materialHints}\n\n` : "") + incidentContext + "### Material\n" + baseMaterial : `Leia o material abaixo e responda APENAS em JSON válido no formato:
 {
   "title": "...",
+  "subtitle": "...",
   "summary": "...",
   "category": "MANUAIS",
   "topic": "LINHAS",
@@ -810,29 +854,33 @@ ${metaParts.join("\n\n")}` : ""}`;
   "questions": [{"question": "...", "options": ["A", "B", "C", "D"], "answer_index": 0, "explanation": "...", "difficulty": "basico"}]
 }
 
-- title: t\xEDtulo curto, sem siglas de GED.
-- summary: resumo em 2 a 4 frases, em portugu\xEAs.
+- title: título curto e específico (6 a 12 palavras), sem siglas de GED.
+- subtitle: 1 frase curta com escopo e público-alvo (não repita o título).
+- summary: 2 a 4 frases, em português, destacando o que o material cobre e como usar.
 - category: escolha UMA categoria entre: ${allowedCategories.join(", ")}.
 - topic: escolha UMA categoria entre: ${allowedTopics.join(", ")}.
 - hashtags: 4 a 8 hashtags curtas (sem espa\xE7os), use termos do material.
 - outline: 4 a 10 subt\xEDtulos, at\xE9 3 n\xEDveis (use [] se n\xE3o fizer sentido).
 - questions: 4 a 8 perguntas com 4 alternativas (use [] se o material for insuficiente).
 
-` + baseMaterial;
+ - Critério de qualidade: o título/subtítulo devem diferenciar este material de outros (use termos, equipamentos, tensão, norma, procedimento, local ou fabricante se existirem no texto).
+ - NÃO invente dados (especialmente modelo/fabricante) se não houver evidência no material.
+
+` + (materialHints ? `### Contexto do item\n${materialHints}\n\n` : "") + baseMaterial;
         const wantsStrictJson = !/^gpt-5/i.test(String(model2 || ""));
         const requestBody = {
           model: model2,
           messages: [
             {
               role: "system",
-              content: isIncident ? "Voc\xEA resume e extrai aprendizados de Relat\xF3rios de Ocorr\xEAncia no setor el\xE9trico (CPFL). Gere t\xEDtulo, resumo, assunto, aprendizados, cuidados e mudan\xE7as." : "Voc\xEA resume e classifica materiais de estudo t\xE9cnicos (setor el\xE9trico CPFL). Gere um t\xEDtulo curto, um resumo objetivo e uma categoria de assunto."
+              content: isIncident ? "Você é um bibliotecário técnico: resume e extrai aprendizados de Relatórios de Ocorrência no setor elétrico (CPFL). Gere título, subtítulo, resumo, tema, aprendizados, cuidados e mudanças com linguagem clara e pesquisável." : "Você é um bibliotecário técnico: renomeia e classifica materiais de estudo técnicos (setor elétrico CPFL). Gere título, subtítulo, resumo, tema e tags de forma pesquisável e específica."
             },
             {
               role: "user",
               content: userContent
             }
           ],
-          max_completion_tokens: isIncident ? 500 : 300
+          max_completion_tokens: isIncident ? 650 : 420
         };
         if (wantsStrictJson) {
           requestBody.response_format = { type: "json_object" };
@@ -929,6 +977,7 @@ ${metaParts.join("\n\n")}` : ""}`;
             return res.status(200).json({ success: false, error: "Resposta inv\xE1lida da IA (JSON n\xE3o parse\xE1vel)." });
           }
           const newTitle = typeof parsed?.title === "string" ? parsed.title.trim() : null;
+          const newSubtitle = typeof parsed?.subtitle === "string" ? parsed.subtitle.trim() : null;
           const newSummary = typeof parsed?.summary === "string" ? parsed.summary.trim() : null;
           const topicRaw = typeof parsed?.topic === "string" ? parsed.topic.toUpperCase().trim() : null;
           const topic = topicRaw && allowedTopics.includes(topicRaw) ? topicRaw : null;
@@ -941,7 +990,7 @@ ${metaParts.join("\n\n")}` : ""}`;
           const cuidados = Array.isArray(parsed?.cuidados) ? parsed.cuidados.map((x) => String(x || "").trim()).filter(Boolean).slice(0, 12) : [];
           const mudancas = Array.isArray(parsed?.mudancas) ? parsed.mudancas.map((x) => String(x || "").trim()).filter(Boolean).slice(0, 12) : [];
           const aiTags = Array.isArray(parsed?.hashtags) ? parsed.hashtags.map((x) => String(x || "").trim()).filter(Boolean) : [];
-          const explicitTags = extractHashtagsFromText([newTitle, newSummary, trimmed].filter(Boolean).join(" "));
+          const explicitTags = extractHashtagsFromText([newTitle, newSubtitle, newSummary, trimmed].filter(Boolean).join(" "));
           const topicTag = topic ? normalizeHashtagTag(topic) : "";
           const prevTags = Array.isArray(prevMeta?.tags) ? prevMeta.tags : [];
           const mergedTags = mergeHashtags(
@@ -953,6 +1002,7 @@ ${metaParts.join("\n\n")}` : ""}`;
           const nextMeta = supportsMetadata ? {
             ...prevMeta && typeof prevMeta === "object" ? prevMeta : {},
             ...mergedTags.length ? { tags: mergedTags } : {},
+            ...newSubtitle ? { subtitle: newSubtitle } : {},
             ai: {
               ...(prevMeta && typeof prevMeta === "object" ? prevMeta.ai : null) || {},
               ingested_at: (/* @__PURE__ */ new Date()).toISOString(),
@@ -960,6 +1010,7 @@ ${metaParts.join("\n\n")}` : ""}`;
               ...finalCategory ? { category: finalCategory } : {},
               ...mergedTags.length ? { tags: mergedTags } : {},
               ...outline.length ? { outline } : {},
+              ...newSubtitle ? { subtitle: newSubtitle } : {},
               ...isIncident ? {
                 incident: {
                   ...prevMeta?.ai?.incident || {},
@@ -1005,6 +1056,7 @@ ${metaParts.join("\n\n")}` : ""}`;
             success: true,
             ingested: true,
             title: newTitle,
+            subtitle: newSubtitle,
             summary: newSummary,
             topic,
             ...isIncident ? { aprendizados, cuidados, mudancas } : {}
@@ -1035,36 +1087,64 @@ ${metaParts.join("\n\n")}` : ""}`;
     }
     const focusHint = forumKbFocus ? `
 
-Foco do usu\xE1rio (temas da base de conhecimento): ${forumKbFocus}
-- Priorize esse foco ao responder e ao sugerir pr\xF3ximos passos.` : "";
-    const system = mode === "oracle" ? `Voc\xEA \xE9 o Cat\xE1logo de Conhecimento do DJT Quest.
-Voc\xEA ajuda colaboradores a encontrar respostas e aprendizados usando toda a base dispon\xEDvel (cat\xE1logo publicado da organiza\xE7\xE3o, materiais do pr\xF3prio usu\xE1rio e comp\xEAndio de ocorr\xEAncias aprovadas).
+Foco do usuário (temas da base de conhecimento): ${forumKbFocus}
+- Priorize esse foco ao responder e ao sugerir próximos passos.` : "";
+    const langIsEn = String(language || "").toLowerCase().startsWith("en");
+    const system = mode === "oracle" ? langIsEn ? `You are DJT Quest's Knowledge Catalog and training monitor.
+You help collaborators find answers using the available internal base (published org catalog + the user's materials + approved compendium). When the base is insufficient, rely on the automated web summary (when present).
+
+Rules:
+- Do NOT ask questions. If a detail is missing, state assumptions and how to verify in the field.
+- Be practical and instructive: steps, checks, safety notes when relevant.
+- Do NOT fabricate manufacturer specs, model numbers, or procedures not present in the base/web summary. If you can't find it, say so.
+- If “Automated web search (summary)” exists, use it and cite sources (links) at the end.
+- When using the internal base, cite the source title briefly.
+${focusHint}
+
+Output format (plain text, no JSON):
+1) Direct answer (short)
+2) Steps / checklist
+3) Safety / attention points (if applicable)
+4) Sources (if any)
+
+Answer in ${language}.` : `Você é o Catálogo de Conhecimento do DJT Quest e atua como monitor de treinamento.
+Você ajuda colaboradores a encontrar respostas usando a base interna (catálogo publicado da organização + materiais do usuário + compêndio aprovado). Quando a base for insuficiente, use o resumo de pesquisa web (quando existir).
 
 Regras:
-- Seja claro e pr\xE1tico. Diga o que a pessoa deve fazer, checar ou perguntar em campo (quando fizer sentido).
-- Seja conciso: responda em at\xE9 10 linhas. Se faltar contexto, fa\xE7a 1 pergunta objetiva antes de expandir.
-- Se a resposta depender de uma informa\xE7\xE3o que N\xC3O aparece na base enviada, deixe isso expl\xEDcito e responda de forma geral (sem inventar detalhes).
-- Se houver \u201CPesquisa web automatica (resumo)\u201D, use-a para complementar quando a base n\xE3o cobrir o tema e cite as fontes do resumo.
-- Quando usar a base, cite rapidamente de onde veio: t\xEDtulo da fonte/ocorr\xEAncia.
-- Sugira 1 pr\xF3ximo passo (ex.: \u201Cquer que eu gere perguntas de quiz sobre isso?\u201D).
+- NÃO faça perguntas. Se faltar um detalhe, declare suposições e diga como validar em campo.
+- Seja prático e instrutivo: passo a passo, checagens, pontos de segurança quando fizer sentido.
+- NÃO invente especificações, dados de fabricantes/modelos ou procedimentos que não estejam na base/resumo web. Se não encontrar, diga que não encontrou.
+- Se houver “Pesquisa web automatica (resumo)”, use-a e cite fontes (links) no fim.
+- Quando usar a base interna, cite rapidamente o título da fonte.
 ${focusHint}
 
-Formato:
-- Responda em ${language}, em texto livre, com quebras de linha amig\xE1veis.
-- N\xE3o responda em JSON.` : `Voc\xEA \xE9 um tutor de estudos no contexto de treinamento t\xE9cnico CPFL / setor el\xE9trico brasileiro.
-Voc\xEA recebe materiais de estudo (textos, resumos, transcri\xE7\xF5es, links) e perguntas de um colaborador.
+Formato da resposta (texto livre, sem JSON):
+1) Resposta direta (curta)
+2) Passo a passo / checklist
+3) Pontos de atenção / segurança (se aplicável)
+4) Fontes (se houver)
 
-Seu objetivo:
-- Explicar conceitos passo a passo, em linguagem clara, mantendo a precis\xE3o t\xE9cnica.
-- Sempre que poss\xEDvel, conectar a resposta diretamente ao conte\xFAdo das fontes fornecidas.
-- Sempre deixe expl\xEDcito na resposta quando estiver usando um material espec\xEDfico, por exemplo: "Com base no material de estudo sobre X..." ou "No documento selecionado, vemos que...".
-- Se algo n\xE3o estiver nas fontes, deixe claro que a informa\xE7\xE3o n\xE3o aparece no material e responda de forma geral sem inventar detalhes espec\xEDficos.
-- Sugira, quando fizer sentido, 1 a 3 perguntas extras para o colaborador praticar em cima do tema.
+Responda em ${language}.` : langIsEn ? `You are a technical training tutor (Brazilian power sector context).
+Use the selected material (when provided) and the uploaded attachments as primary evidence.
+
+Rules:
+- Do NOT ask questions. If a detail is missing, state assumptions and how to verify.
+- Explain step-by-step, clear but technically accurate.
+- When you rely on a specific material, say so explicitly (e.g., “Based on the selected document…”).
+- Do NOT invent details that are not in the material/attachments.
 ${focusHint}
 
-Formato da sa\xEDda:
-- Responda em ${language}, em texto livre, com quebras de linha amig\xE1veis.
-- Voc\xEA pode usar bullets e listas curtas, mas n\xE3o use nenhum formato de JSON.`;
+Output (plain text, no JSON), in ${language}.` : `Você é um tutor de estudos no contexto de treinamento técnico (setor elétrico brasileiro).
+Use o material selecionado (quando houver) e os anexos enviados como evidência principal.
+
+Regras:
+- NÃO faça perguntas. Se faltar um detalhe, declare suposições e diga como validar.
+- Explique passo a passo, com clareza e precisão técnica.
+- Quando estiver usando um material específico, deixe explícito (ex.: “Com base no documento selecionado…”).
+- NÃO invente detalhes que não estejam no material/anexos.
+${focusHint}
+
+Formato da saída: texto livre (sem JSON), em ${language}.`;
     const openaiMessages = [{ role: "system", content: system }];
     if (mode === "oracle" && admin) {
       const normalizedMessagesForQuery = normalizeIncomingMessages(messages);
@@ -1359,7 +1439,8 @@ ${context}`
       }
     }
     const useWeb = Boolean(use_web);
-    const shouldSearchWeb = mode === "oracle" && useWeb && lastUserText && oracleBestScore < 2;
+    const webAllowed = use_web !== false;
+    const shouldSearchWeb = mode === "oracle" && webAllowed && lastUserText && oracleBestScore < 2;
     if (shouldSearchWeb) {
       const webSummary = await fetchWebSearchSummary(lastUserText, { timeoutMs: STUDYLAB_WEB_SEARCH_TIMEOUT_MS });
       if (webSummary?.text) {
@@ -1418,6 +1499,7 @@ ${webSummary.text}`
     let attempts = 0;
     let forceTextOnly = false;
     let useMinimalPrompt = false;
+    const verbosity = mode === "oracle" || useWeb || includeImagesInPrompt ? "medium" : "low";
     for (const model of modelCandidates) {
       let modelMaxTokens = maxTokensBase;
       for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -1431,7 +1513,7 @@ ${webSummary.text}`
           resp = await callOpenAiChatCompletion({
             model,
             input: inputPayload,
-            text: { verbosity: "low" },
+            text: { verbosity },
             reasoning: { effort: "low" },
             max_output_tokens: modelMaxTokens
           });
@@ -1499,7 +1581,8 @@ ${webSummary.text}`
         }
       });
     }
-    let resolvedSessionId = typeof session_id === "string" && session_id.trim() ? session_id.trim() : null;
+    const isUuid = (value) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || "").trim());
+    let resolvedSessionId = typeof session_id === "string" && session_id.trim() && isUuid(session_id.trim()) ? session_id.trim() : null;
     if (!resolvedSessionId) {
       try {
         const crypto = require2("crypto");
@@ -1508,7 +1591,11 @@ ${webSummary.text}`
         resolvedSessionId = null;
       }
       if (!resolvedSessionId) {
-        resolvedSessionId = `studychat_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+        resolvedSessionId = "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+          const r = Math.floor(Math.random() * 16);
+          const v = c === "x" ? r : (r & 3) | 8;
+          return v.toString(16);
+        });
       }
     }
     if (admin && uid) {

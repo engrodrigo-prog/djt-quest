@@ -13,8 +13,11 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY as string;
 const SUPABASE_URL = process.env.SUPABASE_URL as string;
 const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY) as string;
 const STUDYLAB_DEFAULT_CHAT_MODEL = "gpt-5-nano-2025-08-07";
-// Keep answers short to reduce latency and avoid timeouts.
-const STUDYLAB_MAX_COMPLETION_TOKENS = 320;
+// Keep answers reasonably short to reduce latency and avoid timeouts.
+const STUDYLAB_MAX_COMPLETION_TOKENS = Math.max(
+  240,
+  Math.min(1200, Number(process.env.STUDYLAB_MAX_COMPLETION_TOKENS || 520)),
+);
 const STUDYLAB_WEB_SEARCH_TIMEOUT_MS = Math.max(
   1500,
   Math.min(30000, Number(process.env.STUDYLAB_WEB_SEARCH_TIMEOUT_MS || 12000)),
@@ -59,7 +62,15 @@ const uniqueStrings = (values: any[]) => {
 };
 
 const pickStudyLabChatModels = (fallbackModel: string) =>
-  uniqueStrings([OPENAI_MODEL_STUDYLAB_CHAT, STUDYLAB_DEFAULT_CHAT_MODEL, fallbackModel]);
+  uniqueStrings([
+    OPENAI_MODEL_STUDYLAB_CHAT,
+    STUDYLAB_DEFAULT_CHAT_MODEL,
+    fallbackModel,
+    // Compatibility fallbacks in case the environment key does not have access to GPT-5 models.
+    process.env.OPENAI_MODEL_COMPAT,
+    "gpt-4.1-mini",
+    "gpt-4o-mini",
+  ]);
 
 const extractChatText = (data: any) => {
   const choice = data?.choices?.[0];
@@ -186,7 +197,15 @@ const toResponsesTextMessages = (messages: Array<{ role: string; content: string
       }
       const trimmed = text.trim();
       if (!trimmed) return null;
-      return { role: normalizedRole, content: trimmed };
+      return {
+        role: normalizedRole,
+        content: [
+          {
+            type: normalizedRole === "assistant" ? "output_text" : "input_text",
+            text: trimmed,
+          },
+        ],
+      };
     })
     .filter(Boolean);
 
@@ -979,11 +998,37 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               `- mudancas_implementadas: ${(incident.mudancas_implementadas || "").toString().slice(0, 800)}\n\n`
             : "";
 
-        const baseMaterial = trimmed.slice(0, 6000);
+        const materialFileName = (() => {
+          const sp = String(sourceRow?.storage_path || "").trim();
+          if (!sp) return "";
+          const name = sp.split("/").pop() || "";
+          return name;
+        })();
+        const materialHost = (() => {
+          const u = String(sourceRow?.url || "").trim();
+          if (!u) return "";
+          try {
+            return new URL(u).hostname.replace(/^www\./, "");
+          } catch {
+            return "";
+          }
+        })();
+        const materialHints = [
+          sourceRow?.title ? `Título atual: ${String(sourceRow.title).slice(0, 140)}` : "",
+          sourceRow?.kind ? `Tipo: ${String(sourceRow.kind)}` : "",
+          materialHost ? `Host: ${materialHost}` : "",
+          materialFileName ? `Arquivo: ${materialFileName}` : "",
+          category ? `Categoria atual (se houver): ${category}` : "",
+        ]
+          .filter(Boolean)
+          .join("\n");
+
+        const baseMaterial = trimmed.slice(0, 9000);
         const userContent = isIncident
           ? "Leia o conteúdo abaixo e responda APENAS em JSON válido no formato:\n" +
             "{\n" +
             '  "title": "...",\n' +
+            '  "subtitle": "...",\n' +
             '  "summary": "...",\n' +
             '  "category": "MANUAIS",\n' +
             '  "topic": "LINHAS",\n' +
@@ -994,7 +1039,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             '  "cuidados": ["..."],\n' +
             '  "mudancas": ["..."]\n' +
             "}\n\n" +
-            "- title: título curto.\n" +
+            "- title: título curto e específico (6 a 12 palavras). Evite títulos genéricos.\n" +
+            "- subtitle: 1 frase curta com escopo e público-alvo (não repita o título).\n" +
             "- summary: 2 a 4 frases, em português.\n" +
             `- category: escolha UMA categoria entre: ${allowedCategories.join(", ")}.\n` +
             `- topic: escolha UMA categoria entre: ${allowedTopics.join(", ")}.\n` +
@@ -1003,12 +1049,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             "- questions: 4 a 8 perguntas com 4 alternativas (use [] se o material for insuficiente).\n" +
             "- aprendizados/cuidados/mudancas: 3 a 7 itens cada (use [] se não tiver evidência no texto/formulário).\n" +
             "- NÃO invente detalhes que não estejam no material ou no formulário.\n\n" +
+            (materialHints ? `### Contexto do item\n${materialHints}\n\n` : "") +
             incidentContext +
             "### Material\n" +
             baseMaterial
           : "Leia o material abaixo e responda APENAS em JSON válido no formato:\n" +
             "{\n" +
             '  "title": "...",\n' +
+            '  "subtitle": "...",\n' +
             '  "summary": "...",\n' +
             '  "category": "MANUAIS",\n' +
             '  "topic": "LINHAS",\n' +
@@ -1016,13 +1064,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             '  "outline": [{"title": "Seção 1", "children": [{"title": "Subseção"}]}],\n' +
             '  "questions": [{"question": "...", "options": ["A", "B", "C", "D"], "answer_index": 0, "explanation": "...", "difficulty": "basico"}]\n' +
             "}\n\n" +
-            "- title: título curto, sem siglas de GED.\n" +
-            "- summary: resumo em 2 a 4 frases, em português.\n" +
+            "- title: título curto e específico (6 a 12 palavras), sem siglas de GED.\n" +
+            "- subtitle: 1 frase curta com escopo e público-alvo (não repita o título).\n" +
+            "- summary: 2 a 4 frases, em português, destacando o que o material cobre e como usar.\n" +
             `- category: escolha UMA categoria entre: ${allowedCategories.join(", ")}.\n` +
             `- topic: escolha UMA categoria entre: ${allowedTopics.join(", ")}.\n` +
             "- hashtags: 4 a 8 hashtags curtas (sem espaços), use termos do material.\n" +
             "- outline: 4 a 10 subtítulos, até 3 níveis (use [] se não fizer sentido).\n" +
             "- questions: 4 a 8 perguntas com 4 alternativas (use [] se o material for insuficiente).\n\n" +
+            "- Critério de qualidade: o título/subtítulo devem diferenciar este material de outros (use termos, equipamentos, tensão, norma, procedimento, local ou fabricante se existirem no texto).\n" +
+            "- NÃO invente dados (especialmente modelo/fabricante) se não houver evidência no material.\n\n" +
+            (materialHints ? `### Contexto do item\n${materialHints}\n\n` : "") +
             baseMaterial;
 
         const wantsStrictJson = !/^gpt-5/i.test(String(model || ""));
@@ -1033,15 +1085,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               role: "system",
               content:
                 isIncident
-                  ? "Você resume e extrai aprendizados de Relatórios de Ocorrência no setor elétrico (CPFL). Gere título, resumo, assunto, aprendizados, cuidados e mudanças."
-                  : "Você resume e classifica materiais de estudo técnicos (setor elétrico CPFL). Gere um título curto, um resumo objetivo e uma categoria de assunto.",
+                  ? "Você é um bibliotecário técnico: resume e extrai aprendizados de Relatórios de Ocorrência no setor elétrico (CPFL). Gere título, subtítulo, resumo, tema, aprendizados, cuidados e mudanças com linguagem clara e pesquisável."
+                  : "Você é um bibliotecário técnico: renomeia e classifica materiais de estudo técnicos (setor elétrico CPFL). Gere título, subtítulo, resumo, tema e tags de forma pesquisável e específica.",
             },
             {
               role: "user",
               content: userContent,
             },
           ],
-          max_completion_tokens: isIncident ? 500 : 300,
+          max_completion_tokens: isIncident ? 650 : 420,
         };
         if (wantsStrictJson) {
           requestBody.response_format = { type: "json_object" };
@@ -1147,6 +1199,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           }
 
           const newTitle = typeof parsed?.title === "string" ? parsed.title.trim() : null;
+          const newSubtitle = typeof parsed?.subtitle === "string" ? parsed.subtitle.trim() : null;
           const newSummary = typeof parsed?.summary === "string" ? parsed.summary.trim() : null;
           const topicRaw = typeof parsed?.topic === "string" ? parsed.topic.toUpperCase().trim() : null;
           const topic = topicRaw && allowedTopics.includes(topicRaw) ? topicRaw : null;
@@ -1183,6 +1236,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             ? {
                 ...(prevMeta && typeof prevMeta === "object" ? prevMeta : {}),
                 ...(mergedTags.length ? { tags: mergedTags } : {}),
+                ...(newSubtitle ? { subtitle: newSubtitle } : {}),
                 ai: {
                   ...((prevMeta && typeof prevMeta === "object" ? prevMeta.ai : null) || {}),
                   ingested_at: new Date().toISOString(),
@@ -1190,6 +1244,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                   ...(finalCategory ? { category: finalCategory } : {}),
                   ...(mergedTags.length ? { tags: mergedTags } : {}),
                   ...(outline.length ? { outline } : {}),
+                  ...(newSubtitle ? { subtitle: newSubtitle } : {}),
                   ...(isIncident
                     ? {
                         incident: {
@@ -1246,6 +1301,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             success: true,
             ingested: true,
             title: newTitle,
+            subtitle: newSubtitle,
             summary: newSummary,
             topic,
             ...(isIncident ? { aprendizados, cuidados, mudancas } : {}),
@@ -1289,37 +1345,69 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       ? `\n\nFoco do usuário (temas da base de conhecimento): ${forumKbFocus}\n- Priorize esse foco ao responder e ao sugerir próximos passos.`
       : "";
 
+    const langIsEn = String(language || "").toLowerCase().startsWith("en");
     const system =
       mode === "oracle"
-        ? `Você é o Catálogo de Conhecimento do DJT Quest.
-Você ajuda colaboradores a encontrar respostas e aprendizados usando toda a base disponível (catálogo publicado da organização, materiais do próprio usuário e compêndio de ocorrências aprovadas).
+        ? langIsEn
+          ? `You are DJT Quest's Knowledge Catalog and training monitor.
+You help collaborators find answers using the available internal base (published org catalog + the user's materials + approved compendium). When the base is insufficient, rely on the automated web summary (when present).
+
+Rules:
+- Do NOT ask questions. If a detail is missing, state assumptions and how to verify in the field.
+- Be practical and instructive: steps, checks, safety notes when relevant.
+- Do NOT fabricate manufacturer specs, model numbers, or procedures not present in the base/web summary. If you can't find it, say so.
+- If “Automated web search (summary)” exists, use it and cite sources (links) at the end.
+- When using the internal base, cite the source title briefly.
+${focusHint}
+
+Output format (plain text, no JSON):
+1) Direct answer (short)
+2) Steps / checklist
+3) Safety / attention points (if applicable)
+4) Sources (if any)
+
+Answer in ${language}.`
+          : `Você é o Catálogo de Conhecimento do DJT Quest e atua como monitor de treinamento.
+Você ajuda colaboradores a encontrar respostas usando a base interna (catálogo publicado da organização + materiais do usuário + compêndio aprovado). Quando a base for insuficiente, use o resumo de pesquisa web (quando existir).
 
 Regras:
-- Seja claro e prático. Diga o que a pessoa deve fazer, checar ou perguntar em campo (quando fizer sentido).
-- Seja conciso: responda em até 10 linhas. Se faltar contexto, faça 1 pergunta objetiva antes de expandir.
-- Se a resposta depender de uma informação que NÃO aparece na base enviada, deixe isso explícito e responda de forma geral (sem inventar detalhes).
-- Se houver “Pesquisa web automatica (resumo)”, use-a para complementar quando a base não cobrir o tema e cite as fontes do resumo.
-- Quando usar a base, cite rapidamente de onde veio: título da fonte/ocorrência.
-- Sugira 1 próximo passo (ex.: “quer que eu gere perguntas de quiz sobre isso?”).
+- NÃO faça perguntas. Se faltar um detalhe, declare suposições e diga como validar em campo.
+- Seja prático e instrutivo: passo a passo, checagens, pontos de segurança quando fizer sentido.
+- NÃO invente especificações, dados de fabricantes/modelos ou procedimentos que não estejam na base/resumo web. Se não encontrar, diga que não encontrou.
+- Se houver “Pesquisa web automatica (resumo)”, use-a e cite fontes (links) no fim.
+- Quando usar a base interna, cite rapidamente o título da fonte.
 ${focusHint}
 
-Formato:
-- Responda em ${language}, em texto livre, com quebras de linha amigáveis.
-- Não responda em JSON.`
-        : `Você é um tutor de estudos no contexto de treinamento técnico CPFL / setor elétrico brasileiro.
-Você recebe materiais de estudo (textos, resumos, transcrições, links) e perguntas de um colaborador.
+Formato da resposta (texto livre, sem JSON):
+1) Resposta direta (curta)
+2) Passo a passo / checklist
+3) Pontos de atenção / segurança (se aplicável)
+4) Fontes (se houver)
 
-Seu objetivo:
-- Explicar conceitos passo a passo, em linguagem clara, mantendo a precisão técnica.
-- Sempre que possível, conectar a resposta diretamente ao conteúdo das fontes fornecidas.
-- Sempre deixe explícito na resposta quando estiver usando um material específico, por exemplo: "Com base no material de estudo sobre X..." ou "No documento selecionado, vemos que...".
-- Se algo não estiver nas fontes, deixe claro que a informação não aparece no material e responda de forma geral sem inventar detalhes específicos.
-- Sugira, quando fizer sentido, 1 a 3 perguntas extras para o colaborador praticar em cima do tema.
+Responda em ${language}.`
+        : langIsEn
+          ? `You are a technical training tutor (Brazilian power sector context).
+Use the selected material (when provided) and the uploaded attachments as primary evidence.
+
+Rules:
+- Do NOT ask questions. If a detail is missing, state assumptions and how to verify.
+- Explain step-by-step, clear but technically accurate.
+- When you rely on a specific material, say so explicitly (e.g., “Based on the selected document…”).
+- Do NOT invent details that are not in the material/attachments.
 ${focusHint}
 
-Formato da saída:
-- Responda em ${language}, em texto livre, com quebras de linha amigáveis.
-- Você pode usar bullets e listas curtas, mas não use nenhum formato de JSON.`;
+Output (plain text, no JSON), in ${language}.`
+          : `Você é um tutor de estudos no contexto de treinamento técnico (setor elétrico brasileiro).
+Use o material selecionado (quando houver) e os anexos enviados como evidência principal.
+
+Regras:
+- NÃO faça perguntas. Se faltar um detalhe, declare suposições e diga como validar.
+- Explique passo a passo, com clareza e precisão técnica.
+- Quando estiver usando um material específico, deixe explícito (ex.: “Com base no documento selecionado…”).
+- NÃO invente detalhes que não estejam no material/anexos.
+${focusHint}
+
+Formato da saída: texto livre (sem JSON), em ${language}.`;
 
     const openaiMessages: any[] = [{ role: "system", content: system }];
 
@@ -1704,8 +1792,9 @@ Formato da saída:
     }
 
     const useWeb = Boolean(use_web);
-    // Web search: only when the catalog match is weak (otherwise keep latency low).
-    const shouldSearchWeb = mode === "oracle" && useWeb && lastUserText && oracleBestScore < 2;
+    const webAllowed = use_web !== false;
+    // Web search: automatically when the catalog match is weak (otherwise keep latency low).
+    const shouldSearchWeb = mode === "oracle" && webAllowed && lastUserText && oracleBestScore < 2;
     if (shouldSearchWeb) {
       const webSummary = await fetchWebSearchSummary(lastUserText, { timeoutMs: STUDYLAB_WEB_SEARCH_TIMEOUT_MS });
       if (webSummary?.text) {
@@ -1789,6 +1878,7 @@ Formato da saída:
     let attempts = 0;
     let forceTextOnly = false;
     let useMinimalPrompt = false;
+    const verbosity = mode === "oracle" || useWeb || includeImagesInPrompt ? "medium" : "low";
 
     for (const model of modelCandidates) {
       let modelMaxTokens = maxTokensBase;
@@ -1805,7 +1895,7 @@ Formato da saída:
           resp = await callOpenAiResponse({
             model,
             input: inputPayload,
-            text: { verbosity: "low" },
+            text: { verbosity },
             reasoning: { effort: "low" },
             max_output_tokens: modelMaxTokens,
           });
@@ -1878,8 +1968,13 @@ Formato da saída:
       });
     }
 
+    const isUuid = (value: string) =>
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || "").trim());
+
     let resolvedSessionId =
-      typeof session_id === "string" && session_id.trim() ? session_id.trim() : null;
+      typeof session_id === "string" && session_id.trim() && isUuid(session_id.trim())
+        ? session_id.trim()
+        : null;
     if (!resolvedSessionId) {
       try {
         const crypto = require("crypto");
@@ -1888,7 +1983,12 @@ Formato da saída:
         resolvedSessionId = null;
       }
       if (!resolvedSessionId) {
-        resolvedSessionId = `studychat_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+        // Fallback UUID v4 (avoid non-uuid values because the DB column is uuid).
+        resolvedSessionId = "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+          const r = Math.floor(Math.random() * 16);
+          const v = c === "x" ? r : (r & 0x3) | 0x8;
+          return v.toString(16);
+        });
       }
     }
 

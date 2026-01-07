@@ -209,6 +209,8 @@ export const StudyLab = () => {
   const [ingesting, setIngesting] = useState(false);
   const [catalogRefreshing, setCatalogRefreshing] = useState(false);
   const [catalogRefreshProgress, setCatalogRefreshProgress] = useState<{ total: number; done: number; failed: number } | null>(null);
+  const [cacheCleaning, setCacheCleaning] = useState(false);
+  const [reingestingSourceId, setReingestingSourceId] = useState<string | null>(null);
 
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
 
@@ -744,6 +746,93 @@ export const StudyLab = () => {
     resetChatAttachments();
   };
 
+  const reingestSource = async (sourceId: string) => {
+    if (!user) {
+      toast("Faça login para catalogar novamente.");
+      return;
+    }
+    setReingestingSourceId(sourceId);
+    try {
+      await apiFetch("/api/ai?handler=study-chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "ingest", source_id: sourceId, recatalog: true }),
+      });
+      await fetchSources();
+      toast.success("Material reprocessado com IA.");
+    } catch (e: any) {
+      toast.error(e?.message || "Não foi possível reprocessar o material.");
+    } finally {
+      setReingestingSourceId(null);
+    }
+  };
+
+  const handleReingestFailed = async () => {
+    if (!user) {
+      toast("Faça login para atualizar o catálogo.");
+      return;
+    }
+    if (catalogRefreshing || ingesting || loadingSources) return;
+    const failedList = (sources || []).filter(
+      (s) => !isFixedSource(s) && !isChatCompendiumSource(s) && s.ingest_status === "failed",
+    );
+    if (!failedList.length) {
+      toast("Nenhum material com falha para reprocessar.");
+      return;
+    }
+    setCatalogRefreshing(true);
+    setCatalogRefreshProgress({ total: failedList.length, done: 0, failed: 0 });
+    let done = 0;
+    let failed = 0;
+    for (const s of failedList) {
+      try {
+        const resp = await apiFetch("/api/ai?handler=study-chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mode: "ingest", source_id: s.id, recatalog: true }),
+        });
+        const json = await resp.json().catch(() => ({}));
+        if (!resp.ok || json?.success === false) failed += 1;
+      } catch {
+        failed += 1;
+      } finally {
+        done += 1;
+        setCatalogRefreshProgress({ total: failedList.length, done, failed });
+        await new Promise((resolve) => setTimeout(resolve, 180));
+      }
+    }
+    await fetchSources();
+    setCatalogRefreshing(false);
+    toast.success(`Reprocessamento concluído: ${failedList.length - failed} ok, ${failed} com falha.`);
+  };
+
+  const handleCleanCache = async () => {
+    if (!user) {
+      toast("Faça login para limpar o cache.");
+      return;
+    }
+    if (cacheCleaning) return;
+    const ok = window.confirm(
+      "Limpar cache do StudyLab?\n\nIsso remove materiais temporários (não definitivos) e conversas antigas do catálogo (se existirem). Materiais definitivos permanecem.",
+    );
+    if (!ok) return;
+    setCacheCleaning(true);
+    try {
+      const resp = await apiFetch("/api/study?handler=clean-cache", { method: "POST" });
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok || json?.success === false) {
+        toast.error(json?.error || "Não foi possível limpar o cache.");
+        return;
+      }
+      await fetchSources();
+      toast.success(`Cache limpo: ${json.deleted || 0} itens removidos.`);
+    } catch (e: any) {
+      toast.error(e?.message || "Não foi possível limpar o cache.");
+    } finally {
+      setCacheCleaning(false);
+    }
+  };
+
   const handleChatSend = async () => {
     const trimmed = chatInput.trim();
     const attachmentsForMessage = chatAttachments.slice();
@@ -1045,7 +1134,7 @@ export const StudyLab = () => {
                 <DialogHeader>
                   <DialogTitle>Anexos</DialogTitle>
                   <DialogDescription>
-                    Imagens, desenhos, PDFs e documentos ajudam o Catálogo a aprofundar a resposta e ficam registrados no compêndio.
+                    Imagens, desenhos, PDFs e documentos ajudam o Catálogo a aprofundar a resposta. O StudyLab mantém um histórico de uso para consultas futuras.
                   </DialogDescription>
                 </DialogHeader>
                 <div className="space-y-3">
@@ -1183,6 +1272,24 @@ export const StudyLab = () => {
               >
                 Atualizar catálogo com IA
               </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={handleReingestFailed}
+                disabled={catalogRefreshing || ingesting || loadingSources}
+              >
+                Reprocessar falhas
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={handleCleanCache}
+                disabled={cacheCleaning || catalogRefreshing || ingesting || loadingSources}
+              >
+                {cacheCleaning ? "Limpando…" : "Limpar cache"}
+              </Button>
               {catalogRefreshing && catalogRefreshProgress ? (
                 <span className="text-[11px] text-muted-foreground">
                   {catalogRefreshProgress.done}/{catalogRefreshProgress.total}
@@ -1265,24 +1372,43 @@ export const StudyLab = () => {
                     const visibilityLabel = isFixedSource(s) ? "FIXO" : isPublic ? "PÚBLICO" : "PRIVADO";
                     const topicKey = getSourceTopicKey(s);
                     const topicLabel = topicKey ? TOPIC_LABELS[topicKey] || topicKey : "";
+                    const meta = getSourceMeta(s);
+                    const subtitle = String(meta?.ai?.subtitle || meta?.subtitle || "").trim();
+                    const ingestFailed = s.ingest_status === "failed";
+                    const reingesting = reingestingSourceId === s.id;
                     return (
-                      <button
+                      <div
                         key={s.id}
-                        type="button"
                         className={[
                           "w-full rounded-md border p-3 text-left transition-colors",
                           active ? "border-primary bg-primary/5" : "hover:bg-muted/40",
                         ].join(" ")}
+                        role="button"
+                        tabIndex={0}
                         onClick={() => {
                           setSelectedSourceId(s.id);
                           setCatalogOpen(false);
                           if (s.id !== FIXED_RULES_ID) setOracleMode(false);
                         }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            setSelectedSourceId(s.id);
+                            setCatalogOpen(false);
+                            if (s.id !== FIXED_RULES_ID) setOracleMode(false);
+                          }
+                        }}
                       >
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
                             <p className="font-medium truncate">{s.title?.trim() || "Sem título"}</p>
+                            {subtitle && <p className="text-xs text-muted-foreground line-clamp-1 mt-0.5">{subtitle}</p>}
                             <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">{displaySummary(s)}</p>
+                            {ingestFailed && s.ingest_error && (
+                              <p className="text-[11px] text-red-500/90 line-clamp-2 mt-1">
+                                {String(s.ingest_error).slice(0, 200)}
+                              </p>
+                            )}
                             <div className="mt-2 flex flex-wrap items-center gap-2">
                               <Badge variant="outline" className="text-[10px]">
                                 {visibilityLabel}
@@ -1298,21 +1424,37 @@ export const StudyLab = () => {
                               {statusBadge(s)}
                             </div>
                           </div>
-                          {s.url && (
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                window.open(s.url!, "_blank", "noreferrer");
-                              }}
-                            >
-                              Abrir
-                            </Button>
-                          )}
+                          <div className="flex flex-col gap-2 shrink-0">
+                            {s.url && (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  window.open(s.url!, "_blank", "noreferrer");
+                                }}
+                              >
+                                Abrir
+                              </Button>
+                            )}
+                            {!isFixedSource(s) && ingestFailed && (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                disabled={reingesting || Boolean(reingestingSourceId) || catalogRefreshing || ingesting}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  reingestSource(s.id);
+                                }}
+                              >
+                                {reingesting ? "Reprocessando…" : "Reprocessar"}
+                              </Button>
+                            )}
+                          </div>
                         </div>
-                      </button>
+                      </div>
                     );
                   })}
                 </div>
@@ -1334,6 +1476,20 @@ export const StudyLab = () => {
                     </Button>
                   )}
                 </div>
+                {selectedSource.ingest_status === "failed" && selectedSource.id !== FIXED_RULES_ID && (
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs text-red-500/90">Este material falhou na curadoria.</p>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={Boolean(reingestingSourceId) || catalogRefreshing || ingesting}
+                      onClick={() => reingestSource(selectedSource.id)}
+                    >
+                      {reingestingSourceId === selectedSource.id ? "Reprocessando…" : "Reprocessar"}
+                    </Button>
+                  </div>
+                )}
                 {selectedSource.summary && (
                   <p className="text-xs text-muted-foreground whitespace-pre-line">{selectedSource.summary}</p>
                 )}
