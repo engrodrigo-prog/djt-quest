@@ -602,6 +602,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       attachments = [],
       language = "pt-BR",
       mode = "study",
+      save_compendium = false,
       kb_tags = [],
       kb_focus = "",
       use_web = false,
@@ -952,12 +953,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           "TELECOM",
           "SEGURANCA_DO_TRABALHO",
         ];
+        const allowedCategories = [
+          "MANUAIS",
+          "PROCEDIMENTOS",
+          "APOSTILAS",
+          "RELATORIO_OCORRENCIA",
+          "AUDITORIA_INTERNA",
+          "AUDITORIA_EXTERNA",
+          "OUTROS",
+        ];
 
         const category = (sourceRow?.category || "").toString().trim().toUpperCase();
         const supportsMetadata = Boolean(sourceRow && Object.prototype.hasOwnProperty.call(sourceRow, "metadata"));
         const prevMeta = supportsMetadata && sourceRow?.metadata && typeof sourceRow.metadata === "object" ? sourceRow.metadata : null;
         const incident = prevMeta?.incident && typeof prevMeta.incident === "object" ? prevMeta.incident : null;
-        const isIncident = category === "RELATORIO_OCORRENCIA" || Boolean(incident);
+        const isIncident = Boolean(incident);
 
         const incidentContext =
           isIncident && incident
@@ -975,6 +985,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             "{\n" +
             '  "title": "...",\n' +
             '  "summary": "...",\n' +
+            '  "category": "MANUAIS",\n' +
             '  "topic": "LINHAS",\n' +
             '  "hashtags": ["#tag1", "#tag2"],\n' +
             '  "outline": [{"title": "Seção 1", "children": [{"title": "Subseção"}]}],\n' +
@@ -985,6 +996,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             "}\n\n" +
             "- title: título curto.\n" +
             "- summary: 2 a 4 frases, em português.\n" +
+            `- category: escolha UMA categoria entre: ${allowedCategories.join(", ")}.\n` +
             `- topic: escolha UMA categoria entre: ${allowedTopics.join(", ")}.\n` +
             "- hashtags: 4 a 8 hashtags curtas (sem espaços), use termos do material.\n" +
             "- outline: 4 a 10 subtítulos, até 3 níveis (use [] se não fizer sentido).\n" +
@@ -998,6 +1010,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             "{\n" +
             '  "title": "...",\n' +
             '  "summary": "...",\n' +
+            '  "category": "MANUAIS",\n' +
             '  "topic": "LINHAS",\n' +
             '  "hashtags": ["#tag1", "#tag2"],\n' +
             '  "outline": [{"title": "Seção 1", "children": [{"title": "Subseção"}]}],\n' +
@@ -1005,6 +1018,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             "}\n\n" +
             "- title: título curto, sem siglas de GED.\n" +
             "- summary: resumo em 2 a 4 frases, em português.\n" +
+            `- category: escolha UMA categoria entre: ${allowedCategories.join(", ")}.\n` +
             `- topic: escolha UMA categoria entre: ${allowedTopics.join(", ")}.\n` +
             "- hashtags: 4 a 8 hashtags curtas (sem espaços), use termos do material.\n" +
             "- outline: 4 a 10 subtítulos, até 3 níveis (use [] se não fizer sentido).\n" +
@@ -1136,6 +1150,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           const newSummary = typeof parsed?.summary === "string" ? parsed.summary.trim() : null;
           const topicRaw = typeof parsed?.topic === "string" ? parsed.topic.toUpperCase().trim() : null;
           const topic = topicRaw && allowedTopics.includes(topicRaw) ? topicRaw : null;
+          const categoryRaw = typeof parsed?.category === "string" ? parsed.category.toUpperCase().trim() : null;
+          const nextCategory = categoryRaw && allowedCategories.includes(categoryRaw) ? categoryRaw : null;
+          const finalCategory = isIncident ? "RELATORIO_OCORRENCIA" : nextCategory;
           const outline = normalizeOutline(parsed?.outline);
           const questions = normalizeQuestions(parsed?.questions);
 
@@ -1170,6 +1187,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                   ...((prevMeta && typeof prevMeta === "object" ? prevMeta.ai : null) || {}),
                   ingested_at: new Date().toISOString(),
                   ...(topic ? { topic } : {}),
+                  ...(finalCategory ? { category: finalCategory } : {}),
                   ...(mergedTags.length ? { tags: mergedTags } : {}),
                   ...(outline.length ? { outline } : {}),
                   ...(isIncident
@@ -1196,6 +1214,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               ...(newTitle ? { title: newTitle } : {}),
               ...(newSummary ? { summary: newSummary } : {}),
               ...(topic ? { topic } : {}),
+              ...(finalCategory ? { category: finalCategory } : {}),
               ...(nextMeta ? { metadata: nextMeta } : {}),
             })
             .eq("id", source_id);
@@ -1928,91 +1947,93 @@ Formato da saída:
           });
         }
 
-        const transcript = buildTranscript(logMessages, mergedAttachments);
-        const compendiumMeta = {
-          source: "study_chat",
-          session_id: resolvedSessionId,
-          attachments: mergedAttachments,
-          mode,
-          source_id: source_id || null,
-          updated_at: nowIso,
-        };
+        if (save_compendium) {
+          const transcript = buildTranscript(logMessages, mergedAttachments);
+          const compendiumMeta = {
+            source: "study_chat",
+            session_id: resolvedSessionId,
+            attachments: mergedAttachments,
+            mode,
+            source_id: source_id || null,
+            updated_at: nowIso,
+          };
 
-        const compendiumPayload: any = {
-          user_id: uid,
-          title,
-          kind: "text",
-          summary,
-          full_text: transcript,
-          ingest_status: "ok",
-          ingested_at: nowIso,
-          ingest_error: null,
-          is_persistent: true,
-          last_used_at: nowIso,
-          category: "OUTROS",
-          scope: "user",
-          published: false,
-          metadata: compendiumMeta,
-        };
+          const compendiumPayload: any = {
+            user_id: uid,
+            title,
+            kind: "text",
+            summary,
+            full_text: transcript,
+            ingest_status: "ok",
+            ingested_at: nowIso,
+            ingest_error: null,
+            is_persistent: true,
+            last_used_at: nowIso,
+            category: "OUTROS",
+            scope: "user",
+            published: false,
+            metadata: compendiumMeta,
+          };
 
-        let compendiumId = sessionRow?.compendium_source_id || null;
-        if (compendiumId) {
-          try {
-            await admin
-              .from("study_sources")
-              .update({
-                summary,
-                full_text: transcript,
-                last_used_at: nowIso,
-                metadata: compendiumMeta,
-              })
-              .eq("id", compendiumId);
-          } catch {
-            // ignore
-          }
-        } else {
-          try {
-            const { data: created, error } = await admin
-              .from("study_sources")
-              .insert(compendiumPayload as any)
-              .select("id")
-              .maybeSingle();
-            if (error) throw error;
-            compendiumId = created?.id || null;
-          } catch (err: any) {
-            if (/column .*?(category|scope|published|metadata|ingest_status|ingested_at|ingest_error|last_used_at)/i.test(String(err?.message || err))) {
-              const {
-                category: _c,
-                scope: _s,
-                published: _p,
-                metadata: _m,
-                ingest_status: _is,
-                ingested_at: _ia,
-                ingest_error: _ie,
-                last_used_at: _lu,
-                ...legacyPayload
-              } = compendiumPayload;
-              try {
-                const { data: created } = await admin
-                  .from("study_sources")
-                  .insert(legacyPayload as any)
-                  .select("id")
-                  .maybeSingle();
-                compendiumId = created?.id || null;
-              } catch {
-                compendiumId = null;
-              }
-            }
-          }
-
+          let compendiumId = sessionRow?.compendium_source_id || null;
           if (compendiumId) {
             try {
               await admin
-                .from("study_chat_sessions")
-                .update({ compendium_source_id: compendiumId })
-                .eq("id", resolvedSessionId);
+                .from("study_sources")
+                .update({
+                  summary,
+                  full_text: transcript,
+                  last_used_at: nowIso,
+                  metadata: compendiumMeta,
+                })
+                .eq("id", compendiumId);
             } catch {
               // ignore
+            }
+          } else {
+            try {
+              const { data: created, error } = await admin
+                .from("study_sources")
+                .insert(compendiumPayload as any)
+                .select("id")
+                .maybeSingle();
+              if (error) throw error;
+              compendiumId = created?.id || null;
+            } catch (err: any) {
+              if (/column .*?(category|scope|published|metadata|ingest_status|ingested_at|ingest_error|last_used_at)/i.test(String(err?.message || err))) {
+                const {
+                  category: _c,
+                  scope: _s,
+                  published: _p,
+                  metadata: _m,
+                  ingest_status: _is,
+                  ingested_at: _ia,
+                  ingest_error: _ie,
+                  last_used_at: _lu,
+                  ...legacyPayload
+                } = compendiumPayload;
+                try {
+                  const { data: created } = await admin
+                    .from("study_sources")
+                    .insert(legacyPayload as any)
+                    .select("id")
+                    .maybeSingle();
+                  compendiumId = created?.id || null;
+                } catch {
+                  compendiumId = null;
+                }
+              }
+            }
+
+            if (compendiumId) {
+              try {
+                await admin
+                  .from("study_chat_sessions")
+                  .update({ compendium_source_id: compendiumId })
+                  .eq("id", resolvedSessionId);
+              } catch {
+                // ignore
+              }
             }
           }
         }

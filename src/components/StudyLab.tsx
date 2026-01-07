@@ -147,6 +147,26 @@ const normalizeScope = (raw: unknown): StudyScope => {
 
 const normalizeTopic = (raw: unknown) => (raw || "").toString().trim().toUpperCase().replace(/\s+/g, "_");
 
+const getSourceMeta = (s: StudySource) =>
+  s && s.metadata && typeof s.metadata === "object" ? s.metadata : null;
+
+const getSourceTopicKey = (s: StudySource) => {
+  const meta = getSourceMeta(s);
+  const raw = s.topic || meta?.ai?.topic || meta?.topic || "OUTROS";
+  return normalizeTopic(raw || "OUTROS") || "OUTROS";
+};
+
+const getSourceCategoryKey = (s: StudySource) => {
+  const meta = getSourceMeta(s);
+  const raw = s.category || meta?.ai?.category || meta?.category || "OUTROS";
+  return normalizeCategory(raw || "OUTROS");
+};
+
+const isChatCompendiumSource = (s: StudySource) => {
+  const meta = getSourceMeta(s);
+  return String(meta?.source || "").toLowerCase() === "study_chat";
+};
+
 const createChatSessionId = () => {
   if (typeof crypto !== "undefined" && typeof (crypto as any).randomUUID === "function") {
     return (crypto as any).randomUUID();
@@ -187,6 +207,8 @@ export const StudyLab = () => {
   const [loadingSources, setLoadingSources] = useState(false);
   const [adding, setAdding] = useState(false);
   const [ingesting, setIngesting] = useState(false);
+  const [catalogRefreshing, setCatalogRefreshing] = useState(false);
+  const [catalogRefreshProgress, setCatalogRefreshProgress] = useState<{ total: number; done: number; failed: number } | null>(null);
 
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
 
@@ -405,7 +427,8 @@ export const StudyLab = () => {
 
       if (error) throw error;
       const normalized = await normalizeSources((data || []) as StudySource[]);
-      setSources(normalized);
+      const filtered = normalized.filter((s) => !isChatCompendiumSource(s));
+      setSources(filtered);
     } catch (e: any) {
       const msg = e?.message || "";
       if (typeof msg === "string" && msg.toLowerCase().includes("study_sources")) {
@@ -432,13 +455,15 @@ export const StudyLab = () => {
   const matchesSearch = (s: StudySource, q: string) => {
     const meta = s.metadata && typeof s.metadata === "object" ? s.metadata : null;
     const tags = Array.isArray(meta?.tags) ? meta.tags : Array.isArray(meta?.ai?.tags) ? meta.ai.tags : [];
+    const topicKey = getSourceTopicKey(s);
+    const categoryKey = getSourceCategoryKey(s);
     const hay = [
       s.title || "",
       s.summary || "",
       s.url || "",
-      normalizeCategory(s.category),
-      s.topic || "",
-      TOPIC_LABELS[normalizeTopic(s.topic)] || "",
+      categoryKey,
+      topicKey,
+      TOPIC_LABELS[topicKey] || "",
       tags.join(" "),
     ]
       .join(" ")
@@ -459,8 +484,8 @@ export const StudyLab = () => {
         if (!user) return false;
         if (!isPrivateSource(s) || s.user_id !== user.id) return false;
       }
-      if (categoryFilter !== "ALL" && normalizeCategory(s.category) !== categoryFilter) return false;
-      if (topicFilter !== "ALL" && normalizeTopic(s.topic) !== topicFilter) return false;
+      if (categoryFilter !== "ALL" && getSourceCategoryKey(s) !== categoryFilter) return false;
+      if (topicFilter !== "ALL" && getSourceTopicKey(s) !== topicFilter) return false;
       if (q && !matchesSearch(s, q)) return false;
       return true;
     });
@@ -470,8 +495,8 @@ export const StudyLab = () => {
     const out: Record<string, Record<string, number>> = {};
     for (const s of allSources) {
       if (!s || isFixedSource(s)) continue;
-      const cat = normalizeCategory(s.category);
-      const topic = normalizeTopic(s.topic || "OUTROS") || "OUTROS";
+      const cat = getSourceCategoryKey(s);
+      const topic = getSourceTopicKey(s);
       if (!out[cat]) out[cat] = {};
       out[cat][topic] = (out[cat][topic] || 0) + 1;
     }
@@ -663,6 +688,49 @@ export const StudyLab = () => {
     }
   };
 
+  const handleRecatalog = async () => {
+    if (!user) {
+      toast("Faça login para atualizar o catálogo.");
+      return;
+    }
+    if (catalogRefreshing) return;
+    const list = (sources || []).filter((s) => !isFixedSource(s) && !isChatCompendiumSource(s));
+    if (!list.length) {
+      toast("Nenhum material para catalogar.");
+      return;
+    }
+
+    setCatalogRefreshing(true);
+    setCatalogRefreshProgress({ total: list.length, done: 0, failed: 0 });
+    let done = 0;
+    let failed = 0;
+
+    for (const s of list) {
+      try {
+        const resp = await apiFetch("/api/ai?handler=study-chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mode: "ingest", source_id: s.id, recatalog: true }),
+        });
+        const json = await resp.json().catch(() => ({}));
+        if (!resp.ok || json?.success === false) {
+          failed += 1;
+        }
+      } catch {
+        failed += 1;
+      } finally {
+        done += 1;
+        setCatalogRefreshProgress({ total: list.length, done, failed });
+        await new Promise((resolve) => setTimeout(resolve, 180));
+      }
+    }
+
+    await fetchSources();
+    setCatalogRefreshing(false);
+    const okCount = list.length - failed;
+    toast.success(`Catálogo atualizado com IA: ${okCount} ok, ${failed} com falha.`);
+  };
+
   const resetChatAttachments = () => {
     setChatAttachments([]);
     setChatUploadKey((prev) => prev + 1);
@@ -734,6 +802,7 @@ export const StudyLab = () => {
           session_id: chatSessionId,
           attachments: attachmentsForMessage.map((url) => ({ url })),
           language: getActiveLocale(),
+          save_compendium: false,
           ...(oracleMode ? { use_web: useWeb } : {}),
           ...(kbEnabled && kbSelection?.tags?.length ? { kb_tags: kbSelection.tags, kb_focus: kbSelection.label } : {}),
           messages: payloadMessages,
@@ -794,6 +863,34 @@ export const StudyLab = () => {
             <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
               <div className="h-full w-1/2 bg-primary animate-pulse" />
             </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {catalogRefreshing && catalogRefreshProgress && (
+        <Card>
+          <CardContent className="pt-6 space-y-2">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm font-medium">Atualizando catálogo com IA...</p>
+              <span className="text-xs text-muted-foreground">
+                {catalogRefreshProgress.done}/{catalogRefreshProgress.total}
+              </span>
+            </div>
+            <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full bg-primary transition-all"
+                style={{
+                  width: `${Math.round(
+                    (catalogRefreshProgress.done / Math.max(1, catalogRefreshProgress.total)) * 100,
+                  )}%`,
+                }}
+              />
+            </div>
+            {catalogRefreshProgress.failed > 0 && (
+              <p className="text-[11px] text-muted-foreground">
+                {catalogRefreshProgress.failed} materiais falharam e serão mantidos com os dados atuais.
+              </p>
+            )}
           </CardContent>
         </Card>
       )}
@@ -1076,6 +1173,27 @@ export const StudyLab = () => {
               </div>
             </div>
 
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={handleRecatalog}
+                disabled={catalogRefreshing || ingesting || loadingSources}
+              >
+                Atualizar catálogo com IA
+              </Button>
+              {catalogRefreshing && catalogRefreshProgress ? (
+                <span className="text-[11px] text-muted-foreground">
+                  {catalogRefreshProgress.done}/{catalogRefreshProgress.total}
+                </span>
+              ) : (
+                <span className="text-[11px] text-muted-foreground">
+                  Recalcula títulos, resumos e temas a partir do conteúdo.
+                </span>
+              )}
+            </div>
+
             <Tabs value={catalogTab} onValueChange={(v) => setCatalogTab(v as any)}>
               <TabsList className="w-full">
                 <TabsTrigger value="tree" className="flex-1">
@@ -1145,7 +1263,7 @@ export const StudyLab = () => {
                     const active = s.id === selectedSourceId;
                     const isPublic = isPublicSource(s) || isFixedSource(s);
                     const visibilityLabel = isFixedSource(s) ? "FIXO" : isPublic ? "PÚBLICO" : "PRIVADO";
-                    const topicKey = normalizeTopic(s.topic);
+                    const topicKey = getSourceTopicKey(s);
                     const topicLabel = topicKey ? TOPIC_LABELS[topicKey] || topicKey : "";
                     return (
                       <button
@@ -1170,7 +1288,7 @@ export const StudyLab = () => {
                                 {visibilityLabel}
                               </Badge>
                               <Badge variant="outline" className="text-[10px]">
-                                {CATEGORY_LABELS[normalizeCategory(s.category)] || "Outros"}
+                                {CATEGORY_LABELS[getSourceCategoryKey(s)] || "Outros"}
                               </Badge>
                               {topicLabel && (
                                 <Badge variant="outline" className="text-[10px]">

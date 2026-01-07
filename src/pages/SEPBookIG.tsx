@@ -648,6 +648,10 @@ export default function SEPBookIG() {
   const [mapHasInteracted, setMapHasInteracted] = useState(false);
   const [mapFitToken, setMapFitToken] = useState(0);
   const mapInstanceRef = useRef<L.Map | null>(null);
+  const isMobileDevice = useMemo(() => {
+    if (typeof navigator === "undefined") return false;
+    return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || "");
+  }, []);
 
   const [locationConsent, setLocationConsent] = useState<"allow" | "deny" | "unknown">("unknown");
   const [locationConsentDialogOpen, setLocationConsentDialogOpen] = useState(false);
@@ -832,6 +836,16 @@ export default function SEPBookIG() {
     if (!mapSelectedId) return null;
     return mapPosts.find((x) => x.post.id === mapSelectedId) || null;
   }, [mapPosts, mapSelectedId]);
+
+  const selectedMapLinks = useMemo(() => {
+    if (!selectedMapPost) return null;
+    const lat = Number(selectedMapPost.post.location_lat);
+    const lng = Number(selectedMapPost.post.location_lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+    const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+    const wazeUrl = `https://waze.com/ul?ll=${lat},${lng}&navigate=yes`;
+    return { mapsUrl, wazeUrl };
+  }, [selectedMapPost]);
 
   const selectedMarkerIcon = useMemo(() => {
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="48" viewBox="0 0 32 48"><path d="M16 0C7.2 0 0 7.2 0 16c0 12 16 32 16 32s16-20 16-32C32 7.2 24.8 0 16 0z" fill="#fbbf24"/><circle cx="16" cy="16" r="6" fill="#ffffff"/></svg>`;
@@ -2935,6 +2949,39 @@ export default function SEPBookIG() {
                           <div className="text-[11px] text-muted-foreground">
                             {tr("sepbook.mapHintSelectThenOpen")}
                           </div>
+                          {selectedMapLinks ? (
+                            <div className="mt-1 flex flex-wrap items-center gap-2">
+                              {isMobileDevice ? (
+                                <>
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => window.open(selectedMapLinks.wazeUrl, "_blank", "noreferrer")}
+                                  >
+                                    Waze
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => window.open(selectedMapLinks.mapsUrl, "_blank", "noreferrer")}
+                                  >
+                                    Maps
+                                  </Button>
+                                </>
+                              ) : (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => window.open(selectedMapLinks.mapsUrl, "_blank", "noreferrer")}
+                                >
+                                  Abrir no Maps
+                                </Button>
+                              )}
+                            </div>
+                          ) : null}
                         </div>
                         <Button type="button" size="sm" onClick={() => openPostById(selectedMapPost.post.id)}>
                           {tr("sepbook.openPost")}
