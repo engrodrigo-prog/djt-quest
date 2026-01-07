@@ -70,7 +70,7 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: chatErr.message });
     }
 
-    const rows = uniqueById([...(tempRows || []), ...((chatRows || []) as any)]);
+    const rows = uniqueById([...(tempRows || []), ...(chatRows || [])]);
     const ids = rows.map((r) => r.id).filter(Boolean);
     if (!ids.length) return res.status(200).json({ success: true, deleted: 0, storage_deleted: 0 });
 
