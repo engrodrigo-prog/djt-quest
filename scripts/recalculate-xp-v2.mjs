@@ -24,6 +24,7 @@ const getArg = (name) => {
 
 const userIdArg = getArg("--user-id");
 const emailArg = getArg("--email");
+const nameArg = getArg("--name");
 
 const isImageUrl = (url) => {
   const clean = String(url || "").split("?")[0].split("#")[0].toLowerCase();
@@ -90,7 +91,27 @@ const resolveTargetUserId = async () => {
     }
     return String(data[0].id);
   }
-  throw new Error("Informe --user-id <uuid> ou --email <email>.");
+  if (nameArg) {
+    const name = String(nameArg).trim();
+    if (!name) throw new Error("Informe um valor não vazio em --name.");
+
+    const exact = await supabase.from("profiles").select("id,name,email").ilike("name", name).limit(10);
+    if (exact.error) throw new Error(exact.error.message || "Falha ao buscar por nome");
+    if (exact.data && exact.data.length === 1) return String(exact.data[0].id);
+    if (exact.data && exact.data.length > 1) {
+      throw new Error(`Nome ambíguo. Encontrados: ${exact.data.map((p) => `${p.name || "?"} (${p.id})`).join(", ")}`);
+    }
+
+    const safe = name.replace(/[%_]/g, "\\$&");
+    const like = await supabase.from("profiles").select("id,name,email").ilike("name", `%${safe}%`).limit(10);
+    if (like.error) throw new Error(like.error.message || "Falha ao buscar por nome");
+    if (!like.data || like.data.length === 0) throw new Error("Nenhum usuário encontrado para esse nome.");
+    if (like.data.length > 1) {
+      throw new Error(`Nome ambíguo. Encontrados: ${like.data.map((p) => `${p.name || "?"} (${p.id})`).join(", ")}`);
+    }
+    return String(like.data[0].id);
+  }
+  throw new Error("Informe --user-id <uuid>, --email <email> ou --name \"Nome\".");
 };
 
 const userId = await resolveTargetUserId();
@@ -203,4 +224,3 @@ if (xpErr) {
 }
 
 console.log("XP atualizado com sucesso.");
-

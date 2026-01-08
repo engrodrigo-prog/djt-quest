@@ -21,7 +21,43 @@ const extractCampaignTitles = (md: string) => {
   return Array.from(new Set(out.map((t) => t.replace(/\s+/g, " ").trim()).filter(Boolean))).slice(0, 3);
 };
 
-const isPhotoUrl = (url: string) => /\.(png|jpe?g|webp|gif|bmp|tif|tiff|heic|heif|avif)(\?|#|$)/i.test(url || "");
+const cleanUrlForExt = (raw: string) => String(raw || "").split("?")[0].split("#")[0];
+const isPhotoUrl = (url: string) => /\.(png|jpe?g|webp|gif|bmp|tif|tiff|heic|heif|avif)$/i.test(cleanUrlForExt(url));
+
+const normalizeAttachmentUrl = (raw: any) => {
+  if (!raw) return "";
+  if (typeof raw === "string") return raw.trim();
+  if (typeof raw === "object") {
+    if (typeof raw.url === "string") return raw.url.trim();
+    if (typeof raw.publicUrl === "string") return raw.publicUrl.trim();
+    if (typeof raw.href === "string") return raw.href.trim();
+    if (typeof raw.src === "string") return raw.src.trim();
+  }
+  return String(raw || "").trim();
+};
+
+const extractAttachmentUrls = (attachments: any): string[] => {
+  if (!attachments) return [];
+  if (Array.isArray(attachments)) return attachments.map(normalizeAttachmentUrl).filter(Boolean);
+  if (typeof attachments === "string") {
+    const trimmed = attachments.trim();
+    if (!trimmed) return [];
+    if ((trimmed.startsWith("[") && trimmed.endsWith("]")) || (trimmed.startsWith("{") && trimmed.endsWith("}"))) {
+      try {
+        return extractAttachmentUrls(JSON.parse(trimmed));
+      } catch {
+        return [trimmed];
+      }
+    }
+    return [trimmed];
+  }
+  if (typeof attachments === "object") {
+    if (Array.isArray(attachments.urls)) return attachments.urls.map(normalizeAttachmentUrl).filter(Boolean);
+    if (Array.isArray(attachments.items)) return attachments.items.map(normalizeAttachmentUrl).filter(Boolean);
+    if (Array.isArray(attachments.files)) return attachments.files.map(normalizeAttachmentUrl).filter(Boolean);
+  }
+  return [];
+};
 
 async function resolveCampaignByTitle(reader: any, titleRaw: string) {
   const title = String(titleRaw || "").replace(/\s+/g, " ").trim();
@@ -191,7 +227,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // XP por postagem no SEPBook: 5 XP por foto (imagens no campo attachments)
     try {
-      const photoCount = atts.filter((u: any) => typeof u === "string" && isPhotoUrl(String(u))).length;
+      const urls = extractAttachmentUrls(atts);
+      const photoCount = urls.filter((u: any) => typeof u === "string" && isPhotoUrl(String(u))).length;
       const xpAmount = photoCount * 5;
       if (xpAmount > 0) {
         await authed.rpc("increment_user_xp", { _user_id: uid, _xp_to_add: xpAmount });
