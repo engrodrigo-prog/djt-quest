@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { useI18n } from '@/contexts/I18nContext';
 import { getActiveLocale } from '@/lib/i18n/activeLocale';
 import { UserProfilePopover } from '@/components/UserProfilePopover';
+import { LEADER_PARTIAL_POINTS_MULTIPLIER } from '@/lib/constants/points';
 
 interface IndividualRanking {
   rank: number;
@@ -49,6 +50,10 @@ interface LeaderRanking {
   avatarUrl: string | null;
   completed: number;
   quizXp: number;
+  initiativesXp: number;
+  forumXp: number;
+  sepbookXp: number;
+  baseXp: number;
   score: number;
 }
 
@@ -119,13 +124,16 @@ function Rankings() {
           .select('id, division_id'),
         supabase
           .from('events')
-          .select('user_id, final_points, created_at'),
+          .select('user_id, final_points, created_at')
+          .limit(50000),
         supabase
           .from('challenges')
-          .select('id, xp_reward, status, due_date, target_team_ids, target_coord_ids, target_div_ids'),
+          .select('id, xp_reward, status, due_date, target_team_ids, target_coord_ids, target_div_ids')
+          .limit(50000),
         supabase
           .from('evaluation_queue')
           .select('assigned_to, completed_at')
+          .limit(50000),
       ]);
 
       // Process individual rankings
@@ -383,7 +391,7 @@ function Rankings() {
         setDivisionRankings([globalRow, ...divisionData]);
       }
 
-      // Leader-only ranking (by completed evaluations)
+      // Leader ranking: partial credit across initiatives/quizzes/forum/SEPBook/evaluations (historical breakdown via RPC).
       const completedByReviewer = !evalQueueResult.error
         ? (evalQueueResult.data || []).reduce<Record<string, number>>((acc: any, row: any) => {
             const reviewer = row.assigned_to as string;
@@ -397,7 +405,7 @@ function Rankings() {
       const leaders = allProfiles.filter((p: any) => isLeaderProfile(p));
       const leaderIds = leaders.map((l: any) => l.id).filter(Boolean);
 
-      // Quiz points for leaders (sum xp_earned)
+      // Fallback: quiz XP for leaders (sum xp_earned)
       let quizXpByLeader: Record<string, number> = {};
       if (leaderIds.length) {
         try {
@@ -415,21 +423,55 @@ function Rankings() {
             }, {});
           }
         } catch (e) {
-          console.warn('Rankings: erro ao carregar quiz points dos líderes', e);
+          console.warn('Rankings: erro ao carregar quiz points dos líderes (fallback)', e);
           quizXpByLeader = {};
         }
       }
 
+      let breakdownByLeader: Record<string, any> = {};
+      if (leaderIds.length) {
+        try {
+          const { data: rows, error: brErr } = await supabase.rpc('user_points_breakdown', { _user_ids: leaderIds } as any);
+          if (brErr) throw brErr;
+          breakdownByLeader = (Array.isArray(rows) ? rows : []).reduce<Record<string, any>>((acc, r: any) => {
+            const uid = String(r?.user_id || '');
+            if (!uid) return acc;
+            acc[uid] = r;
+            return acc;
+          }, {});
+        } catch (e) {
+          console.warn('Rankings: erro ao carregar breakdown de pontos dos líderes', e);
+          breakdownByLeader = {};
+        }
+      }
+
       const sorted = leaders
-        .map((p: any) => ({
-          userId: p.id,
-          name: p.name,
-          avatarUrl: p.avatar_url,
-          completed: completedByReviewer[p.id] || 0,
-          quizXp: quizXpByLeader[p.id] || 0,
-          score: (completedByReviewer[p.id] || 0) * LEADER_EVAL_POINTS + (quizXpByLeader[p.id] || 0),
-        }))
-        .sort((a, b) => b.score - a.score || b.completed - a.completed || b.quizXp - a.quizXp || String(a.name).localeCompare(String(b.name), getActiveLocale()))
+        .map((p: any) => {
+          const b = breakdownByLeader[p.id];
+          const completed = b ? Number(b.evaluations_completed || 0) : (completedByReviewer[p.id] || 0);
+          const quizXp = b ? Number(b.quiz_xp || 0) : (quizXpByLeader[p.id] || 0);
+          const initiativesXp = b ? Number(b.initiatives_xp || 0) : 0;
+          const forumXp = b ? Number(b.forum_posts || 0) * 10 : 0;
+          const sepbookXp = b
+            ? Number(b.sepbook_photo_count || 0) * 5 + Number(b.sepbook_comments || 0) * 2 + Number(b.sepbook_likes || 0)
+            : 0;
+          const evaluationsXp = completed * LEADER_EVAL_POINTS;
+          const baseXp = quizXp + initiativesXp + forumXp + sepbookXp + evaluationsXp;
+          const score = Math.floor(baseXp * LEADER_PARTIAL_POINTS_MULTIPLIER);
+          return {
+            userId: p.id,
+            name: p.name,
+            avatarUrl: p.avatar_url,
+            completed,
+            quizXp,
+            initiativesXp,
+            forumXp,
+            sepbookXp,
+            baseXp,
+            score,
+          } as LeaderRanking;
+        })
+        .sort((a, b) => b.score - a.score || b.baseXp - a.baseXp || String(a.name).localeCompare(String(b.name), getActiveLocale()))
         .map((p, i) => ({ ...p, rank: i + 1 }));
       setLeaderRankings(sorted);
     } catch (error) {
@@ -840,7 +882,7 @@ function Rankings() {
                   {tr("rankings.leadersTitle")}
                 </CardTitle>
                 <p className="text-xs text-muted-foreground">
-                  {tr("rankings.leadersFormula", { points: LEADER_EVAL_POINTS })}
+                  {tr("rankings.leadersFormula", { points: LEADER_EVAL_POINTS, multiplierPct: Math.round(LEADER_PARTIAL_POINTS_MULTIPLIER * 100) })}
                 </p>
               </CardHeader>
               <CardContent>
@@ -865,7 +907,13 @@ function Rankings() {
                             <div className="min-w-0">
                               <p className="font-semibold truncate">{r.name}</p>
                               <p className="text-xs text-muted-foreground">
-                                {tr("rankings.leadersStats", { completed: r.completed, quizXp: r.quizXp.toLocaleString() })}
+                                {tr("rankings.leadersStats", {
+                                  completed: r.completed,
+                                  quizXp: r.quizXp.toLocaleString(),
+                                  initiativesXp: r.initiativesXp.toLocaleString(),
+                                  forumXp: r.forumXp.toLocaleString(),
+                                  sepbookXp: r.sepbookXp.toLocaleString(),
+                                })}
                               </p>
                             </div>
                           </button>

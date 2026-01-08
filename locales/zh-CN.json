@@ -317,10 +317,10 @@
     "membersLabel": "{count} 名成员",
     "teamsCountLabel": "{count} 个团队",
     "levelLabel": "等级 {level}",
-    "leadersTitle": "领导排行（评审 + 测验）",
-    "leadersFormula": "积分 =（完成评审 × {points}）+ 测验 XP",
+    "leadersTitle": "领导排行（部分计分）",
+    "leadersFormula": "积分 = {multiplierPct}% ×（活动 + 测验 + 论坛 + SEPBook + 评审）• 每次评审 {points} XP",
     "leadersEmpty": "未找到领导（或你没有权限读取评审）。",
-    "leadersStats": "评审：{completed} • 测验：{quizXp} XP",
+    "leadersStats": "评审：{completed} • 测验：{quizXp} XP • 活动：{initiativesXp} XP • 论坛：{forumXp} XP • SEPBook：{sepbookXp} XP",
     "pointsLabel": "积分"
   },
   "forums": {

@@ -1,0 +1,2 @@
+export const LEADER_PARTIAL_POINTS_MULTIPLIER = 0.5;
+

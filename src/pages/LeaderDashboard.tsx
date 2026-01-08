@@ -13,6 +13,7 @@ import { TeamTierProgressCard } from "@/components/TeamTierProgressCard";
 import { ProfileDropdown } from "@/components/ProfileDropdown";
 import { fetchTeamNames } from "@/lib/teamLookup";
 import { getActiveLocale } from "@/lib/i18n/activeLocale";
+import { LEADER_PARTIAL_POINTS_MULTIPLIER } from "@/lib/constants/points";
 
 interface TeamStats {
   total_members: number;
@@ -406,56 +407,42 @@ export default function LeaderDashboard() {
       }
       await Promise.all(jobs);
 
-      // XP possível vs atingido (janela temporal)
+      // XP possível vs atingido (janela temporal) — calculado no DB para evitar divergências/paginação.
       const now = new Date();
       const msBack = windowSel === '30d' ? 30*24*60*60*1000 : windowSel === '90d' ? 90*24*60*60*1000 : 365*24*60*60*1000;
       const start = new Date(now.getTime() - msBack);
+      const startIso = start.toISOString();
+      const endIso = now.toISOString();
+      const leaderMult = includeLeadersInTeamStats ? LEADER_PARTIAL_POINTS_MULTIPLIER : 0;
 
-      // Desafios válidos na janela
-      const { data: chs } = await supabase
-        .from('challenges')
-        .select('id, xp_reward, target_div_ids, target_coord_ids, target_team_ids, status, due_date, audience')
-        .or('status.eq.active,status.eq.scheduled')
-        .gte('due_date', start.toISOString());
-
-      const sFilter = (c: any) => {
-        // Filtra por escopo do líder
-        const tOk = !c.target_team_ids || (teamId && (c.target_team_ids as string[]).includes(teamId));
-        const cOk = !c.target_coord_ids || (coordId && (c.target_coord_ids as string[]).includes(coordId));
-        const dOk = !c.target_div_ids || (divisionId && (c.target_div_ids as string[]).includes(divisionId));
-        if (scope === 'team') return tOk || cOk || dOk;
-        if (scope === 'coord') return cOk || dOk;
-        return dOk;
-      };
-
-      const xpPos = (chs || []).filter(sFilter).reduce((sum, c: any) => sum + (c.xp_reward || 0), 0);
-      setXpPossible(xpPos);
-
-      // XP atingido: soma de final_points dos colaboradores no escopo e janela
-      const idFilter = scope === 'team' ? teamId : scope === 'coord' ? coordId : divisionId;
-      let members: Array<{ id: string }> = [];
-      if (idFilter) {
-        let mq = (supabase as any)
-          .from('profiles')
-          .select('id')
-          .eq(scope === 'team' ? 'team_id' : scope === 'coord' ? 'coord_id' : 'division_id', idFilter);
-        if (!includeLeadersInTeamStats) {
-          mq = mq.eq('is_leader', false);
+      try {
+        if (scope === 'team' && teamId) {
+          const { data, error } = await supabase.rpc('team_adherence_window_v2', { _start: startIso, _end: endIso, _leader_multiplier: leaderMult } as any);
+          if (error) throw error;
+          const row = (Array.isArray(data) ? data : []).find((r: any) => String(r?.team_id) === String(teamId));
+          setXpPossible(Number(row?.possible || 0));
+          setXpAchieved(Number(row?.achieved || 0));
+        } else if (scope === 'coord' && coordId) {
+          const { data, error } = await supabase.rpc('coord_adherence_window_v2', { _start: startIso, _end: endIso, _coord_id: coordId, _leader_multiplier: leaderMult } as any);
+          if (error) throw error;
+          const row = Array.isArray(data) ? data[0] : null;
+          setXpPossible(Number(row?.possible || 0));
+          setXpAchieved(Number(row?.achieved || 0));
+        } else if (scope === 'division' && divisionId) {
+          const { data, error } = await supabase.rpc('division_adherence_window_v2', { _start: startIso, _end: endIso, _leader_multiplier: leaderMult } as any);
+          if (error) throw error;
+          const row = (Array.isArray(data) ? data : []).find((r: any) => String(r?.division_id) === String(divisionId));
+          setXpPossible(Number(row?.possible || 0));
+          setXpAchieved(Number(row?.achieved || 0));
+        } else {
+          setXpPossible(0);
+          setXpAchieved(0);
         }
-        const { data: m } = await mq;
-        members = m || [];
+      } catch (e) {
+        console.warn('LeaderDashboard: falha ao carregar XP possível/atingido via RPC', e);
+        setXpPossible(0);
+        setXpAchieved(0);
       }
-      let xpAch = 0;
-      if (members.length) {
-        const ids = members.map((m) => m.id);
-        const { data: evs } = await supabase
-          .from('events')
-          .select('final_points, created_at, user_id')
-          .gte('created_at', start.toISOString())
-          .in('user_id', ids);
-        xpAch = (evs || []).reduce((sum, e: any) => sum + (e.final_points || 0), 0);
-      }
-      setXpAchieved(xpAch);
     } catch (error) {
       console.error("Error loading dashboard:", error);
     } finally {
