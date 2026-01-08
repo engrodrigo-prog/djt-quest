@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -13,6 +13,9 @@ import { Search, Trash2, Users, AlertTriangle, CheckCircle, Loader2, UserPlus } 
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { apiFetch } from '@/lib/api';
 import { UserCreationForm } from '@/components/UserCreationForm';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { normalizeTeamId } from '@/lib/constants/points';
+import { getActiveLocale } from '@/lib/i18n/activeLocale';
 
 interface UserProfile {
   id: string;
@@ -21,6 +24,7 @@ interface UserProfile {
   created_at: string;
   operational_base: string | null;
   sigla_area: string | null;
+  team_id?: string | null;
   matricula?: string | null;
   is_leader?: boolean | null;
   studio_access?: boolean | null;
@@ -31,6 +35,8 @@ export const UserManagement = () => {
   const [filteredUsers, setFilteredUsers] = useState<UserProfile[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [searchTerm, setSearchTerm] = useState('');
+  const [teamFilter, setTeamFilter] = useState<string>('all');
+  const [sortKey, setSortKey] = useState<'created_desc' | 'created_asc' | 'name_asc' | 'name_desc'>('created_desc');
   const [loading, setLoading] = useState(true);
   const [cleanupLoading, setCleanupLoading] = useState(false);
   const [showCleanupDialog, setShowCleanupDialog] = useState(false);
@@ -67,6 +73,7 @@ export const UserManagement = () => {
           created_at,
           operational_base,
           sigla_area,
+          team_id,
           matricula,
           is_leader,
           studio_access
@@ -203,20 +210,53 @@ export const UserManagement = () => {
   };
 
   const filterUsers = useCallback(() => {
-    if (!searchTerm) {
-      setFilteredUsers(users);
-      return;
+    const term = searchTerm.trim().toLowerCase();
+    const selectedTeam = normalizeTeamId(teamFilter);
+
+    const teamKeyOf = (u: UserProfile) =>
+      normalizeTeamId(u.team_id || u.sigla_area || u.operational_base);
+
+    let next = (users || []).filter((user) => {
+      if (!term) return true;
+      return (
+        user.email?.toLowerCase().includes(term) ||
+        user.name?.toLowerCase().includes(term) ||
+        user.operational_base?.toLowerCase().includes(term) ||
+        user.sigla_area?.toLowerCase().includes(term) ||
+        user.team_id?.toLowerCase().includes(term)
+      );
+    });
+
+    if (teamFilter !== 'all') {
+      if (teamFilter === 'none') {
+        next = next.filter((u) => !teamKeyOf(u));
+      } else {
+        next = next.filter((u) => teamKeyOf(u) === selectedTeam);
+      }
     }
 
-    const term = searchTerm.toLowerCase();
-    const filtered = users.filter(user =>
-      user.email?.toLowerCase().includes(term) ||
-      user.name?.toLowerCase().includes(term) ||
-      user.operational_base?.toLowerCase().includes(term) ||
-      user.sigla_area?.toLowerCase().includes(term)
-    );
-    setFilteredUsers(filtered);
-  }, [searchTerm, users]);
+    const compareByName = (a: UserProfile, b: UserProfile) =>
+      String(a.name || '').localeCompare(String(b.name || ''), getActiveLocale());
+
+    next.sort((a, b) => {
+      if (sortKey === 'name_asc') return compareByName(a, b);
+      if (sortKey === 'name_desc') return compareByName(b, a);
+      const ad = Date.parse(String(a.created_at || '')) || 0;
+      const bd = Date.parse(String(b.created_at || '')) || 0;
+      return sortKey === 'created_asc' ? ad - bd : bd - ad;
+    });
+
+    setFilteredUsers(next);
+  }, [searchTerm, sortKey, teamFilter, users]);
+
+  const teamOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const u of users || []) {
+      const key = normalizeTeamId(u.team_id || u.sigla_area || u.operational_base);
+      if (key) set.add(key);
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  }, [users]);
 
   useEffect(() => {
     filterUsers();
@@ -320,8 +360,8 @@ export const UserManagement = () => {
     total: users.length,
     testUsers: testUsers.length,
     realUsers: users.length - testUsers.length,
-    withTeam: users.filter(u => (u.sigla_area || u.operational_base)).length,
-    withoutTeam: users.filter(u => !(u.sigla_area || u.operational_base)).length,
+    withTeam: users.filter(u => normalizeTeamId(u.team_id || u.sigla_area || u.operational_base)).length,
+    withoutTeam: users.filter(u => !normalizeTeamId(u.team_id || u.sigla_area || u.operational_base)).length,
   };
 
   if (loading) {
@@ -446,10 +486,44 @@ export const UserManagement = () => {
             Usuários ({filteredUsers.length})
           </CardTitle>
         </CardHeader>
-        <CardContent>
-          <div className="flex items-center justify-between mb-2">
-          <div className="text-sm text-muted-foreground">Selecionados: {selectedIds.size}</div>
-          <div className="flex gap-2">
+        <CardContent className="space-y-3">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Filtrar por equipe</Label>
+              <Select value={teamFilter} onValueChange={setTeamFilter}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Todas as equipes" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas as equipes</SelectItem>
+                  <SelectItem value="none">Sem equipe</SelectItem>
+                  {teamOptions.map((team) => (
+                    <SelectItem key={team} value={team}>
+                      {team}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Ordenar</Label>
+              <Select value={sortKey} onValueChange={(v) => setSortKey(v as any)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="created_desc">Cadastro: mais recentes</SelectItem>
+                  <SelectItem value="created_asc">Cadastro: mais antigos</SelectItem>
+                  <SelectItem value="name_asc">Nome: A–Z</SelectItem>
+                  <SelectItem value="name_desc">Nome: Z–A</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div className="text-sm text-muted-foreground">Selecionados: {selectedIds.size}</div>
+            <div className="flex gap-2">
               <Button variant="outline" size="sm" onClick={() => setSelectedIds(new Set(filteredUsers.map(u => u.id)))} disabled={filteredUsers.length === 0}>Selecionar filtrados</Button>
               <Button variant="outline" size="sm" onClick={() => setSelectedIds(new Set(users.map(u => u.id)))} disabled={users.length === 0}>Selecionar todos</Button>
               <Button variant="outline" size="sm" onClick={() => setSelectedIds(new Set())} disabled={selectedIds.size === 0}>Limpar seleção</Button>
@@ -491,11 +565,18 @@ export const UserManagement = () => {
                           )}
                         </div>
                         <p className="text-sm text-muted-foreground truncate">{user.email}</p>
-                        {user.sigla_area && (
-                          <div className="text-xs font-semibold text-primary">
-                            {user.sigla_area}
-                          </div>
-                        )}
+                        <div className="flex flex-wrap items-center gap-2 text-xs">
+                          {normalizeTeamId(user.team_id || user.sigla_area || user.operational_base) ? (
+                            <span className="font-semibold text-primary">
+                              {normalizeTeamId(user.team_id || user.sigla_area || user.operational_base)}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">Sem equipe</span>
+                          )}
+                          <span className="text-muted-foreground">
+                            Cadastro: {new Date(user.created_at).toLocaleDateString(getActiveLocale())}
+                          </span>
+                        </div>
                       </div>
                     </div>
                     <div className="flex items-center gap-2">

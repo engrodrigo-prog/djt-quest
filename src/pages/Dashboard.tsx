@@ -28,6 +28,7 @@ interface Campaign {
   end_date: string | null;
   is_active?: boolean | null;
   evidence_challenge_id?: string | null;
+  archived_at?: string | null;
 }
 
 interface Challenge {
@@ -544,6 +545,7 @@ const Dashboard = () => {
 
     return (campaigns || [])
       .filter((c) => {
+        if ((c as any)?.archived_at) return false;
         const status = getCampaignStatus(c);
         if (campaignStatusFilter !== "all" && status !== campaignStatusFilter) return false;
 

@@ -8,7 +8,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { CheckCircle, XCircle, Clock, Mail, Phone, MapPin, Hash } from "lucide-react";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { CheckCircle, XCircle, Clock, Mail, Phone, MapPin, Hash, Trash2 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { apiFetch } from "@/lib/api";
 import { getActiveLocale } from "@/lib/i18n/activeLocale";
@@ -44,6 +45,12 @@ export function PendingRegistrationsManager() {
   const [showAll, setShowAll] = useState(false);
   const [bulkApproving, setBulkApproving] = useState(false);
   const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number } | null>(null);
+  const [purgeDialogOpen, setPurgeDialogOpen] = useState(false);
+  const [purgeDays, setPurgeDays] = useState(30);
+  const [purgePending, setPurgePending] = useState(true);
+  const [purgeRejected, setPurgeRejected] = useState(true);
+  const [purgeLoading, setPurgeLoading] = useState(false);
+  const [purgePreview, setPurgePreview] = useState<{ deleteCount: number; cutoff: string; statuses: string[] } | null>(null);
 
   useEffect(() => {
     // Default: mostrar tudo para staff/líder (evita pendências sumirem por escopo)
@@ -339,6 +346,86 @@ export function PendingRegistrationsManager() {
     toast({ title: "Todos os cadastros pendentes foram aprovados!" });
   };
 
+  const canPurgeOld = canManageAny || Boolean(isLeader) || String(userRole || "").includes("gerente") || String(userRole || "").includes("coordenador");
+
+  const runPurgePreview = async () => {
+    const statuses = [
+      ...(purgePending ? ["pending"] : []),
+      ...(purgeRejected ? ["rejected"] : []),
+    ];
+    if (statuses.length === 0) {
+      toast({ title: "Selecione ao menos um status para limpar.", variant: "destructive" });
+      setPurgePreview(null);
+      return;
+    }
+
+    setPurgeLoading(true);
+    try {
+      const resp = await apiFetch("/api/admin?handler=system-cleanup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "purge-pending-registrations",
+          dryRun: true,
+          olderThanDays: purgeDays,
+          statuses,
+        }),
+      });
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(json?.error || "Falha ao calcular limpeza");
+      setPurgePreview({
+        deleteCount: Number(json?.deleteCount || 0),
+        cutoff: String(json?.cutoff || ""),
+        statuses: Array.isArray(json?.statuses) ? json.statuses : statuses,
+      });
+    } catch (e: any) {
+      setPurgePreview(null);
+      toast({ title: "Erro ao calcular", description: e?.message || "Tente novamente.", variant: "destructive" });
+    } finally {
+      setPurgeLoading(false);
+    }
+  };
+
+  const executePurge = async () => {
+    const statuses = [
+      ...(purgePending ? ["pending"] : []),
+      ...(purgeRejected ? ["rejected"] : []),
+    ];
+    if (statuses.length === 0) {
+      toast({ title: "Selecione ao menos um status para limpar.", variant: "destructive" });
+      return;
+    }
+    const count = purgePreview?.deleteCount ?? 0;
+    const ok = window.confirm(
+      `Remover ${count} cadastro(s) com status ${statuses.join(", ")} e criados há mais de ${purgeDays} dias?\\n\\nEsta ação não pode ser desfeita.`
+    );
+    if (!ok) return;
+
+    setPurgeLoading(true);
+    try {
+      const resp = await apiFetch("/api/admin?handler=system-cleanup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "purge-pending-registrations",
+          dryRun: false,
+          olderThanDays: purgeDays,
+          statuses,
+        }),
+      });
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(json?.error || "Falha ao executar limpeza");
+      toast({ title: "Limpeza concluída", description: `${Number(json?.deleted || 0)} cadastro(s) removidos.` });
+      setPurgeDialogOpen(false);
+      setPurgePreview(null);
+      await fetchRegistrations();
+    } catch (e: any) {
+      toast({ title: "Erro ao limpar", description: e?.message || "Tente novamente.", variant: "destructive" });
+    } finally {
+      setPurgeLoading(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -383,6 +470,20 @@ export function PendingRegistrationsManager() {
               placeholder="Buscar (nome, email, sigla...)"
               className="md:w-[260px]"
             />
+            {canPurgeOld && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setPurgeDialogOpen(true);
+                  queueMicrotask(() => runPurgePreview());
+                }}
+                disabled={purgeLoading}
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                Limpar antigos
+              </Button>
+            )}
             <Button
               type="button"
               onClick={approveAllPending}
@@ -632,6 +733,73 @@ export function PendingRegistrationsManager() {
           ))}
         </div>
       )}
+
+      <Dialog open={purgeDialogOpen} onOpenChange={setPurgeDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Limpar cadastros antigos</DialogTitle>
+            <DialogDescription>
+              Remove cadastros <strong>não aprovados</strong> (pendentes/rejeitados) antigos para evitar “cache” acumulado.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-1">
+              <Label htmlFor="purge-days">Criados há mais de (dias)</Label>
+              <Input
+                id="purge-days"
+                type="number"
+                min={1}
+                value={purgeDays}
+                onChange={(e) => setPurgeDays(Math.max(1, Number(e.target.value || 1)))}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Status incluídos</Label>
+              <div className="flex items-center justify-between rounded-md border p-3">
+                <span className="text-sm">Pendentes</span>
+                <Switch checked={purgePending} onCheckedChange={(v) => setPurgePending(Boolean(v))} />
+              </div>
+              <div className="flex items-center justify-between rounded-md border p-3">
+                <span className="text-sm">Rejeitados</span>
+                <Switch checked={purgeRejected} onCheckedChange={(v) => setPurgeRejected(Boolean(v))} />
+              </div>
+            </div>
+
+            <div className="rounded-md border p-3 text-sm">
+              {purgeLoading ? (
+                <span className="text-muted-foreground">Calculando…</span>
+              ) : purgePreview ? (
+                <div className="space-y-1">
+                  <div>
+                    Prévia: <strong>{purgePreview.deleteCount}</strong> cadastro(s) serão removidos.
+                  </div>
+                  {purgePreview.cutoff ? (
+                    <div className="text-xs text-muted-foreground">
+                      Corte: {new Date(purgePreview.cutoff).toLocaleString(getActiveLocale())}
+                    </div>
+                  ) : null}
+                </div>
+              ) : (
+                <span className="text-muted-foreground">Clique em “Recalcular” para ver a prévia.</span>
+              )}
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setPurgeDialogOpen(false)} disabled={purgeLoading}>
+              Fechar
+            </Button>
+            <Button type="button" variant="outline" onClick={runPurgePreview} disabled={purgeLoading}>
+              Recalcular
+            </Button>
+            <Button type="button" variant="destructive" onClick={executePurge} disabled={purgeLoading}>
+              Executar limpeza
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

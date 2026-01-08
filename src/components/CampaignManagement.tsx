@@ -17,12 +17,15 @@ interface Campaign {
   is_active?: boolean | null;
   start_date?: string | null;
   end_date?: string | null;
+  created_by?: string | null;
+  archived_at?: string | null;
 }
 
 export const CampaignManagement = () => {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(false);
   const [range, setRange] = useState<RangeKey>("30");
+  const [showArchived, setShowArchived] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const [editDescription, setEditDescription] = useState("");
@@ -55,6 +58,7 @@ export const CampaignManagement = () => {
   })();
 
   const filtered = campaigns.filter((c) => {
+    if (!showArchived && c.archived_at) return false;
     if (!c.start_date) return true;
     const d = new Date(c.start_date);
     return d >= cutoff;
@@ -78,17 +82,21 @@ export const CampaignManagement = () => {
     }
   };
 
-  const handleDelete = async (c: Campaign) => {
+  const setArchived = async (c: Campaign, archived: boolean) => {
     if (!c.id) return;
-    const msg =
-      "Excluir esta campanha permanentemente?\n\nOs desafios/quizzes ligados a ela permanecem, mas a campanha não aparecerá mais nos filtros.";
+    const msg = archived
+      ? "Arquivar esta campanha?\n\nEla deixará de aparecer para usuários finais, mas manterá posts, evidências e pontos já contabilizados."
+      : "Restaurar esta campanha (desarquivar)?";
     if (!window.confirm(msg)) return;
     try {
-      const { error } = await supabase.from("campaigns").delete().eq("id", c.id);
+      const { error } = await supabase
+        .from("campaigns")
+        .update({ archived_at: archived ? new Date().toISOString() : null })
+        .eq("id", c.id);
       if (error) throw error;
       await load();
     } catch (e: any) {
-      alert(String(e?.message || "Erro ao excluir campanha"));
+      alert(String(e?.message || "Erro ao arquivar campanha"));
     }
   };
 
@@ -150,6 +158,16 @@ export const CampaignManagement = () => {
           <p className="text-blue-100/80 text-sm">
             Veja campanhas ativas/encerradas, filtre por período e reabra ciclos.
           </p>
+        </div>
+        <div className="flex items-center gap-2 text-xs">
+          <label className="inline-flex items-center gap-2 text-blue-100/80">
+            <input
+              type="checkbox"
+              checked={showArchived}
+              onChange={(e) => setShowArchived(e.target.checked)}
+            />
+            Mostrar arquivadas
+          </label>
         </div>
         <div className="flex items-center gap-2 text-xs">
           {[
@@ -268,12 +286,12 @@ export const CampaignManagement = () => {
                       </p>
                     )}
                   </div>
-                <div className="flex flex-col gap-1 items-end">
+                  <div className="flex flex-col gap-1 items-end">
                     <Badge
-                      variant={c.is_active ? "default" : "outline"}
+                      variant={c.archived_at ? "outline" : c.is_active ? "default" : "outline"}
                       className="text-[10px]"
                     >
-                      {c.is_active ? "Ativa" : "Encerrada"}
+                      {c.archived_at ? "Arquivada" : c.is_active ? "Ativa" : "Encerrada"}
                     </Badge>
                     <div className="flex gap-1 mt-1">
                       {isEditing ? (
@@ -302,29 +320,31 @@ export const CampaignManagement = () => {
                           >
                             Editar
                           </Button>
-                          {c.is_active ? (
-                            <Button
-                              size="xs"
-                              variant="outline"
-                              onClick={() => setActive(c, false)}
-                            >
-                              Encerrar
-                            </Button>
-                          ) : (
-                            <Button
-                              size="xs"
-                              variant="secondary"
-                              onClick={() => setActive(c, true)}
-                            >
-                              Reabrir
-                            </Button>
+                          {!c.archived_at && (
+                            c.is_active ? (
+                              <Button
+                                size="xs"
+                                variant="outline"
+                                onClick={() => setActive(c, false)}
+                              >
+                                Encerrar
+                              </Button>
+                            ) : (
+                              <Button
+                                size="xs"
+                                variant="secondary"
+                                onClick={() => setActive(c, true)}
+                              >
+                                Reabrir
+                              </Button>
+                            )
                           )}
                           <Button
                             size="xs"
-                            variant="destructive"
-                            onClick={() => handleDelete(c)}
+                            variant={c.archived_at ? "secondary" : "destructive"}
+                            onClick={() => setArchived(c, !c.archived_at)}
                           >
-                            Excluir
+                            {c.archived_at ? "Restaurar" : "Arquivar"}
                           </Button>
                         </>
                       )}

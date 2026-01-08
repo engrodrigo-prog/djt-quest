@@ -8,12 +8,17 @@ import { ThemedBackground } from "@/components/ThemedBackground";
 import Navigation from "@/components/Navigation";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Target, Hash, MessageSquare, Zap, ArrowLeft, Share2, MapPinned, Plus } from "lucide-react";
+import { Target, Hash, MessageSquare, Zap, ArrowLeft, Share2, MapPinned, Plus, Pencil } from "lucide-react";
 import { buildAbsoluteAppUrl, openWhatsAppShare } from "@/lib/whatsappShare";
 import { getActiveLocale } from "@/lib/i18n/activeLocale";
 import { apiFetch } from "@/lib/api";
 import { UserProfilePopover } from "@/components/UserProfilePopover";
 import { CampaignEvidenceWizard } from "@/components/CampaignEvidenceWizard";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { useAuth } from "@/contexts/AuthContext";
 import { MapContainer, Marker, Popup, TileLayer } from "react-leaflet";
 import { useMap } from "react-leaflet";
 import L from "leaflet";
@@ -37,6 +42,8 @@ interface Campaign {
   end_date: string | null;
   is_active?: boolean | null;
   evidence_challenge_id?: string | null;
+  created_by?: string | null;
+  archived_at?: string | null;
 }
 
 interface ChallengeRow {
@@ -81,6 +88,20 @@ type EvidenceItem = {
 
 const isImageUrl = (url: string) => /\.(png|jpg|jpeg|webp|gif)(\?|#|$)/i.test(String(url || ""));
 
+const toDateInputValue = (raw: string | null | undefined) => {
+  const s = String(raw || "").trim();
+  if (!s) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  if (s.includes("T")) return s.split("T")[0] || "";
+  try {
+    const d = new Date(s);
+    if (Number.isNaN(d.getTime())) return "";
+    return d.toISOString().slice(0, 10);
+  } catch {
+    return "";
+  }
+};
+
 function FitBounds({ points }: { points: Array<[number, number]> }) {
   const map = useMap();
   useEffect(() => {
@@ -118,6 +139,7 @@ export default function CampaignDetail() {
   const { campaignId } = useParams();
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { user, roles, userRole } = useAuth() as any;
 
   const [campaign, setCampaign] = useState<Campaign | null>(null);
   const [loading, setLoading] = useState(true);
@@ -127,6 +149,16 @@ export default function CampaignDetail() {
   const [evidence, setEvidence] = useState<EvidenceItem[]>([]);
   const [mapOpen, setMapOpen] = useState(false);
   const [evidenceWizardOpen, setEvidenceWizardOpen] = useState(false);
+  const [campaignEditOpen, setCampaignEditOpen] = useState(false);
+  const [campaignEditSaving, setCampaignEditSaving] = useState(false);
+  const [campaignEdit, setCampaignEdit] = useState({
+    title: "",
+    description: "",
+    narrative_tag: "",
+    start_date: "",
+    end_date: "",
+    is_active: true,
+  });
   const mapInstanceRef = useRef<L.Map | null>(null);
 
   const computeHashTag = (c: Campaign) => {
@@ -274,6 +306,95 @@ export default function CampaignDetail() {
     navigate("/sepbook");
   };
 
+  const currentUserId = String(user?.id || "");
+  const roleList: string[] = Array.isArray(roles) ? roles : [];
+  const isStaff = useMemo(() => {
+    const set = new Set(roleList.map((r) => String(r || "").trim()));
+    if (set.has("admin")) return true;
+    if (set.has("gerente_djt") || set.has("gerente")) return true;
+    if (set.has("gerente_divisao_djtx") || set.has("lider_divisao")) return true;
+    if (set.has("coordenador_djtx") || set.has("coordenador")) return true;
+    return String(userRole || "").toLowerCase() === "admin";
+  }, [roleList, userRole]);
+
+  const canEditCampaign = useMemo(() => {
+    if (!campaign || !currentUserId) return false;
+    if (isStaff) return true;
+    if (campaign.created_by && String(campaign.created_by) === currentUserId) return true;
+    return false;
+  }, [campaign, currentUserId, isStaff]);
+
+  const openCampaignEditor = () => {
+    if (!campaign) return;
+    setCampaignEdit({
+      title: String(campaign.title || ""),
+      description: String(campaign.description || ""),
+      narrative_tag: String(campaign.narrative_tag || ""),
+      start_date: toDateInputValue(campaign.start_date),
+      end_date: toDateInputValue(campaign.end_date),
+      is_active: campaign.is_active !== false,
+    });
+    setCampaignEditOpen(true);
+  };
+
+  const saveCampaignChanges = async (patch?: Partial<typeof campaignEdit>) => {
+    if (!campaign) return;
+    setCampaignEditSaving(true);
+    try {
+      const next = { ...campaignEdit, ...(patch || {}) };
+      const title = String(next.title || "").trim();
+      if (!title) throw new Error("Título obrigatório.");
+      if (next.start_date && next.end_date && next.end_date < next.start_date) {
+        throw new Error("A data final deve ser maior ou igual à data inicial.");
+      }
+
+      const update: any = {
+        title,
+        description: String(next.description || "").trim() || null,
+        narrative_tag: String(next.narrative_tag || "").trim() || null,
+        is_active: Boolean(next.is_active),
+      };
+      if (next.start_date) update.start_date = next.start_date;
+      if (next.end_date) update.end_date = next.end_date;
+
+      const { error } = await supabase.from("campaigns").update(update).eq("id", campaign.id);
+      if (error) throw error;
+
+      // Refresh campaign row
+      const { data: fresh } = await supabase.from("campaigns").select("*").eq("id", campaign.id).maybeSingle();
+      if (fresh) setCampaign(fresh as any);
+
+      toast({ title: "Campanha atualizada", description: "Alterações salvas com sucesso." });
+      setCampaignEditOpen(false);
+    } catch (e: any) {
+      toast({ title: "Erro ao salvar campanha", description: e?.message || "Tente novamente.", variant: "destructive" });
+    } finally {
+      setCampaignEditSaving(false);
+    }
+  };
+
+  const toggleArchiveCampaign = async (archived: boolean) => {
+    if (!campaign) return;
+    const msg = archived
+      ? "Arquivar campanha? Ela deixará de aparecer para usuários finais, mas manterá posts, evidências e pontos já contabilizados."
+      : "Restaurar campanha (desarquivar)?";
+    if (!window.confirm(msg)) return;
+    setCampaignEditSaving(true);
+    try {
+      const patch: any = { archived_at: archived ? new Date().toISOString() : null };
+      if (archived) patch.is_active = false;
+      const { error } = await supabase.from("campaigns").update(patch).eq("id", campaign.id);
+      if (error) throw error;
+      const { data: fresh } = await supabase.from("campaigns").select("*").eq("id", campaign.id).maybeSingle();
+      if (fresh) setCampaign(fresh as any);
+      toast({ title: archived ? "Campanha arquivada" : "Campanha restaurada" });
+    } catch (e: any) {
+      toast({ title: "Erro", description: e?.message || "Não foi possível atualizar a campanha.", variant: "destructive" });
+    } finally {
+      setCampaignEditSaving(false);
+    }
+  };
+
   const mapEvidence = useMemo(() => {
     return (evidence || [])
       .map((e) => {
@@ -373,17 +494,22 @@ export default function CampaignDetail() {
                   </p>
                 )}
               </div>
-              <div className="flex flex-col items-end gap-2">
-                <Button size="sm" onClick={handleOpenSepbookDraft}>
-                  <Zap className="h-4 w-4 mr-1" />
-                  Subir no SEPBook
+            <div className="flex flex-col items-end gap-2">
+              {canEditCampaign ? (
+                <Button size="icon" variant="ghost" className="h-8 w-8" onClick={openCampaignEditor} title="Editar campanha">
+                  <Pencil className="h-4 w-4" />
                 </Button>
-                {campaign?.evidence_challenge_id ? (
-                  <Button size="sm" variant="secondary" onClick={() => setEvidenceWizardOpen(true)}>
-                    <Plus className="h-4 w-4 mr-1" />
-                    Registrar evidência
-                  </Button>
-                ) : null}
+              ) : null}
+              <Button size="sm" onClick={handleOpenSepbookDraft}>
+                <Zap className="h-4 w-4 mr-1" />
+                Subir no SEPBook
+              </Button>
+              {campaign?.evidence_challenge_id ? (
+                <Button size="sm" variant="secondary" onClick={() => setEvidenceWizardOpen(true)}>
+                  <Plus className="h-4 w-4 mr-1" />
+                  Registrar evidência
+                </Button>
+              ) : null}
                 <Button
                   size="sm"
                   variant="outline"
@@ -765,6 +891,101 @@ export default function CampaignDetail() {
           reloadPosts(campaign);
         }}
       />
+
+      <Dialog open={campaignEditOpen} onOpenChange={setCampaignEditOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Editar campanha</DialogTitle>
+            <DialogDescription>
+              Alterar prazo, texto e vigência sem afetar posts, evidências e pontos já contabilizados.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Título</Label>
+              <Input value={campaignEdit.title} onChange={(e) => setCampaignEdit((p) => ({ ...p, title: e.target.value }))} />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Descrição</Label>
+              <Textarea
+                rows={4}
+                value={campaignEdit.description}
+                onChange={(e) => setCampaignEdit((p) => ({ ...p, description: e.target.value }))}
+              />
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="space-y-2">
+                <Label>Tag</Label>
+                <Input value={campaignEdit.narrative_tag} onChange={(e) => setCampaignEdit((p) => ({ ...p, narrative_tag: e.target.value }))} />
+              </div>
+              <div className="space-y-2">
+                <Label>Início</Label>
+                <Input
+                  type="date"
+                  value={campaignEdit.start_date}
+                  onChange={(e) => setCampaignEdit((p) => ({ ...p, start_date: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Fim</Label>
+                <Input
+                  type="date"
+                  value={campaignEdit.end_date}
+                  onChange={(e) => setCampaignEdit((p) => ({ ...p, end_date: e.target.value }))}
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between rounded-md border bg-white/5 p-3">
+              <div>
+                <p className="text-sm font-semibold">Vigência</p>
+                <p className="text-[11px] text-muted-foreground">
+                  Ative/desative a campanha (encerrar não apaga histórico).
+                </p>
+              </div>
+              <Switch
+                checked={campaignEdit.is_active}
+                onCheckedChange={(v) => setCampaignEdit((p) => ({ ...p, is_active: Boolean(v) }))}
+              />
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    const today = new Date().toISOString().slice(0, 10);
+                    saveCampaignChanges({ is_active: false, end_date: today });
+                  }}
+                  disabled={campaignEditSaving}
+                >
+                  Encerrar agora
+                </Button>
+                <Button
+                  type="button"
+                  variant={campaign?.archived_at ? "secondary" : "destructive"}
+                  onClick={() => toggleArchiveCampaign(!campaign?.archived_at)}
+                  disabled={campaignEditSaving}
+                >
+                  {campaign?.archived_at ? "Restaurar" : "Arquivar"}
+                </Button>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button type="button" variant="outline" onClick={() => setCampaignEditOpen(false)} disabled={campaignEditSaving}>
+                  Cancelar
+                </Button>
+                <Button type="button" onClick={() => saveCampaignChanges()} disabled={campaignEditSaving}>
+                  {campaignEditSaving ? "Salvando..." : "Salvar"}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Navigation />
     </div>

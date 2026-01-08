@@ -44,7 +44,11 @@ export const CampaignForm = () => {
     setSubmitting(true);
 
     try {
+      const { data: userData } = await supabase.auth.getUser();
+      const uid = userData.user?.id;
+      if (!uid) throw new Error("Não autenticado");
       const { error } = await supabase.from("campaigns").insert({
+        created_by: uid,
         title: data.title,
         description: data.description || null,
         narrative_tag: data.narrative_tag || null,

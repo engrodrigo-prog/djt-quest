@@ -27,6 +27,28 @@ export function PendingApprovals() {
   const [loading, setLoading] = useState(true);
   const [reviewNotes, setReviewNotes] = useState<Record<string, string>>({});
 
+  const readInvokeError = async (err: any) => {
+    const fallback = String(err?.message || 'Erro ao processar solicitação');
+    const ctx = err?.context;
+    if (ctx && typeof ctx === 'object') {
+      try {
+        const json = await ctx.json().catch(() => ({}));
+        const msg = json?.error;
+        if (msg) return String(msg);
+      } catch {
+        // ignore
+      }
+      try {
+        const text = await ctx.text().catch(() => '');
+        const trimmed = String(text || '').trim();
+        if (trimmed) return trimmed.slice(0, 240);
+      } catch {
+        // ignore
+      }
+    }
+    return fallback;
+  };
+
   useEffect(() => {
     fetchRequests();
   }, []);
@@ -69,7 +91,7 @@ export function PendingApprovals() {
       setReviewNotes({ ...reviewNotes, [requestId]: '' });
     } catch (error) {
       console.error('Error reviewing request:', error);
-      toast.error('Erro ao processar solicitação');
+      toast.error(await readInvokeError(error));
     }
   };
 

@@ -37,16 +37,24 @@ Deno.serve(async (req) => {
       throw new Error('Invalid request_id or action');
     }
 
-    // Verificar se usuário é líder
-    const { data: roles } = await supabaseClient
+    // Buscar roles (usar service role para evitar RLS/visibilidade limitada)
+    const { data: roles } = await supabaseAdmin
       .from('user_roles')
       .select('role')
       .eq('user_id', user.id);
 
-    const reviewerRoles = roles?.map((r) => r.role) ?? [];
+    const normalizeRole = (r: string) => {
+      const raw = String(r || '').trim().toLowerCase();
+      if (!raw) return '';
+      if (raw === 'gerente') return 'gerente_djt';
+      if (raw === 'lider_divisao') return 'gerente_divisao_djtx';
+      if (raw === 'coordenador') return 'coordenador_djtx';
+      return raw;
+    };
+    const reviewerRoles = (roles?.map((r) => normalizeRole(r.role)) ?? []).filter(Boolean);
 
-    // Buscar solicitação
-    const { data: request, error: fetchError } = await supabaseClient
+    // Buscar solicitação (service role: RLS pode bloquear revisores não-admin)
+    const { data: request, error: fetchError } = await supabaseAdmin
       .from('profile_change_requests')
       .select('*')
       .eq('id', request_id)
@@ -61,13 +69,13 @@ Deno.serve(async (req) => {
       throw new Error('Invalid request');
     }
 
-    const { data: reviewerProfile } = await supabaseClient
+    const { data: reviewerProfile } = await supabaseAdmin
       .from('profiles')
-      .select('division_id, coord_id, team_id')
+      .select('division_id, coord_id, team_id, is_leader')
       .eq('id', user.id)
       .single();
 
-    const { data: targetProfile } = await supabaseClient
+    const { data: targetProfile } = await supabaseAdmin
       .from('profiles')
       .select('division_id, coord_id, team_id, sigla_area')
       .eq('id', request.user_id)
@@ -80,6 +88,10 @@ Deno.serve(async (req) => {
       }
       if (reviewerRoles.includes('coordenador_djtx')) {
         return reviewerProfile?.coord_id && reviewerProfile.coord_id === targetProfile?.coord_id;
+      }
+      // Líder de equipe: pode revisar apenas do próprio time (ou se estiver marcado como líder no perfil).
+      if (reviewerRoles.includes('lider_equipe') || reviewerProfile?.is_leader) {
+        return reviewerProfile?.team_id && reviewerProfile.team_id === targetProfile?.team_id;
       }
       return false;
     };
@@ -157,7 +169,7 @@ Deno.serve(async (req) => {
       }
 
       if (request.field_name === 'email') {
-        await supabaseAdmin.auth.admin.updateUserById(request.user_id, {
+      await supabaseAdmin.auth.admin.updateUserById(request.user_id, {
           email: request.new_value,
           email_confirm: true,
         });
@@ -165,20 +177,20 @@ Deno.serve(async (req) => {
 
       // Notificar usuário
       await supabaseClient.rpc('create_notification', {
-        p_user_id: request.user_id,
-        p_type: 'profile_change_approved',
-        p_title: 'Alteração Aprovada',
-        p_message: `Sua solicitação de alteração de ${request.field_name} foi aprovada.`,
-        p_metadata: { request_id, field_name: request.field_name, new_value: request.new_value },
+        _user_id: request.user_id,
+        _type: 'profile_change_approved',
+        _title: 'Alteração Aprovada',
+        _message: `Sua solicitação de alteração de ${request.field_name} foi aprovada.`,
+        _metadata: { request_id, field_name: request.field_name, new_value: request.new_value },
       });
     } else {
       // Notificar rejeição
       await supabaseClient.rpc('create_notification', {
-        p_user_id: request.user_id,
-        p_type: 'profile_change_rejected',
-        p_title: 'Alteração Rejeitada',
-        p_message: `Sua solicitação de alteração de ${request.field_name} foi rejeitada.`,
-        p_metadata: { request_id, field_name: request.field_name, review_notes },
+        _user_id: request.user_id,
+        _type: 'profile_change_rejected',
+        _title: 'Alteração Rejeitada',
+        _message: `Sua solicitação de alteração de ${request.field_name} foi rejeitada.`,
+        _metadata: { request_id, field_name: request.field_name, review_notes },
       });
     }
 
