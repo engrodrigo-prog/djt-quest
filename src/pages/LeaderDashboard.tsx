@@ -13,7 +13,7 @@ import { TeamTierProgressCard } from "@/components/TeamTierProgressCard";
 import { ProfileDropdown } from "@/components/ProfileDropdown";
 import { fetchTeamNames } from "@/lib/teamLookup";
 import { getActiveLocale } from "@/lib/i18n/activeLocale";
-import { DJT_TEAM_GROUP_IDS, isDjtTeamGroupId, LEADER_PARTIAL_POINTS_MULTIPLIER } from "@/lib/constants/points";
+import { DJT_TEAM_GROUP_IDS, isDjtTeamGroupId } from "@/lib/constants/points";
 
 interface TeamStats {
   total_members: number;
@@ -281,7 +281,7 @@ export default function LeaderDashboard() {
       q = q.eq("is_leader", false);
     }
 
-    // When leaders are included, rank by computed points (partial for leaders) instead of raw profiles.xp (leaders are zeroed).
+    // When leaders are included, rank by computed total XP instead of raw profiles.xp.
     if (includeLeadersInTeamStats) {
       const { data } = await q.limit(2000);
       const rows = Array.isArray(data) ? data : [];
@@ -305,8 +305,8 @@ export default function LeaderDashboard() {
           const isLeader = isLeaderProfile(p);
           const b = breakdownById[String(p.id)];
           const baseXp = b ? computeBaseXp(b) : Number(p?.xp || 0);
-          const points = isLeader ? Math.round(baseXp * LEADER_PARTIAL_POINTS_MULTIPLIER) : baseXp;
-          return { ...p, xp: points };
+          const points = baseXp;
+          return { ...p, xp: points, is_leader: isLeader };
         })
         .sort((a: any, b: any) => (b.xp || 0) - (a.xp || 0) || String(a.name || "").localeCompare(String(b.name || "")));
       setTopMembers(scored.slice(0, 5));
@@ -461,7 +461,7 @@ export default function LeaderDashboard() {
       const start = new Date(now.getTime() - msBack);
       const startIso = start.toISOString();
       const endIso = now.toISOString();
-      const leaderMult = includeLeadersInTeamStats ? LEADER_PARTIAL_POINTS_MULTIPLIER : 0;
+      const leaderMult = includeLeadersInTeamStats ? 1 : 0;
 
       try {
 	        if (scope === 'team' && teamId) {

@@ -11,7 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { useI18n } from '@/contexts/I18nContext';
 import { getActiveLocale } from '@/lib/i18n/activeLocale';
 import { UserProfilePopover } from '@/components/UserProfilePopover';
-import { DJT_TEAM_GROUP_IDS, isDjtTeamGroupId, LEADER_PARTIAL_POINTS_MULTIPLIER } from '@/lib/constants/points';
+import { DJT_TEAM_GROUP_IDS, isDjtTeamGroupId } from '@/lib/constants/points';
 
 interface IndividualRanking {
   rank: number;
@@ -183,7 +183,7 @@ function Rankings() {
             const isLeader = isLeaderProfile(profile);
             const breakdown = breakdownByUserId[String(profile.id)];
             const baseXp = breakdown ? computeBaseXpFromBreakdown(breakdown) : Number(profile.xp ?? 0);
-            const points = isLeader ? Math.round(baseXp * LEADER_PARTIAL_POINTS_MULTIPLIER) : baseXp;
+            const points = baseXp;
             const xp = Number(profile.xp ?? 0);
             return { ...profile, __points: points, __xp: xp, __isLeader: isLeader };
           })
@@ -420,11 +420,11 @@ function Rankings() {
         setDivisionRankings([globalRow, ...divisionData]);
       }
 
-      // Prefer DB adherence v2 (leaders counted partially) to avoid pagination/RLS mismatches.
+      // Prefer DB adherence v2 to avoid pagination/RLS mismatches.
       try {
         const now = new Date();
         const start = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
-        const leaderMult = LEADER_PARTIAL_POINTS_MULTIPLIER;
+        const leaderMult = 1;
         const [teamRpc, divRpc] = await Promise.all([
           supabase.rpc('team_adherence_window_v2', { _start: start.toISOString(), _end: now.toISOString(), _leader_multiplier: leaderMult } as any),
           supabase.rpc('division_adherence_window_v2', { _start: start.toISOString(), _end: now.toISOString(), _leader_multiplier: leaderMult } as any),
@@ -501,7 +501,7 @@ function Rankings() {
         }
       } catch {}
 
-      // Leader ranking: partial credit across initiatives/quizzes/forum/SEPBook/evaluations (historical breakdown via RPC).
+      // Leader ranking: total XP across initiatives/quizzes/forum/SEPBook/evaluations (historical breakdown via RPC).
       const completedByReviewer = !evalQueueResult.error
         ? (evalQueueResult.data || []).reduce<Record<string, number>>((acc: any, row: any) => {
             const reviewer = row.assigned_to as string;
@@ -567,7 +567,7 @@ function Rankings() {
             : 0;
           const evaluationsXp = completed * LEADER_EVAL_POINTS;
           const baseXp = quizXp + initiativesXp + forumXp + sepbookXp + evaluationsXp;
-          const score = Math.round(baseXp * LEADER_PARTIAL_POINTS_MULTIPLIER);
+          const score = baseXp;
           return {
             userId: p.id,
             name: p.name,
@@ -581,7 +581,7 @@ function Rankings() {
             score,
           } as LeaderRanking;
         })
-        .sort((a, b) => b.score - a.score || b.baseXp - a.baseXp || String(a.name).localeCompare(String(b.name), getActiveLocale()))
+        .sort((a, b) => b.score - a.score || String(a.name).localeCompare(String(b.name), getActiveLocale()))
         .map((p, i) => ({ ...p, rank: i + 1 }));
       setLeaderRankings(sorted);
     } catch (error) {
@@ -944,7 +944,7 @@ function Rankings() {
                   {tr("rankings.leadersTitle")}
                 </CardTitle>
                 <p className="text-xs text-muted-foreground">
-                  {tr("rankings.leadersFormula", { points: LEADER_EVAL_POINTS, multiplierPct: Math.round(LEADER_PARTIAL_POINTS_MULTIPLIER * 100) })}
+                  {tr("rankings.leadersFormula", { points: LEADER_EVAL_POINTS })}
                 </p>
               </CardHeader>
               <CardContent>

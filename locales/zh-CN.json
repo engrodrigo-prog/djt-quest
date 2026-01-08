@@ -110,7 +110,7 @@
     "voice": "语音",
     "cleanup": "AI 校对",
     "reply": "回复",
-    "replyingTo": "回复 {name}",
+    "replyingTo": "回复",
     "cancelReply": "取消回复",
     "edit": "编辑",
     "save": "保存",
@@ -317,11 +317,23 @@
     "membersLabel": "{count} 名成员",
     "teamsCountLabel": "{count} 个团队",
     "levelLabel": "等级 {level}",
-    "leadersTitle": "领导排行（部分计分）",
-    "leadersFormula": "积分 = {multiplierPct}% ×（活动 + 测验 + 论坛 + SEPBook + 评审）• 每次评审 {points} XP",
+    "leadersTitle": "领导排行",
+    "leadersFormula": "XP = 活动 + 测验 + 论坛 + SEPBook + 评审 • 每次评审 {points} XP",
     "leadersEmpty": "未找到领导（或你没有权限读取评审）。",
     "leadersStats": "评审：{completed} • 测验：{quizXp} XP • 活动：{initiativesXp} XP • 论坛：{forumXp} XP • SEPBook：{sepbookXp} XP",
-    "pointsLabel": "积分"
+    "pointsLabel": "XP",
+    "breakdownTitle": "XP 明细",
+    "breakdownSubtitle": "基于记录的活动。",
+    "breakdownLoading": "正在加载明细…",
+    "breakdown": {
+      "quiz": "测验",
+      "forum": "论坛（帖子）",
+      "sepbookPhotos": "SEPBook（照片）",
+      "sepbookComments": "SEPBook（评论）",
+      "sepbookLikes": "SEPBook（点赞）",
+      "campaigns": "活动/行动",
+      "evaluations": "评审"
+    }
   },
   "forums": {
     "backToDashboard": "← 返回看板",
@@ -542,6 +554,12 @@
       "clearTopic": "清理此主题（删除帖子）并在适用时回退相关 XP？",
       "addHashtags": "建议添加这些话题标签：\n{hashtags}\n\n发布前添加吗？",
       "addHashtagsEdited": "为编辑后的帖子建议添加 #？\n{hashtags}\n\n添加吗？"
+    },
+    "hashtagsDialog": {
+      "title": "推荐话题标签",
+      "applyWithHash": "应用（带 #）",
+      "applyWithoutHash": "应用（不带 #）",
+      "ignore": "忽略"
     },
     "errors": {
       "aiCleanupFailed": "AI 审阅失败",
