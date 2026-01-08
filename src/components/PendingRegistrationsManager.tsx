@@ -46,11 +46,12 @@ export function PendingRegistrationsManager() {
   const [bulkApproving, setBulkApproving] = useState(false);
   const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number } | null>(null);
   const [purgeDialogOpen, setPurgeDialogOpen] = useState(false);
-  const [purgeDays, setPurgeDays] = useState(30);
-  const [purgePending, setPurgePending] = useState(true);
+  const [purgeDays, setPurgeDays] = useState(0);
+  const [purgePending, setPurgePending] = useState(false);
   const [purgeRejected, setPurgeRejected] = useState(true);
   const [purgeLoading, setPurgeLoading] = useState(false);
   const [purgePreview, setPurgePreview] = useState<{ deleteCount: number; cutoff: string; statuses: string[] } | null>(null);
+  const [showRejectedHistory, setShowRejectedHistory] = useState(false);
 
   useEffect(() => {
     // Default: mostrar tudo para staff/líder (evita pendências sumirem por escopo)
@@ -297,7 +298,9 @@ export function PendingRegistrationsManager() {
   const pendingBase = (showAll || canManageAny) ? allPending : allPending.filter(inScope);
   const pendingRegistrations = q ? pendingBase.filter((r) => matchesSearch(r, q)) : pendingBase;
 
-  const processedBase = registrations.filter((r) => r.status !== "pending");
+  const processedBase = registrations
+    .filter((r) => r.status !== "pending")
+    .filter((r) => (showRejectedHistory ? true : r.status !== "rejected"));
   const processedRegistrations = q ? processedBase.filter((r) => matchesSearch(r, q)) : processedBase;
 
   const approveAllPending = async () => {
@@ -396,9 +399,8 @@ export function PendingRegistrationsManager() {
       return;
     }
     const count = purgePreview?.deleteCount ?? 0;
-    const ok = window.confirm(
-      `Remover ${count} cadastro(s) com status ${statuses.join(", ")} e criados há mais de ${purgeDays} dias?\\n\\nEsta ação não pode ser desfeita.`
-    );
+    const ageLabel = purgeDays > 0 ? `criados há mais de ${purgeDays} dias` : "em qualquer data";
+    const ok = window.confirm(`Remover ${count} cadastro(s) com status ${statuses.join(", ")} (${ageLabel})?\\n\\nEsta ação não pode ser desfeita.`);
     if (!ok) return;
 
     setPurgeLoading(true);
@@ -481,7 +483,7 @@ export function PendingRegistrationsManager() {
                 disabled={purgeLoading}
               >
                 <Trash2 className="mr-2 h-4 w-4" />
-                Limpar antigos
+                Limpar rejeitados
               </Button>
             )}
             <Button
@@ -704,9 +706,21 @@ export function PendingRegistrationsManager() {
       {/* Processed Registrations */}
       {processedRegistrations.length > 0 && (
         <div className="space-y-4">
-          <h3 className="text-lg font-semibold">
-            Histórico ({processedRegistrations.length})
-          </h3>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h3 className="text-lg font-semibold">
+              Histórico ({processedRegistrations.length})
+            </h3>
+            <div className="flex items-center gap-2">
+              <Switch
+                id="show-rejected-history"
+                checked={showRejectedHistory}
+                onCheckedChange={setShowRejectedHistory}
+              />
+              <Label htmlFor="show-rejected-history" className="text-sm text-muted-foreground">
+                Incluir rejeitados
+              </Label>
+            </div>
+          </div>
           {processedRegistrations.map((registration) => (
             <Card key={registration.id} className="opacity-75">
               <CardHeader>
@@ -737,9 +751,9 @@ export function PendingRegistrationsManager() {
       <Dialog open={purgeDialogOpen} onOpenChange={setPurgeDialogOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Limpar cadastros antigos</DialogTitle>
+            <DialogTitle>Limpar cadastros rejeitados</DialogTitle>
             <DialogDescription>
-              Remove cadastros <strong>não aprovados</strong> (pendentes/rejeitados) antigos para evitar “cache” acumulado.
+              Remove cadastros <strong>rejeitados</strong> para não ficarem aparecendo no HUB de aprovações.
             </DialogDescription>
           </DialogHeader>
 
@@ -749,10 +763,11 @@ export function PendingRegistrationsManager() {
               <Input
                 id="purge-days"
                 type="number"
-                min={1}
+                min={0}
                 value={purgeDays}
-                onChange={(e) => setPurgeDays(Math.max(1, Number(e.target.value || 1)))}
+                onChange={(e) => setPurgeDays(Math.max(0, Number(e.target.value || 0)))}
               />
+              <p className="text-xs text-muted-foreground">Use 0 para limpar rejeitados de qualquer data.</p>
             </div>
 
             <div className="space-y-2">

@@ -33,25 +33,30 @@ export default async function handler(req, res) {
     const dryRun = body.dryRun !== undefined ? Boolean(body.dryRun) : true;
 
     if (action === 'purge-pending-registrations') {
-      const olderThanDays = Number.isFinite(Number(body.olderThanDays)) ? Number(body.olderThanDays) : 30;
+      const olderThanDaysRaw = Number.isFinite(Number(body.olderThanDays)) ? Number(body.olderThanDays) : 30;
+      const olderThanDays = Math.max(0, olderThanDaysRaw);
       const statuses = uniq(Array.isArray(body.statuses) ? body.statuses : ['pending', 'rejected']);
-      const cutoff = new Date(Date.now() - Math.max(1, olderThanDays) * 24 * 60 * 60 * 1000).toISOString();
+      const cutoff = olderThanDays > 0
+        ? new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000).toISOString()
+        : null;
 
-      const { count: toDeleteCount } = await admin
+      let countQuery = admin
         .from('pending_registrations')
         .select('id', { count: 'exact', head: true })
-        .in('status', statuses)
-        .lt('created_at', cutoff);
+        .in('status', statuses);
+      if (cutoff) countQuery = countQuery.lt('created_at', cutoff);
+      const { count: toDeleteCount } = await countQuery;
 
       if (dryRun) {
         return res.status(200).json({ success: true, dryRun: true, deleteCount: toDeleteCount || 0, cutoff, statuses });
       }
 
-      const { error: delErr } = await admin
+      let delQuery = admin
         .from('pending_registrations')
         .delete()
-        .in('status', statuses)
-        .lt('created_at', cutoff);
+        .in('status', statuses);
+      if (cutoff) delQuery = delQuery.lt('created_at', cutoff);
+      const { error: delErr } = await delQuery;
       if (delErr) return res.status(400).json({ error: delErr.message });
 
       return res.status(200).json({ success: true, dryRun: false, deleted: toDeleteCount || 0, cutoff, statuses });
