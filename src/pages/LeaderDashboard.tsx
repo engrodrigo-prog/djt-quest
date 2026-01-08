@@ -13,7 +13,7 @@ import { TeamTierProgressCard } from "@/components/TeamTierProgressCard";
 import { ProfileDropdown } from "@/components/ProfileDropdown";
 import { fetchTeamNames } from "@/lib/teamLookup";
 import { getActiveLocale } from "@/lib/i18n/activeLocale";
-import { LEADER_PARTIAL_POINTS_MULTIPLIER } from "@/lib/constants/points";
+import { DJT_TEAM_GROUP_IDS, isDjtTeamGroupId, LEADER_PARTIAL_POINTS_MULTIPLIER } from "@/lib/constants/points";
 
 interface TeamStats {
   total_members: number;
@@ -246,27 +246,75 @@ export default function LeaderDashboard() {
   }, [teamId]);
 
   const loadTopMembers = useCallback(async () => {
-    const scopeFilter = scope === 'team' ? { col: 'team_id', val: teamId }
-      : scope === 'coord' ? { col: 'coord_id', val: coordId }
-      : { col: 'division_id', val: divisionId };
+    const scopeCol = scope === "team" ? "team_id" : scope === "coord" ? "coord_id" : "division_id";
+    const scopeVal = scope === "team" ? teamId : scope === "coord" ? coordId : divisionId;
 
-    if (!scopeFilter.val) {
+    if (!scopeVal) {
       setTopMembers([]);
       return;
     }
 
-    let q = (supabase as any)
-      .from('profiles')
-      .select('id, name, xp, tier')
-      .eq(scopeFilter.col as any, scopeFilter.val as any);
-    if (!includeLeadersInTeamStats) {
-      q = q.eq('is_leader', false);
-    }
-    const { data } = await q.order('xp', { ascending: false }).limit(5);
+    const isLeaderProfile = (p: any) => Boolean(p?.is_leader) || Boolean(p?.studio_access);
+    const computeBaseXp = (b: any) => {
+      const quizXp = Number(b?.quiz_xp || 0);
+      const initiativesXp = Number(b?.initiatives_xp || 0);
+      const forumXp = Number(b?.forum_posts || 0) * 10;
+      const sepbookXp =
+        Number(b?.sepbook_photo_count || 0) * 5 +
+        Number(b?.sepbook_comments || 0) * 2 +
+        Number(b?.sepbook_likes || 0);
+      const evalXp = Number(b?.evaluations_completed || 0) * 5;
+      return quizXp + initiativesXp + forumXp + sepbookXp + evalXp;
+    };
 
-    if (data) {
-      setTopMembers(data);
+    const baseQuery = (supabase as any)
+      .from("profiles")
+      .select("id, name, xp, tier, is_leader, studio_access, team_id, coord_id, division_id");
+
+    let q = baseQuery;
+    if (scope === "team" && isDjtTeamGroupId(teamId)) {
+      q = q.in("team_id", Array.from(DJT_TEAM_GROUP_IDS));
+    } else {
+      q = q.eq(scopeCol as any, scopeVal as any);
     }
+    if (!includeLeadersInTeamStats) {
+      q = q.eq("is_leader", false);
+    }
+
+    // When leaders are included, rank by computed points (partial for leaders) instead of raw profiles.xp (leaders are zeroed).
+    if (includeLeadersInTeamStats) {
+      const { data } = await q.limit(2000);
+      const rows = Array.isArray(data) ? data : [];
+      const ids = rows.map((r: any) => r?.id).filter(Boolean);
+      let breakdownById: Record<string, any> = {};
+      try {
+        const { data: br, error } = await supabase.rpc("user_points_breakdown", { _user_ids: ids } as any);
+        if (error) throw error;
+        breakdownById = (Array.isArray(br) ? br : []).reduce<Record<string, any>>((acc, b: any) => {
+          const uid = String(b?.user_id || "");
+          if (!uid) return acc;
+          acc[uid] = b;
+          return acc;
+        }, {});
+      } catch {
+        breakdownById = {};
+      }
+
+      const scored = rows
+        .map((p: any) => {
+          const isLeader = isLeaderProfile(p);
+          const b = breakdownById[String(p.id)];
+          const baseXp = b ? computeBaseXp(b) : Number(p?.xp || 0);
+          const points = isLeader ? Math.round(baseXp * LEADER_PARTIAL_POINTS_MULTIPLIER) : baseXp;
+          return { ...p, xp: points };
+        })
+        .sort((a: any, b: any) => (b.xp || 0) - (a.xp || 0) || String(a.name || "").localeCompare(String(b.name || "")));
+      setTopMembers(scored.slice(0, 5));
+      return;
+    }
+
+    const { data } = await q.order("xp", { ascending: false }).limit(5);
+    if (data) setTopMembers(data);
   }, [coordId, divisionId, scope, teamId, includeLeadersInTeamStats]);
 
   const loadDivisionHierarchy = useCallback(async () => {
@@ -416,13 +464,17 @@ export default function LeaderDashboard() {
       const leaderMult = includeLeadersInTeamStats ? LEADER_PARTIAL_POINTS_MULTIPLIER : 0;
 
       try {
-        if (scope === 'team' && teamId) {
-          const { data, error } = await supabase.rpc('team_adherence_window_v2', { _start: startIso, _end: endIso, _leader_multiplier: leaderMult } as any);
-          if (error) throw error;
-          const row = (Array.isArray(data) ? data : []).find((r: any) => String(r?.team_id) === String(teamId));
-          setXpPossible(Number(row?.possible || 0));
-          setXpAchieved(Number(row?.achieved || 0));
-        } else if (scope === 'coord' && coordId) {
+	        if (scope === 'team' && teamId) {
+	          const { data, error } = await supabase.rpc('team_adherence_window_v2', { _start: startIso, _end: endIso, _leader_multiplier: leaderMult } as any);
+	          if (error) throw error;
+	          const rows = Array.isArray(data) ? data : [];
+	          const teamIds = isDjtTeamGroupId(teamId) ? Array.from(DJT_TEAM_GROUP_IDS) : [String(teamId)];
+	          const picked = rows.filter((r: any) => teamIds.includes(String(r?.team_id || "")));
+	          const possible = picked.reduce((s: number, r: any) => s + (Number(r?.possible || 0) || 0), 0);
+	          const achieved = picked.reduce((s: number, r: any) => s + (Number(r?.achieved || 0) || 0), 0);
+	          setXpPossible(possible);
+	          setXpAchieved(achieved);
+	        } else if (scope === 'coord' && coordId) {
           const { data, error } = await supabase.rpc('coord_adherence_window_v2', { _start: startIso, _end: endIso, _coord_id: coordId, _leader_multiplier: leaderMult } as any);
           if (error) throw error;
           const row = Array.isArray(data) ? data[0] : null;

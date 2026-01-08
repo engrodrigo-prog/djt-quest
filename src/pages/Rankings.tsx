@@ -11,12 +11,13 @@ import { Badge } from '@/components/ui/badge';
 import { useI18n } from '@/contexts/I18nContext';
 import { getActiveLocale } from '@/lib/i18n/activeLocale';
 import { UserProfilePopover } from '@/components/UserProfilePopover';
-import { LEADER_PARTIAL_POINTS_MULTIPLIER } from '@/lib/constants/points';
+import { DJT_TEAM_GROUP_IDS, isDjtTeamGroupId, LEADER_PARTIAL_POINTS_MULTIPLIER } from '@/lib/constants/points';
 
 interface IndividualRanking {
   rank: number;
   userId: string;
   name: string;
+  points: number;
   xp: number;
   level: number;
   avatarUrl: string | null;
@@ -25,6 +26,7 @@ interface IndividualRanking {
   teamId: string | null;
   coordId: string | null;
   divisionId: string;
+  isLeader: boolean;
 }
 
 interface TeamRanking {
@@ -75,19 +77,17 @@ interface XpBreakdown {
 const GUEST_TEAM_ID = 'CONVIDADOS';
 const isGuestTeamId = (id: string | null | undefined) => String(id || '').toUpperCase() === GUEST_TEAM_ID;
 const LEADER_EVAL_POINTS = 5;
-const isPhotoUrl = (url: string) => /\.(png|jpe?g|webp|gif|bmp|tif|tiff|heic|heif|avif)(\?|#|$)/i.test(url || '');
 
-const normalizeAttachmentUrls = (raw: any): string[] => {
-  if (!Array.isArray(raw)) return [];
-  const urls: string[] = [];
-  for (const item of raw) {
-    if (typeof item === 'string' && item.trim()) urls.push(item.trim());
-    else if (item && typeof item === 'object') {
-      const u = (item as any).url || (item as any).publicUrl || (item as any).href || (item as any).src || '';
-      if (typeof u === 'string' && u.trim()) urls.push(u.trim());
-    }
-  }
-  return urls;
+const computeBaseXpFromBreakdown = (b: any) => {
+  const quizXp = Number(b?.quiz_xp || 0);
+  const initiativesXp = Number(b?.initiatives_xp || 0);
+  const forumXp = Number(b?.forum_posts || 0) * 10;
+  const sepbookXp =
+    Number(b?.sepbook_photo_count || 0) * 5 +
+    Number(b?.sepbook_comments || 0) * 2 +
+    Number(b?.sepbook_likes || 0);
+  const evaluationsXp = Number(b?.evaluations_completed || 0) * LEADER_EVAL_POINTS;
+  return quizXp + initiativesXp + forumXp + sepbookXp + evaluationsXp;
 };
 
 function Rankings() {
@@ -155,28 +155,56 @@ function Rankings() {
         isGuestTeamId(p?.sigla_area) ||
         isGuestTeamId(p?.operational_base);
 
-      if (profilesData.length) {
+      const visibleProfiles = allProfiles.filter((p: any) => !isGuestProfile(p));
+      let breakdownByUserId: Record<string, any> = {};
+      try {
+        const ids = visibleProfiles.map((p: any) => p?.id).filter(Boolean);
+        const { data: rows, error: brErr } = await supabase.rpc('user_points_breakdown', { _user_ids: ids } as any);
+        if (!brErr && Array.isArray(rows)) {
+          breakdownByUserId = rows.reduce<Record<string, any>>((acc, r: any) => {
+            const uid = String(r?.user_id || '');
+            if (!uid) return acc;
+            acc[uid] = r;
+            return acc;
+          }, {});
+        }
+      } catch {
+        breakdownByUserId = {};
+      }
+
+      if (visibleProfiles.length) {
         const teamMap = (teamsResult.data || []).reduce<Record<string, string>>((acc, team) => {
           acc[team.id] = team.name;
           return acc;
         }, {});
 
-        const ranked = [...profilesData]
-          .sort((a, b) => (b.xp || 0) - (a.xp || 0))
-          .map((profile, index) => {
+        const ranked = [...visibleProfiles]
+          .map((profile: any) => {
+            const isLeader = isLeaderProfile(profile);
+            const breakdown = breakdownByUserId[String(profile.id)];
+            const baseXp = breakdown ? computeBaseXpFromBreakdown(breakdown) : Number(profile.xp ?? 0);
+            const points = isLeader ? Math.round(baseXp * LEADER_PARTIAL_POINTS_MULTIPLIER) : baseXp;
             const xp = Number(profile.xp ?? 0);
+            return { ...profile, __points: points, __xp: xp, __isLeader: isLeader };
+          })
+          .sort((a: any, b: any) => (b.__points || 0) - (a.__points || 0) || String(a.name).localeCompare(String(b.name), getActiveLocale()))
+          .map((profile, index) => {
+            const points = Number((profile as any).__points ?? 0);
+            const xp = Number((profile as any).__xp ?? 0);
             return {
               rank: index + 1,
               userId: profile.id,
               name: profile.name,
+              points,
               xp,
-              level: Math.floor(xp / 100),
+              level: Math.floor(points / 100),
               avatarUrl: profile.avatar_url,
               tier: profile.tier,
-              teamName: profile.team_id ? (teamMap[profile.team_id] || 'Sem equipe') : 'Sem equipe',
+              teamName: profile.team_id ? (teamMap[profile.team_id] || String(profile.team_id)) : 'Sem equipe',
               coordId: profile.coord_id,
               divisionId: profile.division_id,
-              teamId: profile.team_id
+              teamId: profile.team_id,
+              isLeader: Boolean((profile as any).__isLeader),
             };
           });
         setIndividualRankings(ranked);
@@ -184,7 +212,8 @@ function Rankings() {
         // Filter My Team: selected team (if any) or user's team
         const baseTeamId = selectedTeamId || (orgScope?.teamId && (!orgScope.divisionId || orgScope.teamId !== orgScope.divisionId) ? orgScope.teamId : null);
         if (baseTeamId) {
-          const myTeam = ranked.filter(p => p.teamId === baseTeamId);
+          const teamIds = isDjtTeamGroupId(baseTeamId) ? Array.from(DJT_TEAM_GROUP_IDS) : [baseTeamId];
+          const myTeam = ranked.filter(p => p.teamId && teamIds.includes(String(p.teamId)));
           setMyTeamRankings(myTeam.map((p, i) => ({ ...p, rank: i + 1 })));
         } else {
           setMyTeamRankings([]);
@@ -386,10 +415,91 @@ function Rankings() {
         const allPossible = Object.values(possibleByDivision).reduce((s, v) => s + v, 0);
         const globalAdherence = allPossible > 0 ? Math.round((allAchieved / allPossible) * 100) : 0;
         const globalTeamCount = Object.values(teamsByDivision).reduce((s, arr) => s + arr.length, 0);
-        const globalRow = { divisionId: 'DJT', divisionName: 'Aderência Global (DJT)', adherencePct: globalAdherence, teamCount: globalTeamCount, order: 0 };
+        const globalRow = { divisionId: 'DJT_GLOBAL', divisionName: 'Aderência Global (DJT)', adherencePct: globalAdherence, teamCount: globalTeamCount, order: 0 };
 
         setDivisionRankings([globalRow, ...divisionData]);
       }
+
+      // Prefer DB adherence v2 (leaders counted partially) to avoid pagination/RLS mismatches.
+      try {
+        const now = new Date();
+        const start = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+        const leaderMult = LEADER_PARTIAL_POINTS_MULTIPLIER;
+        const [teamRpc, divRpc] = await Promise.all([
+          supabase.rpc('team_adherence_window_v2', { _start: start.toISOString(), _end: now.toISOString(), _leader_multiplier: leaderMult } as any),
+          supabase.rpc('division_adherence_window_v2', { _start: start.toISOString(), _end: now.toISOString(), _leader_multiplier: leaderMult } as any),
+        ]);
+
+        if (!teamRpc.error && Array.isArray(teamRpc.data)) {
+          const teamNameById = (teamsResult.data || []).reduce<Record<string, string>>((acc: any, t: any) => {
+            acc[String(t.id)] = String(t.name || t.id);
+            return acc;
+          }, {});
+
+          const raw = teamRpc.data as any[];
+          const groupSet = new Set<string>(Array.from(DJT_TEAM_GROUP_IDS));
+          const groupRows = raw.filter((r) => groupSet.has(String(r?.team_id || '')));
+          const nonGroupRows = raw.filter((r) => !groupSet.has(String(r?.team_id || '')));
+
+          const merged = groupRows.length
+            ? (() => {
+                const memberCount = groupRows.reduce((s, r) => s + (Number(r?.member_count || 0) || 0), 0);
+                const possible = groupRows.reduce((s, r) => s + (Number(r?.possible || 0) || 0), 0);
+                const achieved = groupRows.reduce((s, r) => s + (Number(r?.achieved || 0) || 0), 0);
+                const adherencePct = possible > 0 ? Math.round((achieved / possible) * 100) : 0;
+                return { team_id: 'DJT', member_count: memberCount, possible, achieved, adherence_pct: adherencePct, __merged: true };
+              })()
+            : null;
+
+          const next = [...nonGroupRows, ...(merged ? [merged] : [])]
+            .filter((r) => Number(r?.member_count || 0) > 0)
+            .map((r) => ({
+              teamId: String(r.team_id),
+              teamName: String(r.team_id) === 'DJT' && (r as any).__merged ? 'DJT (inclui PLA)' : (teamNameById[String(r.team_id)] || String(r.team_id)),
+              adherencePct: Number(r.adherence_pct || 0),
+              memberCount: Number(r.member_count || 0),
+              rank: 0,
+            }))
+            .sort((a, b) => b.adherencePct - a.adherencePct || b.memberCount - a.memberCount || a.teamName.localeCompare(b.teamName, getActiveLocale()))
+            .map((t, i) => ({ ...t, rank: i + 1 }));
+
+          setTeamRankings(next);
+        }
+
+        if (!divRpc.error && Array.isArray(divRpc.data)) {
+          const divisionNameById = (divisionsResult.data || []).reduce<Record<string, string>>((acc: any, d: any) => {
+            acc[String(d.id)] = String(d.name || d.id);
+            return acc;
+          }, {});
+
+          const rows = divRpc.data as any[];
+          const global = rows.find((r) => String(r?.division_id) === 'DJT_GLOBAL');
+          const others = rows.filter((r) => String(r?.division_id) !== 'DJT_GLOBAL');
+
+          const divisionData = others
+            .map((r) => ({
+              divisionId: String(r.division_id),
+              divisionName: divisionNameById[String(r.division_id)] || String(r.division_id),
+              adherencePct: Number(r.adherence_pct || 0),
+              teamCount: Number(r.team_count || 0),
+              order: 0,
+            }))
+            .sort((a, b) => b.adherencePct - a.adherencePct)
+            .map((d, i) => ({ ...d, order: i + 1 }));
+
+          const globalRow = global
+            ? {
+                divisionId: 'DJT_GLOBAL',
+                divisionName: 'Aderência Global (DJT)',
+                adherencePct: Number((global as any).adherence_pct || 0),
+                teamCount: Number((global as any).team_count || 0),
+                order: 0,
+              }
+            : { divisionId: 'DJT_GLOBAL', divisionName: 'Aderência Global (DJT)', adherencePct: 0, teamCount: 0, order: 0 };
+
+          setDivisionRankings([globalRow, ...divisionData]);
+        }
+      } catch {}
 
       // Leader ranking: partial credit across initiatives/quizzes/forum/SEPBook/evaluations (historical breakdown via RPC).
       const completedByReviewer = !evalQueueResult.error
@@ -457,7 +567,7 @@ function Rankings() {
             : 0;
           const evaluationsXp = completed * LEADER_EVAL_POINTS;
           const baseXp = quizXp + initiativesXp + forumXp + sepbookXp + evaluationsXp;
-          const score = Math.floor(baseXp * LEADER_PARTIAL_POINTS_MULTIPLIER);
+          const score = Math.round(baseXp * LEADER_PARTIAL_POINTS_MULTIPLIER);
           return {
             userId: p.id,
             name: p.name,
@@ -495,69 +605,21 @@ function Rankings() {
     (async () => {
       try {
         const userId = selectedUserId;
-        const [
-          quizRes,
-          forumByUserRes,
-          forumByAuthorRes,
-          sepbookPostsRes,
-          sepbookCommentsRes,
-          sepbookLikesRes,
-          eventsRes,
-          evalsRes,
-        ] = await Promise.all([
-          supabase.from('user_quiz_answers').select('xp_earned').eq('user_id', userId).limit(50000),
-          supabase.from('forum_posts').select('id', { count: 'exact', head: true }).eq('user_id', userId),
-          supabase.from('forum_posts').select('id', { count: 'exact', head: true }).eq('author_id', userId),
-          supabase.from('sepbook_posts').select('attachments').eq('user_id', userId).limit(2000),
-          supabase.from('sepbook_comments').select('id').eq('user_id', userId).limit(5000),
-          supabase.from('sepbook_likes').select('post_id').eq('user_id', userId).limit(5000),
-          supabase.from('events').select('final_points').eq('user_id', userId).limit(5000),
-          supabase.from('evaluation_queue').select('completed_at').eq('assigned_to', userId).limit(5000),
-        ]);
+        const { data: rows, error } = await supabase.rpc('user_points_breakdown', { _user_ids: [userId] } as any);
+        if (error) throw error;
+        const b = Array.isArray(rows) ? rows[0] : null;
 
-        let commentLikesCount = 0;
-        try {
-          const { data: commentLikes } = await supabase
-            .from('sepbook_comment_likes')
-            .select('comment_id')
-            .eq('user_id', userId)
-            .limit(5000);
-          commentLikesCount = Array.isArray(commentLikes) ? commentLikes.length : 0;
-        } catch {
-          commentLikesCount = 0;
-        }
-
-        const quizXp = Array.isArray(quizRes.data)
-          ? quizRes.data.reduce((sum: number, r: any) => sum + (Number(r?.xp_earned) || 0), 0)
-          : 0;
-        const forumPosts =
-          Math.max(
-            Number((forumByUserRes as any)?.count || 0),
-            Number((forumByAuthorRes as any)?.count || 0),
-          ) || 0;
+        const quizXp = Number(b?.quiz_xp || 0);
+        const forumPosts = Number(b?.forum_posts || 0);
         const forumXp = forumPosts * 10;
-
-        const sepbookPhotoCount = Array.isArray(sepbookPostsRes.data)
-          ? sepbookPostsRes.data.reduce((sum: number, row: any) => {
-              const urls = normalizeAttachmentUrls(row?.attachments);
-              return sum + urls.filter((url: string) => isPhotoUrl(url)).length;
-            }, 0)
-          : 0;
+        const sepbookPhotoCount = Number(b?.sepbook_photo_count || 0);
         const sepbookPostXp = sepbookPhotoCount * 5;
-
-        const sepbookComments = Array.isArray(sepbookCommentsRes.data) ? sepbookCommentsRes.data.length : 0;
+        const sepbookComments = Number(b?.sepbook_comments || 0);
         const sepbookCommentXp = sepbookComments * 2;
-
-        const sepbookLikes = (Array.isArray(sepbookLikesRes.data) ? sepbookLikesRes.data.length : 0) + commentLikesCount;
+        const sepbookLikes = Number(b?.sepbook_likes || 0);
         const sepbookLikeXp = sepbookLikes;
-
-        const campaignsXp = Array.isArray(eventsRes.data)
-          ? eventsRes.data.reduce((sum: number, row: any) => sum + (Number(row?.final_points) || 0), 0)
-          : 0;
-
-        const evaluationsCompleted = Array.isArray(evalsRes.data)
-          ? evalsRes.data.filter((row: any) => row?.completed_at).length
-          : 0;
+        const campaignsXp = Number(b?.initiatives_xp || 0);
+        const evaluationsCompleted = Number(b?.evaluations_completed || 0);
         const evaluationsXp = evaluationsCompleted * LEADER_EVAL_POINTS;
 
         if (!cancelled) {
@@ -679,7 +741,7 @@ function Rankings() {
                           </UserProfilePopover>
 
                           <div className="text-right">
-                            <p className="text-lg font-bold">{ranking.xp.toLocaleString()} XP</p>
+                            <p className="text-lg font-bold">{ranking.points.toLocaleString()} {tr("rankings.pointsLabel")}</p>
                             <p className="text-sm text-muted-foreground">{tr("rankings.levelLabel", { level: ranking.level })}</p>
                           </div>
                         </div>
@@ -786,7 +848,7 @@ function Rankings() {
                         </UserProfilePopover>
 
                         <div className="text-right">
-                          <p className="text-lg font-bold">{ranking.xp.toLocaleString()} XP</p>
+                          <p className="text-lg font-bold">{ranking.points.toLocaleString()} {tr("rankings.pointsLabel")}</p>
                           <p className="text-sm text-muted-foreground">{tr("rankings.levelLabel", { level: ranking.level })}</p>
                         </div>
                       </div>
