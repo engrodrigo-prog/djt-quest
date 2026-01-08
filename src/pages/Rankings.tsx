@@ -11,7 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { useI18n } from '@/contexts/I18nContext';
 import { getActiveLocale } from '@/lib/i18n/activeLocale';
 import { UserProfilePopover } from '@/components/UserProfilePopover';
-import { DJT_TEAM_GROUP_IDS, isDjtTeamGroupId } from '@/lib/constants/points';
+import { DJT_TEAM_GROUP_IDS, isDjtTeamAggregateBaseId } from '@/lib/constants/points';
 
 interface IndividualRanking {
   rank: number;
@@ -27,6 +27,11 @@ interface IndividualRanking {
   coordId: string | null;
   divisionId: string;
   isLeader: boolean;
+  quizXp: number;
+  initiativesXp: number;
+  forumXp: number;
+  sepbookXp: number;
+  evaluationsXp: number;
 }
 
 interface TeamRanking {
@@ -185,7 +190,25 @@ function Rankings() {
             const baseXp = breakdown ? computeBaseXpFromBreakdown(breakdown) : Number(profile.xp ?? 0);
             const points = baseXp;
             const xp = Number(profile.xp ?? 0);
-            return { ...profile, __points: points, __xp: xp, __isLeader: isLeader };
+            const quizXp = Number(breakdown?.quiz_xp || 0);
+            const initiativesXp = Number(breakdown?.initiatives_xp || 0);
+            const forumXp = Number(breakdown?.forum_posts || 0) * 10;
+            const sepbookXp =
+              Number(breakdown?.sepbook_photo_count || 0) * 5 +
+              Number(breakdown?.sepbook_comments || 0) * 2 +
+              Number(breakdown?.sepbook_likes || 0);
+            const evaluationsXp = Number(breakdown?.evaluations_completed || 0) * LEADER_EVAL_POINTS;
+            return {
+              ...profile,
+              __points: points,
+              __xp: xp,
+              __isLeader: isLeader,
+              __quizXp: quizXp,
+              __initiativesXp: initiativesXp,
+              __forumXp: forumXp,
+              __sepbookXp: sepbookXp,
+              __evaluationsXp: evaluationsXp,
+            };
           })
           .sort((a: any, b: any) => (b.__points || 0) - (a.__points || 0) || String(a.name).localeCompare(String(b.name), getActiveLocale()))
           .map((profile, index) => {
@@ -205,6 +228,11 @@ function Rankings() {
               divisionId: profile.division_id,
               teamId: profile.team_id,
               isLeader: Boolean((profile as any).__isLeader),
+              quizXp: Number((profile as any).__quizXp ?? 0),
+              initiativesXp: Number((profile as any).__initiativesXp ?? 0),
+              forumXp: Number((profile as any).__forumXp ?? 0),
+              sepbookXp: Number((profile as any).__sepbookXp ?? 0),
+              evaluationsXp: Number((profile as any).__evaluationsXp ?? 0),
             };
           });
         setIndividualRankings(ranked);
@@ -212,7 +240,7 @@ function Rankings() {
         // Filter My Team: selected team (if any) or user's team
         const baseTeamId = selectedTeamId || (orgScope?.teamId && (!orgScope.divisionId || orgScope.teamId !== orgScope.divisionId) ? orgScope.teamId : null);
         if (baseTeamId) {
-          const teamIds = isDjtTeamGroupId(baseTeamId) ? Array.from(DJT_TEAM_GROUP_IDS) : [baseTeamId];
+          const teamIds = isDjtTeamAggregateBaseId(baseTeamId) ? Array.from(DJT_TEAM_GROUP_IDS) : [baseTeamId];
           const myTeam = ranked.filter(p => p.teamId && teamIds.includes(String(p.teamId)));
           setMyTeamRankings(myTeam.map((p, i) => ({ ...p, rank: i + 1 })));
         } else {
@@ -730,6 +758,15 @@ function Rankings() {
                               </Avatar>
                               <div className="min-w-0">
                                 <p className="font-semibold truncate">{ranking.name}</p>
+                                <p className="text-xs text-muted-foreground">
+                                  {tr("rankings.inlineBreakdown", {
+                                    quizXp: ranking.quizXp.toLocaleString(),
+                                    initiativesXp: ranking.initiativesXp.toLocaleString(),
+                                    forumXp: ranking.forumXp.toLocaleString(),
+                                    sepbookXp: ranking.sepbookXp.toLocaleString(),
+                                    evaluationsXp: ranking.evaluationsXp.toLocaleString(),
+                                  })}
+                                </p>
                                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                                   <Badge variant="outline" className="text-xs">
                                     {ranking.tier}
@@ -838,6 +875,15 @@ function Rankings() {
                             </Avatar>
                             <div className="min-w-0">
                               <p className="font-semibold truncate">{ranking.name}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {tr("rankings.inlineBreakdown", {
+                                  quizXp: ranking.quizXp.toLocaleString(),
+                                  initiativesXp: ranking.initiativesXp.toLocaleString(),
+                                  forumXp: ranking.forumXp.toLocaleString(),
+                                  sepbookXp: ranking.sepbookXp.toLocaleString(),
+                                  evaluationsXp: ranking.evaluationsXp.toLocaleString(),
+                                })}
+                              </p>
                               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                                 <Badge variant="outline" className="text-xs">
                                   {ranking.tier}

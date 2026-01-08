@@ -321,6 +321,7 @@
     "leadersFormula": "XP = Initiatives + Quizzes + Forum + SEPBook + Reviews • Review is worth {points} XP",
     "leadersEmpty": "No leaders found (or you don't have permission to read reviews).",
     "leadersStats": "Reviews: {completed} • Quizzes: {quizXp} XP • Initiatives: {initiativesXp} XP • Forum: {forumXp} XP • SEPBook: {sepbookXp} XP",
+    "inlineBreakdown": "Quizzes: {quizXp} XP • Initiatives: {initiativesXp} XP • Forum: {forumXp} XP • SEPBook: {sepbookXp} XP • Reviews: {evaluationsXp} XP",
     "pointsLabel": "XP",
     "breakdownTitle": "XP Breakdown",
     "breakdownSubtitle": "Based on recorded activity.",

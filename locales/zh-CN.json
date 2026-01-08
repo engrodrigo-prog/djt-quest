@@ -321,6 +321,7 @@
     "leadersFormula": "XP = 活动 + 测验 + 论坛 + SEPBook + 评审 • 每次评审 {points} XP",
     "leadersEmpty": "未找到领导（或你没有权限读取评审）。",
     "leadersStats": "评审：{completed} • 测验：{quizXp} XP • 活动：{initiativesXp} XP • 论坛：{forumXp} XP • SEPBook：{sepbookXp} XP",
+    "inlineBreakdown": "测验：{quizXp} XP • 活动：{initiativesXp} XP • 论坛：{forumXp} XP • SEPBook：{sepbookXp} XP • 评审：{evaluationsXp} XP",
     "pointsLabel": "XP",
     "breakdownTitle": "XP 明细",
     "breakdownSubtitle": "基于记录的活动。",

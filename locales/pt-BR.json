@@ -321,6 +321,7 @@
     "leadersFormula": "XP = Iniciativas + Quizzes + Fórum + SEPBook + Avaliações • Avaliação vale {points} XP",
     "leadersEmpty": "Nenhum líder encontrado (ou você não tem permissão para ler avaliações).",
     "leadersStats": "Avaliações: {completed} • Quizzes: {quizXp} XP • Iniciativas: {initiativesXp} XP • Fórum: {forumXp} XP • SEPBook: {sepbookXp} XP",
+    "inlineBreakdown": "Quizzes: {quizXp} XP • Iniciativas: {initiativesXp} XP • Fórum: {forumXp} XP • SEPBook: {sepbookXp} XP • Avaliações: {evaluationsXp} XP",
     "pointsLabel": "XP",
     "breakdownTitle": "Detalhamento de XP",
     "breakdownSubtitle": "Baseado em atividades registradas.",
