@@ -1,9 +1,10 @@
-import { useEffect, useState, useMemo, useRef } from "react";
+import { useEffect, useState, useMemo, useRef, useCallback } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Shield, Zap, Trophy, Target, LogOut, Star, Menu, Filter, History, CheckCircle, ListFilter, Trash2, Share2, Bell, MessageSquare, AtSign, ClipboardList } from "lucide-react";
 import { AIStatus } from "@/components/AIStatus";
@@ -21,10 +22,12 @@ import { apiFetch } from "@/lib/api";
 interface Campaign {
   id: string;
   title: string;
-  description: string;
-  narrative_tag: string;
-  start_date: string;
-  end_date: string;
+  description: string | null;
+  narrative_tag: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  is_active?: boolean | null;
+  evidence_challenge_id?: string | null;
 }
 
 interface Challenge {
@@ -46,6 +49,12 @@ const Dashboard = () => {
   const navigate = useNavigate();
   const { locale, t: tr } = useI18n();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [campaignStats, setCampaignStats] = useState<Record<string, { total: number; approved: number; last_event_at: string | null }>>({});
+  const [campaignSearch, setCampaignSearch] = useState("");
+  const [campaignTag, setCampaignTag] = useState("");
+  const [campaignStatusFilter, setCampaignStatusFilter] = useState<"active" | "closed" | "all">("active");
+  const [campaignDateStart, setCampaignDateStart] = useState("");
+  const [campaignDateEnd, setCampaignDateEnd] = useState("");
   const [allChallenges, setAllChallenges] = useState<Challenge[]>([]);
   const [quizQuestionCounts, setQuizQuestionCounts] = useState<Record<string, number>>({});
   const [userEvents, setUserEvents] = useState<Array<{ id: string; challenge_id: string; status: string; created_at: string }>>([]);
@@ -98,8 +107,9 @@ const Dashboard = () => {
           supabase
             .from("campaigns")
             .select("*")
-            .eq("is_active", true)
-            .order("start_date", { ascending: false }),
+            .order("is_active", { ascending: false })
+            .order("start_date", { ascending: false })
+            .limit(120),
           
           supabase
             .from("challenges")
@@ -248,6 +258,38 @@ const Dashboard = () => {
 
     loadData();
   }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+    let active = true;
+    (async () => {
+      if (!campaigns || campaigns.length === 0) {
+        setCampaignStats({});
+        return;
+      }
+      const ids = campaigns
+        .map((c) => String(c?.id || "").trim())
+        .filter(Boolean)
+        .slice(0, 60);
+      if (!ids.length) {
+        setCampaignStats({});
+        return;
+      }
+      try {
+        const resp = await apiFetch(`/api/campaign-stats?campaign_ids=${encodeURIComponent(ids.join(","))}`);
+        const json = await resp.json().catch(() => ({}));
+        if (!active) return;
+        const stats = json?.stats && typeof json.stats === "object" ? json.stats : {};
+        setCampaignStats(stats);
+      } catch {
+        if (!active) return;
+        setCampaignStats({});
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [campaigns, user]);
 
   useEffect(() => {
     if (!user) return;
@@ -476,6 +518,57 @@ const Dashboard = () => {
   const isTopLeader = authProfile?.matricula === '601555';
   const canDeleteContent = Boolean(isLeader || (userRole && (userRole.includes('gerente') || userRole.includes('coordenador'))));
   const forumPotentialXp = useMemo(() => openForums.length * 500, [openForums]);
+
+  const getCampaignStatus = useCallback((c: Campaign): "active" | "closed" => {
+    const now = Date.now();
+    const start = c?.start_date ? Date.parse(String(c.start_date)) : null;
+    const end = c?.end_date ? Date.parse(String(c.end_date)) : null;
+    const withinPeriod = (!start || start <= now) && (!end || end >= now);
+    return c?.is_active !== false && withinPeriod ? "active" : "closed";
+  }, []);
+
+  const filteredCampaigns = useMemo(() => {
+    const q = campaignSearch.trim().toLowerCase();
+    const tagQ = campaignTag.trim().toLowerCase().replace(/^#/, "");
+    const from = campaignDateStart ? new Date(`${campaignDateStart}T00:00:00`) : null;
+    const to = campaignDateEnd ? new Date(`${campaignDateEnd}T23:59:59`) : null;
+
+    const overlapsPeriod = (c: Campaign) => {
+      if (!from && !to) return true;
+      const s = c?.start_date ? new Date(String(c.start_date)) : null;
+      const e = c?.end_date ? new Date(String(c.end_date)) : null;
+      const startOk = !to || !s || s <= to;
+      const endOk = !from || !e || e >= from;
+      return startOk && endOk;
+    };
+
+    return (campaigns || [])
+      .filter((c) => {
+        const status = getCampaignStatus(c);
+        if (campaignStatusFilter !== "all" && status !== campaignStatusFilter) return false;
+
+        const hay = `${c?.title || ""} ${(c as any)?.description || ""} ${(c as any)?.narrative_tag || ""}`.toLowerCase();
+        if (q && !hay.includes(q)) return false;
+
+        const normalizedTag = String((c as any)?.narrative_tag || "")
+          .trim()
+          .toLowerCase()
+          .replace(/^#/, "");
+        if (tagQ && !normalizedTag.includes(tagQ)) return false;
+
+        if (!overlapsPeriod(c)) return false;
+        return true;
+      })
+      .sort((a, b) => {
+        const aRank = getCampaignStatus(a) === "active" ? 0 : 1;
+        const bRank = getCampaignStatus(b) === "active" ? 0 : 1;
+        if (aRank !== bRank) return aRank - bRank;
+        const ad = a?.start_date ? Date.parse(String(a.start_date)) : 0;
+        const bd = b?.start_date ? Date.parse(String(b.start_date)) : 0;
+        if (bd !== ad) return bd - ad;
+        return String(a?.title || "").localeCompare(String(b?.title || ""), locale);
+      });
+  }, [campaignDateEnd, campaignDateStart, campaignSearch, campaignStatusFilter, campaignTag, campaigns, getCampaignStatus, locale]);
 
   const featuredMilhao = useMemo(() => {
     const isMilhao = (t: string) => /milh(ã|a)o/i.test(t || '');
@@ -913,27 +1006,101 @@ const Dashboard = () => {
           </section>
         )}
 
-        <section>
-          <div className="flex items-center gap-2 mb-3 text-foreground">
-            <Target className="h-5 w-5 text-primary" />
-            <h2 className="text-2xl font-semibold leading-tight">{tr("dashboard.campaignsTitle")}</h2>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {campaigns.map((campaign) => (
-              <Card
-                key={campaign.id}
-                className="hover:shadow-lg transition-shadow bg-white/5 border border-white/20 text-white backdrop-blur-md"
-              >
-                <CardHeader className="pb-3 space-y-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <Badge variant="outline" className="w-fit text-[11px] uppercase tracking-wide border-white/50 text-white">
-                      {campaign.narrative_tag}
-                    </Badge>
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      className="h-8 w-8 text-white/90 hover:text-white"
-                      onClick={() => {
+	        <section>
+	          <div className="flex items-center gap-2 mb-3 text-foreground">
+	            <Target className="h-5 w-5 text-primary" />
+	            <h2 className="text-2xl font-semibold leading-tight">{tr("dashboard.campaignsTitle")}</h2>
+	          </div>
+	          <div className="mb-3 space-y-2">
+	            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+	              <Input
+	                placeholder="Buscar campanha (nome/objetivo)…"
+	                value={campaignSearch}
+	                onChange={(e) => setCampaignSearch(e.target.value)}
+	                className="sm:max-w-md"
+	              />
+	              <div className="flex flex-wrap items-center gap-2">
+	                <Button
+	                  type="button"
+	                  size="sm"
+	                  variant={campaignStatusFilter === "active" ? "secondary" : "outline"}
+	                  onClick={() => setCampaignStatusFilter("active")}
+	                >
+	                  Ativas
+	                </Button>
+	                <Button
+	                  type="button"
+	                  size="sm"
+	                  variant={campaignStatusFilter === "closed" ? "secondary" : "outline"}
+	                  onClick={() => setCampaignStatusFilter("closed")}
+	                >
+	                  Encerradas
+	                </Button>
+	                <Button
+	                  type="button"
+	                  size="sm"
+	                  variant={campaignStatusFilter === "all" ? "secondary" : "outline"}
+	                  onClick={() => setCampaignStatusFilter("all")}
+	                >
+	                  Todas
+	                </Button>
+	              </div>
+	            </div>
+	            <div className="grid gap-2 sm:grid-cols-3">
+	              <Input
+	                placeholder="Filtrar por tag…"
+	                value={campaignTag}
+	                onChange={(e) => setCampaignTag(e.target.value)}
+	              />
+	              <Input type="date" value={campaignDateStart} onChange={(e) => setCampaignDateStart(e.target.value)} />
+	              <Input type="date" value={campaignDateEnd} onChange={(e) => setCampaignDateEnd(e.target.value)} />
+	            </div>
+	            <div className="text-[11px] text-muted-foreground">
+	              {filteredCampaigns.length} campanha(s)
+	            </div>
+	          </div>
+	          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+	            {filteredCampaigns.map((campaign) => {
+	              const status = getCampaignStatus(campaign);
+	              const stats = campaignStats?.[campaign.id];
+	              const totalActions = Number(stats?.total || 0);
+	              const approvedActions = Number(stats?.approved || 0);
+	              const lastAt = stats?.last_event_at ? new Date(stats.last_event_at) : null;
+	              const lastLabel = lastAt ? lastAt.toLocaleDateString(locale, { day: "2-digit", month: "short" }) : "—";
+	              const start = campaign.start_date ? new Date(campaign.start_date) : null;
+	              const end = campaign.end_date ? new Date(campaign.end_date) : null;
+	              const periodLabel =
+	                start && end
+	                  ? `${start.toLocaleDateString(locale, { day: "2-digit", month: "short" })} - ${end.toLocaleDateString(locale, { day: "2-digit", month: "short" })}`
+	                  : start
+	                    ? `${start.toLocaleDateString(locale, { day: "2-digit", month: "short" })} - —`
+	                    : end
+	                      ? `— - ${end.toLocaleDateString(locale, { day: "2-digit", month: "short" })}`
+	                      : "Período não informado";
+
+	              return (
+	              <Card
+	                key={campaign.id}
+	                className="hover:shadow-lg transition-shadow bg-white/5 border border-white/20 text-white backdrop-blur-md"
+	              >
+	                <CardHeader className="pb-3 space-y-2">
+	                  <div className="flex items-center justify-between gap-2">
+	                    <div className="flex flex-wrap items-center gap-2">
+	                      <Badge variant="outline" className="w-fit text-[11px] uppercase tracking-wide border-white/50 text-white">
+	                        {campaign.narrative_tag || "Campanha"}
+	                      </Badge>
+	                      <Badge
+	                        variant={status === "active" ? "secondary" : "outline"}
+	                        className="w-fit text-[10px] uppercase tracking-wide"
+	                      >
+	                        {status === "active" ? "Ativa" : "Encerrada"}
+	                      </Badge>
+	                    </div>
+	                    <Button
+	                      size="icon"
+	                      variant="ghost"
+	                      className="h-8 w-8 text-white/90 hover:text-white"
+	                      onClick={() => {
                         const url = buildAbsoluteAppUrl(`/campaign/${encodeURIComponent(campaign.id)}`);
                         openWhatsAppShare({
                           message: tr("dashboard.campaignShareMessage", { title: campaign.title }),
@@ -941,30 +1108,31 @@ const Dashboard = () => {
                         });
                       }}
                       title={tr("dashboard.shareWhatsApp")}
-                    >
-                      <Share2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                  <CardTitle className="text-lg leading-tight text-white">{campaign.title}</CardTitle>
-                  <CardDescription className="text-sm text-white/75 line-clamp-2">{campaign.description}</CardDescription>
-                </CardHeader>
-                <CardContent className="pt-0">
-                  <p className="text-xs text-white/70 mb-2">
-                    {new Date(campaign.start_date).toLocaleDateString(locale, { day: "2-digit", month: "short" })} -{" "}
-                    {new Date(campaign.end_date).toLocaleDateString(locale, { day: "2-digit", month: "short" })}
-                  </p>
-                  <Button
-                    className="w-full h-9 text-sm"
-                    variant="secondary"
-                    onClick={() => navigate(`/campaign/${campaign.id}`)}
-                  >
-                    {tr("dashboard.campaignDetails")}
-                  </Button>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </section>
+	                    >
+	                      <Share2 className="h-4 w-4" />
+	                    </Button>
+	                  </div>
+	                  <CardTitle className="text-lg leading-tight text-white">{campaign.title}</CardTitle>
+	                  <CardDescription className="text-sm text-white/75 line-clamp-2">{campaign.description || "—"}</CardDescription>
+	                </CardHeader>
+	                <CardContent className="pt-0">
+	                  <p className="text-xs text-white/70">{periodLabel}</p>
+	                  <p className="text-[11px] text-white/70 mt-1 mb-2">
+	                    Ações: {totalActions} • Aprovadas: {approvedActions} • Última: {lastLabel}
+	                  </p>
+	                  <Button
+	                    className="w-full h-9 text-sm"
+	                    variant="secondary"
+	                    onClick={() => navigate(`/campaign/${campaign.id}`)}
+	                  >
+	                    {tr("dashboard.campaignDetails")}
+	                  </Button>
+	                </CardContent>
+	              </Card>
+	              );
+	            })}
+	          </div>
+	        </section>
 
         {/* Challenges with filters (desativados da home; desafios agora via campanhas/fóruns) */}
         {showChallengesSection && (

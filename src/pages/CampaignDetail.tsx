@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,11 +8,12 @@ import { ThemedBackground } from "@/components/ThemedBackground";
 import Navigation from "@/components/Navigation";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Target, Hash, MessageSquare, Zap, ArrowLeft, Share2, MapPinned } from "lucide-react";
+import { Target, Hash, MessageSquare, Zap, ArrowLeft, Share2, MapPinned, Plus } from "lucide-react";
 import { buildAbsoluteAppUrl, openWhatsAppShare } from "@/lib/whatsappShare";
 import { getActiveLocale } from "@/lib/i18n/activeLocale";
 import { apiFetch } from "@/lib/api";
 import { UserProfilePopover } from "@/components/UserProfilePopover";
+import { CampaignEvidenceWizard } from "@/components/CampaignEvidenceWizard";
 import { MapContainer, Marker, Popup, TileLayer } from "react-leaflet";
 import { useMap } from "react-leaflet";
 import L from "leaflet";
@@ -125,6 +126,7 @@ export default function CampaignDetail() {
   const [posts, setPosts] = useState<SepPostRow[]>([]);
   const [evidence, setEvidence] = useState<EvidenceItem[]>([]);
   const [mapOpen, setMapOpen] = useState(false);
+  const [evidenceWizardOpen, setEvidenceWizardOpen] = useState(false);
   const mapInstanceRef = useRef<L.Map | null>(null);
 
   const computeHashTag = (c: Campaign) => {
@@ -140,6 +142,38 @@ export default function CampaignDetail() {
       .replace(/^-+|-+$/g, "");
     return `#camp_${slug || "djt"}`;
   };
+
+  const reloadEvidence = useCallback(async (campId: string) => {
+    try {
+      const resp = await apiFetch(`/api/campaign-evidence?campaign_id=${encodeURIComponent(String(campId))}&limit=200`);
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(json?.error || "Falha ao carregar evidências");
+      setEvidence(Array.isArray(json.items) ? (json.items as any) : []);
+    } catch {
+      setEvidence([]);
+    }
+  }, []);
+
+  const reloadPosts = useCallback(async (camp: Campaign) => {
+    const hashTag = computeHashTag(camp);
+    try {
+      const { data } = await supabase
+        .from("sepbook_posts")
+        .select("id,content_md,like_count,comment_count,created_at")
+        .eq("campaign_id", camp.id)
+        .order("created_at", { ascending: false })
+        .limit(20);
+      setPosts(((data as any) || []) as any);
+    } catch {
+      const { data } = await supabase
+        .from("sepbook_posts")
+        .select("id,content_md,like_count,comment_count,created_at")
+        .ilike("content_md", `%${hashTag}%`)
+        .order("created_at", { ascending: false })
+        .limit(20);
+      setPosts(((data as any) || []) as any);
+    }
+  }, []);
 
   useEffect(() => {
     const load = async () => {
@@ -212,14 +246,7 @@ export default function CampaignDetail() {
         setPosts(((postRows as any)?.data || []) as any);
 
         // Evidence: only approved items (appears after evaluation)
-        try {
-          const resp = await apiFetch(`/api/campaign-evidence?campaign_id=${encodeURIComponent(String(campRow.id))}&limit=200`);
-          const json = await resp.json().catch(() => ({}));
-          if (!resp.ok) throw new Error(json?.error || "Falha ao carregar evidências");
-          setEvidence(Array.isArray(json.items) ? (json.items as any) : []);
-        } catch {
-          setEvidence([]);
-        }
+        await reloadEvidence(campRow.id);
       } catch (e: any) {
         console.error("Erro ao carregar campanha", e);
         toast({
@@ -352,8 +379,9 @@ export default function CampaignDetail() {
                   Subir no SEPBook
                 </Button>
                 {campaign?.evidence_challenge_id ? (
-                  <Button size="sm" variant="secondary" onClick={() => navigate(`/challenge/${encodeURIComponent(String(campaign.evidence_challenge_id))}`)}>
-                    Enviar evidência
+                  <Button size="sm" variant="secondary" onClick={() => setEvidenceWizardOpen(true)}>
+                    <Plus className="h-4 w-4 mr-1" />
+                    Registrar evidência
                   </Button>
                 ) : null}
                 <Button
@@ -726,6 +754,17 @@ export default function CampaignDetail() {
           )}
         </DialogContent>
       </Dialog>
+
+      <CampaignEvidenceWizard
+        open={evidenceWizardOpen}
+        onOpenChange={setEvidenceWizardOpen}
+        campaign={campaign}
+        onSubmitted={() => {
+          if (!campaign) return;
+          reloadEvidence(campaign.id);
+          reloadPosts(campaign);
+        }}
+      />
 
       <Navigation />
     </div>

@@ -3,7 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
-import { Upload, X, Image, Music, Video, FileText, Camera } from "lucide-react";
+import { Upload, X, Image as ImageIcon, Music, Video, FileText, Camera } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface Attachment {
@@ -15,10 +15,15 @@ interface Attachment {
   progress: number;
   url?: string;
   error?: string;
+  meta?: {
+    exifGps?: { lat: number; lng: number } | null;
+  };
 }
 
 interface AttachmentUploaderProps {
   onAttachmentsChange: (urls: string[]) => void;
+  /** Optional: emit URL+meta (e.g. EXIF GPS) for uploaded items */
+  onAttachmentItemsChange?: (items: Array<{ url: string; meta?: Attachment["meta"] }>) => void;
   maxFiles?: number;
   /** Optional: max number of image files (by MIME) */
   maxImages?: number;
@@ -43,16 +48,18 @@ interface AttachmentUploaderProps {
   imageQuality?: number;
   /** Callback opcional: avisa se há uploads em andamento */
   onUploadingChange?: (uploading: boolean) => void;
+  /** When true, tries to extract EXIF GPS from images before any downscaling. */
+  includeImageGpsMeta?: boolean;
 }
 
 const ALLOWED_TYPES = {
-  'image/jpeg': { icon: Image, label: 'Imagem' },
-  'image/png': { icon: Image, label: 'Imagem' },
-  'image/gif': { icon: Image, label: 'Imagem' },
-  'image/webp': { icon: Image, label: 'Imagem' },
-  'image/avif': { icon: Image, label: 'Imagem' },
-  'image/heic': { icon: Image, label: 'Imagem' },
-  'image/heif': { icon: Image, label: 'Imagem' },
+  'image/jpeg': { icon: ImageIcon, label: 'Imagem' },
+  'image/png': { icon: ImageIcon, label: 'Imagem' },
+  'image/gif': { icon: ImageIcon, label: 'Imagem' },
+  'image/webp': { icon: ImageIcon, label: 'Imagem' },
+  'image/avif': { icon: ImageIcon, label: 'Imagem' },
+  'image/heic': { icon: ImageIcon, label: 'Imagem' },
+  'image/heif': { icon: ImageIcon, label: 'Imagem' },
   'audio/mpeg': { icon: Music, label: 'Áudio' },
   'audio/wav': { icon: Music, label: 'Áudio' },
   'audio/webm': { icon: Music, label: 'Áudio' },
@@ -66,6 +73,7 @@ const ALLOWED_TYPES = {
 
 export const AttachmentUploader = ({ 
   onAttachmentsChange,
+  onAttachmentItemsChange,
   maxFiles = 10,
   maxImages,
   maxVideos,
@@ -79,6 +87,7 @@ export const AttachmentUploader = ({
   maxImageDimension = 1080,
   imageQuality = 0.8,
   onUploadingChange,
+  includeImageGpsMeta = false,
 }: AttachmentUploaderProps) => {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [isDragging, setIsDragging] = useState(false);
@@ -147,6 +156,30 @@ export const AttachmentUploader = ({
       reader.onerror = () => resolve(undefined);
       reader.readAsDataURL(file);
     });
+  };
+
+  const clampLatLng = (lat: number, lng: number) => {
+    const la = Number(lat);
+    const ln = Number(lng);
+    if (!Number.isFinite(la) || !Number.isFinite(ln)) return null;
+    if (Math.abs(la) > 90 || Math.abs(ln) > 180) return null;
+    return { lat: la, lng: ln };
+  };
+
+  const extractGpsFromImage = async (file: File): Promise<{ lat: number; lng: number } | null> => {
+    try {
+      const t = String(file?.type || "");
+      if (!t.startsWith("image/")) return null;
+      const mod: any = await import("exifr");
+      const exifr: any = mod?.default || mod;
+      if (!exifr?.gps) return null;
+      const gps = await exifr.gps(file).catch(() => null);
+      const lat = gps?.latitude ?? gps?.lat;
+      const lng = gps?.longitude ?? gps?.lon ?? gps?.lng;
+      return clampLatLng(Number(lat), Number(lng));
+    } catch {
+      return null;
+    }
   };
 
   const maybeDownscaleImage = async (file: File): Promise<File> => {
@@ -291,6 +324,7 @@ export const AttachmentUploader = ({
       }
 
       const preview = await createPreview(file);
+      const exifGps = includeImageGpsMeta ? await extractGpsFromImage(file) : null;
       
       newAttachments.push({
         id: Math.random().toString(36),
@@ -298,7 +332,8 @@ export const AttachmentUploader = ({
         preview,
         uploading: false,
         uploaded: false,
-        progress: 0
+        progress: 0,
+        meta: includeImageGpsMeta ? { exifGps } : undefined,
       });
 
       if (file.type.startsWith('image/')) imagesCount += 1;
@@ -331,7 +366,7 @@ export const AttachmentUploader = ({
         toast.error(`Erro ao fazer upload de ${attachment.file.name}`);
       }
     }
-  }, [attachments, ensureVideoDurationOk, maxFiles, maxImages, maxVideos, validateFile]);
+  }, [attachments, ensureVideoDurationOk, extractGpsFromImage, includeImageGpsMeta, maxFiles, maxImages, maxVideos, validateFile]);
 
   // Atualizar callback quando anexos mudarem
   useEffect(() => {
@@ -340,6 +375,14 @@ export const AttachmentUploader = ({
       .map(a => a.url!);
     onAttachmentsChange(uploadedUrls);
   }, [attachments, onAttachmentsChange]);
+
+  useEffect(() => {
+    if (!onAttachmentItemsChange) return;
+    const items = attachments
+      .filter((a) => a.uploaded && a.url)
+      .map((a) => ({ url: a.url as string, meta: a.meta }));
+    onAttachmentItemsChange(items);
+  }, [attachments, onAttachmentItemsChange]);
 
   // Avisar se há uploads em andamento (para bloquear publicação, por exemplo)
   useEffect(() => {

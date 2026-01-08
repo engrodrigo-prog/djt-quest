@@ -12,6 +12,11 @@ const ANON_KEY = (process.env.SUPABASE_ANON_KEY ||
   process.env.VITE_SUPABASE_ANON_KEY) as string;
 const SERVICE_KEY = (SERVICE_ROLE_KEY || ANON_KEY) as string;
 
+const normalizeTeamId = (raw: any) => String(raw || "").trim().toUpperCase();
+const isGuestTeamId = (raw: any) => normalizeTeamId(raw) === "CONVIDADOS";
+const isGuestProfile = (p: any) =>
+  isGuestTeamId(p?.team_id) || isGuestTeamId(p?.sigla_area) || isGuestTeamId(p?.operational_base);
+
 const extractCampaignTitles = (md: string) => {
   const text = String(md || "");
   const out: string[] = [];
@@ -103,19 +108,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const uid = userData?.user?.id;
     if (!uid) return res.status(401).json({ error: "Unauthorized" });
 
-    const {
-      content_md,
-      attachments = [],
-      location_label,
-      location_lat,
-      location_lng,
-      locales,
-      participant_ids,
-      campaign_id,
-      challenge_id,
-      group_label,
-      repost_of,
-    } = req.body || {};
+	    const {
+	      content_md,
+	      attachments = [],
+	      location_label,
+	      location_lat,
+	      location_lng,
+	      locales,
+	      participant_ids,
+	      campaign_id,
+	      challenge_id,
+	      group_label,
+	      repost_of,
+	      sap_service_note,
+	      transcript,
+	      tags,
+	      gps_meta,
+	    } = req.body || {};
     const text = String(content_md || "").trim();
     const atts = Array.isArray(attachments) ? attachments : [];
     const repostOf = repost_of != null ? String(repost_of).trim() : "";
@@ -129,18 +138,65 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
-    const participantIds = Array.isArray(participant_ids)
-      ? Array.from(new Set((participant_ids as string[]).filter((id) => typeof id === "string" && id.trim().length > 0)))
-      : [];
+	    const participantIds = Array.isArray(participant_ids)
+	      ? Array.from(new Set((participant_ids as string[]).filter((id) => typeof id === "string" && id.trim().length > 0)))
+	      : [];
 
-    const { data: profile } = await authed
-      .from("profiles")
-      .select("name, sigla_area, avatar_url, operational_base")
-      .eq("id", uid)
-      .maybeSingle();
+	    const { data: profile } = await authed
+	      .from("profiles")
+	      .select("name, sigla_area, avatar_url, operational_base, team_id")
+	      .eq("id", uid)
+	      .maybeSingle();
 
-    const targetLocales = localesForAllTargets(locales);
-    let translations: any = { "pt-BR": text || "" };
+	    const cleanSap = typeof sap_service_note === "string" ? sap_service_note.trim().slice(0, 120) : "";
+	    const cleanTranscript = typeof transcript === "string" ? transcript.trim().slice(0, 12000) : "";
+	    const cleanTags = Array.isArray(tags)
+	      ? Array.from(
+	          new Set(
+	            (tags as any[])
+	              .map((t) => String(t || "").trim())
+	              .filter(Boolean)
+	              .map((t) => t.replace(/^#+/, "").slice(0, 40)),
+	          ),
+	        ).slice(0, 10)
+	      : [];
+	    const cleanGpsMeta = Array.isArray(gps_meta) ? gps_meta.slice(0, 8) : null;
+
+	    let authorIsGuest = isGuestProfile(profile);
+	    try {
+	      const { data: roles } = await admin.from("user_roles").select("role").eq("user_id", uid);
+	      if (Array.isArray(roles) && roles.some((r: any) => String(r?.role || "") === "invited")) authorIsGuest = true;
+	    } catch {}
+
+	    // Participants rules:
+	    // - Guest cannot mark others (participants must be only self => empty list from API perspective).
+	    // - Non-guest cannot mark guests (they never appear in picker, but validate server-side).
+	    const participantIdsNoSelf = participantIds.filter((id) => String(id) !== String(uid));
+	    if (authorIsGuest && participantIdsNoSelf.length > 0) {
+	      return res.status(400).json({ error: "Convidado não pode marcar outros usuários. Envie a evidência apenas com você." });
+	    }
+	    if (!authorIsGuest && participantIdsNoSelf.length > 0) {
+	      try {
+	        const { data: participantProfiles } = await admin
+	          .from("profiles")
+	          .select("id,team_id,sigla_area,operational_base")
+	          .in("id", participantIdsNoSelf)
+	          .limit(2000);
+	        const guestIds = (Array.isArray(participantProfiles) ? participantProfiles : [])
+	          .filter((p: any) => isGuestProfile(p))
+	          .map((p: any) => String(p.id));
+	        if (guestIds.length > 0) {
+	          return res.status(400).json({ error: "Convidados não podem ser marcados como participantes." });
+	        }
+	      } catch {
+	        // best-effort: if validation fails, keep going (RLS/DB will still enforce if configured)
+	      }
+	    }
+
+	    const safeParticipantIds = participantIdsNoSelf;
+
+	    const targetLocales = localesForAllTargets(locales);
+	    let translations: any = { "pt-BR": text || "" };
     if (text) {
       try {
         const [map] = await translateForumTexts({ texts: [text], targetLocales, maxPerBatch: 6 } as any);
@@ -218,9 +274,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ error: message });
     }
 
-    if (participantIds.length > 0) {
+    if (safeParticipantIds.length > 0) {
       try {
-        const rows = participantIds.map((pid) => ({ post_id: post.id, user_id: pid }));
+        const rows = safeParticipantIds.map((pid) => ({ post_id: post.id, user_id: pid }));
         await authed.from("sepbook_post_participants").insert(rows, { returning: "minimal" } as any);
       } catch {}
     }
@@ -240,7 +296,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     let eventError: string | null = null;
     try {
       const nextChallengeId = challenge_id || evidenceChallengeId || null;
-      if (resolvedCampaignId || nextChallengeId || participantIds.length > 0) {
+      if (resolvedCampaignId || nextChallengeId || safeParticipantIds.length > 0) {
         // Em ambientes sem service role, essa integração é best-effort.
         const writer = SERVICE_ROLE_KEY ? admin : authed;
         const payload = {
@@ -253,6 +309,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           location_label: location_label || null,
           location_lat: typeof location_lat === "number" ? location_lat : null,
           location_lng: typeof location_lng === "number" ? location_lng : null,
+          sap_service_note: cleanSap || null,
+          transcript: cleanTranscript || null,
+          tags: cleanTags,
+          gps_meta: cleanGpsMeta,
+          publish_sepbook: true,
         };
 
         const { data: newEvent, error: eventErr } = await writer
@@ -262,6 +323,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             challenge_id: nextChallengeId,
             status: "submitted",
             evidence_urls: atts,
+            sap_service_note: cleanSap || null,
             payload,
           })
           .select("id")
@@ -271,7 +333,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         eventId = newEvent?.id || null;
 
         // Upsert participantes (inclui sempre o autor)
-        const participantsSet = new Set<string>(participantIds);
+        const participantsSet = new Set<string>(safeParticipantIds);
         participantsSet.add(uid);
         const participantRows = Array.from(participantsSet).map((pid) => ({ event_id: eventId, user_id: pid }));
         await writer.from("event_participants").upsert(participantRows as any, { onConflict: "event_id,user_id" } as any);
