@@ -11,7 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { useI18n } from '@/contexts/I18nContext';
 import { getActiveLocale } from '@/lib/i18n/activeLocale';
 import { UserProfilePopover } from '@/components/UserProfilePopover';
-import { DJT_TEAM_GROUP_IDS, isDjtTeamAggregateBaseId } from '@/lib/constants/points';
+import { DJT_TEAM_GROUP_IDS, buildTeamScope, normalizeTeamId } from '@/lib/constants/points';
 
 interface IndividualRanking {
   rank: number;
@@ -238,10 +238,20 @@ function Rankings() {
         setIndividualRankings(ranked);
 
         // Filter My Team: selected team (if any) or user's team
-        const baseTeamId = selectedTeamId || (orgScope?.teamId && (!orgScope.divisionId || orgScope.teamId !== orgScope.divisionId) ? orgScope.teamId : null);
+        const baseTeamId =
+          selectedTeamId ||
+          (orgScope?.teamId && (!orgScope.divisionId || orgScope.teamId !== orgScope.divisionId) ? orgScope.teamId : null);
         if (baseTeamId) {
-          const teamIds = isDjtTeamAggregateBaseId(baseTeamId) ? Array.from(DJT_TEAM_GROUP_IDS) : [baseTeamId];
-          const myTeam = ranked.filter(p => p.teamId && teamIds.includes(String(p.teamId)));
+          const allTeamIds = (teamsResult.data || []).map((t: any) => String(t?.id || '')).filter(Boolean);
+          const scope = buildTeamScope(baseTeamId, allTeamIds);
+          // Keep the DJT special grouping (DJT + PLA + DJT-PLA) even if teams list is partial.
+          if (normalizeTeamId(baseTeamId) === 'DJT') {
+            Array.from(DJT_TEAM_GROUP_IDS).forEach((id) => scope.add(normalizeTeamId(id)));
+          }
+          const myTeam = ranked.filter((p) => {
+            const tId = normalizeTeamId(p.teamId);
+            return Boolean(tId) && scope.has(tId);
+          });
           setMyTeamRankings(myTeam.map((p, i) => ({ ...p, rank: i + 1 })));
         } else {
           setMyTeamRankings([]);
