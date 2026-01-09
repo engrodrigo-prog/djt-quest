@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { LibraryBig, MessageCircle, Plus, Trash2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, LibraryBig, MessageCircle, Plus, Trash2 } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -217,11 +217,13 @@ export const StudyLab = () => {
   const [catalogOpen, setCatalogOpen] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [catalogTab, setCatalogTab] = useState<"tree" | "list">("tree");
+  const [catalogPreviewId, setCatalogPreviewId] = useState<string | null>(null);
 
   const [search, setSearch] = useState("");
   const [visibilityFilter, setVisibilityFilter] = useState<"all" | "public" | "private">("all");
   const [categoryFilter, setCategoryFilter] = useState<StudyCategory | "ALL">("ALL");
   const [topicFilter, setTopicFilter] = useState<string>("ALL");
+  const catalogSearchRef = useRef<HTMLInputElement | null>(null);
 
   const [newCategory, setNewCategory] = useState<StudyCategory>("OUTROS");
   const [newVisibility, setNewVisibility] = useState<"public" | "private">("public");
@@ -262,6 +264,17 @@ export const StudyLab = () => {
   useEffect(() => {
     if (uploadOpen) insertedUrlsRef.current.clear();
   }, [uploadOpen]);
+
+  useEffect(() => {
+    if (!catalogOpen) return;
+    setCatalogTab("list");
+    setCatalogPreviewId(null);
+    setSearch("");
+    setVisibilityFilter("all");
+    setCategoryFilter("ALL");
+    setTopicFilter("ALL");
+    setTimeout(() => catalogSearchRef.current?.focus(), 0);
+  }, [catalogOpen]);
 
   useEffect(() => {
     const el = chatViewportRef.current;
@@ -465,6 +478,10 @@ export const StudyLab = () => {
     () => allSources.find((s) => s.id === selectedSourceId) || null,
     [allSources, selectedSourceId],
   );
+  const catalogPreviewSource = useMemo(
+    () => (catalogPreviewId ? allSources.find((s) => s.id === catalogPreviewId) || null : null),
+    [allSources, catalogPreviewId],
+  );
 
   const matchesSearch = (s: StudySource, q: string) => {
     const meta = s.metadata && typeof s.metadata === "object" ? s.metadata : null;
@@ -504,6 +521,44 @@ export const StudyLab = () => {
       return true;
     });
   }, [allSources, categoryFilter, isPrivateSource, isPublicSource, search, topicFilter, user, visibilityFilter]);
+
+  const hasActiveCatalogFilters =
+    Boolean(search.trim()) || visibilityFilter !== "all" || categoryFilter !== "ALL" || topicFilter !== "ALL";
+
+  const clearCatalogFilters = () => {
+    setSearch("");
+    setVisibilityFilter("all");
+    setCategoryFilter("ALL");
+    setTopicFilter("ALL");
+  };
+
+  const previewIndex = useMemo(() => {
+    if (!catalogPreviewId) return -1;
+    return visibleSources.findIndex((s) => s.id === catalogPreviewId);
+  }, [catalogPreviewId, visibleSources]);
+  const previewPrevId = previewIndex > 0 ? visibleSources[previewIndex - 1]?.id || null : null;
+  const previewNextId =
+    previewIndex >= 0 && previewIndex < visibleSources.length - 1 ? visibleSources[previewIndex + 1]?.id || null : null;
+
+  const useSourceInChat = (source: StudySource) => {
+    if (!source) return;
+    if (source.id === FIXED_RULES_ID) {
+      setOracleMode(true);
+      setCatalogOpen(false);
+      return;
+    }
+    if (source.ingest_status === "failed") {
+      toast.error("Curadoria do material falhou. Reprocesse antes de usar no chat.");
+      return;
+    }
+    if (source.ingest_status === "pending") {
+      toast("Ainda analisando este material. Tente novamente em alguns instantes.");
+      return;
+    }
+    setSelectedSourceId(source.id);
+    setOracleMode(false);
+    setCatalogOpen(false);
+  };
 
   const topicsByCategory = useMemo(() => {
     const out: Record<string, Record<string, number>> = {};
@@ -1320,7 +1375,15 @@ export const StudyLab = () => {
 
           <div className="mt-4 space-y-3">
             <div className="flex gap-2">
-              <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar por título, resumo, tags, tema…" />
+              <Input
+                ref={catalogSearchRef}
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Buscar por título, resumo, tags, tema…"
+              />
+              <Button type="button" variant="outline" size="sm" onClick={clearCatalogFilters} disabled={!hasActiveCatalogFilters}>
+                Limpar
+              </Button>
             </div>
 
             <div className="grid grid-cols-3 gap-2">
@@ -1476,7 +1539,8 @@ export const StudyLab = () => {
                     <p className="text-sm text-muted-foreground">Nenhum material encontrado com esses filtros.</p>
                   )}
                   {visibleSources.map((s) => {
-                    const active = s.id === selectedSourceId;
+                    const active = s.id === catalogPreviewId;
+                    const isInChat = s.id === selectedSourceId && !oracleMode;
                     const isPublic = isPublicSource(s) || isFixedSource(s);
                     const visibilityLabel = isFixedSource(s) ? "FIXO" : isPublic ? "PÚBLICO" : "PRIVADO";
                     const topicKey = getSourceTopicKey(s);
@@ -1493,36 +1557,25 @@ export const StudyLab = () => {
                           "w-full rounded-md border p-3 text-left transition-colors",
                           active ? "border-primary bg-primary/5" : "hover:bg-muted/40",
                         ].join(" ")}
-                        role="button"
-                        tabIndex={0}
-                        onClick={() => {
-                          setSelectedSourceId(s.id);
-                          setCatalogOpen(false);
-                          if (s.id !== FIXED_RULES_ID) setOracleMode(false);
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            setSelectedSourceId(s.id);
-                            setCatalogOpen(false);
-                            if (s.id !== FIXED_RULES_ID) setOracleMode(false);
-                          }
-                        }}
                       >
                         <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0">
+                          <button
+                            type="button"
+                            className="min-w-0 flex-1 text-left"
+                            onClick={() => setCatalogPreviewId(s.id)}
+                            aria-label={`Pré-visualizar ${s.title?.trim() || "material"}`}
+                          >
                             <p className="font-medium truncate">{s.title?.trim() || "Sem título"}</p>
                             {subtitle && <p className="text-xs text-muted-foreground line-clamp-1 mt-0.5">{subtitle}</p>}
                             <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">{displaySummary(s)}</p>
                             {ingestFailed && s.ingest_error && (
-                              <p className="text-[11px] text-red-500/90 line-clamp-2 mt-1">
-                                {String(s.ingest_error).slice(0, 200)}
-                              </p>
+                              <p className="text-[11px] text-red-500/90 line-clamp-2 mt-1">{String(s.ingest_error).slice(0, 200)}</p>
                             )}
                             <div className="mt-2 flex flex-wrap items-center gap-2">
                               <Badge variant="outline" className="text-[10px]">
                                 {visibilityLabel}
                               </Badge>
+                              {isInChat && <Badge className="text-[10px]">em uso</Badge>}
                               <Badge variant="outline" className="text-[10px]">
                                 {CATEGORY_LABELS[getSourceCategoryKey(s)] || "Outros"}
                               </Badge>
@@ -1533,21 +1586,27 @@ export const StudyLab = () => {
                               )}
                               {statusBadge(s)}
                             </div>
-                          </div>
+                          </button>
+
                           <div className="flex flex-col gap-2 shrink-0">
                             {s.url && (
                               <Button
                                 type="button"
                                 variant="ghost"
                                 size="sm"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  window.open(s.url!, "_blank", "noreferrer");
-                                }}
+                                onClick={() => window.open(s.url!, "_blank", "noreferrer")}
                               >
                                 Abrir
                               </Button>
                             )}
+                            <Button
+                              type="button"
+                              size="sm"
+                              onClick={() => useSourceInChat(s)}
+                              disabled={s.ingest_status === "pending" || (s.ingest_status === "failed" && s.id !== FIXED_RULES_ID)}
+                            >
+                              Usar
+                            </Button>
                             {canDelete && (
                               <Button
                                 type="button"
@@ -1555,10 +1614,7 @@ export const StudyLab = () => {
                                 size="icon"
                                 className="h-8 w-8"
                                 title="Apagar material"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleDeleteSource(s.id);
-                                }}
+                                onClick={() => handleDeleteSource(s.id)}
                                 disabled={catalogRefreshing || ingesting || Boolean(reingestingSourceId)}
                               >
                                 <Trash2 className="h-4 w-4" />
@@ -1570,51 +1626,98 @@ export const StudyLab = () => {
                                 variant="outline"
                                 size="sm"
                                 disabled={reingesting || Boolean(reingestingSourceId) || catalogRefreshing || ingesting}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  reingestSource(s.id);
-                                }}
+                                onClick={() => reingestSource(s.id)}
                               >
-                        {reingesting ? "Reprocessando…" : "Reprocessar"}
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
+                                {reingesting ? "Reprocessando…" : "Reprocessar"}
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </TabsContent>
             </Tabs>
 
-            {selectedSource && (
+            {catalogPreviewSource ? (
               <div className="rounded-md border p-3 space-y-2">
                 <div className="flex items-center justify-between gap-2">
-                  <p className="text-sm font-medium">Índice</p>
                   <div className="flex items-center gap-2">
-                    {studioAccess && selectedSource.id !== FIXED_RULES_ID && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="h-8 w-8"
+                      disabled={!previewPrevId}
+                      title="Anterior"
+                      onClick={() => previewPrevId && setCatalogPreviewId(previewPrevId)}
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="h-8 w-8"
+                      disabled={!previewNextId}
+                      title="Próximo"
+                      onClick={() => previewNextId && setCatalogPreviewId(previewNextId)}
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                    <p className="text-sm font-medium">Prévia</p>
+                    {previewIndex >= 0 && (
+                      <span className="text-[11px] text-muted-foreground">
+                        {previewIndex + 1}/{visibleSources.length}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {catalogPreviewSource.url && (
                       <Button
                         type="button"
                         variant="outline"
                         size="sm"
-                        onClick={() => navigate(`/studio?module=quiz&seed_source=${selectedSource.id}`)}
+                        onClick={() => window.open(catalogPreviewSource.url!, "_blank", "noreferrer")}
+                      >
+                        Abrir
+                      </Button>
+                    )}
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={() => useSourceInChat(catalogPreviewSource)}
+                      disabled={
+                        catalogPreviewSource.ingest_status === "pending" ||
+                        (catalogPreviewSource.ingest_status === "failed" && catalogPreviewSource.id !== FIXED_RULES_ID)
+                      }
+                    >
+                      Usar no chat
+                    </Button>
+                    {studioAccess && catalogPreviewSource.id !== FIXED_RULES_ID && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => navigate(`/studio?module=quiz&seed_source=${catalogPreviewSource.id}`)}
                       >
                         Criar quiz
                       </Button>
                     )}
-                    {selectedSource.id !== FIXED_RULES_ID && (isStaff || (user && selectedSource.user_id === user.id)) && (
+                    {catalogPreviewSource.id !== FIXED_RULES_ID && (isStaff || (user && catalogPreviewSource.user_id === user.id)) && (
                       <Button
                         type="button"
                         variant="outline"
                         size="sm"
-                        onClick={() => handleDeleteSource(selectedSource.id)}
+                        onClick={() => handleDeleteSource(catalogPreviewSource.id)}
                       >
                         Apagar
                       </Button>
                     )}
                   </div>
                 </div>
-                {selectedSource.ingest_status === "failed" && selectedSource.id !== FIXED_RULES_ID && (
+                {catalogPreviewSource.ingest_status === "failed" && catalogPreviewSource.id !== FIXED_RULES_ID && (
                   <div className="flex items-center justify-between gap-2">
                     <p className="text-xs text-red-500/90">Este material falhou na curadoria.</p>
                     <Button
@@ -1622,21 +1725,30 @@ export const StudyLab = () => {
                       size="sm"
                       variant="outline"
                       disabled={Boolean(reingestingSourceId) || catalogRefreshing || ingesting}
-                      onClick={() => reingestSource(selectedSource.id)}
+                      onClick={() => reingestSource(catalogPreviewSource.id)}
                     >
-                      {reingestingSourceId === selectedSource.id ? "Reprocessando…" : "Reprocessar"}
+                      {reingestingSourceId === catalogPreviewSource.id ? "Reprocessando…" : "Reprocessar"}
                     </Button>
                   </div>
                 )}
-                {selectedSource.summary && (
-                  <p className="text-xs text-muted-foreground whitespace-pre-line">{selectedSource.summary}</p>
+                {catalogPreviewSource.summary && (
+                  <p className="text-xs text-muted-foreground whitespace-pre-line">{catalogPreviewSource.summary}</p>
                 )}
                 {(() => {
-                  const meta = selectedSource.metadata && typeof selectedSource.metadata === "object" ? selectedSource.metadata : null;
+                  const meta =
+                    catalogPreviewSource.metadata && typeof catalogPreviewSource.metadata === "object"
+                      ? catalogPreviewSource.metadata
+                      : null;
                   const outline = meta?.ai?.outline || meta?.outline || [];
                   if (!Array.isArray(outline) || outline.length === 0) return null;
                   return <div className="mt-2">{renderOutline(outline)}</div>;
                 })()}
+              </div>
+            ) : (
+              <div className="rounded-md border p-3">
+                <p className="text-sm text-muted-foreground">
+                  Selecione um material na lista para ver detalhes e usar no chat.
+                </p>
               </div>
             )}
           </div>
