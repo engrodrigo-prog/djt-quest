@@ -376,52 +376,52 @@ export const UserManagement = () => {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h2 className="text-3xl font-bold text-foreground mb-2">Gerenciamento de Usuários</h2>
-        <p className="text-muted-foreground">Visualizar, buscar e gerenciar todos os usuários do sistema</p>
+        <h2 className="text-3xl font-bold text-blue-50 mb-2">Gerenciamento de Usuários</h2>
+        <p className="text-blue-100/80">Visualizar, buscar e gerenciar todos os usuários do sistema</p>
       </div>
 
       {/* Estatísticas */}
       <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-        <Card>
+        <Card className="bg-black/20 border-white/10">
           <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Total</CardTitle>
-            <div className="text-2xl font-bold text-foreground">{stats.total}</div>
+            <CardTitle className="text-sm font-medium text-blue-100/70">Total</CardTitle>
+            <div className="text-2xl font-bold text-blue-50">{stats.total}</div>
           </CardHeader>
         </Card>
-        <Card>
+        <Card className="bg-black/20 border-white/10">
           <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Usuários Reais</CardTitle>
+            <CardTitle className="text-sm font-medium text-blue-100/70">Usuários Reais</CardTitle>
             <div className="text-2xl font-bold text-green-600">{stats.realUsers}</div>
           </CardHeader>
         </Card>
-        <Card className="border-orange-500/50">
+        <Card className="bg-black/20 border-orange-500/30">
           <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Usuários Teste</CardTitle>
+            <CardTitle className="text-sm font-medium text-blue-100/70">Usuários Teste</CardTitle>
             <div className="text-2xl font-bold text-orange-600">{stats.testUsers}</div>
           </CardHeader>
         </Card>
-        <Card>
+        <Card className="bg-black/20 border-white/10">
           <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Com Equipe</CardTitle>
-            <div className="text-2xl font-bold text-foreground">{stats.withTeam}</div>
+            <CardTitle className="text-sm font-medium text-blue-100/70">Com Equipe</CardTitle>
+            <div className="text-2xl font-bold text-blue-50">{stats.withTeam}</div>
           </CardHeader>
         </Card>
-        <Card>
+        <Card className="bg-black/20 border-white/10">
           <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Sem Equipe</CardTitle>
+            <CardTitle className="text-sm font-medium text-blue-100/70">Sem Equipe</CardTitle>
             <div className="text-2xl font-bold text-yellow-600">{stats.withoutTeam}</div>
           </CardHeader>
         </Card>
       </div>
 
       {/* Ações e Busca */}
-      <Card>
+      <Card className="bg-black/20 border-white/10">
         <CardHeader>
-          <CardTitle>Ações Rápidas</CardTitle>
-          <CardDescription>Limpeza e gerenciamento em massa</CardDescription>
+          <CardTitle className="text-blue-50">Ações Rápidas</CardTitle>
+          <CardDescription className="text-blue-100/70">Busca, criação e limpeza</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex flex-col md:flex-row gap-4">
+          <div className="flex flex-col md:flex-row gap-3 md:items-center">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
               <Input
@@ -431,19 +431,21 @@ export const UserManagement = () => {
                 className="pl-10"
               />
             </div>
-            <Button onClick={() => setCreateOpen(true)} className="gap-2">
-              <UserPlus className="h-4 w-4" />
-              Criar Usuário
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={() => setShowCleanupDialog(true)}
-              disabled={testUsers.length === 0}
-              className="gap-2"
-            >
-              <Trash2 className="h-4 w-4" />
-              Limpar Usuários de Teste ({testUsers.length})
-            </Button>
+            <div className="flex gap-2 flex-wrap">
+              <Button onClick={() => setCreateOpen(true)} className="gap-2">
+                <UserPlus className="h-4 w-4" />
+                Criar Usuário
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={() => setShowCleanupDialog(true)}
+                disabled={testUsers.length === 0}
+                className="gap-2"
+              >
+                <Trash2 className="h-4 w-4" />
+                Limpar Usuários de Teste ({testUsers.length})
+              </Button>
+            </div>
           </div>
 
           {testUsers.length > 0 && (
@@ -453,7 +455,7 @@ export const UserManagement = () => {
                 <p className="font-medium text-orange-600">
                   {testUsers.length} usuário(s) de teste detectado(s)
                 </p>
-                <p className="text-muted-foreground mt-1">
+                <p className="text-blue-100/70 mt-1">
                   Emails: {testUsers.slice(0, 3).map(u => u.email).join(', ')}
                   {testUsers.length > 3 && ` e mais ${testUsers.length - 3}...`}
                 </p>
@@ -479,7 +481,7 @@ export const UserManagement = () => {
       </Dialog>
 
       {/* Lista de Usuários */}
-      <Card>
+      <Card className="bg-black/20 border-white/10">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Users className="h-5 w-5" />
@@ -494,7 +496,7 @@ export const UserManagement = () => {
                 <SelectTrigger>
                   <SelectValue placeholder="Todas as equipes" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent position="item-aligned">
                   <SelectItem value="all">Todas as equipes</SelectItem>
                   <SelectItem value="none">Sem equipe</SelectItem>
                   {teamOptions.map((team) => (
@@ -511,7 +513,7 @@ export const UserManagement = () => {
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent position="item-aligned">
                   <SelectItem value="created_desc">Cadastro: mais recentes</SelectItem>
                   <SelectItem value="created_asc">Cadastro: mais antigos</SelectItem>
                   <SelectItem value="name_asc">Nome: A–Z</SelectItem>

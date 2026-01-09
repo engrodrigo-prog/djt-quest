@@ -203,7 +203,7 @@ export const UserCreationForm = () => {
               <SelectTrigger>
                 <SelectValue placeholder="Selecione a função" />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent position="item-aligned">
                 <SelectItem value="colaborador">Colaborador</SelectItem>
                 <SelectItem value="coordenador_djtx">Coordenador</SelectItem>
                 <SelectItem value="gerente_divisao_djtx">Gerente de Divisão</SelectItem>
@@ -221,7 +221,7 @@ export const UserCreationForm = () => {
               <SelectTrigger>
                 <SelectValue placeholder="Selecione uma equipe" />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent position="item-aligned">
                 <SelectItem value="none">Sem equipe</SelectItem>
                 {teams.map((team) => (
                   <SelectItem key={team.id} value={team.id}>
