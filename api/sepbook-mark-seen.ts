@@ -39,6 +39,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .update({ is_read: true } as any)
       .eq("mentioned_user_id", uid);
 
+    try {
+      await authed
+        .from("sepbook_comment_mentions")
+        .update({ is_read: true } as any)
+        .eq("mentioned_user_id", uid);
+    } catch {
+      // table may not exist yet
+    }
+
     return res.status(200).json({ success: true });
   } catch (e: any) {
     return res.status(500).json({ error: e?.message || "Unknown error" });

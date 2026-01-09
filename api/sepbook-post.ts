@@ -1,8 +1,8 @@
 // @ts-nocheck
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { createClient } from "@supabase/supabase-js";
-import { recomputeSepbookMentionsForPost } from "./sepbook-mentions.js";
-import { localesForAllTargets, translateForumTexts } from "../server/lib/forum-translations.js";
+import { extractSepbookMentions } from "./sepbook-mentions.js";
+import { translateForumTexts } from "../server/lib/forum-translations.js";
 import { assertDjtQuestServerEnv } from "../server/env-guard.js";
 
 const SUPABASE_URL = process.env.SUPABASE_URL as string;
@@ -63,6 +63,114 @@ const extractAttachmentUrls = (attachments: any): string[] => {
   }
   return [];
 };
+
+const normalizeRequestedLocales = (raw: any) => {
+  if (!raw) return [];
+  if (typeof raw === "string") {
+    return raw
+      .split(",")
+      .map((v) => v.trim())
+      .filter(Boolean);
+  }
+  if (Array.isArray(raw)) {
+    return raw.map((v) => String(v || "").trim()).filter(Boolean);
+  }
+  return [];
+};
+
+async function resolveMentionIds(admin: any, mentions: string[]) {
+  const emailMentions = Array.from(new Set((mentions || []).filter((m) => String(m).includes("@"))));
+  const handleMentions = Array.from(new Set((mentions || []).filter((m) => !String(m).includes("@") && String(m).includes("."))));
+  const teamMentions = Array.from(new Set((mentions || []).filter((m) => !String(m).includes("@") && !String(m).includes("."))));
+
+  let ids: string[] = [];
+
+  if (emailMentions.length) {
+    const { data: usersByEmail } = await admin
+      .from("profiles")
+      .select("id, email")
+      .in("email", emailMentions);
+    ids.push(...((usersByEmail || []).map((u: any) => String(u.id))));
+  }
+
+  if (handleMentions.length) {
+    try {
+      const { data: usersByHandle } = await admin
+        .from("profiles")
+        .select("id, mention_handle")
+        .in("mention_handle", handleMentions);
+      ids.push(...((usersByHandle || []).map((u: any) => String(u.id))));
+    } catch {
+      // ignore (schema without mention_handle)
+    }
+  }
+
+  for (const code of teamMentions) {
+    const upper = String(code || "").toUpperCase();
+    let query = admin.from("profiles").select("id, sigla_area");
+
+    if (upper === "DJT" || upper === "DJTB" || upper === "DJTV") {
+      query = query.ilike("sigla_area", `${upper}-%`);
+    } else {
+      query = query.eq("sigla_area", upper);
+    }
+
+    const { data: teamProfiles } = await query;
+    ids.push(...((teamProfiles || []).map((u: any) => String(u.id))));
+  }
+
+  return Array.from(new Set(ids));
+}
+
+async function syncPostMentions(params: {
+  admin: any;
+  postId: string;
+  mentionedIds: string[];
+  authorId: string;
+  authorName: string;
+}) {
+  const { admin, postId, mentionedIds, authorId, authorName } = params;
+  const clean = Array.from(new Set((mentionedIds || []).map((id) => String(id || "").trim()).filter(Boolean))).filter(
+    (id) => id !== authorId,
+  );
+
+  let existing: string[] = [];
+  try {
+    const { data } = await admin.from("sepbook_mentions").select("mentioned_user_id").eq("post_id", postId);
+    existing = (data || []).map((r: any) => String(r.mentioned_user_id));
+  } catch {
+    existing = [];
+  }
+  const existingSet = new Set(existing);
+  const nextSet = new Set(clean);
+  const toInsert = clean.filter((id) => !existingSet.has(id));
+  const toDelete = existing.filter((id) => !nextSet.has(id));
+
+  if (toDelete.length) {
+    try {
+      await admin.from("sepbook_mentions").delete().eq("post_id", postId).in("mentioned_user_id", toDelete);
+    } catch {}
+  }
+  if (toInsert.length) {
+    try {
+      await admin.from("sepbook_mentions").insert(
+        toInsert.map((uid: string) => ({ post_id: postId, mentioned_user_id: uid, is_read: false })) as any,
+      );
+    } catch {}
+  }
+
+  for (const uid of toInsert) {
+    try {
+      await admin.rpc("create_notification", {
+        _user_id: uid,
+        _type: "sepbook_mention",
+        _title: "Você foi mencionado no SEPBook",
+        _message: `${String(authorName || "Alguém")} mencionou você em uma publicação.`,
+        _metadata: { post_id: postId, mentioned_by: authorId },
+      });
+    } catch {}
+  }
+}
 
 async function resolveCampaignByTitle(reader: any, titleRaw: string) {
   const title = String(titleRaw || "").replace(/\s+/g, " ").trim();
@@ -195,9 +303,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
 	    const safeParticipantIds = participantIdsNoSelf;
 
-	    const targetLocales = localesForAllTargets(locales);
+	    const targetLocales = normalizeRequestedLocales(locales);
 	    let translations: any = { "pt-BR": text || "" };
-    if (text) {
+    if (text && targetLocales.length) {
       try {
         const [map] = await translateForumTexts({ texts: [text], targetLocales, maxPerBatch: 6 } as any);
         if (map && typeof map === "object") translations = map;
@@ -349,10 +457,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       console.warn("SEPBook evidence->event error", msg);
     }
 
-    // Atualizar menções com base no conteúdo (post + comentários)
+    // Atualizar menções com base no conteúdo do post (rápido; comentários têm tabela própria).
     try {
       if (!SERVICE_ROLE_KEY) throw new Error("no service role");
-      await recomputeSepbookMentionsForPost(post.id);
+      const handles = extractSepbookMentions(text || "");
+      if (handles.length) {
+        const mentionedIds = await resolveMentionIds(admin, handles);
+        await syncPostMentions({
+          admin,
+          postId: String(post.id),
+          mentionedIds,
+          authorId: uid,
+          authorName: profile?.name || "Colaborador",
+        });
+      }
     } catch {}
 
     return res.status(200).json({

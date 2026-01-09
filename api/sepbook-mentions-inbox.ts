@@ -35,7 +35,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const limit = parseLimit(req.query.limit);
 
     // Prefer a join if the FK relationship exists; fall back to 2 queries.
-    let rows: any[] = [];
+    let postRows: any[] = [];
     try {
       const { data, error } = await admin
         .from("sepbook_mentions")
@@ -47,7 +47,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         .order("created_at", { ascending: false })
         .limit(limit);
       if (error) throw error;
-      rows = (data as any[]) || [];
+      postRows = (data as any[]) || [];
     } catch {
       const { data: mentions, error: mentionsErr } = await admin
         .from("sepbook_mentions")
@@ -66,10 +66,67 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           .in("id", postIds);
         (posts || []).forEach((p: any) => (postsById[String(p.id)] = p));
       }
-      rows = (mentions || []).map((m: any) => ({ ...m, post: postsById[String(m.post_id)] || null }));
+      postRows = (mentions || []).map((m: any) => ({ ...m, post: postsById[String(m.post_id)] || null }));
     }
 
-    return res.status(200).json({ items: rows });
+    // Comment mentions (newer schema). Fallback to empty if table/relationship doesn't exist yet.
+    let commentRows: any[] = [];
+    try {
+      const { data, error } = await admin
+        .from("sepbook_comment_mentions")
+        .select(
+          "comment_id, post_id, mentioned_user_id, created_at, is_read, comment:sepbook_comments(id, user_id, content_md, created_at)"
+        )
+        .eq("mentioned_user_id", uid)
+        .eq("is_read", false)
+        .order("created_at", { ascending: false })
+        .limit(limit);
+      if (error) throw error;
+      commentRows = (data as any[]) || [];
+    } catch {
+      commentRows = [];
+    }
+
+    if (commentRows.length) {
+      try {
+        const commenterIds = Array.from(
+          new Set(commentRows.map((r: any) => String(r?.comment?.user_id || "").trim()).filter(Boolean)),
+        );
+        if (commenterIds.length) {
+          const { data: profs } = await admin
+            .from("profiles")
+            .select("id, name, sigla_area, avatar_url")
+            .in("id", commenterIds.slice(0, 200));
+          const map: Record<string, any> = {};
+          (profs || []).forEach((p: any) => (map[String(p.id)] = p));
+          commentRows = commentRows.map((r: any) => {
+            const pid = String(r?.comment?.user_id || "").trim();
+            const prof = pid ? map[pid] : null;
+            return {
+              ...r,
+              comment_author_name: prof?.name || null,
+              comment_author_team: prof?.sigla_area || null,
+              comment_author_avatar: prof?.avatar_url || null,
+            };
+          });
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    const items = [
+      ...(postRows || []).map((m: any) => ({ ...m, kind: "post", comment_id: null })),
+      ...(commentRows || []).map((m: any) => ({
+        ...m,
+        kind: "comment",
+        post: null,
+      })),
+    ]
+      .sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      .slice(0, limit);
+
+    return res.status(200).json({ items });
   } catch (e: any) {
     return res.status(500).json({ error: e?.message || "Unknown error" });
   }

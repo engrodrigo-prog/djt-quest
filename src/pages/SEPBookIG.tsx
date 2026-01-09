@@ -682,6 +682,7 @@ export default function SEPBookIG() {
   const [commentMedia, setCommentMedia] = useState<MediaItem[]>([]);
   const [commentUploading, setCommentUploading] = useState(false);
   const [commentSubmitting, setCommentSubmitting] = useState(false);
+  const [commentToolsOpen, setCommentToolsOpen] = useState(false);
   const commentCameraRef = useRef<HTMLInputElement | null>(null);
   const commentGalleryRef = useRef<HTMLInputElement | null>(null);
   const commentInputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -1809,6 +1810,7 @@ export default function SEPBookIG() {
       setCommentText("");
       setCommentMentionQuery("");
       setReplyTarget(null);
+      setCommentToolsOpen(false);
       commentMedia.forEach((m) => m.previewUrl && URL.revokeObjectURL(m.previewUrl));
       setCommentMedia([]);
     } catch (e: any) {
@@ -2541,7 +2543,10 @@ export default function SEPBookIG() {
                 <div className="rounded-xl border bg-background">
                   <div className="px-3 py-2 text-[12px] text-muted-foreground">{tr("sepbook.mentionSuggestions")}</div>
                   <div className="max-h-[160px] overflow-auto">
-                    {commentMentions.items.slice(0, 8).map((s, idx) => (
+                    {commentMentions.items
+                      .filter((s) => String((s as any)?.kind || "") === "user")
+                      .slice(0, 8)
+                      .map((s, idx) => (
                       <button
                         key={`${s.kind}-${s.handle}-${idx}`}
                         type="button"
@@ -2556,29 +2561,86 @@ export default function SEPBookIG() {
                 </div>
               )}
 
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="hidden sm:flex flex-wrap items-center gap-2">
                 <VoiceRecorderButton
                   size="sm"
                   label={tr("sepbook.voice")}
                   onText={(text) => setCommentText((prev) => [prev, text].filter(Boolean).join("\n\n"))}
                 />
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={handleCleanupCommentDraft}
-                  disabled={cleaningComment}
-                >
+                <Button type="button" size="sm" variant="outline" onClick={handleCleanupCommentDraft} disabled={cleaningComment}>
                   <Wand2 className="h-4 w-4 mr-1" />
                   {tr("sepbook.cleanup")}
                 </Button>
               </div>
+
+              {commentToolsOpen ? (
+                <div className="sm:hidden flex flex-wrap items-center gap-2">
+                  <VoiceRecorderButton
+                    size="sm"
+                    label={tr("sepbook.voice")}
+                    onText={(text) => setCommentText((prev) => [prev, text].filter(Boolean).join("\n\n"))}
+                  />
+                  <Button type="button" size="sm" variant="outline" onClick={handleCleanupCommentDraft} disabled={cleaningComment}>
+                    <Wand2 className="h-4 w-4 mr-1" />
+                    {tr("sepbook.cleanup")}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => commentCameraRef.current?.click()}
+                    disabled={commentUploading || commentSubmitting}
+                  >
+                    <Camera className="h-4 w-4 mr-1" />
+                    {tr("sepbook.camera")}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => commentGalleryRef.current?.click()}
+                    disabled={commentUploading || commentSubmitting}
+                  >
+                    <ImageIcon className="h-4 w-4 mr-1" />
+                    {tr("sepbook.gallery")}
+                  </Button>
+                </div>
+              ) : null}
+
+              <input
+                ref={commentCameraRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="hidden"
+                onChange={(e) => void addMediaFiles({ files: e.target.files, context: "comment", source: "camera" })}
+              />
+              <input
+                ref={commentGalleryRef}
+                type="file"
+                accept="image/*"
+                multiple
+                className="hidden"
+                onChange={(e) => void addMediaFiles({ files: e.target.files, context: "comment", source: "gallery" })}
+              />
 
               <div className="flex items-end gap-2">
                 <Button
                   type="button"
                   size="icon"
                   variant="outline"
+                  className="sm:hidden"
+                  onClick={() => setCommentToolsOpen((v) => !v)}
+                  aria-label="Ações do comentário"
+                  title="Ações"
+                >
+                  <Plus className="h-4 w-4" />
+                </Button>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="outline"
+                  className="hidden sm:inline-flex"
                   onClick={() => commentCameraRef.current?.click()}
                   disabled={commentUploading || commentSubmitting}
                   aria-label={tr("sepbook.camera")}
@@ -2590,6 +2652,7 @@ export default function SEPBookIG() {
                   type="button"
                   size="icon"
                   variant="outline"
+                  className="hidden sm:inline-flex"
                   onClick={() => commentGalleryRef.current?.click()}
                   disabled={commentUploading || commentSubmitting}
                   aria-label={tr("sepbook.gallery")}
@@ -2597,22 +2660,6 @@ export default function SEPBookIG() {
                 >
                   <ImageIcon className="h-4 w-4" />
                 </Button>
-                <input
-                  ref={commentCameraRef}
-                  type="file"
-                  accept="image/*"
-                  capture="environment"
-                  className="hidden"
-                  onChange={(e) => void addMediaFiles({ files: e.target.files, context: "comment", source: "camera" })}
-                />
-                <input
-                  ref={commentGalleryRef}
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  className="hidden"
-                  onChange={(e) => void addMediaFiles({ files: e.target.files, context: "comment", source: "gallery" })}
-                />
 
                 <Textarea
                   ref={commentInputRef}
@@ -2638,9 +2685,7 @@ export default function SEPBookIG() {
                   <Send className="h-4 w-4" />
                 </Button>
               </div>
-              <div className="text-[11px] text-muted-foreground">
-                {tr("sepbook.commentPhotoHint")}
-              </div>
+              <div className="hidden sm:block text-[11px] text-muted-foreground">{tr("sepbook.commentPhotoHint")}</div>
             </div>
           </div>
         </DrawerContent>
@@ -2659,26 +2704,46 @@ export default function SEPBookIG() {
           ) : (
             <div className="max-h-[60vh] overflow-auto space-y-2 pr-1">
               {mentionsItems.map((m: any) => {
+                const kind = String(m?.kind || (m?.comment_id ? "comment" : "post"));
                 const p = m?.post;
                 const postId = String(m?.post_id || p?.id || "").trim();
-                const authorName = formatName(p?.author_name);
+                const commentId = String(m?.comment_id || "").trim();
+                const authorName =
+                  kind === "comment"
+                    ? formatName(m?.comment_author_name)
+                    : formatName(p?.author_name);
                 const created = m?.created_at ? new Date(m.created_at).toLocaleString() : "";
-                const text = String(getPostDisplayText(p) || "").trim();
+                const text =
+                  kind === "comment"
+                    ? String(m?.comment?.content_md || "").trim()
+                    : String(getPostDisplayText(p) || "").trim();
                 const snippet = text ? text.replace(/\s+/g, " ").slice(0, 180) : tr("sepbook.mentionsNoText");
                 return (
                   <button
-                    key={postId || String(m?.created_at || Math.random())}
+                    key={`${kind}-${postId || "post"}-${commentId || "x"}-${String(m?.created_at || "")}`}
                     type="button"
                     className="w-full text-left rounded-xl border px-3 py-2 hover:bg-muted"
                     onClick={() => {
                       setMentionsOpen(false);
-                      if (postId) openPostById(postId);
+                      if (!postId) return;
+                      if (kind === "comment" && commentId) {
+                        navigate(`/sepbook?comment=${encodeURIComponent(commentId)}#post-${encodeURIComponent(postId)}`);
+                        return;
+                      }
+                      openPostById(postId);
                     }}
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <div className="text-[13px] font-semibold truncate">{authorName || "Autor"}</div>
+                      <div className="text-[13px] font-semibold truncate">
+                        {authorName || (kind === "comment" ? "Comentário" : "Autor")}
+                      </div>
                       <div className="text-[11px] text-muted-foreground">{created}</div>
                     </div>
+                    {kind === "comment" ? (
+                      <div className="mt-1 text-[11px] text-muted-foreground">Menção em comentário</div>
+                    ) : (
+                      <div className="mt-1 text-[11px] text-muted-foreground">Menção em postagem</div>
+                    )}
                     <div className="text-[12px] text-muted-foreground mt-1 whitespace-normal">{snippet}</div>
                   </button>
                 );

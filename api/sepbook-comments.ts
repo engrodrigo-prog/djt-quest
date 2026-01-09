@@ -1,10 +1,9 @@
 // @ts-nocheck
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { createClient } from "@supabase/supabase-js";
-import { recomputeSepbookMentionsForPost } from "./sepbook-mentions.js";
 import { assertDjtQuestServerEnv, DJT_QUEST_SUPABASE_HOST } from "../server/env-guard.js";
 import { getSupabaseUrlFromEnv } from "../server/lib/supabase-url.js";
-import { localesForAllTargets, translateForumTexts } from "../server/lib/forum-translations.js";
+import { translateForumTexts } from "../server/lib/forum-translations.js";
 
 const SUPABASE_URL =
   getSupabaseUrlFromEnv(process.env, { expectedHostname: DJT_QUEST_SUPABASE_HOST, allowLocal: true }) ||
@@ -31,6 +30,107 @@ const ENV_INFO = {
   hasAnonKey: Boolean(ANON_KEY),
   anonKeyLen: ANON_KEY ? ANON_KEY.length : 0,
 };
+
+const normalizeRequestedLocales = (raw: any) => {
+  if (!raw) return [];
+  if (typeof raw === "string") {
+    return raw
+      .split(",")
+      .map((v) => v.trim())
+      .filter(Boolean);
+  }
+  if (Array.isArray(raw)) {
+    return raw.map((v) => String(v || "").trim()).filter(Boolean);
+  }
+  return [];
+};
+
+const extractUserMentions = (md: string) => {
+  const text = String(md || "");
+  const hits = Array.from(text.matchAll(/@([A-Za-z0-9_.-]+@[A-Za-z0-9_.-]+|[A-Za-z0-9_.-]+)/g)).map((m) => String(m[1] || ""));
+  // Comments: only notify direct users (handles with '.' or explicit emails) to avoid mass-team mentions.
+  return hits.filter((h) => h.includes("@") || h.includes(".")).slice(0, 20);
+};
+
+async function resolveMentionedUserIds(admin: any, mentions: string[]) {
+  const emailMentions = Array.from(new Set(mentions.filter((m) => m.includes("@"))));
+  const handleMentions = Array.from(new Set(mentions.filter((m) => !m.includes("@") && m.includes("."))));
+  const ids: string[] = [];
+
+  if (emailMentions.length) {
+    const { data } = await admin.from("profiles").select("id, email").in("email", emailMentions);
+    ids.push(...((data || []).map((u: any) => String(u.id))));
+  }
+
+  if (handleMentions.length) {
+    try {
+      const { data } = await admin.from("profiles").select("id, mention_handle").in("mention_handle", handleMentions);
+      ids.push(...((data || []).map((u: any) => String(u.id))));
+    } catch {
+      // ignore (schema without mention_handle)
+    }
+  }
+
+  return Array.from(new Set(ids));
+}
+
+async function syncCommentMentions(params: {
+  admin: any;
+  commentId: string;
+  postId: string;
+  mentionedIds: string[];
+  authorId: string;
+  authorName: string;
+}) {
+  const { admin, commentId, postId, mentionedIds, authorId, authorName } = params;
+  const clean = Array.from(new Set((mentionedIds || []).map((id) => String(id || "").trim()).filter(Boolean))).filter((id) => id !== authorId);
+
+  let existing: string[] = [];
+  try {
+    const { data } = await admin
+      .from("sepbook_comment_mentions")
+      .select("mentioned_user_id")
+      .eq("comment_id", commentId);
+    existing = (data || []).map((r: any) => String(r.mentioned_user_id));
+  } catch {
+    existing = [];
+  }
+  const existingSet = new Set(existing);
+  const nextSet = new Set(clean);
+  const toInsert = clean.filter((id) => !existingSet.has(id));
+  const toDelete = existing.filter((id) => !nextSet.has(id));
+
+  if (toDelete.length) {
+    try {
+      await admin.from("sepbook_comment_mentions").delete().eq("comment_id", commentId).in("mentioned_user_id", toDelete);
+    } catch {}
+  }
+  if (toInsert.length) {
+    try {
+      await admin.from("sepbook_comment_mentions").insert(
+        toInsert.map((uid: string) => ({
+          comment_id: commentId,
+          post_id: postId,
+          mentioned_user_id: uid,
+          is_read: false,
+        })) as any,
+      );
+    } catch {}
+  }
+
+  // Notifications for newly mentioned users (best-effort, avoid duplicates by only notifying on insert)
+  for (const uid of toInsert) {
+    try {
+      await admin.rpc("create_notification", {
+        _user_id: uid,
+        _type: "sepbook_comment_mention",
+        _title: "Você foi mencionado no SEPBook",
+        _message: `${String(authorName || "Alguém")} mencionou você em um comentário.`,
+        _metadata: { post_id: postId, comment_id: commentId, mentioned_by: authorId },
+      });
+    } catch {}
+  }
+}
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === "OPTIONS") return res.status(204).send("");
@@ -196,7 +296,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const attachments = rawAttachments
         .filter((item: any) => typeof item === "string" && item.trim())
         .slice(0, 3);
-      const targetLocales = localesForAllTargets(req.body?.locales);
+      const targetLocales = normalizeRequestedLocales(req.body?.locales);
       const postId = String(post_id || "").trim();
       const parentId = parent_id ? String(parent_id).trim() : null;
       const text = String(content_md || "").trim();
@@ -206,7 +306,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const normalizedText = text.length >= 2 ? text : "";
 
       let translations: any = { "pt-BR": normalizedText || "" };
-      if (normalizedText) {
+      if (normalizedText && targetLocales.length) {
         try {
           const [map] = await translateForumTexts({ texts: [normalizedText], targetLocales, maxPerBatch: 6 } as any);
           if (map && typeof map === "object") translations = map;
@@ -283,32 +383,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
 
       // Atualizar contagem de comentários no post
-      try {
-        if (SERVICE_ROLE_KEY) {
-          await admin.rpc("increment_sepbook_comment_count", { p_post_id: postId });
-        }
-      } catch {
-        // fallback: set count by query
-        try {
-          const { count } = await authed
-            .from("sepbook_comments")
-            .select("id", { count: "exact", head: true })
-            .eq("post_id", postId);
-          if (SERVICE_ROLE_KEY) {
-            await admin.from("sepbook_posts").update({ comment_count: count || 0 }).eq("id", postId);
-          }
-        } catch {}
-      }
+      // comment_count is maintained by DB trigger (sepbook_count_triggers); keep API fast.
 
       // XP por comentário no SEPBook (limitado a 100 XP/mês via função).
       try {
         await writer.rpc("increment_user_xp", { _user_id: uid, _xp_to_add: 2 });
       } catch {}
 
-      // Recalcular menções para o post considerando este novo comentário
       try {
         if (!SERVICE_ROLE_KEY) throw new Error("no service role");
-        await recomputeSepbookMentionsForPost(postId);
+        const mentionedHandles = extractUserMentions(normalizedText);
+        if (mentionedHandles.length) {
+          const mentionedIds = await resolveMentionedUserIds(admin, mentionedHandles);
+          await syncCommentMentions({
+            admin,
+            commentId: String(data.id),
+            postId,
+            mentionedIds,
+            authorId: uid,
+            authorName: profile?.name || "Colaborador",
+          });
+        }
       } catch {}
 
       return res.status(200).json({
@@ -351,7 +446,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         : null;
       const text = String(content_md || "").trim();
       const normalizedText = text.length >= 2 ? text : "";
-      const targetLocales = localesForAllTargets(req.body?.locales);
+      const targetLocales = normalizeRequestedLocales(req.body?.locales);
 
       const reader = SERVICE_ROLE_KEY ? admin : authed;
       const { data: existing, error: fetchErr } = await reader
@@ -369,7 +464,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
 
       let translations: any = existing?.translations && typeof existing.translations === "object" ? existing.translations : { "pt-BR": normalizedText || "" };
-      if (normalizedText) {
+      if (normalizedText && targetLocales.length) {
         translations = { "pt-BR": normalizedText };
         try {
           const [map] = await translateForumTexts({ texts: [normalizedText], targetLocales, maxPerBatch: 6 } as any);
@@ -403,9 +498,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
       if (updateError) return res.status(400).json({ error: updateError.message || "Falha ao atualizar comentário" });
 
+      let mentionedIds: string[] = [];
       try {
         if (!SERVICE_ROLE_KEY) throw new Error("no service role");
-        await recomputeSepbookMentionsForPost(existing.post_id);
+        const mentionedHandles = extractUserMentions(normalizedText);
+        mentionedIds = mentionedHandles.length ? await resolveMentionedUserIds(admin, mentionedHandles) : [];
       } catch {}
 
       let profile: any = null;
@@ -419,6 +516,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       } catch {
         profile = null;
       }
+
+      try {
+        if (!SERVICE_ROLE_KEY) throw new Error("no service role");
+        await syncCommentMentions({
+          admin,
+          commentId,
+          postId: String(existing.post_id),
+          mentionedIds,
+          authorId: uid,
+          authorName: profile?.name || "Colaborador",
+        });
+      } catch {}
 
       return res.status(200).json({
         success: true,
