@@ -705,6 +705,7 @@ export default function SEPBookIG() {
 
   const deepLinkCommentTargetRef = useRef<{ commentId: string; postId: string } | null>(null);
   const deepLinkCommentHandledRef = useRef<string | null>(null);
+  const deepLinkPostHandledRef = useRef<string | null>(null);
 
   const activePost = useMemo(() => posts.find((p) => p.id === commentsOpenFor) || null, [commentsOpenFor, posts]);
 
@@ -1140,7 +1141,12 @@ export default function SEPBookIG() {
       const json = await resp.json().catch(() => ({}));
       if (!resp.ok) throw new Error(json?.error || "Falha ao carregar feed");
       const items = Array.isArray(json.items) ? (json.items as any) : [];
-      setPosts(items);
+      setPosts((prev) => {
+        const next = items as any[];
+        const nextIds = new Set(next.map((p) => String(p?.id || "")));
+        const extras = (prev as any[]).filter((p) => !nextIds.has(String(p?.id || "")));
+        return [...extras, ...next] as any;
+      });
       const warning = json?.meta?.warning ? String(json.meta.warning) : null;
       setFeedWarning(warning);
     } catch (e: any) {
@@ -1875,6 +1881,43 @@ export default function SEPBookIG() {
     }, 60);
     return () => window.clearTimeout(t);
   }, [routerLocation.hash, posts.length]);
+
+  // Deep link: #post-<uuid> should work even if the post isn't in the first 50 items
+  useEffect(() => {
+    const hashId = (routerLocation.hash || "").replace(/^#/, "").trim();
+    const m = /^post-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.exec(hashId);
+    const postId = m?.[1] ? String(m[1]) : "";
+    if (!postId) return;
+    if (posts.some((p) => String((p as any)?.id || "") === postId)) return;
+    if (deepLinkPostHandledRef.current === postId) return;
+    deepLinkPostHandledRef.current = postId;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const resp = await apiFetch(`/api/sepbook-feed?post_id=${encodeURIComponent(postId)}`);
+        const json = await resp.json().catch(() => ({} as any));
+        if (!resp.ok) throw new Error(json?.error || "Falha ao buscar post");
+        const item = Array.isArray((json as any)?.items) ? (json as any).items[0] : null;
+        if (!item) {
+          toast({
+            title: "Post não encontrado",
+            description: "Este post pode ter sido removido ou você não tem permissão.",
+            variant: "destructive",
+          });
+          return;
+        }
+        if (cancelled) return;
+        setPosts((prev) => (prev.some((p) => String((p as any)?.id || "") === String(item.id)) ? prev : [item, ...prev]));
+      } catch {
+        // silencioso
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [posts, routerLocation.hash, toast]);
 
   // Deep link: ?comment=<id> -> open drawer for the post and scroll to the comment
   useEffect(() => {

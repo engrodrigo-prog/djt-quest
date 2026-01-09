@@ -153,6 +153,7 @@ export default function SEPBook() {
 
   const deepLinkCommentTargetRef = useRef<{ commentId: string; postId: string } | null>(null);
   const deepLinkCommentHandledRef = useRef<string | null>(null);
+  const deepLinkPostHandledRef = useRef<string | null>(null);
   const [trendRange, setTrendRange] = useState<"week" | "month" | "quarter" | "semester" | "year">("week");
   const [trendingLoading, setTrendingLoading] = useState(false);
   const [trendingTags, setTrendingTags] = useState<any[]>([]);
@@ -298,7 +299,12 @@ export default function SEPBook() {
         return { ...p, campaign, repost };
       });
 
-      setPosts(enriched as any);
+      setPosts((prev) => {
+        const next = enriched as any[];
+        const nextIds = new Set(next.map((p) => String(p?.id || "")));
+        const extras = (prev as any[]).filter((p) => !nextIds.has(String(p?.id || "")));
+        return [...extras, ...next] as any;
+      });
       if (json?.meta?.warning) {
         console.warn("SEPBook feed warning:", json.meta.warning);
       }
@@ -534,6 +540,43 @@ export default function SEPBook() {
     }, 60);
     return () => window.clearTimeout(t);
   }, [routerLocation.hash, posts.length]);
+
+  // Deep link: #post-<uuid> should work even if the post isn't in the first 50 items
+  useEffect(() => {
+    const hashId = (routerLocation.hash || "").replace(/^#/, "").trim();
+    const m = /^post-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.exec(hashId);
+    const postId = m?.[1] ? String(m[1]) : "";
+    if (!postId) return;
+    if (posts.some((p) => String((p as any)?.id || "") === postId)) return;
+    if (deepLinkPostHandledRef.current === postId) return;
+    deepLinkPostHandledRef.current = postId;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data: session } = await supabase.auth.getSession();
+        const token = session.session?.access_token;
+        const resp = await fetch(`/api/sepbook-feed?post_id=${encodeURIComponent(postId)}`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        const json = await resp.json().catch(() => ({} as any));
+        if (!resp.ok) throw new Error(json?.error || "Falha ao buscar post");
+        const item = Array.isArray((json as any)?.items) ? (json as any).items[0] : null;
+        if (!item) {
+          toast({ title: "Post não encontrado", description: "Este post pode ter sido removido ou você não tem permissão.", variant: "destructive" });
+          return;
+        }
+        if (cancelled) return;
+        setPosts((prev) => (prev.some((p) => String((p as any)?.id || "") === String(item.id)) ? prev : [item, ...prev]));
+      } catch {
+        // silencioso
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [routerLocation.hash, posts, toast]);
 
   useEffect(() => {
     const params = new URLSearchParams(routerLocation.search || "");

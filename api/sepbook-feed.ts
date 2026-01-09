@@ -58,6 +58,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const reader = SERVICE_ROLE_KEY ? admin : (authed || admin);
 
+    const postIdParam = (() => {
+      const v = (req.query as any)?.post_id;
+      const s = Array.isArray(v) ? v[0] : v;
+      const id = String(s || "").trim();
+      return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id) ? id : "";
+    })();
+
     let posts: any[] = [];
     try {
       const baseSelect = `
@@ -97,37 +104,45 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       let data: any[] | null = null;
       let error: any = null;
-      const attempt = await reader
-        .from("sepbook_posts")
-        .select(selectWithRepost)
-        .order("created_at", { ascending: false })
-        .limit(50);
+      let attemptQuery = reader.from("sepbook_posts").select(selectWithRepost);
+      if (postIdParam) {
+        attemptQuery = attemptQuery.eq("id", postIdParam).limit(1);
+      } else {
+        attemptQuery = attemptQuery.order("created_at", { ascending: false }).limit(50);
+      }
+      const attempt = await attemptQuery;
       data = attempt.data as any;
       error = attempt.error as any;
       if (error && /translations/i.test(String(error.message || ""))) {
-        const retry = await reader
-          .from("sepbook_posts")
-          .select(selectWithRepostNoTranslations)
-          .order("created_at", { ascending: false })
-          .limit(50);
+        let retryQuery = reader.from("sepbook_posts").select(selectWithRepostNoTranslations);
+        if (postIdParam) {
+          retryQuery = retryQuery.eq("id", postIdParam).limit(1);
+        } else {
+          retryQuery = retryQuery.order("created_at", { ascending: false }).limit(50);
+        }
+        const retry = await retryQuery;
         data = retry.data as any;
         error = retry.error as any;
       }
       if (error && /repost_of|sepbook_posts_repost_of_fkey/i.test(String(error.message || ""))) {
-        const fallback = await reader
-          .from("sepbook_posts")
-          .select(baseSelect)
-          .order("created_at", { ascending: false })
-          .limit(50);
+        let fallbackQuery = reader.from("sepbook_posts").select(baseSelect);
+        if (postIdParam) {
+          fallbackQuery = fallbackQuery.eq("id", postIdParam).limit(1);
+        } else {
+          fallbackQuery = fallbackQuery.order("created_at", { ascending: false }).limit(50);
+        }
+        const fallback = await fallbackQuery;
         data = fallback.data as any;
         error = fallback.error as any;
       }
       if (error && /translations/i.test(String(error.message || ""))) {
-        const fallback = await reader
-          .from("sepbook_posts")
-          .select(baseSelectNoTranslations)
-          .order("created_at", { ascending: false })
-          .limit(50);
+        let fallbackQuery = reader.from("sepbook_posts").select(baseSelectNoTranslations);
+        if (postIdParam) {
+          fallbackQuery = fallbackQuery.eq("id", postIdParam).limit(1);
+        } else {
+          fallbackQuery = fallbackQuery.order("created_at", { ascending: false }).limit(50);
+        }
+        const fallback = await fallbackQuery;
         data = fallback.data as any;
         error = fallback.error as any;
       }
@@ -135,11 +150,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         error &&
         /(sepbook_post_participants|permission denied|row level security|rls)/i.test(String(error.message || ""))
       ) {
-        const fallback2 = await reader
-          .from("sepbook_posts")
-          .select(minimalSelect)
-          .order("created_at", { ascending: false })
-          .limit(50);
+        let fallback2Query = reader.from("sepbook_posts").select(minimalSelect);
+        if (postIdParam) {
+          fallback2Query = fallback2Query.eq("id", postIdParam).limit(1);
+        } else {
+          fallback2Query = fallback2Query.order("created_at", { ascending: false }).limit(50);
+        }
+        const fallback2 = await fallback2Query;
         data = fallback2.data as any;
         error = fallback2.error as any;
       }
@@ -148,11 +165,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         /(sepbook_post_participants|permission denied|row level security|rls)/i.test(String(error.message || "")) &&
         /translations/i.test(String(error.message || ""))
       ) {
-        const fallback2 = await reader
-          .from("sepbook_posts")
-          .select(minimalSelectNoTranslations)
-          .order("created_at", { ascending: false })
-          .limit(50);
+        let fallback2Query = reader.from("sepbook_posts").select(minimalSelectNoTranslations);
+        if (postIdParam) {
+          fallback2Query = fallback2Query.eq("id", postIdParam).limit(1);
+        } else {
+          fallback2Query = fallback2Query.order("created_at", { ascending: false }).limit(50);
+        }
+        const fallback2 = await fallback2Query;
         data = fallback2.data as any;
         error = fallback2.error as any;
       }
