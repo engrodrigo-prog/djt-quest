@@ -70,6 +70,22 @@ const normalizeHashtag = (raw: string) =>
 
 const buildDraftKey = (campaignId: string, userId: string) => `campaign_evidence_draft:${campaignId}:${userId}`;
 
+const IMAGE_EXTENSIONS = new Set([
+  "jpg",
+  "jpeg",
+  "png",
+  "webp",
+  "gif",
+  "avif",
+  "heic",
+  "heif",
+]);
+
+const isImageAttachment = (url: string) => {
+  const ext = String(url || "").split(".").pop()?.toLowerCase();
+  return Boolean(ext && IMAGE_EXTENSIONS.has(ext));
+};
+
 export function CampaignEvidenceWizard({
   open,
   onOpenChange,
@@ -89,7 +105,9 @@ export function CampaignEvidenceWizard({
 
   const [step, setStep] = useState<1 | 2 | 3 | 4 | 5>(1);
   const [participants, setParticipants] = useState<string[]>([]);
-  const [imageUrls, setImageUrls] = useState<string[]>([]);
+  const [attachmentUrls, setAttachmentUrls] = useState<string[]>([]);
+  const imageUrls = useMemo(() => attachmentUrls.filter((url) => isImageAttachment(url)), [attachmentUrls]);
+  const documentUrls = useMemo(() => attachmentUrls.filter((url) => !isImageAttachment(url)), [attachmentUrls]);
   const [imageItems, setImageItems] = useState<UploadedItem[]>([]);
   const [imagesUploading, setImagesUploading] = useState(false);
 
@@ -132,7 +150,7 @@ export function CampaignEvidenceWizard({
         if (d && typeof d === "object") {
           setStep((d.step as any) || 1);
           setParticipants(Array.isArray(d.participants) ? d.participants : fallbackSelected);
-          setImageUrls(Array.isArray(d.imageUrls) ? d.imageUrls : []);
+          setAttachmentUrls(Array.isArray(d.attachmentUrls) ? d.attachmentUrls : []);
           setImageItems(Array.isArray(d.imageItems) ? d.imageItems : []);
           setText(typeof d.text === "string" ? d.text : "");
           setSapNote(typeof d.sapNote === "string" ? d.sapNote : "");
@@ -147,7 +165,7 @@ export function CampaignEvidenceWizard({
     if (!restored) {
       setStep(1);
       setParticipants(fallbackSelected);
-      setImageUrls([]);
+      setAttachmentUrls([]);
       setImageItems([]);
       setText("");
       setSapNote("");
@@ -170,7 +188,7 @@ export function CampaignEvidenceWizard({
         JSON.stringify({
           step,
           participants,
-          imageUrls,
+          attachmentUrls,
           imageItems,
           text,
           sapNote,
@@ -181,7 +199,7 @@ export function CampaignEvidenceWizard({
     } catch {
       /* ignore */
     }
-  }, [campaign?.id, currentUserId, imageItems, imageUrls, open, participants, publishSepbook, sapNote, step, tags, text]);
+  }, [campaign?.id, currentUserId, imageItems, attachmentUrls, open, participants, publishSepbook, sapNote, step, tags, text]);
 
   // audio preview URL
   useEffect(() => {
@@ -445,10 +463,10 @@ export function CampaignEvidenceWizard({
 
   const canNextFromStep = (s: number) => {
     if (s === 1) return true;
-    if (s === 2) return imageUrls.length >= 1 && !imagesUploading && !audioUploading && !audioTranscribing;
+    if (s === 2) return attachmentUrls.length >= 1 && !imagesUploading && !audioUploading && !audioTranscribing;
     if (s === 3) return true;
     if (s === 4) return sapNote.trim().length <= 60;
-    if (s === 5) return imageUrls.length >= 1 && !imagesUploading && !audioUploading && !audioTranscribing && !submitting;
+    if (s === 5) return attachmentUrls.length >= 1 && !imagesUploading && !audioUploading && !audioTranscribing && !submitting;
     return true;
   };
 
@@ -475,8 +493,8 @@ export function CampaignEvidenceWizard({
       toast({ title: "Campanha sem fluxo de evidência", description: "Peça ao admin para aplicar a migração de evidência.", variant: "destructive" });
       return;
     }
-    if (imageUrls.length < 1) {
-      toast({ title: "Envie ao menos 1 imagem", variant: "destructive" });
+    if (attachmentUrls.length < 1) {
+      toast({ title: "Envie ao menos 1 evidência", description: "Anexe uma imagem ou arquivo para continuar.", variant: "destructive" });
       return;
     }
     if (audioTranscribing) {
@@ -527,7 +545,7 @@ export function CampaignEvidenceWizard({
         const token = session.session?.access_token;
         if (!token) throw new Error("Não autenticado");
 
-        const attachments = [...imageUrls, ...(audioUrl ? [audioUrl] : [])];
+        const attachments = [...attachmentUrls, ...(audioUrl ? [audioUrl] : [])];
         const resp = await fetch("/api/sepbook-post", {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
@@ -552,7 +570,7 @@ export function CampaignEvidenceWizard({
         toast({ title: "Publicado", description: "Evidência publicada no SEPBook e enviada para avaliação." });
         onSubmitted?.({ eventId: json?.event_id || null, sepbookPostId: json?.post?.id || null });
       } else {
-        const attachments = [...imageUrls, ...(audioUrl ? [audioUrl] : [])];
+        const attachments = [...attachmentUrls, ...(audioUrl ? [audioUrl] : [])];
         const payload: any = {
           source: "campaign_evidence",
           campaign_id: campaign.id,
@@ -656,39 +674,59 @@ export function CampaignEvidenceWizard({
 
           {step === 2 && (
             <div className="space-y-5">
-              <div className="space-y-2">
-                <div className="flex items-center justify-between gap-2">
-                  <Label>Imagens (mín. 1, máx. 5)</Label>
-                  <span className="text-xs text-muted-foreground">{Math.min(5, imageUrls.length)}/5</span>
-                </div>
-                <AttachmentUploader
-                  onAttachmentsChange={setImageUrls}
-                  onAttachmentItemsChange={(items) => setImageItems(items as any)}
-                  maxFiles={5}
-                  maxImages={5}
-                  maxVideos={0}
-                  maxSizeMB={50}
-                  bucket="evidence"
-                  pathPrefix={`campaign-evidence/${campaign.id}`}
-                  acceptMimeTypes={[
-                    "image/jpeg",
-                    "image/png",
-                    "image/webp",
-                    "image/gif",
-                    "image/heic",
-                    "image/heif",
-                    "image/avif",
-                  ]}
-                  capture="environment"
-                  maxImageDimension={3840}
-                  imageQuality={0.82}
-                  onUploadingChange={setImagesUploading}
-                  includeImageGpsMeta
-                />
-                {imageUrls.length < 1 && (
-                  <p className="text-xs text-amber-200/90">Você precisa anexar ao menos 1 imagem para continuar.</p>
-                )}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <Label>Anexos (mín. 1, máx. 5)</Label>
+              <span className="text-xs text-muted-foreground">{Math.min(5, attachmentUrls.length)}/5</span>
+            </div>
+            <AttachmentUploader
+              onAttachmentsChange={setAttachmentUrls}
+              onAttachmentItemsChange={(items) =>
+                setImageItems(
+                  (items as UploadedItem[]).filter((item) => isImageAttachment(String(item?.url || ""))),
+                )
+              }
+              maxFiles={5}
+              maxVideos={0}
+              maxSizeMB={50}
+              bucket="evidence"
+              pathPrefix={`campaign-evidence/${campaign.id}`}
+              acceptMimeTypes={[
+                "image/jpeg",
+                "image/png",
+                "image/webp",
+                "image/gif",
+                "image/heic",
+                "image/heif",
+                "image/avif",
+                "application/pdf",
+                "application/msword",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "application/zip",
+                "text/plain",
+              ]}
+              capture="environment"
+              maxImageDimension={3840}
+              imageQuality={0.82}
+              onUploadingChange={setImagesUploading}
+              includeImageGpsMeta
+            />
+            {attachmentUrls.length < 1 && (
+              <p className="text-xs text-amber-200/90">
+                Você precisa anexar ao menos 1 evidência (imagem ou arquivo) para continuar.
+              </p>
+            )}
+            {documentUrls.length > 0 && (
+              <div className="text-xs text-muted-foreground">
+                Documentos:{" "}
+                {documentUrls.map((url) => {
+                  const name = url.split("/").pop() || "arquivo";
+                  return <span key={url}>{name}; </span>;
+                })}
               </div>
+            )}
+          </div>
 
               <div className="space-y-2">
                 <Label>Áudio (opcional)</Label>
@@ -904,7 +942,7 @@ export function CampaignEvidenceWizard({
               <div className="rounded-md border bg-white/5 p-3 space-y-3">
                 <p className="text-sm font-semibold">Prévia</p>
                 <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-                  <span>{imageUrls.length} imagem(ns)</span>
+                  <span>{attachmentUrls.length} anexo(s)</span>
                   <span>•</span>
                   <span>{(isGuest ? 1 : Array.from(new Set([currentUserId, ...(participants || [])])).length)} participante(s)</span>
                   {tags.length > 0 && (
@@ -914,7 +952,14 @@ export function CampaignEvidenceWizard({
                     </>
                   )}
                 </div>
-                {imageUrls.length > 0 && <AttachmentViewer urls={imageUrls} mediaLayout="grid" showMetadata={false} enableLightbox />}
+                {attachmentUrls.length > 0 && (
+                  <AttachmentViewer
+                    urls={attachmentUrls}
+                    mediaLayout="grid"
+                    showMetadata={false}
+                    enableLightbox
+                  />
+                )}
                 <div className="text-sm whitespace-pre-wrap">{contentForSepbook || <span className="text-muted-foreground">Sem texto.</span>}</div>
               </div>
             </div>

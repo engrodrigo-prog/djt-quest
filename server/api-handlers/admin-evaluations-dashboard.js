@@ -87,18 +87,16 @@ export default async function handler(req, res) {
       for (const e of events || []) registerEvent(e);
     }
 
-    if (!leaderFilter) {
-      const { data: fallbackEvents, error: fallbackErr } = await admin
-        .from('events')
-        .select(
-          'id,created_at,status,awaiting_second_evaluation,first_evaluation_rating,second_evaluation_rating,first_evaluator_id,second_evaluator_id,retry_count,evidence_urls,payload,challenge_id,user_id',
-        )
-        .in('status', Array.from(pendingStatuses))
-        .order('created_at', { ascending: false })
-        .limit(500);
-      if (fallbackErr) return res.status(400).json({ error: fallbackErr.message });
-      for (const e of fallbackEvents || []) registerEvent(e);
-    }
+    const { data: statusEvents, error: statusErr } = await admin
+      .from('events')
+      .select(
+        'id,created_at,status,awaiting_second_evaluation,first_evaluation_rating,second_evaluation_rating,first_evaluator_id,second_evaluator_id,retry_count,evidence_urls,payload,challenge_id,user_id',
+      )
+      .in('status', Array.from(pendingStatuses))
+      .order('created_at', { ascending: false })
+      .limit(500);
+    if (statusErr) return res.status(400).json({ error: statusErr.message });
+    for (const e of statusEvents || []) registerEvent(e);
 
     // 3) Challenges
     const challengesById = new Map();
