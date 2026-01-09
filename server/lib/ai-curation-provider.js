@@ -1,16 +1,93 @@
 import { normalizeChatModel } from './openai-models.js';
 
-const extractJson = (content) => {
-  const s = String(content || '');
-  const start = s.indexOf('{');
-  const end = s.lastIndexOf('}');
-  if (start === -1 || end === -1 || end <= start) return null;
-  const slice = s.slice(start, end + 1);
+const tryParseJson = (raw) => {
   try {
-    return JSON.parse(slice);
+    return JSON.parse(raw);
   } catch {
     return null;
   }
+};
+
+const stripBOM = (s) => (s && s.charCodeAt(0) === 0xfeff ? s.slice(1) : s);
+const removeTrailingCommas = (s) => String(s || '').replace(/,\s*([}\]])/g, '$1');
+
+const extractFirstJsonValue = (raw) => {
+  const s = String(raw || '');
+  let start = -1;
+  const stack = [];
+  let inString = false;
+  let escape = false;
+  let quoteChar = '"';
+
+  for (let i = 0; i < s.length; i += 1) {
+    const ch = s[i];
+
+    if (inString) {
+      if (escape) {
+        escape = false;
+        continue;
+      }
+      if (ch === '\\') {
+        escape = true;
+        continue;
+      }
+      if (ch === quoteChar) {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (ch === '"' || ch === "'") {
+      inString = true;
+      quoteChar = ch;
+      continue;
+    }
+
+    if (start === -1) {
+      if (ch === '{' || ch === '[') {
+        start = i;
+        stack.push(ch === '{' ? '}' : ']');
+      }
+      continue;
+    }
+
+    if (ch === '{') stack.push('}');
+    else if (ch === '[') stack.push(']');
+    else if (stack.length && ch === stack[stack.length - 1]) {
+      stack.pop();
+      if (stack.length === 0) return s.slice(start, i + 1);
+    }
+  }
+
+  return null;
+};
+
+const parseJsonFromAiContent = (content) => {
+  const raw = String(content || '');
+  const trimmed = stripBOM(raw.trim());
+  if (!trimmed) return { parsed: null, candidate: null };
+
+  // 1) Direct JSON
+  const direct = tryParseJson(trimmed);
+  if (direct && typeof direct === 'object') return { parsed: direct, candidate: trimmed };
+
+  // 2) Code fences (```json ... ```)
+  const fenceRe = /```(?:json)?\s*([\s\S]*?)\s*```/gi;
+  for (const match of trimmed.matchAll(fenceRe)) {
+    const block = stripBOM(removeTrailingCommas(String(match?.[1] || '').trim()));
+    const parsed = tryParseJson(block);
+    if (parsed && typeof parsed === 'object') return { parsed, candidate: block };
+  }
+
+  // 3) First balanced JSON object/array inside the text
+  const extracted = extractFirstJsonValue(trimmed) || extractFirstJsonValue(raw);
+  if (extracted) {
+    const cleaned = stripBOM(removeTrailingCommas(extracted.trim()));
+    const parsed = tryParseJson(cleaned);
+    if (parsed && typeof parsed === 'object') return { parsed, candidate: cleaned };
+  }
+
+  return { parsed: null, candidate: extracted || null };
 };
 
 const pickTextModel = (paramsModel) =>
@@ -31,25 +108,43 @@ const pickVisionModel = (paramsModel) =>
 
 async function callOpenAiChatJson({ openaiKey, model, system, user, maxTokens = 1800, temperature = 0.2 }) {
   const isGpt5 = String(model).startsWith('gpt-5');
-  const resp = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${openaiKey}` },
-    body: JSON.stringify({
-      model,
-      ...(isGpt5 ? {} : { temperature }),
-      messages: [
-        { role: 'system', content: system },
-        { role: 'user', content: user },
-      ],
-      ...(isGpt5 ? { max_completion_tokens: maxTokens } : { max_tokens: maxTokens }),
-    }),
-  });
+  const doCall = async ({ sys, usr, max }) => {
+    const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${openaiKey}` },
+      body: JSON.stringify({
+        model,
+        ...(isGpt5 ? {} : { temperature }),
+        messages: [
+          { role: 'system', content: sys },
+          { role: 'user', content: usr },
+        ],
+        ...(isGpt5 ? { max_completion_tokens: max } : { max_tokens: max }),
+      }),
+    });
+    const json = await resp.json().catch(() => null);
+    return { resp, json };
+  };
 
-  const json = await resp.json().catch(() => null);
+  const { resp, json } = await doCall({ sys: system, usr: user, max: maxTokens });
+
   if (!resp.ok) return { ok: false, error: json?.error?.message || `OpenAI error (${resp.status})` };
   const content = json?.choices?.[0]?.message?.content || '';
-  const parsed = extractJson(content);
-  if (!parsed || typeof parsed !== 'object') return { ok: false, error: 'Invalid AI response' };
+  let { parsed } = parseJsonFromAiContent(content);
+
+  // Fallback: ask the model to repair its own output into valid JSON.
+  if (!parsed || typeof parsed !== 'object') {
+    const repairSystem = `Você corrige respostas malformadas e devolve APENAS um JSON válido seguindo o mesmo esquema esperado.
+Não inclua comentários, texto extra, Markdown, nem blocos de código.`;
+    const repairUser = String(content || '').slice(0, 6000);
+    const repair = await doCall({ sys: repairSystem, usr: repairUser, max: Math.min(1200, maxTokens) });
+    if (repair.resp.ok) {
+      const repairContent = repair.json?.choices?.[0]?.message?.content || '';
+      parsed = parseJsonFromAiContent(repairContent).parsed;
+    }
+  }
+
+  if (!parsed || typeof parsed !== 'object') return { ok: false, error: 'Invalid AI response (JSON)' };
   return { ok: true, parsed };
 }
 
@@ -97,6 +192,7 @@ export async function catalogIncidentReportWithAi(params) {
   const openaiKey = params?.openaiKey || process.env.OPENAI_API_KEY || '';
   const model = pickTextModel(params?.model);
   const input = params?.input;
+  const hints = params?.hints != null ? String(params.hints) : '';
   if (!openaiKey) return { ok: false, error: 'OPENAI_API_KEY not configured' };
   if (!input) return { ok: false, error: 'Missing input' };
 
@@ -126,8 +222,48 @@ Regras:
 - learning_points: 3 a 8 itens práticos.
 - Retorne APENAS JSON válido.`;
 
-  const user = typeof input === 'string' ? input : JSON.stringify(input);
+  const base = typeof input === 'string' ? input : JSON.stringify(input);
+  const user = [hints ? `### Contexto do item\n${hints}\n` : '', base].filter(Boolean).join('\n\n');
   const out = await callOpenAiChatJson({ openaiKey, model, system, user, maxTokens: 1800, temperature: 0.2 });
+  if (!out.ok) return out;
+  return { ok: true, model, catalog: out.parsed };
+}
+
+export async function catalogStudyMaterialWithAi(params) {
+  const openaiKey = params?.openaiKey || process.env.OPENAI_API_KEY || '';
+  const model = pickTextModel(params?.model);
+  const input = params?.input;
+  const hints = params?.hints != null ? String(params.hints) : '';
+  if (!openaiKey) return { ok: false, error: 'OPENAI_API_KEY not configured' };
+  if (!input) return { ok: false, error: 'Missing input' };
+
+  const system = `Você é um bibliotecário técnico.
+Seu trabalho é catalogar MATERIAIS de estudo (manuais, procedimentos, guias) e extrair um resumo pesquisável SEM inventar dados.
+
+Formato de saída obrigatório (JSON puro):
+{
+  "title": "string",
+  "summary": "string",
+  "document_type": "manual|procedimento|guia|apresentacao|norma|outro|desconhecido",
+  "topic_area": "string (ex.: drones, segurança, manutenção, telecom, linhas, subestação, etc.)",
+  "audience_level": "iniciante|intermediario|avancado|desconhecido",
+  "tags": ["string"],
+  "key_points": ["string"],
+  "suggested_quiz_topics": ["string"],
+  "suggested_forum_prompts": ["string"]
+}
+
+Regras:
+- Se algum campo não puder ser inferido com segurança, use "desconhecido" / "outro".
+- title: curto e humano (6 a 14 palavras). Não use códigos internos (ex.: GED, IDs, hashes).
+- summary: 3 a 6 frases, em português, dizendo o que o material cobre e como usar.
+- tags: 5 a 12 termos curtos (sem #).
+- key_points: 4 a 10 itens práticos.
+- Retorne APENAS JSON válido.`;
+
+  const base = typeof input === 'string' ? input : JSON.stringify(input);
+  const user = [hints ? `### Contexto do item\n${hints}\n` : '', base].filter(Boolean).join('\n\n');
+  const out = await callOpenAiChatJson({ openaiKey, model, system, user, maxTokens: 1400, temperature: 0.2 });
   if (!out.ok) return out;
   return { ok: true, model, catalog: out.parsed };
 }
@@ -186,8 +322,8 @@ Responda APENAS em JSON válido no formato:
   if (!resp.ok) return { ok: false, error: json?.error?.message || `OpenAI error (${resp.status})` };
 
   const content = json?.choices?.[0]?.message?.content || '';
-  const parsed = extractJson(content);
-  if (!parsed || typeof parsed !== 'object') return { ok: false, error: 'Invalid AI response' };
+  const parsed = parseJsonFromAiContent(content).parsed;
+  if (!parsed || typeof parsed !== 'object') return { ok: false, error: 'Invalid AI response (JSON)' };
 
   const text = typeof parsed?.text === 'string' ? parsed.text.trim() : '';
   const description = typeof parsed?.description === 'string' ? parsed.description.trim() : '';

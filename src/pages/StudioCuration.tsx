@@ -320,13 +320,16 @@ export default function StudioCuration() {
 
   const draftQuizzes = useMemo(() => quizzes.filter((q) => String(q.quiz_workflow_status || 'PUBLISHED') === 'DRAFT'), [quizzes]);
 
-  // --- Compendium pipeline (incident reports) ---
+  // --- Compendium pipeline (incident reports / study materials) ---
   const [occFile, setOccFile] = useState<File | null>(null);
+  const [occFileKey, setOccFileKey] = useState(0);
+  const [occPurpose, setOccPurpose] = useState<'incident' | 'material'>('incident');
   const [occLoading, setOccLoading] = useState(false);
   const [occRow, setOccRow] = useState<any | null>(null);
   const [occDraft, setOccDraft] = useState<any | null>(null);
   const [compendiumItems, setCompendiumItems] = useState<any[]>([]);
   const [compSearch, setCompSearch] = useState('');
+  const occKind = String(occRow?.ai_suggested?.kind || (occPurpose === 'incident' ? 'incident_report' : 'study_material'));
 
   const loadCompendium = useCallback(async () => {
     try {
@@ -427,16 +430,16 @@ export default function StudioCuration() {
       const extractResp = await apiFetch('/api/admin?handler=compendium-extract-import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ importId, purpose: 'incident' }),
+        body: JSON.stringify({ importId, purpose: occPurpose }),
       });
       const extractJson = await extractResp.json().catch(() => ({}));
       if (!extractResp.ok) throw new Error(extractJson?.error || 'Falha ao extrair texto');
 
       setOccRow(extractJson?.import || null);
       setOccDraft(null);
-      toast.success('Relatório extraído');
+      toast.success('Conteúdo extraído');
     } catch (e: any) {
-      toast.error(e?.message || 'Falha ao processar relatório');
+      toast.error(e?.message || 'Falha ao processar arquivo');
     } finally {
       setOccLoading(false);
     }
@@ -449,7 +452,7 @@ export default function StudioCuration() {
       const resp = await apiFetch('/api/admin?handler=compendium-catalog-import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ importId: occRow.id }),
+        body: JSON.stringify({ importId: occRow.id, purpose: occPurpose }),
       });
       const json = await resp.json().catch(() => ({}));
       if (!resp.ok) throw new Error(json?.error || 'Falha na catalogação');
@@ -475,8 +478,9 @@ export default function StudioCuration() {
     }
     setOccLoading(true);
     try {
+      const kind = occKind;
       const final = {
-        kind: 'incident_report',
+        kind,
         catalog: occDraft,
         source: { bucket: occRow.source_bucket, path: occRow.source_path, mime: occRow.source_mime || null },
       };
@@ -606,7 +610,7 @@ export default function StudioCuration() {
             {canCurate && <TabsTrigger value="inbox">Fila (SUBMITTED)</TabsTrigger>}
             {canCurate && <TabsTrigger value="all">Todos</TabsTrigger>}
             {canCurate && <TabsTrigger value="import">Importar questões</TabsTrigger>}
-            {canCompendium && <TabsTrigger value="compendium">Ocorrências (Compêndio)</TabsTrigger>}
+            {canCompendium && <TabsTrigger value="compendium">Compêndio</TabsTrigger>}
           </TabsList>
 
           <TabsContent value="my">
@@ -788,8 +792,8 @@ export default function StudioCuration() {
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <CardTitle className="flex items-center gap-2">
-                        Subir relatório de ocorrência
-                        <TipDialogButton tipId="studio-compendium" ariaLabel="Entenda o Compêndio de Ocorrências" />
+                        Subir arquivo
+                        <TipDialogButton tipId="studio-compendium" ariaLabel="Entenda o Compêndio" />
                       </CardTitle>
                       <CardDescription>
                         Faça upload (PDF/Word/Imagem/TXT/JSON), extraia o conteúdo, catalogue com IA e salve no Compêndio
@@ -799,12 +803,33 @@ export default function StudioCuration() {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="space-y-2">
-                    <Label>Arquivo (PDF/Word/Imagem/TXT/JSON)</Label>
-                    <Input
-                      type="file"
-                      accept=".pdf,.docx,.txt,.json,.png,.jpg,.jpeg,.webp,application/pdf,text/plain,application/json,image/png,image/jpeg,image/webp"
-                      onChange={(e) => setOccFile(e.target.files?.[0] || null)}
-                    />
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div className="space-y-2">
+                        <Label>Tipo de conteúdo</Label>
+                        <Select
+                          value={occPurpose}
+                          onValueChange={(v) => setOccPurpose(v as any)}
+                          disabled={occLoading}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Selecione o tipo" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="incident">Ocorrência (relatório)</SelectItem>
+                            <SelectItem value="material">Material / Manual</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Arquivo (PDF/Word/Imagem/TXT/JSON)</Label>
+                        <Input
+                          key={occFileKey}
+                          type="file"
+                          accept=".pdf,.docx,.txt,.json,.png,.jpg,.jpeg,.webp,application/pdf,text/plain,application/json,image/png,image/jpeg,image/webp"
+                          onChange={(e) => setOccFile(e.target.files?.[0] || null)}
+                        />
+                      </div>
+                    </div>
                     <div className="flex gap-2 flex-wrap">
                       <Button type="button" onClick={runOccUpload} disabled={!occFile || occLoading}>
                         {occLoading ? 'Processando...' : 'Extrair texto'}
@@ -817,6 +842,19 @@ export default function StudioCuration() {
                       </Button>
                       <Button type="button" variant="outline" onClick={loadCompendium} disabled={occLoading}>
                         Atualizar lista
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => {
+                          setOccFile(null);
+                          setOccRow(null);
+                          setOccDraft(null);
+                          setOccFileKey((k) => k + 1);
+                        }}
+                        disabled={occLoading}
+                      >
+                        Novo
                       </Button>
                     </div>
                   </div>
@@ -851,48 +889,110 @@ export default function StudioCuration() {
                           rows={4}
                         />
                       </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        <div className="space-y-1">
-                          <Label>Área (subestacao/telecom/linhas)</Label>
-                          <Input
-                            value={String(occDraft.asset_area || '')}
-                            onChange={(e) => setOccDraft((p: any) => ({ ...(p || {}), asset_area: e.target.value }))}
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <Label>Tipo de ativo</Label>
-                          <Input
-                            value={String(occDraft.asset_type || '')}
-                            onChange={(e) => setOccDraft((p: any) => ({ ...(p || {}), asset_type: e.target.value }))}
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <Label>Modo de falha</Label>
-                          <Input
-                            value={String(occDraft.failure_mode || '')}
-                            onChange={(e) => setOccDraft((p: any) => ({ ...(p || {}), failure_mode: e.target.value }))}
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <Label>Causa raiz</Label>
-                          <Input
-                            value={String(occDraft.root_cause || '')}
-                            onChange={(e) => setOccDraft((p: any) => ({ ...(p || {}), root_cause: e.target.value }))}
-                          />
-                        </div>
-                      </div>
-                      <div className="space-y-1">
-                        <Label>Palavras-chave (separe por vírgula)</Label>
-                        <Input
-                          value={Array.isArray(occDraft.keywords) ? occDraft.keywords.join(', ') : String(occDraft.keywords || '')}
-                          onChange={(e) =>
-                            setOccDraft((p: any) => ({
-                              ...(p || {}),
-                              keywords: e.target.value.split(',').map((s) => s.trim()).filter(Boolean),
-                            }))
-                          }
-                        />
-                      </div>
+                      {occKind === 'incident_report' ? (
+                        <>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div className="space-y-1">
+                              <Label>Área (subestacao/telecom/linhas)</Label>
+                              <Input
+                                value={String(occDraft.asset_area || '')}
+                                onChange={(e) => setOccDraft((p: any) => ({ ...(p || {}), asset_area: e.target.value }))}
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label>Tipo de ativo</Label>
+                              <Input
+                                value={String(occDraft.asset_type || '')}
+                                onChange={(e) => setOccDraft((p: any) => ({ ...(p || {}), asset_type: e.target.value }))}
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label>Modo de falha</Label>
+                              <Input
+                                value={String(occDraft.failure_mode || '')}
+                                onChange={(e) => setOccDraft((p: any) => ({ ...(p || {}), failure_mode: e.target.value }))}
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label>Causa raiz</Label>
+                              <Input
+                                value={String(occDraft.root_cause || '')}
+                                onChange={(e) => setOccDraft((p: any) => ({ ...(p || {}), root_cause: e.target.value }))}
+                              />
+                            </div>
+                          </div>
+                          <div className="space-y-1">
+                            <Label>Palavras-chave (separe por vírgula)</Label>
+                            <Input
+                              value={Array.isArray(occDraft.keywords) ? occDraft.keywords.join(', ') : String(occDraft.keywords || '')}
+                              onChange={(e) =>
+                                setOccDraft((p: any) => ({
+                                  ...(p || {}),
+                                  keywords: e.target.value.split(',').map((s) => s.trim()).filter(Boolean),
+                                }))
+                              }
+                            />
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div className="space-y-1">
+                              <Label>Tipo de documento</Label>
+                              <Input
+                                value={String(occDraft.document_type || '')}
+                                onChange={(e) => setOccDraft((p: any) => ({ ...(p || {}), document_type: e.target.value }))}
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label>Área / tema</Label>
+                              <Input
+                                value={String(occDraft.topic_area || '')}
+                                onChange={(e) => setOccDraft((p: any) => ({ ...(p || {}), topic_area: e.target.value }))}
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label>Nível do público</Label>
+                              <Input
+                                value={String(occDraft.audience_level || '')}
+                                onChange={(e) => setOccDraft((p: any) => ({ ...(p || {}), audience_level: e.target.value }))}
+                              />
+                            </div>
+                          </div>
+                          <div className="space-y-1">
+                            <Label>Tags (separe por vírgula)</Label>
+                            <Input
+                              value={Array.isArray(occDraft.tags) ? occDraft.tags.join(', ') : String(occDraft.tags || '')}
+                              onChange={(e) =>
+                                setOccDraft((p: any) => ({
+                                  ...(p || {}),
+                                  tags: e.target.value.split(',').map((s) => s.trim()).filter(Boolean),
+                                }))
+                              }
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <Label>Pontos-chave (1 por linha)</Label>
+                            <Textarea
+                              value={
+                                Array.isArray(occDraft.key_points)
+                                  ? occDraft.key_points.join('\n')
+                                  : String(occDraft.key_points || '')
+                              }
+                              onChange={(e) =>
+                                setOccDraft((p: any) => ({
+                                  ...(p || {}),
+                                  key_points: e.target.value
+                                    .split('\n')
+                                    .map((s) => s.replace(/^[\s•-]+/g, '').trim())
+                                    .filter(Boolean),
+                                }))
+                              }
+                              rows={5}
+                            />
+                          </div>
+                        </>
+                      )}
                     </div>
                   )}
                 </CardContent>
@@ -915,14 +1015,20 @@ export default function StudioCuration() {
                       const q = compSearch.trim().toLowerCase();
                       if (!q) return true;
                       const cat = it?.final?.catalog || it?.final || it?.catalog || {};
+                      const kind = String(it?.final?.kind || '');
                       const hay = [
                         cat?.title,
                         cat?.summary,
+                        kind,
                         cat?.asset_area,
                         cat?.asset_type,
                         cat?.failure_mode,
                         cat?.root_cause,
+                        cat?.document_type,
+                        cat?.topic_area,
+                        cat?.audience_level,
                         ...(Array.isArray(cat?.keywords) ? cat.keywords : []),
+                        ...(Array.isArray(cat?.tags) ? cat.tags : []),
                       ]
                         .map((v) => String(v || '').toLowerCase())
                         .join(' ');
@@ -931,21 +1037,36 @@ export default function StudioCuration() {
                     .slice(0, 30)
                     .map((it) => {
                       const cat = it?.final?.catalog || it?.final || it?.catalog || {};
+                      const kind = String(it?.final?.kind || '');
+                      const badges = Array.isArray(cat?.keywords) ? cat.keywords : Array.isArray(cat?.tags) ? cat.tags : [];
+                      const subtitle =
+                        kind === 'study_material'
+                          ? `${String(cat?.document_type || '—')} • ${String(cat?.topic_area || '—')} • ${String(cat?.audience_level || '—')}`
+                          : `${String(cat?.asset_area || '—')} • ${String(cat?.asset_type || '—')} • ${String(cat?.failure_mode || '—')}`;
+                      const detailLine =
+                        kind === 'study_material'
+                          ? String(cat?.summary || '—')
+                          : `Causa raiz: ${String(cat?.root_cause || '—')}`;
                       return (
                         <div key={it.id} className="border rounded-md p-3 bg-black/20 border-white/10 space-y-1">
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0">
-                              <div className="text-sm font-semibold text-blue-50 truncate">{String(cat?.title || 'Ocorrência')}</div>
-                              <div className="text-xs text-muted-foreground truncate">
-                                {String(cat?.asset_area || '—')} • {String(cat?.asset_type || '—')} • {String(cat?.failure_mode || '—')}
+                              <div className="text-sm font-semibold text-blue-50 truncate">
+                                {String(cat?.title || (kind === 'study_material' ? 'Material' : 'Ocorrência'))}
                               </div>
-                              <div className="text-xs text-muted-foreground truncate">Causa raiz: {String(cat?.root_cause || '—')}</div>
+                              <div className="text-xs text-muted-foreground truncate">{subtitle}</div>
+                              <div className="text-xs text-muted-foreground truncate">{detailLine}</div>
                             </div>
-                            <Badge variant="secondary" className="text-[10px]">APROVADO</Badge>
+                            <div className="flex items-center gap-2">
+                              <Badge variant="secondary" className="text-[10px]">
+                                {kind === 'study_material' ? 'MATERIAL' : 'OCORRÊNCIA'}
+                              </Badge>
+                              <Badge variant="secondary" className="text-[10px]">APROVADO</Badge>
+                            </div>
                           </div>
-                          {Array.isArray(cat?.keywords) && cat.keywords.length > 0 && (
+                          {Array.isArray(badges) && badges.length > 0 && (
                             <div className="flex flex-wrap gap-1 pt-1">
-                              {cat.keywords.slice(0, 6).map((k: string) => (
+                              {badges.slice(0, 6).map((k: string) => (
                                 <Badge key={`${it.id}-${k}`} variant="outline" className="text-[10px]">
                                   {k}
                                 </Badge>

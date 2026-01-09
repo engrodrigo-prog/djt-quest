@@ -1,6 +1,6 @@
 import { createSupabaseAdminClient, requireCallerUser } from '../lib/supabase-admin.js';
 import { rolesToSet } from '../lib/rbac.js';
-import { catalogIncidentReportWithAi } from '../lib/ai-curation-provider.js';
+import { catalogIncidentReportWithAi, catalogStudyMaterialWithAi } from '../lib/ai-curation-provider.js';
 import { tryInsertAuditLog } from '../lib/audit-log.js';
 
 const STAFF_ROLES = new Set(['admin', 'gerente_djt', 'gerente_divisao_djtx', 'coordenador_djtx', 'content_curator']);
@@ -28,7 +28,7 @@ export default async function handler(req, res) {
       Array.from(roleSet).some((r) => STAFF_ROLES.has(r) || LEADER_ROLES.has(r));
     if (!allowed) return res.status(403).json({ error: 'Forbidden' });
 
-    const { importId } = req.body || {};
+    const { importId, purpose } = req.body || {};
     const id = String(importId || '').trim();
     if (!id) return res.status(400).json({ error: 'importId required' });
 
@@ -40,20 +40,39 @@ export default async function handler(req, res) {
     const text = String(raw?.text || '').trim();
     if (!text) return res.status(400).json({ error: 'Import sem texto (faça a extração primeiro)' });
 
-    const ai = await catalogIncidentReportWithAi({ input: text });
+    const overridePurposeRaw = purpose != null ? String(purpose).trim().toLowerCase() : '';
+    const purposeRaw = overridePurposeRaw || String(raw?.purpose || '').trim().toLowerCase();
+    const isIncident =
+      purposeRaw === 'incident' ||
+      purposeRaw === 'ocorrencia' ||
+      purposeRaw === 'ocorrência' ||
+      purposeRaw.includes('incident') ||
+      purposeRaw.includes('ocorr');
+
+    const fileName = String(imp.source_path || '').split('/').pop() || '';
+    const hints = [
+      fileName ? `Arquivo: ${fileName}` : null,
+      purposeRaw ? `Propósito: ${purposeRaw}` : null,
+      imp.source_mime ? `MIME: ${String(imp.source_mime)}` : null,
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    const ai = isIncident ? await catalogIncidentReportWithAi({ input: text, hints }) : await catalogStudyMaterialWithAi({ input: text, hints });
     if (!ai.ok) return res.status(400).json({ error: ai.error });
 
+    const nextRaw = overridePurposeRaw ? { ...(raw || {}), purpose: overridePurposeRaw } : raw;
     const ai_suggested = {
-      kind: 'incident_report',
+      kind: isIncident ? 'incident_report' : 'study_material',
       model: ai.model,
       catalog: ai.catalog,
       source: { bucket: imp.source_bucket, path: imp.source_path, mime: imp.source_mime || null },
-      purpose: raw?.purpose || null,
+      purpose: overridePurposeRaw || raw?.purpose || null,
     };
 
     const { data: updated, error } = await admin
       .from('content_imports')
-      .update({ status: 'AI_SUGGESTED', ai_suggested })
+      .update({ status: 'AI_SUGGESTED', ai_suggested, ...(overridePurposeRaw ? { raw_extract: nextRaw } : {}) })
       .eq('id', id)
       .select('*')
       .single();
@@ -65,7 +84,7 @@ export default async function handler(req, res) {
       entity_type: 'content_import',
       entity_id: id,
       before_json: { status: imp.status },
-      after_json: { status: updated.status, model: ai.model, kind: 'incident_report' },
+      after_json: { status: updated.status, model: ai.model, kind: ai_suggested.kind },
     });
 
     return res.status(200).json({ success: true, import: updated, usedModel: ai.model });
@@ -75,4 +94,3 @@ export default async function handler(req, res) {
 }
 
 export const config = { api: { bodyParser: true } };
-

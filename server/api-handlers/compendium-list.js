@@ -30,12 +30,14 @@ export default async function handler(req, res) {
       .from('content_imports')
       .select('id, created_at, updated_at, created_by, source_bucket, source_path, source_mime, status, final_approved, ai_suggested')
       .eq('status', 'FINAL_APPROVED')
-      .eq('final_approved->>kind', 'incident_report')
       .order('updated_at', { ascending: false })
       .limit(500);
     if (error) return res.status(400).json({ error: error.message });
 
-    const items = (data || []).map((r) => ({
+    const allowedKinds = new Set(['incident_report', 'study_material']);
+    const items = (data || [])
+      .filter((r) => allowedKinds.has(String(r?.final_approved?.kind || '')))
+      .map((r) => ({
       id: r.id,
       created_at: r.created_at,
       updated_at: r.updated_at,
@@ -54,4 +56,3 @@ export default async function handler(req, res) {
 }
 
 export const config = { api: { bodyParser: false } };
-
