@@ -39,6 +39,14 @@ export default async function handler(req, res) {
     const q = getStrParam(req, 'q');
     const leaderId = getStrParam(req, 'leaderId');
     const normalizedQ = normalizeKey(q);
+    const leaderFilter = leaderId && leaderId !== 'all';
+    const pendingStatuses = new Set([
+      'submitted',
+      'awaiting_evaluation',
+      'awaiting_second_evaluation',
+      'retry_pending',
+      'retry_in_progress',
+    ]);
 
     // 1) Pending assignments (queue)
     const { data: queueRows, error: queueErr } = await admin
@@ -58,6 +66,16 @@ export default async function handler(req, res) {
     const userIds = new Set();
     const evaluatorIds = new Set();
 
+    const registerEvent = (e) => {
+      if (!e?.id) return;
+      if (eventsById.has(e.id)) return;
+      eventsById.set(e.id, e);
+      if (e.challenge_id) challengeIds.add(e.challenge_id);
+      if (e.user_id) userIds.add(e.user_id);
+      if (e.first_evaluator_id) evaluatorIds.add(e.first_evaluator_id);
+      if (e.second_evaluator_id) evaluatorIds.add(e.second_evaluator_id);
+    };
+
     for (const ids of chunk(eventIds, 200)) {
       const { data: events, error: evErr } = await admin
         .from('events')
@@ -66,13 +84,20 @@ export default async function handler(req, res) {
         )
         .in('id', ids);
       if (evErr) return res.status(400).json({ error: evErr.message });
-      for (const e of events || []) {
-        eventsById.set(e.id, e);
-        if (e.challenge_id) challengeIds.add(e.challenge_id);
-        if (e.user_id) userIds.add(e.user_id);
-        if (e.first_evaluator_id) evaluatorIds.add(e.first_evaluator_id);
-        if (e.second_evaluator_id) evaluatorIds.add(e.second_evaluator_id);
-      }
+      for (const e of events || []) registerEvent(e);
+    }
+
+    if (!leaderFilter) {
+      const { data: fallbackEvents, error: fallbackErr } = await admin
+        .from('events')
+        .select(
+          'id,created_at,status,awaiting_second_evaluation,first_evaluation_rating,second_evaluation_rating,first_evaluator_id,second_evaluator_id,retry_count,evidence_urls,payload,challenge_id,user_id',
+        )
+        .in('status', Array.from(pendingStatuses))
+        .order('created_at', { ascending: false })
+        .limit(500);
+      if (fallbackErr) return res.status(400).json({ error: fallbackErr.message });
+      for (const e of fallbackEvents || []) registerEvent(e);
     }
 
     // 3) Challenges
@@ -86,7 +111,8 @@ export default async function handler(req, res) {
     // 4) Evaluations for pending events
     const evalsByEvent = new Map(); // event_id -> eval[]
     const reviewerIds = new Set();
-    for (const ids of chunk(eventIds, 200)) {
+    const allEventIds = Array.from(eventsById.keys());
+    for (const ids of chunk(allEventIds, 200)) {
       const { data: evals, error } = await admin
         .from('action_evaluations')
         .select('id,event_id,reviewer_id,evaluation_number,rating,final_rating,created_at,feedback_positivo,feedback_construtivo')
@@ -117,23 +143,13 @@ export default async function handler(req, res) {
 
     // 6) Group pending events
     const grouped = new Map(); // event_id -> { event, challenge, submitter, assignments, evaluations }
+    const assignmentsByEvent = new Map();
     for (const row of pendingAssignments) {
       const event = eventsById.get(row.event_id);
       if (!event) continue;
-      const challenge = challengesById.get(event.challenge_id) || null;
-      const submitter = profilesById.get(event.user_id) || null;
       const assigned = row.assigned_to ? profilesById.get(row.assigned_to) || null : null;
-      const evaluations = evalsByEvent.get(row.event_id) || [];
-
-      const item = grouped.get(row.event_id) || {
-        event,
-        challenge,
-        submitter,
-        assignments: [],
-        evaluations: [],
-      };
-
-      item.assignments.push({
+      const list = assignmentsByEvent.get(row.event_id) || [];
+      list.push({
         id: row.id,
         assigned_to: row.assigned_to,
         assigned_name: assigned?.name || null,
@@ -141,30 +157,28 @@ export default async function handler(req, res) {
         is_cross_evaluation: Boolean(row.is_cross_evaluation),
         created_at: row.created_at,
       });
-      item.evaluations = evaluations.map((ev) => ({
-        id: ev.id,
-        reviewer_id: ev.reviewer_id,
-        reviewer_name: profilesById.get(ev.reviewer_id)?.name || null,
-        evaluation_number: ev.evaluation_number,
-        rating: ev.rating,
-        final_rating: ev.final_rating,
-        created_at: ev.created_at,
-        feedback_positivo: ev.feedback_positivo,
-        feedback_construtivo: ev.feedback_construtivo,
-      }));
-
-      grouped.set(row.event_id, item);
+      assignmentsByEvent.set(row.event_id, list);
     }
 
-    let pending = Array.from(grouped.entries()).map(([event_id, v]) => {
-      const ev = v.event;
-      const challenge = v.challenge;
-      const submitter = v.submitter;
+    let pending = Array.from(eventsById.entries()).map(([event_id, ev]) => {
+      const challenge = challengesById.get(ev.challenge_id) || null;
+      const submitter = profilesById.get(ev.user_id) || null;
       const evidenceUrls = Array.isArray(ev?.evidence_urls) ? ev.evidence_urls : [];
       const payloadEvidence = Array.isArray(ev?.payload?.evidence_urls) ? ev.payload.evidence_urls : [];
       const mergedEvidence = Array.from(new Set([...evidenceUrls, ...payloadEvidence])).filter(Boolean).slice(0, 12);
 
-      const evalCount = Array.isArray(v.evaluations) ? v.evaluations.length : 0;
+      const evaluations = (evalsByEvent.get(event_id) || []).map((evItem) => ({
+        id: evItem.id,
+        reviewer_id: evItem.reviewer_id,
+        reviewer_name: profilesById.get(evItem.reviewer_id)?.name || null,
+        evaluation_number: evItem.evaluation_number,
+        rating: evItem.rating,
+        final_rating: evItem.final_rating,
+        created_at: evItem.created_at,
+        feedback_positivo: evItem.feedback_positivo,
+        feedback_construtivo: evItem.feedback_construtivo,
+      }));
+      const evalCount = evaluations.length;
       const stage = challenge?.require_two_leader_eval ? (evalCount === 0 ? 'pending_first' : 'pending_second') : 'pending';
       return {
         event_id,
@@ -179,14 +193,14 @@ export default async function handler(req, res) {
         second_evaluation_rating: ev.second_evaluation_rating ?? null,
         first_evaluator: ev.first_evaluator_id ? { id: ev.first_evaluator_id, name: profilesById.get(ev.first_evaluator_id)?.name || null } : null,
         second_evaluator: ev.second_evaluator_id ? { id: ev.second_evaluator_id, name: profilesById.get(ev.second_evaluator_id)?.name || null } : null,
-        assignments: v.assignments,
-        evaluations: v.evaluations,
+        assignments: assignmentsByEvent.get(event_id) || [],
+        evaluations,
         stage,
       };
     });
 
     // Optional filters
-    if (leaderId) {
+    if (leaderFilter) {
       pending = pending.filter((p) => (p.assignments || []).some((a) => String(a.assigned_to || '') === String(leaderId)));
     }
     if (normalizedQ) {
@@ -204,6 +218,8 @@ export default async function handler(req, res) {
         return hay.includes(normalizedQ) || String(p.event_id || '').includes(q);
       });
     }
+
+    pending = pending.filter((p) => pendingStatuses.has(String(p.status || '').toLowerCase()));
 
     // Leader workload
     const pendingByLeader = new Map(); // leader_id -> count
@@ -226,7 +242,7 @@ export default async function handler(req, res) {
       .select('id,event_id,reviewer_id,evaluation_number,rating,final_rating,created_at')
       .order('created_at', { ascending: false })
       .limit(250);
-    if (leaderId) historyQuery = historyQuery.eq('reviewer_id', leaderId);
+    if (leaderFilter) historyQuery = historyQuery.eq('reviewer_id', leaderId);
     const { data: histRows, error: histErr } = await historyQuery;
     if (histErr) return res.status(400).json({ error: histErr.message });
 
@@ -300,4 +316,3 @@ export default async function handler(req, res) {
 }
 
 export const config = { api: { bodyParser: false } };
-

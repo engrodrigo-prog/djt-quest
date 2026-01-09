@@ -324,14 +324,18 @@ export default function EvaluationManagement() {
                           <Badge variant="outline">{stageLabel(p.stage)}</Badge>
                         </TableCell>
                         <TableCell>
-                          <div className="flex flex-wrap gap-1">
-                            {(p.assignments || []).slice(0, 4).map((a) => (
-                              <Badge key={a.id} variant={a.is_cross_evaluation ? 'secondary' : 'outline'}>
-                                {a.assigned_name || '—'}
-                                {a.is_cross_evaluation ? ' • cross' : ''}
-                              </Badge>
-                            ))}
-                          </div>
+                          {(p.assignments || []).length === 0 ? (
+                            <Badge variant="outline">Sem líder</Badge>
+                          ) : (
+                            <div className="flex flex-wrap gap-1">
+                              {(p.assignments || []).slice(0, 4).map((a) => (
+                                <Badge key={a.id} variant={a.is_cross_evaluation ? 'secondary' : 'outline'}>
+                                  {a.assigned_name || '—'}
+                                  {a.is_cross_evaluation ? ' • cross' : ''}
+                                </Badge>
+                              ))}
+                            </div>
+                          )}
                         </TableCell>
                         <TableCell>
                           <Badge variant="outline">{(p.evidence_urls || []).length}</Badge>
@@ -411,4 +415,3 @@ export default function EvaluationManagement() {
     </div>
   )
 }
-
