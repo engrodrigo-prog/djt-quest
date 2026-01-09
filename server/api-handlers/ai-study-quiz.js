@@ -1,10 +1,12 @@
 import { createClient } from "@supabase/supabase-js";
+import { parseJsonFromAiContent } from "../lib/ai-curation-provider.js";
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
 const LETTERS = ["A", "B", "C", "D"];
 const XP_TABLE_MILHAO = [100, 200, 300, 400, 500, 1e3, 2e3, 3e3, 5e3, 1e4];
 const BANNED_TERMS_RE = /smart\s*line|smartline|smarline/i;
+const XP_BY_DIFFICULTY = { basico: 5, intermediario: 10, avancado: 20, especialista: 50 };
 const asLetter = (value) => {
   const s = (value ?? "").toString().trim().toUpperCase();
   return LETTERS.includes(s) ? s : null;
@@ -61,6 +63,22 @@ const remapOptionsToTargetCorrect = (options, correctLetter, targetCorrectLetter
   return { options: out, correct_letter: targetCorrectLetter };
 };
 const safeTrim = (s) => (s ?? "").toString().trim();
+const normalizeKey = (value) => safeTrim(value).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim();
+const normalizeDifficultyKey = (value) => {
+  const s = normalizeKey(value);
+  if (!s) return null;
+  if (["basico", "basica", "basic"].includes(s)) return "basico";
+  if (["intermediario", "intermediaria", "intermediate"].includes(s)) return "intermediario";
+  if (["avancado", "avancada", "advanced"].includes(s)) return "avancado";
+  if (["especialista", "expert", "expertise"].includes(s)) return "especialista";
+  return null;
+};
+const levelToDifficulty = (level) => {
+  if (level <= 3) return "basico";
+  if (level <= 6) return "intermediario";
+  if (level <= 8) return "avancado";
+  return "especialista";
+};
 const sanitizeOptionText = (s) => {
   return s.replace(/^\s*[A-D]\)\s*/i, "").replace(/^\s*[A-D]\.\s*/i, "").replace(/\s+/g, " ").trim();
 };
@@ -164,12 +182,18 @@ async function handler(req, res) {
       source_ids = [],
       source_urls = [],
       web_query = "",
+      web_context = "",
       kb_tags = [],
       kb_focus = "",
       mode = "standard",
       question_count = 5,
       language = "pt-BR",
-      save_source = false
+      save_source = false,
+      difficulty_level = null,
+      xp_value = null,
+      milhao_level_start = null,
+      milhao_level = null,
+      refine_distractors = null
     } = req.body || {};
     const items = [];
     const admin = SUPABASE_URL && SERVICE_KEY ? createClient(SUPABASE_URL, SERVICE_KEY, { auth: { autoRefreshToken: false, persistSession: false } }) : null;
@@ -280,13 +304,15 @@ async function handler(req, res) {
         clearTimeout(timer);
         if (!resp.ok) throw new Error(`Falha ao abrir URL (${resp.status})`);
         const text = await resp.text();
-        return stripHtml(text).slice(0, 2e4);
+        return stripHtml(text).slice(0, 12e3);
       } catch (err) {
         throw new Error(`N\xE3o foi poss\xEDvel ler o conte\xFAdo da URL (${rawUrl}): ${err?.message || err}`);
       }
     };
     const primaryUrl = (url || "").toString().trim();
     const webQuery = (web_query || "").toString().trim();
+    const webContext = (web_context || "").toString().trim();
+    let webContextOut = null;
     const topicText = (topic || "").toString().trim();
     const contextText = (context || "").toString().trim();
     const instructionsText = (instructions || "").toString().trim();
@@ -298,14 +324,23 @@ async function handler(req, res) {
     ).slice(0, 24);
     const forumKbFocus = (kb_focus || "").toString().trim().slice(0, 140);
     const specialtiesList = Array.isArray(specialties) ? specialties.map((s) => (s ?? "").toString().trim()).filter((s) => s.length > 0) : [];
-    const hasAnyInput = Boolean(primaryUrl) || Boolean(webQuery) || Array.isArray(sources) && sources.length > 0 || Array.isArray(source_ids) && source_ids.length > 0 || Array.isArray(source_urls) && source_urls.length > 0 || Boolean(topicText) || Boolean(contextText) || Boolean(instructionsText) || forumKbTags.length > 0;
+    const hasAnyInput = Boolean(primaryUrl) || Boolean(webQuery) || Boolean(webContext) || Array.isArray(sources) && sources.length > 0 || Array.isArray(source_ids) && source_ids.length > 0 || Array.isArray(source_urls) && source_urls.length > 0 || Boolean(topicText) || Boolean(contextText) || Boolean(instructionsText) || forumKbTags.length > 0;
     if (!hasAnyInput) {
       return res.status(400).json({ error: "Informe um tema/contexto, uma URL, ou fontes v\xE1lidas." });
     }
-    if (webQuery) {
+    if (webContext) {
+      items.push({
+        title: `Pesquisa web (pr\xE9-carregada): ${webQuery.slice(0, 120) || "contexto"}`,
+        text: webContext.slice(0, 6e3)
+      });
+      webContextOut = webContext.slice(0, 6e3);
+    } else if (webQuery) {
       try {
         const txt = await fetchWebQueryContext(webQuery);
-        if (txt) items.push({ title: `Pesquisa web: ${webQuery.slice(0, 120)}`, text: txt });
+        if (txt) {
+          items.push({ title: `Pesquisa web: ${webQuery.slice(0, 120)}`, text: txt.slice(0, 6e3) });
+          webContextOut = txt.slice(0, 6e3);
+        }
       } catch {
       }
     }
@@ -315,7 +350,7 @@ async function handler(req, res) {
         const title2 = (s.title || "").toString();
         const text = (s.text || "").toString();
         if (text.trim().length > 0) {
-          items.push({ title: title2, text });
+          items.push({ title: title2, text: text.slice(0, 12e3) });
         }
       }
     }
@@ -328,7 +363,7 @@ async function handler(req, res) {
       forumKbTags.length ? `Hashtags (base de conhecimento): ${forumKbTags.map((t) => `#${t}`).join(" ")}` : ""
     ].filter(Boolean);
     if (contextualSeedParts.length && items.length === 0) {
-      items.push({ title: "Contexto do usu\xE1rio", text: contextualSeedParts.join("\n") });
+      items.push({ title: "Contexto do usu\xE1rio", text: contextualSeedParts.join("\n").slice(0, 6e3) });
     }
     if (admin && forumKbTags.length) {
       try {
@@ -390,7 +425,7 @@ async function handler(req, res) {
       for (const row of allowed) {
         const text = (row.full_text || row.summary || "").toString();
         if (text.trim().length > 0) {
-          items.push({ title: row.title || "Fonte", text });
+          items.push({ title: row.title || "Fonte", text: text.slice(0, 12e3) });
         }
       }
     }
@@ -405,7 +440,7 @@ async function handler(req, res) {
           const text = await fetchUrlContent(url2);
           if (text) {
             fetchedUrls.push({ url: url2, title: title2, text });
-            items.push({ title: title2, text });
+            items.push({ title: title2, text: text.slice(0, 12e3) });
           }
         } catch (err) {
           return res.status(400).json({ error: err?.message || `Falha ao ler URL ${url2}` });
@@ -416,8 +451,8 @@ async function handler(req, res) {
       try {
         const text = await fetchUrlContent(primaryUrl);
         if (text) {
-          items.push({ title: title || primaryUrl, text });
-          fetchedUrls.push({ url: primaryUrl, title: title || primaryUrl, text });
+          items.push({ title: title || primaryUrl, text: text.slice(0, 12e3) });
+          fetchedUrls.push({ url: primaryUrl, title: title || primaryUrl, text: text.slice(0, 12e3) });
         }
       } catch (err) {
         return res.status(400).json({ error: err?.message || `Falha ao ler URL ${primaryUrl}` });
@@ -448,6 +483,13 @@ async function handler(req, res) {
     const joinedContext = items.map((s, idx) => `### Fonte ${idx + 1}: ${s.title || ""}
 ${s.text || ""}`).join("\n\n");
     const isMilhao = mode === "milhao";
+    const milhaoStartRaw = milhao_level_start ?? milhao_level ?? null;
+    const milhaoStartLevel = isMilhao ? Math.max(1, Math.min(10, Number(milhaoStartRaw) || 1)) : 1;
+    const maxMilhaoCount = isMilhao ? Math.max(1, 10 - milhaoStartLevel + 1) : 0;
+    const desiredCount = isMilhao ? Math.max(1, Math.min(maxMilhaoCount, Number(question_count) || (milhaoStartRaw ? 1 : 10))) : Math.max(1, Math.min(50, Number(question_count) || 5));
+    const forcedDifficulty = normalizeDifficultyKey(difficulty_level);
+    const forcedXpRaw = Number(xp_value);
+    const forcedXp = Number.isFinite(forcedXpRaw) && forcedXpRaw > 0 ? Math.floor(forcedXpRaw) : null;
     const hasReferenceSources = Boolean(primaryUrl) || Array.isArray(source_ids) && source_ids.length > 0 || Array.isArray(source_urls) && source_urls.length > 0 || Array.isArray(sources) && sources.length > 0 || forumKbTags.length > 0;
     const systemWithSources = `Voc\xEA \xE9 um gerador de quizzes t\xE9cnicos para treinamento profissional no setor el\xE9trico brasileiro (CPFL, SEP, subtransmiss\xE3o, seguran\xE7a, prote\xE7\xE3o, telecom).
 Voc\xEA receber\xE1 um conjunto de textos de estudo (fontes), e sua tarefa \xE9 criar um quiz COMPLETAMENTE baseado nesses materiais.
@@ -479,11 +521,11 @@ Campos obrigat\xF3rios por quest\xE3o:
 - "xp_value": n\xFAmero (XP sugerido)
 
 Modo padr\xE3o (standard):
-- Gere entre 3 e 15 perguntas (use question_count como sugest\xE3o).
+- Gere entre 1 e 50 perguntas (use question_count como sugest\xE3o).
 - Misture dificuldades de forma equilibrada.
 
 Modo Quiz do Milh\xE3o (milhao):
-- Gere exatamente 10 perguntas com jornada de dificuldade 1\u219210.
+- Gere perguntas na jornada de dificuldade 1\u219210. Por padr\xE3o s\xE3o 10; se question_count indicar menos, gere apenas a quantidade solicitada.
 - Use a tabela de XP: [100,200,300,400,500,1000,2000,3000,5000,10000] da pergunta 1 \xE0 10.
 - Curva 1\u219210 (guia):
   1) defini\xE7\xE3o/recall direto do texto
@@ -536,11 +578,11 @@ Campos obrigat\xF3rios por quest\xE3o:
 - "xp_value": n\xFAmero (XP sugerido)
 
 Modo padr\xE3o (standard):
-- Gere entre 3 e 15 perguntas (use question_count como sugest\xE3o).
+- Gere entre 1 e 50 perguntas (use question_count como sugest\xE3o).
 - Misture dificuldades de forma equilibrada.
 
 Modo Quiz do Milh\xE3o (milhao):
-- Gere exatamente 10 perguntas com jornada de dificuldade 1\u219210.
+- Gere perguntas na jornada de dificuldade 1\u219210. Por padr\xE3o s\xE3o 10; se question_count indicar menos, gere apenas a quantidade solicitada.
 - Use a tabela de XP: [100,200,300,400,500,1000,2000,3000,5000,10000] da pergunta 1 \xE0 10.
 
 Retorne APENAS JSON v\xE1lido (sem markdown), no formato:
@@ -559,11 +601,15 @@ Retorne APENAS JSON v\xE1lido (sem markdown), no formato:
 }`;
     const system = hasReferenceSources ? systemWithSources : systemWithoutSources;
     const userPreferences = contextualSeedParts.join("\n");
+    const requestedXpValue = forcedXp || (forcedDifficulty ? XP_BY_DIFFICULTY[forcedDifficulty] : null);
     const userMessage = {
       role: "user",
       content: `Idioma: ${language}
 Tipo de quiz: ${isMilhao ? "Quiz do Milh\xE3o (10 n\xEDveis)" : "Quiz r\xE1pido"}
-Quantidade desejada de perguntas: ${question_count}
+Quantidade desejada de perguntas: ${desiredCount}
+${isMilhao && milhaoStartLevel !== 1 ? `
+N\xEDvel inicial (Milh\xE3o): ${milhaoStartLevel} (gere n\xEDveis ${milhaoStartLevel}\u2192${milhaoStartLevel + desiredCount - 1})` : ""}${!isMilhao && (forcedDifficulty || requestedXpValue) ? `
+Dificuldade alvo: ${forcedDifficulty || "auto"} \u2022 XP alvo: ${requestedXpValue || "auto"}` : ""}
 ${userPreferences ? `
 Prefer\xEAncias do usu\xE1rio (n\xE3o s\xE3o fonte de fatos; use apenas as Fontes para conte\xFAdo t\xE9cnico):
 ${userPreferences}
@@ -589,47 +635,54 @@ ${joinedContext}`
     let content = "";
     let lastErr = "";
     for (const model of models) {
-      const body = {
-        model,
-        messages: [{ role: "system", content: system }, userMessage]
-      };
-      if (/^gpt-5/i.test(String(model))) body.max_completion_tokens = 4500;
-      else body.max_tokens = 4500;
-      const resp = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${OPENAI_API_KEY}`
-        },
-        body: JSON.stringify(body)
-      });
-      if (!resp.ok) {
-        lastErr = await resp.text().catch(() => `HTTP ${resp.status}`);
+      const maxTokens = desiredCount <= 1 ? 1600 : desiredCount <= 3 ? 2400 : desiredCount <= 5 ? 3200 : 4500;
+      try {
+        const body = {
+          model,
+          messages: [{ role: "system", content: system }, userMessage]
+        };
+        if (/^gpt-5/i.test(String(model))) body.max_completion_tokens = maxTokens;
+        else body.max_tokens = maxTokens;
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 22e3);
+        try {
+          const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${OPENAI_API_KEY}`
+            },
+            signal: controller.signal,
+            body: JSON.stringify(body)
+          });
+          if (!resp.ok) {
+            lastErr = await resp.text().catch(() => `HTTP ${resp.status}`);
+            continue;
+          }
+          const data = await resp.json().catch(() => null);
+          content = data?.choices?.[0]?.message?.content || "";
+          if (content) break;
+        } finally {
+          clearTimeout(timer);
+        }
+      } catch (e) {
+        lastErr = e?.name === "AbortError" ? "timeout" : e?.message || String(e);
         continue;
       }
-      const data = await resp.json().catch(() => null);
-      content = data?.choices?.[0]?.message?.content || "";
-      if (content) break;
     }
     if (!content) {
       return res.status(400).json({ error: `OpenAI error: ${lastErr || "no output"}` });
     }
-    let json;
-    try {
-      json = JSON.parse(content);
-    } catch {
-      const match = content?.match?.(/\{[\s\S]*\}/);
-      if (match) {
-        json = JSON.parse(match[0]);
-      }
-    }
+    const json = parseJsonFromAiContent(content).parsed;
     if (!json || !Array.isArray(json.questions)) {
       return res.status(400).json({ error: "Formato inesperado da IA", raw: content });
     }
-    const desiredCount = isMilhao ? 10 : Math.max(3, Math.min(15, Number(question_count) || 5));
     const questions = json.questions.slice(0, desiredCount);
-    if (isMilhao && questions.length !== 10) {
+    if (isMilhao && !milhaoStartRaw && desiredCount === 10 && questions.length !== 10) {
       return res.status(400).json({ error: `A IA retornou ${questions.length} perguntas; esperado 10.`, raw: content });
+    }
+    if (!questions.length) {
+      return res.status(400).json({ error: "A IA n\xE3o retornou perguntas.", raw: content });
     }
     const correctLetterPlan = buildCorrectLetterPlan(questions.length);
     let normalizedQuestions = [];
@@ -643,22 +696,27 @@ ${joinedContext}`
         const effectiveCorrect = options[correct] ? correct : "A";
         const targetCorrect = correctLetterPlan[idx] || "A";
         const remapped = remapOptionsToTargetCorrect(options, effectiveCorrect, targetCorrect);
-        const level = idx + 1;
-        const difficulty = level <= 3 ? "basico" : level <= 6 ? "intermediario" : level <= 8 ? "avancado" : "especialista";
+        const level = isMilhao ? milhaoStartLevel + idx : idx + 1;
+        const derivedDifficulty = isMilhao ? levelToDifficulty(level) : levelToDifficulty(idx + 1);
+        const normalizedDifficulty = normalizeDifficultyKey(q.difficulty_level) || null;
+        const effectiveDifficulty = isMilhao ? derivedDifficulty : forcedDifficulty || normalizedDifficulty || derivedDifficulty;
+        const derivedXp = XP_BY_DIFFICULTY[effectiveDifficulty] || 10;
+        const effectiveXp = isMilhao ? XP_TABLE_MILHAO[level - 1] : forcedXp || derivedXp || Number(q.xp_value) || derivedXp;
         return {
           question_text: (q.question_text ?? "").toString().trim(),
           options: remapped.options,
           correct_letter: remapped.correct_letter,
           explanation: (q.explanation ?? "").toString().trim(),
-          difficulty_level: isMilhao ? difficulty : q.difficulty_level ?? difficulty,
-          xp_value: isMilhao ? XP_TABLE_MILHAO[idx] : Number(q.xp_value) || 100,
+          difficulty_level: effectiveDifficulty,
+          xp_value: effectiveXp,
           level
         };
       });
     } catch (e) {
       return res.status(400).json({ error: e?.message || "Falha ao normalizar perguntas da IA", raw: content });
     }
-    if (isMilhao) {
+    const shouldRefine = isMilhao && (refine_distractors === true || refine_distractors == null && !milhaoStartRaw && desiredCount === 10);
+    if (shouldRefine) {
       try {
         const refineModel = process.env.OPENAI_MODEL_PREMIUM || process.env.OPENAI_MODEL_OVERRIDE || "gpt-5-2025-08-07";
         normalizedQuestions = await refineMilhaoDistractors({
@@ -687,7 +745,7 @@ ${joinedContext}`
         }
       }
     }
-    return res.status(200).json({ success: true, quiz: json, saved_sources: savedSources });
+    return res.status(200).json({ success: true, quiz: json, saved_sources: savedSources, web_context: webContextOut });
   } catch (err) {
     return res.status(500).json({ error: err?.message || "Unknown error" });
   }

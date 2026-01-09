@@ -2,11 +2,11 @@ import { createSupabaseAdminClient, requireCallerUser } from '../lib/supabase-ad
 import { rolesToSet, canCurate, canAccessStudio } from '../lib/rbac.js';
 import { snapshotQuizVersion } from '../lib/quiz-versioning.js';
 const XP_BY_LEVEL = {
-    // precisa respeitar o CHECK do banco (5,10,20,40)
+    // precisa respeitar o CHECK do banco (5,10,20,50)
     basico: 5,
     intermediario: 10,
     avancado: 20,
-    especialista: 40,
+    especialista: 50,
 };
 export default async function handler(req, res) {
     if (req.method === 'OPTIONS')

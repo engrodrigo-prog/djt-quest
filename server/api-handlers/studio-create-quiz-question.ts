@@ -7,11 +7,11 @@ const SUPABASE_URL = process.env.SUPABASE_URL as string
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY as string
 
 const XP_BY_LEVEL: Record<string, number> = {
-  // precisa respeitar o CHECK do banco (5,10,20,40)
+  // precisa respeitar o CHECK do banco (5,10,20,50)
   basico: 5,
   intermediario: 10,
   avancado: 20,
-  especialista: 40,
+  especialista: 50,
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {

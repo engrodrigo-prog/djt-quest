@@ -390,10 +390,11 @@ export function QuizCreationWizard() {
       });
       const json = await resp.json().catch(() => ({}));
       if (!resp.ok) throw new Error(json?.error || 'Falha ao gerar perguntas');
-      const questions = Array.isArray((json as any)?.questions)
-        ? (json as any).questions
-        : Array.isArray((json as any)?.questoes)
-          ? (json as any).questoes
+      const payload = (json as any)?.quiz || json;
+      const questions = Array.isArray((payload as any)?.questions)
+        ? (payload as any).questions
+        : Array.isArray((payload as any)?.questoes)
+          ? (payload as any).questoes
           : [];
       if (!questions.length) throw new Error('A IA não retornou perguntas.');
 

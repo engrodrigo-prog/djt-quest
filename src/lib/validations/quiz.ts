@@ -1,11 +1,11 @@
 import { z } from "zod";
 
 export const difficultyLevels = {
-  // OBS: precisa respeitar o CHECK do banco (5,10,20,40)
+  // OBS: precisa respeitar o CHECK do banco (5,10,20,50)
   basico: { label: "Básico", xp: 5 },
   intermediario: { label: "Intermediário", xp: 10 },
   avancado: { label: "Avançado", xp: 20 },
-  especialista: { label: "Especialista", xp: 40 },
+  especialista: { label: "Especialista", xp: 50 },
 } as const;
 
 export type DifficultyLevel = keyof typeof difficultyLevels;

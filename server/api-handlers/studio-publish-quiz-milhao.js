@@ -155,11 +155,11 @@ function levelToDifficulty(level) {
 }
 
 function levelToXp(level) {
-  // OBS: precisa respeitar o CHECK do banco (5,10,20,40)
+  // OBS: precisa respeitar o CHECK do banco (5,10,20,50)
   if (level <= 3) return 5;
   if (level <= 6) return 10;
-  if (level <= 9) return 20;
-  return 40;
+  if (level <= 8) return 20;
+  return 50;
 }
 
 export default async function handler(req, res) {
