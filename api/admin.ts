@@ -51,6 +51,7 @@ import compendiumFinalizeImport from '../server/api-handlers/compendium-finalize
 import systemCleanup from '../server/api-handlers/system-cleanup.js';
 import quizResetAttempt from '../server/api-handlers/quiz-reset-attempt.js';
 import sepbookBackfillTranslations from '../server/api-handlers/sepbook-backfill-translations.js';
+import adminEvaluationsDashboard from '../server/api-handlers/admin-evaluations-dashboard.js';
 
 type Handler = (req: VercelRequest, res: VercelResponse) => any | Promise<any>;
 
@@ -103,6 +104,7 @@ const handlers: Record<string, Handler> = {
   'system-cleanup': systemCleanup,
   'quiz-reset-attempt': quizResetAttempt,
   'sepbook-backfill-translations': sepbookBackfillTranslations,
+  'admin-evaluations-dashboard': adminEvaluationsDashboard,
 };
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
