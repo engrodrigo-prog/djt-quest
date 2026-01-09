@@ -163,6 +163,7 @@ async function handler(req, res) {
       sources = [],
       source_ids = [],
       source_urls = [],
+      web_query = "",
       kb_tags = [],
       kb_focus = "",
       mode = "standard",
@@ -207,6 +208,70 @@ async function handler(req, res) {
       }
     }
     const stripHtml = (html) => html.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+    const collectOutputText = (payload) => {
+      if (typeof payload?.output_text === "string") return payload.output_text.trim();
+      const output = Array.isArray(payload?.output) ? payload.output : [];
+      const chunks = output.map((item) => {
+        if (typeof item?.content === "string") return item.content;
+        if (Array.isArray(item?.content)) return item.content.map((c) => c?.text || c?.content || "").join("\n");
+        return item?.text || "";
+      }).filter(Boolean);
+      return chunks.join("\n").trim();
+    };
+    const fetchWebQueryContext = async (query) => {
+      const q = String(query || "").trim();
+      if (!OPENAI_API_KEY || !q) return null;
+      const tools = ["web_search", "web_search_preview"];
+      const model = process.env.OPENAI_MODEL_FAST || process.env.OPENAI_MODEL_PREMIUM || process.env.OPENAI_MODEL_COMPAT || "gpt-5-nano-2025-08-07";
+      const input = [
+        {
+          role: "system",
+          content: [
+            {
+              type: "input_text",
+              text: "Use a ferramenta de pesquisa na web UMA vez e depois devolva um contexto curto para gerar perguntas de quiz (8 a 12 bullets) + 'Fontes:' com 3 a 6 links. Seja objetivo e não invente normas internas."
+            }
+          ]
+        },
+        { role: "user", content: [{ type: "input_text", text: q }] }
+      ];
+      for (const tool of tools) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 12e3);
+        try {
+          const resp = await fetch("https://api.openai.com/v1/responses", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${OPENAI_API_KEY}` },
+            signal: controller.signal,
+            body: JSON.stringify({
+              model,
+              input,
+              tools: [{ type: tool }],
+              tool_choice: { type: tool },
+              max_tool_calls: 1,
+              text: { verbosity: "low" },
+              reasoning: { effort: "low" },
+              max_output_tokens: 900
+            })
+          });
+          const json = await resp.json().catch(() => null);
+          if (!resp.ok) {
+            const msg = json?.error?.message || json?.message || "";
+            if (/tool|web_search|unknown|invalid/i.test(msg)) continue;
+            return null;
+          }
+          const out = Array.isArray(json?.output) ? json.output : [];
+          const usedTool = out.some((o) => o?.type === "web_search_call");
+          if (!usedTool) continue;
+          const text = collectOutputText(json);
+          if (text) return text;
+        } catch {
+        } finally {
+          clearTimeout(timer);
+        }
+      }
+      return null;
+    };
     const fetchUrlContent = async (rawUrl) => {
       try {
         const controller = new AbortController();
@@ -221,6 +286,7 @@ async function handler(req, res) {
       }
     };
     const primaryUrl = (url || "").toString().trim();
+    const webQuery = (web_query || "").toString().trim();
     const topicText = (topic || "").toString().trim();
     const contextText = (context || "").toString().trim();
     const instructionsText = (instructions || "").toString().trim();
@@ -232,9 +298,16 @@ async function handler(req, res) {
     ).slice(0, 24);
     const forumKbFocus = (kb_focus || "").toString().trim().slice(0, 140);
     const specialtiesList = Array.isArray(specialties) ? specialties.map((s) => (s ?? "").toString().trim()).filter((s) => s.length > 0) : [];
-    const hasAnyInput = Boolean(primaryUrl) || Array.isArray(sources) && sources.length > 0 || Array.isArray(source_ids) && source_ids.length > 0 || Array.isArray(source_urls) && source_urls.length > 0 || Boolean(topicText) || Boolean(contextText) || Boolean(instructionsText) || forumKbTags.length > 0;
+    const hasAnyInput = Boolean(primaryUrl) || Boolean(webQuery) || Array.isArray(sources) && sources.length > 0 || Array.isArray(source_ids) && source_ids.length > 0 || Array.isArray(source_urls) && source_urls.length > 0 || Boolean(topicText) || Boolean(contextText) || Boolean(instructionsText) || forumKbTags.length > 0;
     if (!hasAnyInput) {
       return res.status(400).json({ error: "Informe um tema/contexto, uma URL, ou fontes v\xE1lidas." });
+    }
+    if (webQuery) {
+      try {
+        const txt = await fetchWebQueryContext(webQuery);
+        if (txt) items.push({ title: `Pesquisa web: ${webQuery.slice(0, 120)}`, text: txt });
+      } catch {
+      }
     }
     if (Array.isArray(sources)) {
       for (const s of sources) {

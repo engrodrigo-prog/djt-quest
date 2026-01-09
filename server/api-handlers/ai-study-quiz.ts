@@ -218,6 +218,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       sources = [],
       source_ids = [],
       source_urls = [],
+      web_query = "",
       kb_tags = [],
       kb_focus = "",
       mode = "standard",
@@ -279,6 +280,83 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         .replace(/\s+/g, " ")
         .trim();
 
+    const collectOutputText = (payload: any) => {
+      if (typeof payload?.output_text === "string") return payload.output_text.trim();
+      const output = Array.isArray(payload?.output) ? payload.output : [];
+      const chunks = output
+        .map((item: any) => {
+          if (typeof item?.content === "string") return item.content;
+          if (Array.isArray(item?.content)) return item.content.map((c: any) => c?.text || c?.content || "").join("\n");
+          return item?.text || "";
+        })
+        .filter(Boolean);
+      return chunks.join("\n").trim();
+    };
+
+    const fetchWebQueryContext = async (query: string) => {
+      const q = String(query || "").trim();
+      if (!OPENAI_API_KEY || !q) return null;
+
+      const tools = ["web_search", "web_search_preview"];
+      const model =
+        (process.env.OPENAI_MODEL_FAST as string) ||
+        (process.env.OPENAI_MODEL_PREMIUM as string) ||
+        (process.env.OPENAI_MODEL_COMPAT as string) ||
+        "gpt-5-nano-2025-08-07";
+
+      const input = [
+        {
+          role: "system",
+          content: [
+            {
+              type: "input_text",
+              text:
+                "Use a ferramenta de pesquisa na web UMA vez e depois devolva um contexto curto para gerar perguntas de quiz (8 a 12 bullets) + 'Fontes:' com 3 a 6 links. Seja objetivo e não invente normas internas.",
+            },
+          ],
+        },
+        { role: "user", content: [{ type: "input_text", text: q }] },
+      ];
+
+      for (const tool of tools) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 12000);
+        try {
+          const resp = await fetch("https://api.openai.com/v1/responses", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${OPENAI_API_KEY}` },
+            signal: controller.signal,
+            body: JSON.stringify({
+              model,
+              input,
+              tools: [{ type: tool }],
+              tool_choice: { type: tool },
+              max_tool_calls: 1,
+              text: { verbosity: "low" },
+              reasoning: { effort: "low" },
+              max_output_tokens: 900,
+            }),
+          });
+          const json = await resp.json().catch(() => null);
+          if (!resp.ok) {
+            const msg = json?.error?.message || json?.message || "";
+            if (/tool|web_search|unknown|invalid/i.test(msg)) continue;
+            return null;
+          }
+          const out = Array.isArray(json?.output) ? json.output : [];
+          const usedTool = out.some((o: any) => o?.type === "web_search_call");
+          if (!usedTool) continue;
+          const text = collectOutputText(json);
+          if (text) return text;
+        } catch {
+          // ignore
+        } finally {
+          clearTimeout(timer);
+        }
+      }
+      return null;
+    };
+
     const fetchUrlContent = async (rawUrl: string) => {
       try {
         const controller = new AbortController();
@@ -294,6 +372,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     };
 
     const primaryUrl = (url || "").toString().trim();
+    const webQuery = (web_query || "").toString().trim();
     const topicText = (topic || "").toString().trim();
     const contextText = (context || "").toString().trim();
     const instructionsText = (instructions || "").toString().trim();
@@ -318,6 +397,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const hasAnyInput =
       Boolean(primaryUrl) ||
+      Boolean(webQuery) ||
       (Array.isArray(sources) && sources.length > 0) ||
       (Array.isArray(source_ids) && source_ids.length > 0) ||
       (Array.isArray(source_urls) && source_urls.length > 0) ||
@@ -328,6 +408,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (!hasAnyInput) {
       return res.status(400).json({ error: "Informe um tema/contexto, uma URL, ou fontes válidas." });
+    }
+
+    if (webQuery) {
+      try {
+        const txt = await fetchWebQueryContext(webQuery);
+        if (txt) {
+          items.push({
+            title: `Pesquisa web: ${webQuery.slice(0, 120)}`,
+            text: txt,
+          });
+        }
+      } catch {
+        // ignore web failures
+      }
     }
 
     if (Array.isArray(sources)) {

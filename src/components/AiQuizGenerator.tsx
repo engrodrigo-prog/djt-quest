@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea'
 import { Progress } from '@/components/ui/progress'
 import { Switch } from '@/components/ui/switch'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { toast } from 'sonner'
 import { apiFetch } from '@/lib/api'
 import { getActiveLocale } from '@/lib/i18n/activeLocale'
@@ -18,6 +19,51 @@ interface Challenge { id: string; title: string; type: string }
 const WRONG_COUNT = 4;
 const MIN_LENGTH = 5;
 const MILHAO_TOTAL = 10;
+
+type CatalogSource = {
+  id: string;
+  title: string;
+  summary?: string | null;
+  created_at?: string | null;
+  last_used_at?: string | null;
+  scope?: string | null;
+  published?: boolean | null;
+  ingest_status?: 'pending' | 'ok' | 'failed' | null;
+};
+
+type CompendiumItem = {
+  id: string;
+  updated_at?: string | null;
+  source_path?: string | null;
+  catalog?: any | null;
+  final?: any | null;
+};
+
+const stringifyCompendiumToDataset = (it: CompendiumItem) => {
+  const catalog = it?.catalog && typeof it.catalog === 'object' ? it.catalog : null;
+  const kind = String((it?.final as any)?.kind || (it?.final as any)?.catalog?.kind || (it?.final as any)?.kind || '').trim();
+  const title = String(catalog?.title || 'Item do Compêndio').trim() || 'Item do Compêndio';
+  const summary = String(catalog?.summary || '').trim();
+  const tags = Array.isArray(catalog?.tags) ? catalog.tags : Array.isArray(catalog?.keywords) ? catalog.keywords : [];
+  const keyPoints = Array.isArray(catalog?.key_points) ? catalog.key_points : Array.isArray(catalog?.learning_points) ? catalog.learning_points : [];
+  const suggested = Array.isArray(catalog?.suggested_quiz_topics) ? catalog.suggested_quiz_topics : [];
+
+  const lines = [
+    `Origem: Compêndio`,
+    kind ? `Tipo: ${kind}` : null,
+    `Título: ${title}`,
+    summary ? `Resumo: ${summary}` : null,
+    tags.length ? `Tags: ${tags.map((t: any) => String(t || '').trim()).filter(Boolean).slice(0, 20).join(', ')}` : null,
+    keyPoints.length ? `Pontos-chave: ${keyPoints.map((t: any) => String(t || '').trim()).filter(Boolean).slice(0, 30).join(' | ')}` : null,
+    suggested.length ? `Tópicos sugeridos: ${suggested.map((t: any) => String(t || '').trim()).filter(Boolean).slice(0, 20).join(' | ')}` : null,
+    it?.source_path ? `Arquivo: ${String(it.source_path)}` : null,
+  ].filter(Boolean);
+
+  return {
+    title,
+    text: lines.join('\n'),
+  };
+};
 
 const MILHAO_LEVELS = [
   { level: 1, xp: 100, faixa: 'Básico', titulo: 'Aquecimento I' },
@@ -55,8 +101,18 @@ export const AiQuizGenerator = ({ defaultChallengeId }: { defaultChallengeId?: s
   const [fullQuiz, setFullQuiz] = useState<any | null>(null)
   const [manualSlots, setManualSlots] = useState<Record<number, boolean>>({})
   const [slotIndex, setSlotIndex] = useState<number>(1)
-  const [studySources, setStudySources] = useState<Array<{ id: string; title: string }>>([])
+  const [studySources, setStudySources] = useState<CatalogSource[]>([])
   const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([])
+  const [sourceUrls, setSourceUrls] = useState<string[]>([])
+  const [webQuery, setWebQuery] = useState('')
+  const [sourcePickerTab, setSourcePickerTab] = useState<'catalog' | 'compendium' | 'online'>('catalog')
+  const [catalogQuery, setCatalogQuery] = useState('')
+  const [catalogShowAll, setCatalogShowAll] = useState(false)
+  const [compendiumItems, setCompendiumItems] = useState<CompendiumItem[]>([])
+  const [compendiumQuery, setCompendiumQuery] = useState('')
+  const [compendiumShowAll, setCompendiumShowAll] = useState(false)
+  const [selectedCompendiumIds, setSelectedCompendiumIds] = useState<string[]>([])
+  const [onlineUrlInput, setOnlineUrlInput] = useState('')
   const [datasetText, setDatasetText] = useState("")
   const [datasetTitle, setDatasetTitle] = useState("")
   const [kbEnabled, setKbEnabled] = useState(false)
@@ -132,17 +188,126 @@ export const AiQuizGenerator = ({ defaultChallengeId }: { defaultChallengeId?: s
       try {
         const { data, error } = await supabase
           .from('study_sources')
-          .select('id, title')
+          .select('id, title, summary, created_at, last_used_at, scope, published, ingest_status')
+          .order('last_used_at', { ascending: false })
           .order('created_at', { ascending: false })
-          .limit(50)
-        if (!error && Array.isArray(data)) {
-          setStudySources(data as any)
-        }
+          .limit(250)
+        if (!error && Array.isArray(data)) setStudySources(data as any)
       } catch {
         // ignore on failure
       }
     })()
   }, [])
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data: session } = await supabase.auth.getSession()
+        const token = session.session?.access_token
+        if (!token) return
+        const resp = await apiFetch('/api/admin?handler=compendium-list', {
+          method: 'GET',
+          headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+          cache: 'no-store',
+        })
+        if (!resp.ok) return
+        const json = await resp.json().catch(() => ({} as any))
+        const items = Array.isArray(json?.items) ? json.items : []
+        setCompendiumItems(items)
+      } catch {
+        // ignore
+      }
+    })()
+  }, [])
+
+  const normalizeText = (value: string) =>
+    String(value || '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+
+  const RECENT_DAYS = 180
+  const isRecentSource = (s: CatalogSource) => {
+    const raw = s.last_used_at || s.created_at || ''
+    const ts = Date.parse(String(raw))
+    if (!Number.isFinite(ts)) return true
+    return ts >= Date.now() - RECENT_DAYS * 24 * 60 * 60 * 1000
+  }
+
+  const visibleCatalogSuggestions = (() => {
+    const q = normalizeText(catalogQuery)
+    const base = studySources
+      .filter((s) => (catalogShowAll || q.length > 0 ? true : isRecentSource(s)))
+      .filter((s) => {
+        if (!q) return true
+        const hay = normalizeText([s.title, s.summary].filter(Boolean).join(' '))
+        return hay.includes(q)
+      })
+      .slice(0, 12)
+    return base
+  })()
+
+  const isRecentCompendium = (it: CompendiumItem) => {
+    const ts = Date.parse(String(it?.updated_at || ''))
+    if (!Number.isFinite(ts)) return true
+    return ts >= Date.now() - RECENT_DAYS * 24 * 60 * 60 * 1000
+  }
+
+  const visibleCompendiumSuggestions = (() => {
+    const q = normalizeText(compendiumQuery)
+    const base = compendiumItems
+      .filter((it) => (compendiumShowAll || q.length > 0 ? true : isRecentCompendium(it)))
+      .filter((it) => {
+        if (!q) return true
+        const title = String(it?.catalog?.title || '')
+        const summary = String(it?.catalog?.summary || '')
+        const hay = normalizeText(`${title} ${summary}`)
+        return hay.includes(q)
+      })
+      .slice(0, 12)
+    return base
+  })()
+
+  const addCatalogSource = (id: string) => {
+    const s = studySources.find((x) => x.id === id)
+    if (!s) return
+    if (selectedSourceIds.includes(id)) return
+    if (s.ingest_status === 'failed' || s.ingest_status === 'pending') {
+      toast('Esta fonte ainda não está pronta (falhou ou está em análise).')
+      return
+    }
+    setSelectedSourceIds((prev) => [...prev, id])
+    setCatalogQuery('')
+  }
+
+  const addCompendiumItem = (id: string) => {
+    if (selectedCompendiumIds.includes(id)) return
+    const it = compendiumItems.find((x) => x.id === id)
+    if (!it) return
+    setSelectedCompendiumIds((prev) => [...prev, id])
+    setCompendiumQuery('')
+  }
+
+  const addOnlineUrl = () => {
+    const raw = onlineUrlInput.trim()
+    if (!raw) return
+    let url: URL | null = null
+    try {
+      url = new URL(raw)
+    } catch {
+      toast('Cole uma URL válida (ex.: https://...)')
+      return
+    }
+    if (!['http:', 'https:'].includes(url.protocol)) {
+      toast('Apenas URLs http/https são suportadas.')
+      return
+    }
+    const normalized = url.toString()
+    setSourceUrls((prev) => (prev.includes(normalized) ? prev : [...prev, normalized]))
+    setOnlineUrlInput('')
+  }
 
   const generate = async () => {
     if (!topic.trim()) {
@@ -184,12 +349,15 @@ export const AiQuizGenerator = ({ defaultChallengeId }: { defaultChallengeId?: s
     const hasDataset = datasetText.trim().length > 0
     const hasSources = selectedSourceIds.length > 0
     const hasKb = Boolean(kbEnabled && kbSelection?.tags?.length)
+    const hasCompendium = selectedCompendiumIds.length > 0
+    const hasUrls = sourceUrls.length > 0
+    const hasWebQuery = webQuery.trim().length > 0
 
-    if (!topic.trim() && !context.trim() && !hasDataset && !hasSources && !hasKb) {
+    if (!topic.trim() && !context.trim() && !hasDataset && !hasSources && !hasKb && !hasCompendium && !hasUrls && !hasWebQuery) {
       toast('Informe ao menos um tema ou contexto (ou cole um dataset) para gerar o Quiz do Milhão.')
       return
     }
-    if (!hasDataset && !hasSources && !hasKb) {
+    if (!hasDataset && !hasSources && !hasKb && !hasCompendium && !hasUrls && !hasWebQuery) {
       toast.message('Gerando sem base de estudo', {
         description: 'As perguntas serão mais gerais. Para aderência máxima a normas/padrões internos, cole trechos ou selecione fontes.',
       })
@@ -216,13 +384,21 @@ export const AiQuizGenerator = ({ defaultChallengeId }: { defaultChallengeId?: s
         specialties,
         instructions,
         source_ids: selectedSourceIds,
+        source_urls: sourceUrls,
+        ...(hasWebQuery ? { web_query: webQuery.trim() } : {}),
         ...(hasKb ? { kb_tags: kbSelection!.tags, kb_focus: kbSelection!.label } : {}),
-        sources: hasDataset
-          ? [{
-              title: datasetTitle || topic || 'Base de estudo deste quiz',
-              text: datasetText,
-            }]
-          : [],
+        sources: [
+          ...(hasDataset
+            ? [{
+                title: datasetTitle || topic || 'Base de estudo deste quiz',
+                text: datasetText,
+              }]
+            : []),
+          ...selectedCompendiumIds
+            .map((id) => compendiumItems.find((x) => x.id === id) || null)
+            .filter(Boolean)
+            .map((it) => stringifyCompendiumToDataset(it as any)),
+        ],
         question_count: MILHAO_TOTAL,
       }
 
@@ -576,50 +752,159 @@ export const AiQuizGenerator = ({ defaultChallengeId }: { defaultChallengeId?: s
               </p>
             </div>
 
-            {studySources.length > 0 && (
-              <div className="space-y-2 rounded-md border border-border p-3 bg-muted/30">
-                <p className="text-[11px] text-muted-foreground">Selecione uma ou mais bases de estudo curadas no StudyLab.</p>
-                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 max-h-40 overflow-y-auto">
-                  {studySources.map((s) => {
-                    const checked = selectedSourceIds.includes(s.id);
-                    return (
-                      <label
-                        key={s.id}
-                        className={`flex items-center gap-2 text-sm cursor-pointer rounded-md border px-3 py-2 transition ${
-                          checked ? 'border-primary bg-primary/10 text-primary-foreground' : 'border-border bg-background'
-                        }`}
-                      >
-                        <input
-                          type="checkbox"
-                          className="accent-primary"
-                          checked={checked}
-                          onChange={(e) => {
-                            setSelectedSourceIds((prev) =>
-                              e.target.checked ? [...prev, s.id] : prev.filter((id) => id !== s.id)
-                            );
-                          }}
-                        />
-                        <span className="line-clamp-2">{s.title}</span>
-                      </label>
-                    );
-                  })}
-                  {studySources.length === 0 && (
-                    <p className="text-xs text-muted-foreground col-span-full">Nenhuma fonte disponível. Cadastre no StudyLab.</p>
+            <div className="space-y-3 rounded-md border border-border p-3 bg-muted/20">
+              <div className="flex items-start justify-between gap-3 flex-wrap">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">Fontes (Catálogo, Compêndio e Online)</p>
+                  <p className="text-[11px] text-muted-foreground">
+                    Para manter a tela limpa, adicione fontes por busca/autocomplete. Por padrão aparecem só materiais recentes; use “Mostrar antigos” se precisar.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  {(selectedSourceIds.length + selectedCompendiumIds.length + sourceUrls.length) > 0 && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="text-xs"
+                      onClick={() => {
+                        setSelectedSourceIds([])
+                        setSelectedCompendiumIds([])
+                        setSourceUrls([])
+                      }}
+                    >
+                      Limpar ({selectedSourceIds.length + selectedCompendiumIds.length + sourceUrls.length})
+                    </Button>
                   )}
                 </div>
-                {selectedSourceIds.length > 0 && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="text-xs"
-                    onClick={() => setSelectedSourceIds([])}
-                  >
-                    Limpar seleção ({selectedSourceIds.length})
-                  </Button>
-                )}
               </div>
-            )}
+
+              {(selectedSourceIds.length + selectedCompendiumIds.length + sourceUrls.length) > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {selectedSourceIds.map((id) => {
+                    const s = studySources.find((x) => x.id === id)
+                    const label = s?.title || id
+                    return (
+                      <Button key={id} type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={() => setSelectedSourceIds((prev) => prev.filter((x) => x !== id))}>
+                        {label} ✕
+                      </Button>
+                    )
+                  })}
+                  {selectedCompendiumIds.map((id) => {
+                    const it = compendiumItems.find((x) => x.id === id)
+                    const label = String(it?.catalog?.title || 'Compêndio')
+                    return (
+                      <Button key={id} type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={() => setSelectedCompendiumIds((prev) => prev.filter((x) => x !== id))}>
+                        {label} ✕
+                      </Button>
+                    )
+                  })}
+                  {sourceUrls.map((u) => (
+                    <Button key={u} type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={() => setSourceUrls((prev) => prev.filter((x) => x !== u))}>
+                      {u.replace(/^https?:\/\//, '').slice(0, 32)}… ✕
+                    </Button>
+                  ))}
+                </div>
+              )}
+
+              <Tabs value={sourcePickerTab} onValueChange={(v) => setSourcePickerTab(v as any)}>
+                <TabsList className="w-full">
+                  <TabsTrigger value="catalog" className="flex-1">
+                    Catálogo
+                  </TabsTrigger>
+                  <TabsTrigger value="compendium" className="flex-1">
+                    Compêndio
+                  </TabsTrigger>
+                  <TabsTrigger value="online" className="flex-1">
+                    Online
+                  </TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="catalog" className="space-y-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-[11px] text-muted-foreground">Busca no StudyLab (catálogo). Clique em “Adicionar”.</p>
+                    <div className="flex items-center gap-2">
+                      <p className="text-[11px] text-muted-foreground">Mostrar antigos</p>
+                      <Switch checked={catalogShowAll} onCheckedChange={setCatalogShowAll} />
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Input value={catalogQuery} onChange={(e) => setCatalogQuery(e.target.value)} placeholder="Ex.: NR10, relé, proteção, telecom…" />
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {visibleCatalogSuggestions.map((s) => (
+                      <div key={s.id} className="rounded-md border px-3 py-2 bg-background flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium line-clamp-2">{s.title}</p>
+                          {s.summary && <p className="text-[11px] text-muted-foreground line-clamp-2 mt-0.5">{s.summary}</p>}
+                        </div>
+                        <Button type="button" size="sm" variant="outline" className="h-8 shrink-0" onClick={() => addCatalogSource(s.id)} disabled={selectedSourceIds.includes(s.id) || s.ingest_status !== 'ok'}>
+                          Adicionar
+                        </Button>
+                      </div>
+                    ))}
+                    {visibleCatalogSuggestions.length === 0 && (
+                      <p className="text-xs text-muted-foreground">Nenhuma fonte encontrada. Cadastre materiais no StudyLab ou ajuste a busca.</p>
+                    )}
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="compendium" className="space-y-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-[11px] text-muted-foreground">Busca no Compêndio (itens FINAL_APPROVED). Clique em “Adicionar”.</p>
+                    <div className="flex items-center gap-2">
+                      <p className="text-[11px] text-muted-foreground">Mostrar antigos</p>
+                      <Switch checked={compendiumShowAll} onCheckedChange={setCompendiumShowAll} />
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Input value={compendiumQuery} onChange={(e) => setCompendiumQuery(e.target.value)} placeholder="Ex.: ocorrência, disjuntor, telecom, procedimento…" />
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {visibleCompendiumSuggestions.map((it) => (
+                      <div key={it.id} className="rounded-md border px-3 py-2 bg-background flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium line-clamp-2">{String(it?.catalog?.title || 'Item do Compêndio')}</p>
+                          <p className="text-[11px] text-muted-foreground line-clamp-2 mt-0.5">{String(it?.catalog?.summary || '').trim() || 'Sem resumo'}</p>
+                        </div>
+                        <Button type="button" size="sm" variant="outline" className="h-8 shrink-0" onClick={() => addCompendiumItem(it.id)} disabled={selectedCompendiumIds.includes(it.id)}>
+                          Adicionar
+                        </Button>
+                      </div>
+                    ))}
+                    {visibleCompendiumSuggestions.length === 0 && (
+                      <p className="text-xs text-muted-foreground">
+                        Sem itens disponíveis (ou sem permissão). Se precisar, valide acesso ao módulo Compêndio no Studio.
+                      </p>
+                    )}
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="online" className="space-y-3">
+                  <div className="space-y-2">
+                    <p className="text-[11px] text-muted-foreground">
+                      URL: o backend lê o texto (leve) e usa como contexto do quiz. Busca web: gera um resumo com fontes para usar como dataset.
+                    </p>
+                    <div className="flex gap-2">
+                      <Input value={onlineUrlInput} onChange={(e) => setOnlineUrlInput(e.target.value)} placeholder="Cole uma URL (https://...)" />
+                      <Button type="button" variant="outline" onClick={addOnlineUrl}>
+                        Adicionar URL
+                      </Button>
+                    </div>
+                  </div>
+                  {sourceUrls.length > 0 && (
+                    <p className="text-[11px] text-muted-foreground">{sourceUrls.length} URL(s) adicionada(s).</p>
+                  )}
+                  <div className="space-y-2">
+                    <Label>Busca web (opcional)</Label>
+                    <Input value={webQuery} onChange={(e) => setWebQuery(e.target.value)} placeholder="Ex.: 'procedimento de manobra em disjuntor 7SJ62 proteção'…" />
+                    <p className="text-[11px] text-muted-foreground">
+                      Use quando não houver documento interno. A IA vai usar um resumo curto da web (sem inventar padrões internos).
+                    </p>
+                  </div>
+                </TabsContent>
+              </Tabs>
+            </div>
 
             <div className="space-y-3 rounded-md border border-border p-3 bg-muted/20">
               <div className="flex items-start justify-between gap-3 flex-wrap">
