@@ -3,7 +3,7 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { createClient } from "@supabase/supabase-js";
 import { createRequire } from "module";
 import { extractPdfText, extractDocxText, extractJsonText, extractPlainText } from "../lib/import-parsers.js";
-import { extractImageTextWithAi } from "../lib/ai-curation-provider.js";
+import { extractImageTextWithAi, parseJsonFromAiContent } from "../lib/ai-curation-provider.js";
 import { DJT_RULES_ARTICLE } from "../../shared/djt-rules.js";
 import { normalizeChatModel, pickChatModel } from "../lib/openai-models.js";
 
@@ -71,6 +71,11 @@ const pickStudyLabChatModels = (fallbackModel: string) =>
     "gpt-4.1-mini",
     "gpt-4o-mini",
   ]);
+const pickJsonRepairModel = (fallbackModel: string) => {
+  const candidates = pickStudyLabChatModels(fallbackModel);
+  const nonGpt5 = candidates.find((m) => !/^gpt-5/i.test(String(m)));
+  return nonGpt5 || candidates[0];
+};
 
 const extractChatText = (data: any) => {
   const choice = data?.choices?.[0];
@@ -600,6 +605,26 @@ const replaceStudySourceHashtags = async (admin: any, sourceId: string, tags: st
   }
 };
 
+const updateStudySourceWithFallback = async (admin: any, sourceId: string, payload: Record<string, any>) => {
+  if (!admin || !sourceId) return { error: null };
+  let resp = await admin.from("study_sources").update(payload).eq("id", sourceId);
+  const message = String(resp.error?.message || resp.error || "");
+  if (resp.error && /column .*?(category|scope|published|metadata|topic|expires_at|access_count)/i.test(message)) {
+    const {
+      category: _c,
+      scope: _s,
+      published: _p,
+      metadata: _m,
+      topic: _t,
+      expires_at: _e,
+      access_count: _a,
+      ...legacyPayload
+    } = payload as any;
+    resp = await admin.from("study_sources").update(legacyPayload).eq("id", sourceId);
+  }
+  return resp;
+};
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === "OPTIONS") return res.status(204).send("");
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
@@ -884,15 +909,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               if (fetched?.trim()) {
                 baseText = fetched;
                 // Persistir para próximas consultas
-                await admin
-                  .from("study_sources")
-                  .update({
-                    full_text: fetched,
-                    ingest_status: "ok",
-                    ingested_at: new Date().toISOString(),
-                    ingest_error: null,
-                  })
-                  .eq("id", source_id);
+                await updateStudySourceWithFallback(admin, source_id, {
+                  full_text: fetched,
+                  ingest_status: "ok",
+                  ingested_at: new Date().toISOString(),
+                  ingest_error: null,
+                });
               }
             } catch {
               /* não bloqueia resposta; segue com o que tiver */
@@ -966,7 +988,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       try {
         const preferPremiumIngest =
           sourceRow && String(sourceRow.scope || "").toLowerCase() === "org" && sourceRow.published !== false;
-        const model = chooseModel(preferPremiumIngest);
+        const baseModel = chooseModel(preferPremiumIngest);
+        const modelCandidates = pickStudyLabChatModels(baseModel);
 
         const allowedTopics = [
           "LINHAS",
@@ -1082,68 +1105,68 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             (materialHints ? `### Contexto do item\n${materialHints}\n\n` : "") +
             baseMaterial;
 
-        const wantsStrictJson = !/^gpt-5/i.test(String(model || ""));
-        const requestBody: any = {
-          model,
-          messages: [
-            {
-              role: "system",
-              content:
-                isIncident
-                  ? "Você é um bibliotecário técnico: resume e extrai aprendizados de Relatórios de Ocorrência no setor elétrico (CPFL). Gere título, subtítulo, resumo, tema, aprendizados, cuidados e mudanças com linguagem clara e pesquisável."
-                  : "Você é um bibliotecário técnico: renomeia e classifica materiais de estudo técnicos (setor elétrico CPFL). Gere título, subtítulo, resumo, tema e tags de forma pesquisável e específica.",
+        const requestMessages = [
+          {
+            role: "system",
+            content:
+              isIncident
+                ? "Você é um bibliotecário técnico: resume e extrai aprendizados de Relatórios de Ocorrência no setor elétrico (CPFL). Gere título, subtítulo, resumo, tema, aprendizados, cuidados e mudanças com linguagem clara e pesquisável."
+                : "Você é um bibliotecário técnico: renomeia e classifica materiais de estudo técnicos (setor elétrico CPFL). Gere título, subtítulo, resumo, tema e tags de forma pesquisável e específica.",
+          },
+          {
+            role: "user",
+            content: userContent,
+          },
+        ];
+        let resp: any = null;
+        let lastErrTxt = "";
+        for (const model of modelCandidates) {
+          const isGpt5 = /^gpt-5/i.test(String(model || ""));
+          const requestBody: any = {
+            model,
+            messages: requestMessages,
+            ...(isGpt5 ? { max_completion_tokens: isIncident ? 650 : 420 } : { max_tokens: isIncident ? 650 : 420 }),
+          };
+          if (!isGpt5) {
+            requestBody.response_format = { type: "json_object" };
+          }
+          const attempt = await fetch("https://api.openai.com/v1/chat/completions", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${OPENAI_API_KEY}`,
             },
-            {
-              role: "user",
-              content: userContent,
-            },
-          ],
-          max_completion_tokens: isIncident ? 650 : 420,
-        };
-        if (wantsStrictJson) {
-          requestBody.response_format = { type: "json_object" };
+            body: JSON.stringify(requestBody),
+          });
+          if (attempt.ok) {
+            resp = attempt;
+            break;
+          }
+          lastErrTxt = await attempt.text().catch(() => `HTTP ${attempt.status}`);
+          if (isFatalOpenAiStatus(attempt.status)) break;
         }
 
-        const resp = await fetch("https://api.openai.com/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${OPENAI_API_KEY}`,
-          },
-          body: JSON.stringify(requestBody),
-        });
-
-        if (!resp.ok) {
-          const txt = await resp.text().catch(() => `HTTP ${resp.status}`);
+        if (!resp || !resp.ok) {
+          const txt = lastErrTxt || "OpenAI request failed";
           console.warn("Study ingest OpenAI error", txt);
           try {
-            await admin
-              .from("study_sources")
-              .update({
-                full_text: trimmed,
-                ingest_status: "failed",
-                ingest_error: `OpenAI error: ${txt}`.slice(0, 900),
-                ingested_at: new Date().toISOString(),
-              })
-              .eq("id", source_id);
+            await updateStudySourceWithFallback(admin, source_id, {
+              full_text: trimmed,
+              ingest_status: "failed",
+              ingest_error: `OpenAI error: ${txt}`.slice(0, 900),
+              ingested_at: new Date().toISOString(),
+            });
           } catch {}
           return res.status(200).json({ success: false, error: `OpenAI error: ${txt}` });
         } else {
           const data = await resp.json().catch(() => null);
           const content = data?.choices?.[0]?.message?.content || "";
-          const tryParse = (raw: string) => {
-            try {
-              return JSON.parse(raw);
-            } catch {
-              return null;
-            }
-          };
           const repairJson = async (raw: string) => {
             try {
-              const repairModel = chooseModel(false);
+              const repairModel = pickJsonRepairModel(baseModel);
+              const isRepairGpt5 = /^gpt-5/i.test(String(repairModel || ""));
               const repairBody: any = {
                 model: repairModel,
-                max_completion_tokens: 400,
                 messages: [
                   {
                     role: "system",
@@ -1155,8 +1178,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                     content: raw.slice(0, 6000),
                   },
                 ],
+                ...(isRepairGpt5 ? { max_completion_tokens: 400 } : { max_tokens: 400 }),
               };
-              if (!/^gpt-5/i.test(String(repairModel || ""))) {
+              if (!isRepairGpt5) {
                 repairBody.response_format = { type: "json_object" };
               }
               const repairResp = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -1170,35 +1194,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               if (!repairResp.ok) return null;
               const repairData = await repairResp.json().catch(() => null);
               const repairContent = repairData?.choices?.[0]?.message?.content || "";
-              let repaired = tryParse(repairContent);
-              if (!repaired) {
-                const match = repairContent.match?.(/\{[\s\S]*\}/);
-                if (match) repaired = tryParse(match[0]);
-              }
-              return repaired;
+              return parseJsonFromAiContent(repairContent).parsed;
             } catch {
               return null;
             }
           };
-          let parsed: any = tryParse(content);
-          if (!parsed) {
-            const match = content.match?.(/\{[\s\S]*\}/);
-            if (match) parsed = tryParse(match[0]);
-          }
+          let parsed: any = parseJsonFromAiContent(content).parsed;
           if (!parsed && content) {
             parsed = await repairJson(content);
           }
 
           if (!parsed || typeof parsed !== "object") {
             try {
-              await admin
-                .from("study_sources")
-                .update({
-                  full_text: trimmed,
-                  ingest_status: "failed",
-                  ingest_error: "Resposta inválida da IA (JSON não parseável).",
-                })
-                .eq("id", source_id);
+              await updateStudySourceWithFallback(admin, source_id, {
+                full_text: trimmed,
+                ingest_status: "failed",
+                ingest_error: "Resposta inválida da IA (JSON não parseável).",
+              });
             } catch {}
             return res.status(200).json({ success: false, error: "Resposta inválida da IA (JSON não parseável)." });
           }
@@ -1264,20 +1276,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               }
             : null;
 
-          await admin
-            .from("study_sources")
-            .update({
-              full_text: trimmed,
-              ingest_status: "ok",
-              ingested_at: new Date().toISOString(),
-              ingest_error: null,
-              ...(newTitle ? { title: newTitle } : {}),
-              ...(newSummary ? { summary: newSummary } : {}),
-              ...(topic ? { topic } : {}),
-              ...(finalCategory ? { category: finalCategory } : {}),
-              ...(nextMeta ? { metadata: nextMeta } : {}),
-            })
-            .eq("id", source_id);
+          const updateResp = await updateStudySourceWithFallback(admin, source_id, {
+            full_text: trimmed,
+            ingest_status: "ok",
+            ingested_at: new Date().toISOString(),
+            ingest_error: null,
+            ...(newTitle ? { title: newTitle } : {}),
+            ...(newSummary ? { summary: newSummary } : {}),
+            ...(topic ? { topic } : {}),
+            ...(finalCategory ? { category: finalCategory } : {}),
+            ...(nextMeta ? { metadata: nextMeta } : {}),
+          });
+          if (updateResp?.error) throw updateResp.error;
 
           if (mergedTags.length) {
             await replaceStudySourceHashtags(admin, source_id, mergedTags);
@@ -1315,14 +1325,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       } catch (e: any) {
         console.warn("Study ingest error", e?.message || e);
         try {
-          await admin
-            .from("study_sources")
-            .update({
-              ingest_status: "failed",
-              ingest_error: e?.message || e?.toString?.() || "Erro ao ingerir material",
-            })
-            .eq("id", source_id);
+          await updateStudySourceWithFallback(admin, source_id, {
+            ingest_status: "failed",
+            ingest_error: e?.message || e?.toString?.() || "Erro ao ingerir material",
+          });
         } catch {}
+        return res.status(200).json({
+          success: false,
+          ingested: false,
+          error: e?.message || e?.toString?.() || "Erro ao ingerir material",
+        });
       }
 
       return res.status(200).json({ success: true, ingested: true });

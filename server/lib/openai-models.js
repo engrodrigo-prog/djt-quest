@@ -1,7 +1,15 @@
 const DEFAULT_FAST_MODEL = "gpt-5-2025-08-07";
 const DEFAULT_PREMIUM_MODEL = "gpt-5-2025-08-07";
 
-const ALLOWED_BASE_MODELS = new Set(["gpt-5-2025-08-07", "gpt-5-nano-2025-08-07"]);
+const ALLOWED_BASE_MODELS = new Set([
+  "gpt-5-2025-08-07",
+  "gpt-5-nano-2025-08-07",
+  "gpt-4o",
+  "gpt-4o-mini",
+  "gpt-4.1",
+  "gpt-4.1-mini",
+  "gpt-4.1-nano"
+]);
 
 const legacyAliasToModel = (lower) => {
   if (!lower) return null;
@@ -20,7 +28,16 @@ const isChatModelName = (value) => {
   const lower = String(value || "").toLowerCase().trim();
   if (isLegacyAlias(lower)) return true;
   if (ALLOWED_BASE_MODELS.has(lower)) return true;
-  if (lower.startsWith("ft:gpt-5-2025-08-07")) return true;
+  if (
+    lower.startsWith("gpt-5-") ||
+    lower.startsWith("gpt-4o-") ||
+    lower.startsWith("gpt-4.1-") ||
+    lower.startsWith("ft:gpt-5") ||
+    lower.startsWith("ft:gpt-4o") ||
+    lower.startsWith("ft:gpt-4.1")
+  ) {
+    return true;
+  }
   return false;
 };
 

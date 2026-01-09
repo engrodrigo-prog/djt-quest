@@ -62,7 +62,7 @@ const extractFirstJsonValue = (raw) => {
   return null;
 };
 
-const parseJsonFromAiContent = (content) => {
+export const parseJsonFromAiContent = (content) => {
   const raw = String(content || '');
   const trimmed = stripBOM(raw.trim());
   if (!trimmed) return { parsed: null, candidate: null };

@@ -1,7 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { createRequire } from "module";
 import { extractPdfText, extractDocxText, extractJsonText, extractPlainText } from "../lib/import-parsers.js";
-import { extractImageTextWithAi } from "../lib/ai-curation-provider.js";
+import { extractImageTextWithAi, parseJsonFromAiContent } from "../lib/ai-curation-provider.js";
 import { DJT_RULES_ARTICLE } from "../../shared/djt-rules.js";
 import { normalizeChatModel, pickChatModel } from "../lib/openai-models.js";
 const require2 = createRequire(import.meta.url);
@@ -58,6 +58,11 @@ const pickStudyLabChatModels = (fallbackModel) => uniqueStrings([
   "gpt-4.1-mini",
   "gpt-4o-mini"
 ]);
+const pickJsonRepairModel = (fallbackModel) => {
+  const candidates = pickStudyLabChatModels(fallbackModel);
+  const nonGpt5 = candidates.find((m) => !/^gpt-5/i.test(String(m)));
+  return nonGpt5 || candidates[0];
+};
 const extractChatText = (data) => {
   const choice = data?.choices?.[0];
   if (typeof choice?.text === "string") return choice.text;
@@ -467,6 +472,25 @@ const replaceStudySourceHashtags = async (admin, sourceId, tags) => {
   } catch {
   }
 };
+const updateStudySourceWithFallback = async (admin, sourceId, payload) => {
+  if (!admin || !sourceId) return { error: null };
+  let resp = await admin.from("study_sources").update(payload).eq("id", sourceId);
+  const message = String(resp.error?.message || resp.error || "");
+  if (resp.error && /column .*?(category|scope|published|metadata|topic|expires_at|access_count)/i.test(message)) {
+    const {
+      category: _c,
+      scope: _s,
+      published: _p,
+      metadata: _m,
+      topic: _t,
+      expires_at: _e,
+      access_count: _a,
+      ...legacyPayload
+    } = payload;
+    resp = await admin.from("study_sources").update(legacyPayload).eq("id", sourceId);
+  }
+  return resp;
+};
 async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(204).send("");
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
@@ -696,12 +720,12 @@ ${clipped}`);
               const fetched = isFile ? await extractFromFileUrl(sourceRow.url, sourceRow.title || "") : await fetchUrlContent(sourceRow.url);
               if (fetched?.trim()) {
                 baseText = fetched;
-                await admin.from("study_sources").update({
+                await updateStudySourceWithFallback(admin, source_id, {
                   full_text: fetched,
                   ingest_status: "ok",
                   ingested_at: (/* @__PURE__ */ new Date()).toISOString(),
                   ingest_error: null
-                }).eq("id", source_id);
+                });
               }
             } catch {
             }
@@ -766,7 +790,8 @@ ${metaParts.join("\n\n")}` : ""}`;
       }
       try {
         const preferPremiumIngest = sourceRow && String(sourceRow.scope || "").toLowerCase() === "org" && sourceRow.published !== false;
-        const model2 = chooseModel(preferPremiumIngest);
+        const baseModel = chooseModel(preferPremiumIngest);
+        const modelCandidates = pickStudyLabChatModels(baseModel);
         const allowedTopics = [
           "LINHAS",
           "SUBESTACOES",
@@ -872,61 +897,65 @@ ${metaParts.join("\n\n")}` : ""}`;
  - NÃO invente dados (especialmente modelo/fabricante) se não houver evidência no material.
 
 ` + (materialHints ? `### Contexto do item\n${materialHints}\n\n` : "") + baseMaterial;
-        const wantsStrictJson = !/^gpt-5/i.test(String(model2 || ""));
-        const requestBody = {
-          model: model2,
-          messages: [
-            {
-              role: "system",
-              content: isIncident ? "Você é um bibliotecário técnico: resume e extrai aprendizados de Relatórios de Ocorrência no setor elétrico (CPFL). Gere título, subtítulo, resumo, tema, aprendizados, cuidados e mudanças com linguagem clara e pesquisável." : "Você é um bibliotecário técnico: renomeia e classifica materiais de estudo técnicos (setor elétrico CPFL). Gere título, subtítulo, resumo, tema e tags de forma pesquisável e específica."
-            },
-            {
-              role: "user",
-              content: userContent
-            }
-          ],
-          max_completion_tokens: isIncident ? 650 : 420
-        };
-        if (wantsStrictJson) {
-          requestBody.response_format = { type: "json_object" };
-        }
-        const resp2 = await fetch("https://api.openai.com/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${OPENAI_API_KEY}`
+        const requestMessages = [
+          {
+            role: "system",
+            content: isIncident ? "Você é um bibliotecário técnico: resume e extrai aprendizados de Relatórios de Ocorrência no setor elétrico (CPFL). Gere título, subtítulo, resumo, tema, aprendizados, cuidados e mudanças com linguagem clara e pesquisável." : "Você é um bibliotecário técnico: renomeia e classifica materiais de estudo técnicos (setor elétrico CPFL). Gere título, subtítulo, resumo, tema e tags de forma pesquisável e específica."
           },
-          body: JSON.stringify(requestBody)
-        });
-        if (!resp2.ok) {
-          const txt = await resp2.text().catch(() => `HTTP ${resp2.status}`);
+          {
+            role: "user",
+            content: userContent
+          }
+        ];
+        let resp2 = null;
+        let lastErrTxt = "";
+        for (const model2 of modelCandidates) {
+          const isGpt5 = /^gpt-5/i.test(String(model2 || ""));
+          const requestBody = {
+            model: model2,
+            messages: requestMessages,
+            ...(isGpt5 ? { max_completion_tokens: isIncident ? 650 : 420 } : { max_tokens: isIncident ? 650 : 420 })
+          };
+          if (!isGpt5) {
+            requestBody.response_format = { type: "json_object" };
+          }
+          const attempt = await fetch("https://api.openai.com/v1/chat/completions", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${OPENAI_API_KEY}`
+            },
+            body: JSON.stringify(requestBody)
+          });
+          if (attempt.ok) {
+            resp2 = attempt;
+            break;
+          }
+          lastErrTxt = await attempt.text().catch(() => `HTTP ${attempt.status}`);
+          if (isFatalOpenAiStatus(attempt.status)) break;
+        }
+        if (!resp2 || !resp2.ok) {
+          const txt = lastErrTxt || "OpenAI request failed";
           console.warn("Study ingest OpenAI error", txt);
           try {
-            await admin.from("study_sources").update({
+            await updateStudySourceWithFallback(admin, source_id, {
               full_text: trimmed,
               ingest_status: "failed",
               ingest_error: `OpenAI error: ${txt}`.slice(0, 900),
               ingested_at: (/* @__PURE__ */ new Date()).toISOString()
-            }).eq("id", source_id);
+            });
           } catch {
           }
           return res.status(200).json({ success: false, error: `OpenAI error: ${txt}` });
         } else {
           const data2 = await resp2.json().catch(() => null);
           const content2 = data2?.choices?.[0]?.message?.content || "";
-          const tryParse = (raw) => {
-            try {
-              return JSON.parse(raw);
-            } catch {
-              return null;
-            }
-          };
           const repairJson = async (raw) => {
             try {
-              const repairModel = chooseModel(false);
+              const repairModel = pickJsonRepairModel(baseModel);
+              const isRepairGpt5 = /^gpt-5/i.test(String(repairModel || ""));
               const repairBody = {
                 model: repairModel,
-                max_completion_tokens: 400,
                 messages: [
                   {
                     role: "system",
@@ -936,9 +965,10 @@ ${metaParts.join("\n\n")}` : ""}`;
                     role: "user",
                     content: raw.slice(0, 6e3)
                   }
-                ]
+                ],
+                ...(isRepairGpt5 ? { max_completion_tokens: 400 } : { max_tokens: 400 })
               };
-              if (!/^gpt-5/i.test(String(repairModel || ""))) {
+              if (!isRepairGpt5) {
                 repairBody.response_format = { type: "json_object" };
               }
               const repairResp = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -952,31 +982,22 @@ ${metaParts.join("\n\n")}` : ""}`;
               if (!repairResp.ok) return null;
               const repairData = await repairResp.json().catch(() => null);
               const repairContent = repairData?.choices?.[0]?.message?.content || "";
-              let repaired = tryParse(repairContent);
-              if (!repaired) {
-                const match = repairContent.match?.(/\{[\s\S]*\}/);
-                if (match) repaired = tryParse(match[0]);
-              }
-              return repaired;
+              return parseJsonFromAiContent(repairContent).parsed;
             } catch {
               return null;
             }
           };
-          let parsed = tryParse(content2);
-          if (!parsed) {
-            const match = content2.match?.(/\{[\s\S]*\}/);
-            if (match) parsed = tryParse(match[0]);
-          }
+          let parsed = parseJsonFromAiContent(content2).parsed;
           if (!parsed && content2) {
             parsed = await repairJson(content2);
           }
           if (!parsed || typeof parsed !== "object") {
             try {
-              await admin.from("study_sources").update({
+              await updateStudySourceWithFallback(admin, source_id, {
                 full_text: trimmed,
                 ingest_status: "failed",
                 ingest_error: "Resposta inv\xE1lida da IA (JSON n\xE3o parse\xE1vel)."
-              }).eq("id", source_id);
+              });
             } catch {
             }
             return res.status(200).json({ success: false, error: "Resposta inv\xE1lida da IA (JSON n\xE3o parse\xE1vel)." });
@@ -1026,7 +1047,7 @@ ${metaParts.join("\n\n")}` : ""}`;
               } : {}
             }
           } : null;
-          await admin.from("study_sources").update({
+          const updateResp = await updateStudySourceWithFallback(admin, source_id, {
             full_text: trimmed,
             ingest_status: "ok",
             ingested_at: (/* @__PURE__ */ new Date()).toISOString(),
@@ -1036,7 +1057,8 @@ ${metaParts.join("\n\n")}` : ""}`;
             ...topic ? { topic } : {},
             ...finalCategory ? { category: finalCategory } : {},
             ...nextMeta ? { metadata: nextMeta } : {}
-          }).eq("id", source_id);
+          });
+          if (updateResp?.error) throw updateResp.error;
           if (mergedTags.length) {
             await replaceStudySourceHashtags(admin, source_id, mergedTags);
           }
@@ -1070,12 +1092,17 @@ ${metaParts.join("\n\n")}` : ""}`;
       } catch (e) {
         console.warn("Study ingest error", e?.message || e);
         try {
-          await admin.from("study_sources").update({
+          await updateStudySourceWithFallback(admin, source_id, {
             ingest_status: "failed",
             ingest_error: e?.message || e?.toString?.() || "Erro ao ingerir material"
-          }).eq("id", source_id);
+          });
         } catch {
         }
+        return res.status(200).json({
+          success: false,
+          ingested: false,
+          error: e?.message || e?.toString?.() || "Erro ao ingerir material"
+        });
       }
       return res.status(200).json({ success: true, ingested: true });
     }
