@@ -71,15 +71,18 @@ Deno.serve(async (req) => {
 
     const { data: reviewerProfile } = await supabaseAdmin
       .from('profiles')
-      .select('division_id, coord_id, team_id, is_leader')
+      .select('division_id, coord_id, team_id, sigla_area, operational_base, is_leader')
       .eq('id', user.id)
       .single();
 
     const { data: targetProfile } = await supabaseAdmin
       .from('profiles')
-      .select('division_id, coord_id, team_id, sigla_area')
+      .select('division_id, coord_id, team_id, sigla_area, operational_base')
       .eq('id', request.user_id)
       .single();
+
+    const normalizeTeamKey = (value: string | null | undefined) =>
+      String(value || '').trim().toUpperCase().replace(/\s+/g, '-');
 
     const canReview = () => {
       if (reviewerRoles.includes('admin') || reviewerRoles.includes('gerente_djt')) return true;
@@ -91,7 +94,13 @@ Deno.serve(async (req) => {
       }
       // Líder de equipe: pode revisar apenas do próprio time (ou se estiver marcado como líder no perfil).
       if (reviewerRoles.includes('lider_equipe') || reviewerProfile?.is_leader) {
-        return reviewerProfile?.team_id && reviewerProfile.team_id === targetProfile?.team_id;
+        const reviewerTeam = normalizeTeamKey(
+          reviewerProfile?.team_id || reviewerProfile?.sigla_area || reviewerProfile?.operational_base,
+        );
+        const targetTeam = normalizeTeamKey(
+          targetProfile?.team_id || targetProfile?.sigla_area || targetProfile?.operational_base,
+        );
+        return !!reviewerTeam && reviewerTeam === targetTeam;
       }
       return false;
     };
