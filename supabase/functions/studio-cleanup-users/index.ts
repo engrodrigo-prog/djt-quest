@@ -13,6 +13,8 @@ interface CleanupRequest {
   deleteAll?: boolean;
 }
 
+const uniq = (arr: string[]) => Array.from(new Set(arr));
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -263,6 +265,29 @@ Deno.serve(async (req) => {
 
     console.log('=== Auth cleanup complete ===');
     console.log('Auth users deleted:', authDeletedCount);
+
+    // Remover entradas do histórico de cadastro (pending_registrations) para usuários apagados.
+    try {
+      const cleanupEmails = uniq(
+        [
+          ...emailsParaDeletar,
+          ...normalizedDeleteEmails,
+          ...results.deleted,
+        ]
+          .map((e) => String(e || '').trim().toLowerCase())
+          .filter((e) => e && e.includes('@')),
+      );
+      if (cleanupEmails.length > 0) {
+        const { data: deletedCount, error: prErr } = await supabaseAdmin.rpc('delete_pending_registrations_by_emails', {
+          p_emails: cleanupEmails,
+        });
+        if (prErr) console.error('Error deleting pending_registrations by email:', prErr);
+        else console.log('Deleted pending_registrations rows:', Number(deletedCount || 0));
+      }
+    } catch (e) {
+      console.error('Unexpected error cleaning pending_registrations:', e);
+    }
+
     console.log('=== CLEANUP FINISHED ===');
     console.log('Final results:', {
       totalDeleted: results.deleted.length,

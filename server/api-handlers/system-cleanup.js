@@ -35,20 +35,45 @@ export default async function handler(req, res) {
     if (action === 'purge-pending-registrations') {
       const olderThanDaysRaw = Number.isFinite(Number(body.olderThanDays)) ? Number(body.olderThanDays) : 30;
       const olderThanDays = Math.max(0, olderThanDaysRaw);
-      const statuses = uniq(Array.isArray(body.statuses) ? body.statuses : ['pending', 'rejected']);
+      const includeApprovedOrphans = Boolean(body.includeApprovedOrphans);
+      const allowed = new Set(['pending', 'rejected']);
+      const statuses = uniq(Array.isArray(body.statuses) ? body.statuses : ['pending', 'rejected'])
+        .map((s) => String(s).trim().toLowerCase())
+        .filter((s) => allowed.has(s));
       const cutoff = olderThanDays > 0
         ? new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000).toISOString()
         : null;
+
+      if (statuses.length === 0 && !includeApprovedOrphans) {
+        return res.status(400).json({ error: 'Selecione ao menos um status ou habilite aprovados órfãos' });
+      }
 
       let countQuery = admin
         .from('pending_registrations')
         .select('id', { count: 'exact', head: true })
         .in('status', statuses);
       if (cutoff) countQuery = countQuery.lt('created_at', cutoff);
-      const { count: toDeleteCount } = await countQuery;
+      const { count: toDeleteCount } = statuses.length ? await countQuery : { count: 0 };
+
+      let orphanApprovedCount = 0;
+      if (includeApprovedOrphans) {
+        const { data, error } = await admin.rpc('cleanup_pending_registrations_orphan_approved', { p_dry_run: true });
+        if (error) return res.status(400).json({ error: error.message });
+        orphanApprovedCount = Number(data || 0);
+      }
 
       if (dryRun) {
-        return res.status(200).json({ success: true, dryRun: true, deleteCount: toDeleteCount || 0, cutoff, statuses });
+        const deleteCount = (toDeleteCount || 0) + orphanApprovedCount;
+        return res.status(200).json({
+          success: true,
+          dryRun: true,
+          deleteCount,
+          deleteCountStatuses: toDeleteCount || 0,
+          deleteCountApprovedOrphans: orphanApprovedCount,
+          cutoff,
+          statuses,
+          includeApprovedOrphans,
+        });
       }
 
       let delQuery = admin
@@ -56,10 +81,30 @@ export default async function handler(req, res) {
         .delete()
         .in('status', statuses);
       if (cutoff) delQuery = delQuery.lt('created_at', cutoff);
-      const { error: delErr } = await delQuery;
-      if (delErr) return res.status(400).json({ error: delErr.message });
+      let deletedStatuses = 0;
+      if (statuses.length) {
+        const { error: delErr } = await delQuery;
+        if (delErr) return res.status(400).json({ error: delErr.message });
+        deletedStatuses = toDeleteCount || 0;
+      }
 
-      return res.status(200).json({ success: true, dryRun: false, deleted: toDeleteCount || 0, cutoff, statuses });
+      let deletedApprovedOrphans = 0;
+      if (includeApprovedOrphans) {
+        const { data, error } = await admin.rpc('cleanup_pending_registrations_orphan_approved', { p_dry_run: false });
+        if (error) return res.status(400).json({ error: error.message });
+        deletedApprovedOrphans = Number(data || 0);
+      }
+
+      return res.status(200).json({
+        success: true,
+        dryRun: false,
+        deleted: deletedStatuses + deletedApprovedOrphans,
+        deletedStatuses,
+        deletedApprovedOrphans,
+        cutoff,
+        statuses,
+        includeApprovedOrphans,
+      });
     }
 
     if (action === 'purge-test-users') {

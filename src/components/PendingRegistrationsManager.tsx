@@ -49,8 +49,9 @@ export function PendingRegistrationsManager() {
   const [purgeDays, setPurgeDays] = useState(0);
   const [purgePending, setPurgePending] = useState(false);
   const [purgeRejected, setPurgeRejected] = useState(true);
+  const [purgeApprovedOrphans, setPurgeApprovedOrphans] = useState(true);
   const [purgeLoading, setPurgeLoading] = useState(false);
-  const [purgePreview, setPurgePreview] = useState<{ deleteCount: number; cutoff: string; statuses: string[] } | null>(null);
+  const [purgePreview, setPurgePreview] = useState<{ deleteCount: number; cutoff: string; statuses: string[]; deleteCountStatuses: number; deleteCountApprovedOrphans: number } | null>(null);
   const [showRejectedHistory, setShowRejectedHistory] = useState(false);
 
   useEffect(() => {
@@ -356,8 +357,8 @@ export function PendingRegistrationsManager() {
       ...(purgePending ? ["pending"] : []),
       ...(purgeRejected ? ["rejected"] : []),
     ];
-    if (statuses.length === 0) {
-      toast({ title: "Selecione ao menos um status para limpar.", variant: "destructive" });
+    if (statuses.length === 0 && !purgeApprovedOrphans) {
+      toast({ title: "Selecione ao menos um item para limpar.", variant: "destructive" });
       setPurgePreview(null);
       return;
     }
@@ -372,12 +373,15 @@ export function PendingRegistrationsManager() {
           dryRun: true,
           olderThanDays: purgeDays,
           statuses,
+          includeApprovedOrphans: purgeApprovedOrphans,
         }),
       });
       const json = await resp.json().catch(() => ({}));
       if (!resp.ok) throw new Error(json?.error || "Falha ao calcular limpeza");
       setPurgePreview({
         deleteCount: Number(json?.deleteCount || 0),
+        deleteCountStatuses: Number(json?.deleteCountStatuses || 0),
+        deleteCountApprovedOrphans: Number(json?.deleteCountApprovedOrphans || 0),
         cutoff: String(json?.cutoff || ""),
         statuses: Array.isArray(json?.statuses) ? json.statuses : statuses,
       });
@@ -394,13 +398,15 @@ export function PendingRegistrationsManager() {
       ...(purgePending ? ["pending"] : []),
       ...(purgeRejected ? ["rejected"] : []),
     ];
-    if (statuses.length === 0) {
-      toast({ title: "Selecione ao menos um status para limpar.", variant: "destructive" });
+    if (statuses.length === 0 && !purgeApprovedOrphans) {
+      toast({ title: "Selecione ao menos um item para limpar.", variant: "destructive" });
       return;
     }
     const count = purgePreview?.deleteCount ?? 0;
     const ageLabel = purgeDays > 0 ? `criados há mais de ${purgeDays} dias` : "em qualquer data";
-    const ok = window.confirm(`Remover ${count} cadastro(s) com status ${statuses.join(", ")} (${ageLabel})?\\n\\nEsta ação não pode ser desfeita.`);
+    const extra = purgeApprovedOrphans ? " + aprovados órfãos" : "";
+    const statusLabel = statuses.length ? statuses.join(", ") : "(sem status)";
+    const ok = window.confirm(`Remover ${count} cadastro(s) (${statusLabel}${extra}; ${ageLabel})?\\n\\nEsta ação não pode ser desfeita.`);
     if (!ok) return;
 
     setPurgeLoading(true);
@@ -413,6 +419,7 @@ export function PendingRegistrationsManager() {
           dryRun: false,
           olderThanDays: purgeDays,
           statuses,
+          includeApprovedOrphans: purgeApprovedOrphans,
         }),
       });
       const json = await resp.json().catch(() => ({}));
@@ -483,7 +490,7 @@ export function PendingRegistrationsManager() {
                 disabled={purgeLoading}
               >
                 <Trash2 className="mr-2 h-4 w-4" />
-                Limpar rejeitados
+                Limpar cache
               </Button>
             )}
             <Button
@@ -751,9 +758,9 @@ export function PendingRegistrationsManager() {
       <Dialog open={purgeDialogOpen} onOpenChange={setPurgeDialogOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Limpar cadastros rejeitados</DialogTitle>
+            <DialogTitle>Limpar cache de cadastros</DialogTitle>
             <DialogDescription>
-              Remove cadastros <strong>rejeitados</strong> para não ficarem aparecendo no HUB de aprovações.
+              Remove entradas do histórico que não fazem mais sentido (ex.: <strong>rejeitados</strong> e <strong>aprovados de usuários já apagados</strong>).
             </DialogDescription>
           </DialogHeader>
 
@@ -767,11 +774,11 @@ export function PendingRegistrationsManager() {
                 value={purgeDays}
                 onChange={(e) => setPurgeDays(Math.max(0, Number(e.target.value || 0)))}
               />
-              <p className="text-xs text-muted-foreground">Use 0 para limpar rejeitados de qualquer data.</p>
+              <p className="text-xs text-muted-foreground">Use 0 para limpar de qualquer data.</p>
             </div>
 
             <div className="space-y-2">
-              <Label>Status incluídos</Label>
+              <Label>Itens incluídos</Label>
               <div className="flex items-center justify-between rounded-md border p-3">
                 <span className="text-sm">Pendentes</span>
                 <Switch checked={purgePending} onCheckedChange={(v) => setPurgePending(Boolean(v))} />
@@ -779,6 +786,10 @@ export function PendingRegistrationsManager() {
               <div className="flex items-center justify-between rounded-md border p-3">
                 <span className="text-sm">Rejeitados</span>
                 <Switch checked={purgeRejected} onCheckedChange={(v) => setPurgeRejected(Boolean(v))} />
+              </div>
+              <div className="flex items-center justify-between rounded-md border p-3">
+                <span className="text-sm">Aprovados sem usuário (apagados/testes)</span>
+                <Switch checked={purgeApprovedOrphans} onCheckedChange={(v) => setPurgeApprovedOrphans(Boolean(v))} />
               </div>
             </div>
 
@@ -789,6 +800,9 @@ export function PendingRegistrationsManager() {
                 <div className="space-y-1">
                   <div>
                     Prévia: <strong>{purgePreview.deleteCount}</strong> cadastro(s) serão removidos.
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {purgePreview.deleteCountStatuses} por status • {purgePreview.deleteCountApprovedOrphans} aprovados órfãos
                   </div>
                   {purgePreview.cutoff ? (
                     <div className="text-xs text-muted-foreground">
