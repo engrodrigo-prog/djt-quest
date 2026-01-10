@@ -47,17 +47,22 @@ export default async function handler(req, res) {
       'retry_pending',
       'retry_in_progress',
     ]);
+    const warnings = [];
 
     // 1) Pending assignments (queue)
-    const { data: queueRows, error: queueErr } = await admin
-      .from('evaluation_queue')
-      .select('id,event_id,assigned_to,assigned_at,completed_at,is_cross_evaluation,created_at')
-      .is('completed_at', null)
-      .order('assigned_at', { ascending: false })
-      .limit(500);
-    if (queueErr) return res.status(400).json({ error: queueErr.message });
-
-    const pendingAssignments = Array.isArray(queueRows) ? queueRows : [];
+    let pendingAssignments = [];
+    try {
+      const { data: queueRows, error: queueErr } = await admin
+        .from('evaluation_queue')
+        .select('id,event_id,assigned_to,assigned_at,completed_at,is_cross_evaluation,created_at')
+        .is('completed_at', null)
+        .order('assigned_at', { ascending: false })
+        .limit(500);
+      if (queueErr) throw queueErr;
+      pendingAssignments = Array.isArray(queueRows) ? queueRows : [];
+    } catch (error) {
+      warnings.push(`evaluation_queue: ${error?.message || error}`);
+    }
     const eventIds = Array.from(new Set(pendingAssignments.map((r) => r.event_id).filter(Boolean)));
 
     // 2) Events (submissions) + challenge/user
@@ -77,39 +82,63 @@ export default async function handler(req, res) {
     };
 
     for (const ids of chunk(eventIds, 200)) {
-      const { data: events, error: evErr } = await admin
-        .from('events')
-        .select(
-          'id,created_at,status,awaiting_second_evaluation,first_evaluation_rating,second_evaluation_rating,first_evaluator_id,second_evaluator_id,retry_count,evidence_urls,payload,challenge_id,user_id',
-        )
-        .in('id', ids);
-      if (evErr) return res.status(400).json({ error: evErr.message });
-      for (const e of events || []) registerEvent(e);
+      try {
+        const { data: events, error: evErr } = await admin
+          .from('events')
+          .select(
+            'id,created_at,status,awaiting_second_evaluation,first_evaluation_rating,second_evaluation_rating,first_evaluator_id,second_evaluator_id,retry_count,evidence_urls,payload,challenge_id,user_id',
+          )
+          .in('id', ids);
+        if (evErr) throw evErr;
+        for (const e of events || []) registerEvent(e);
+      } catch (error) {
+        warnings.push(`events.by_id: ${error?.message || error}`);
+      }
     }
 
     let statusEvents = [];
-    try {
-      const { data, error } = await admin
-        .from('events')
-        .select(
-          'id,created_at,status,awaiting_second_evaluation,first_evaluation_rating,second_evaluation_rating,first_evaluator_id,second_evaluator_id,retry_count,evidence_urls,payload,challenge_id,user_id',
-        )
-        .in('status', Array.from(pendingStatuses))
-        .order('created_at', { ascending: false })
-        .limit(500);
-      if (error) throw error;
-      statusEvents = Array.isArray(data) ? data : [];
-    } catch (error) {
-      console.warn('admin-evaluations-dashboard: failed to load pending status events', error?.message || error);
+    let statusFilterSet = null;
+    const statusCandidates = [
+      Array.from(pendingStatuses),
+      ['submitted', 'awaiting_evaluation', 'awaiting_second_evaluation'],
+      ['submitted', 'awaiting_evaluation'],
+      ['submitted'],
+    ];
+    for (const statuses of statusCandidates) {
+      try {
+        const { data, error } = await admin
+          .from('events')
+          .select(
+            'id,created_at,status,awaiting_second_evaluation,first_evaluation_rating,second_evaluation_rating,first_evaluator_id,second_evaluator_id,retry_count,evidence_urls,payload,challenge_id,user_id',
+          )
+          .in('status', statuses)
+          .order('created_at', { ascending: false })
+          .limit(500);
+        if (error) throw error;
+        statusEvents = Array.isArray(data) ? data : [];
+        statusFilterSet = new Set(statuses);
+        break;
+      } catch (error) {
+        const msg = String(error?.message || error);
+        if (/invalid input value for enum/i.test(msg)) {
+          continue;
+        }
+        warnings.push(`events.status: ${msg}`);
+        break;
+      }
     }
     for (const e of statusEvents) registerEvent(e);
 
     // 3) Challenges
     const challengesById = new Map();
     for (const ids of chunk(Array.from(challengeIds), 200)) {
-      const { data: rows, error } = await admin.from('challenges').select('id,title,require_two_leader_eval').in('id', ids);
-      if (error) return res.status(400).json({ error: error.message });
-      for (const row of rows || []) challengesById.set(row.id, row);
+      try {
+        const { data: rows, error } = await admin.from('challenges').select('id,title,require_two_leader_eval').in('id', ids);
+        if (error) throw error;
+        for (const row of rows || []) challengesById.set(row.id, row);
+      } catch (error) {
+        warnings.push(`challenges: ${error?.message || error}`);
+      }
     }
 
     // 4) Evaluations for pending events
@@ -117,17 +146,21 @@ export default async function handler(req, res) {
     const reviewerIds = new Set();
     const allEventIds = Array.from(eventsById.keys());
     for (const ids of chunk(allEventIds, 200)) {
-      const { data: evals, error } = await admin
-        .from('action_evaluations')
-        .select('id,event_id,reviewer_id,evaluation_number,rating,final_rating,created_at,feedback_positivo,feedback_construtivo')
-        .in('event_id', ids)
-        .order('created_at', { ascending: true });
-      if (error) return res.status(400).json({ error: error.message });
-      for (const ev of evals || []) {
-        reviewerIds.add(ev.reviewer_id);
-        const list = evalsByEvent.get(ev.event_id) || [];
-        list.push(ev);
-        evalsByEvent.set(ev.event_id, list);
+      try {
+        const { data: evals, error } = await admin
+          .from('action_evaluations')
+          .select('id,event_id,reviewer_id,evaluation_number,rating,final_rating,created_at,feedback_positivo,feedback_construtivo')
+          .in('event_id', ids)
+          .order('created_at', { ascending: true });
+        if (error) throw error;
+        for (const ev of evals || []) {
+          reviewerIds.add(ev.reviewer_id);
+          const list = evalsByEvent.get(ev.event_id) || [];
+          list.push(ev);
+          evalsByEvent.set(ev.event_id, list);
+        }
+      } catch (error) {
+        warnings.push(`action_evaluations: ${error?.message || error}`);
       }
     }
 
@@ -140,9 +173,13 @@ export default async function handler(req, res) {
     ]);
     const profilesById = new Map();
     for (const ids of chunk(Array.from(allProfileIds), 200)) {
-      const { data: rows, error } = await admin.from('profiles').select('id,name,email,matricula,is_leader,team_id,coord_id,division_id').in('id', ids);
-      if (error) return res.status(400).json({ error: error.message });
-      for (const p of rows || []) profilesById.set(p.id, p);
+      try {
+        const { data: rows, error } = await admin.from('profiles').select('id,name,email,matricula,is_leader,team_id,coord_id,division_id').in('id', ids);
+        if (error) throw error;
+        for (const p of rows || []) profilesById.set(p.id, p);
+      } catch (error) {
+        warnings.push(`profiles: ${error?.message || error}`);
+      }
     }
 
     // 6) Group pending events
@@ -223,7 +260,8 @@ export default async function handler(req, res) {
       });
     }
 
-    pending = pending.filter((p) => pendingStatuses.has(String(p.status || '').toLowerCase()));
+    const statusFilter = statusFilterSet || pendingStatuses;
+    pending = pending.filter((p) => statusFilter.has(String(p.status || '').toLowerCase()));
 
     // Leader workload
     const pendingByLeader = new Map(); // leader_id -> count
@@ -241,45 +279,63 @@ export default async function handler(req, res) {
       .slice(0, 200);
 
     // History (recent evaluations)
-    let historyQuery = admin
-      .from('action_evaluations')
-      .select('id,event_id,reviewer_id,evaluation_number,rating,final_rating,created_at')
-      .order('created_at', { ascending: false })
-      .limit(250);
-    if (leaderFilter) historyQuery = historyQuery.eq('reviewer_id', leaderId);
-    const { data: histRows, error: histErr } = await historyQuery;
-    if (histErr) return res.status(400).json({ error: histErr.message });
+    let hist = [];
+    try {
+      let historyQuery = admin
+        .from('action_evaluations')
+        .select('id,event_id,reviewer_id,evaluation_number,rating,final_rating,created_at')
+        .order('created_at', { ascending: false })
+        .limit(250);
+      if (leaderFilter) historyQuery = historyQuery.eq('reviewer_id', leaderId);
+      const { data: histRows, error: histErr } = await historyQuery;
+      if (histErr) throw histErr;
+      hist = Array.isArray(histRows) ? histRows : [];
+    } catch (error) {
+      warnings.push(`history: ${error?.message || error}`);
+      hist = [];
+    }
 
-    const hist = Array.isArray(histRows) ? histRows : [];
     const histEventIds = Array.from(new Set(hist.map((h) => h.event_id).filter(Boolean))).slice(0, 500);
     const histEventsById = new Map();
     const histChallengeIds = new Set();
     const histUserIds = new Set();
     for (const ids of chunk(histEventIds, 200)) {
-      const { data: rows, error } = await admin
-        .from('events')
-        .select('id,created_at,status,challenge_id,user_id')
-        .in('id', ids);
-      if (error) return res.status(400).json({ error: error.message });
-      for (const e of rows || []) {
-        histEventsById.set(e.id, e);
-        if (e.challenge_id) histChallengeIds.add(e.challenge_id);
-        if (e.user_id) histUserIds.add(e.user_id);
+      try {
+        const { data: rows, error } = await admin
+          .from('events')
+          .select('id,created_at,status,challenge_id,user_id')
+          .in('id', ids);
+        if (error) throw error;
+        for (const e of rows || []) {
+          histEventsById.set(e.id, e);
+          if (e.challenge_id) histChallengeIds.add(e.challenge_id);
+          if (e.user_id) histUserIds.add(e.user_id);
+        }
+      } catch (error) {
+        warnings.push(`history.events: ${error?.message || error}`);
       }
     }
     const histChallengesById = new Map();
     for (const ids of chunk(Array.from(histChallengeIds), 200)) {
-      const { data: rows, error } = await admin.from('challenges').select('id,title').in('id', ids);
-      if (error) return res.status(400).json({ error: error.message });
-      for (const c of rows || []) histChallengesById.set(c.id, c);
+      try {
+        const { data: rows, error } = await admin.from('challenges').select('id,title').in('id', ids);
+        if (error) throw error;
+        for (const c of rows || []) histChallengesById.set(c.id, c);
+      } catch (error) {
+        warnings.push(`history.challenges: ${error?.message || error}`);
+      }
     }
     const histProfilesById = new Map(profilesById);
     for (const ids of chunk(Array.from(histUserIds), 200)) {
       const missing = ids.filter((id) => !histProfilesById.has(id));
       if (!missing.length) continue;
-      const { data: rows, error } = await admin.from('profiles').select('id,name,matricula').in('id', missing);
-      if (error) return res.status(400).json({ error: error.message });
-      for (const p of rows || []) histProfilesById.set(p.id, p);
+      try {
+        const { data: rows, error } = await admin.from('profiles').select('id,name,matricula').in('id', missing);
+        if (error) throw error;
+        for (const p of rows || []) histProfilesById.set(p.id, p);
+      } catch (error) {
+        warnings.push(`history.profiles: ${error?.message || error}`);
+      }
     }
 
     let history = hist.map((h) => {
@@ -313,6 +369,7 @@ export default async function handler(req, res) {
       pending,
       leader_stats,
       history,
+      meta: warnings.length ? { warnings } : undefined,
     });
   } catch (e) {
     return res.status(500).json({ error: e?.message || 'Unknown error' });
