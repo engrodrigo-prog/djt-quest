@@ -20,6 +20,7 @@ import { ChangePasswordCard } from '@/components/profile/ChangePasswordCard';
 import bgMenu from '@/assets/backgrounds/BG Menu.webp';
 import { useI18n } from '@/contexts/I18nContext';
 import { useSfx } from '@/lib/sfx';
+import { Menu, X } from 'lucide-react';
 
 const Navigation = () => {
   const navigate = useNavigate();
@@ -39,6 +40,8 @@ const Navigation = () => {
   const [itemSize, setItemSize] = useState<number>(60);
   const playSfxRef = useRef(playSfx);
   const notifTotalRef = useRef<number | null>(null);
+  const [navHidden, setNavHidden] = useState(false);
+  const [navExpanded, setNavExpanded] = useState(false);
 
   useEffect(() => {
     playSfxRef.current = playSfx;
@@ -75,6 +78,17 @@ const Navigation = () => {
     const handler = () => setPasswordDialogOpen(true);
     window.addEventListener('open-password-dialog', handler as any);
     return () => window.removeEventListener('open-password-dialog', handler as any);
+  }, []);
+
+  // Allow pages to request a "focus mode" that collapses the bottom navigation.
+  useEffect(() => {
+    const onToggle = (ev: any) => {
+      const hidden = Boolean(ev?.detail?.hidden);
+      setNavHidden(hidden);
+      if (hidden) setNavExpanded(false);
+    };
+    window.addEventListener('djt-nav-visibility', onToggle as any);
+    return () => window.removeEventListener('djt-nav-visibility', onToggle as any);
   }, []);
 
   useEffect(() => {
@@ -233,6 +247,31 @@ const Navigation = () => {
       alert ? "bg-destructive" : "bg-emerald-600"
     );
 
+  if (navHidden && !navExpanded) {
+    const totalBadge = studioBadge + evalBadge + forumBadge + notifBadge + homeBadge + sepbookNew + sepbookMentions;
+    return (
+      <div
+        className="fixed bottom-0 right-0 z-30 p-3"
+        style={{ paddingBottom: 'max(env(safe-area-inset-bottom), 12px)' }}
+      >
+        <button
+          type="button"
+          onClick={() => setNavExpanded(true)}
+          className="relative inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-slate-900/80 text-white shadow-[0_10px_24px_rgba(0,0,0,0.55)] backdrop-blur-md hover:bg-slate-900"
+          aria-label="Abrir menu"
+          title="Abrir menu"
+        >
+          <Menu className="h-6 w-6" />
+          {totalBadge > 0 && (
+            <span className={badgeClass(true)} style={{ zIndex: 5 }}>
+              {totalBadge > 99 ? '99+' : totalBadge}
+            </span>
+          )}
+        </button>
+      </div>
+    );
+  }
+
   return (
     <nav
       className="fixed bottom-0 left-0 right-0 z-30 min-h-[96px] bg-transparent overflow-visible"
@@ -251,6 +290,22 @@ const Navigation = () => {
       </div>
       <div ref={barRef} className="relative mx-auto max-w-[1200px] px-2 md:px-4 flex items-center justify-center gap-0 py-0 overflow-x-auto overflow-y-visible min-h-[96px] touch-pan-x">
         <div className="nav-rail relative flex items-center justify-center gap-0 bg-slate-950/80 border border-white/10 rounded-2xl px-2 py-2 shadow-2xl backdrop-blur-xl min-w-max">
+        {navHidden && (
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            className="h-9 w-9 mr-1"
+            onClick={() => {
+              setNavExpanded(false);
+              setNavHidden(true);
+            }}
+            aria-label="Fechar menu"
+            title="Fechar menu"
+          >
+            <X className="h-5 w-5" />
+          </Button>
+        )}
         <Button
           variant={isActive('/dashboard') ? 'default' : 'ghost'}
           size="sm"

@@ -191,6 +191,15 @@ export const AiQuizGenerator = ({ defaultChallengeId }: { defaultChallengeId?: s
     [drafts],
   )
 
+  // Focus mode: hide bottom navigation while editing questions on mobile.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const isMobile = window.matchMedia?.('(max-width: 768px)')?.matches ?? false
+    const hidden = Boolean(isMobile && step === 'questions')
+    window.dispatchEvent(new CustomEvent('djt-nav-visibility', { detail: { hidden } }))
+    return () => window.dispatchEvent(new CustomEvent('djt-nav-visibility', { detail: { hidden: false } }))
+  }, [step])
+
   useEffect(() => {
     ;(async () => {
       const { data } = await supabase

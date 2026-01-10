@@ -16,6 +16,7 @@ import { UserProfilePopover } from '@/components/UserProfilePopover'
 import { SendUserFeedbackDialog } from '@/components/SendUserFeedbackDialog'
 import { VoiceRecorderButton } from '@/components/VoiceRecorderButton'
 import Navigation from '@/components/Navigation'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { MoreVertical, Share2, Volume2, Wand2, Trash2, Pencil, Reply, Heart, MessageSquare, Plus } from 'lucide-react'
 import { buildAbsoluteAppUrl, openWhatsAppShare } from '@/lib/whatsappShare'
 import { useTts } from '@/lib/tts'
@@ -49,6 +50,8 @@ interface Post {
   parent_post_id?: string | null;
   reply_to_user_id?: string | null;
   translations?: Record<string, string> | null;
+  is_edited?: boolean;
+  edited_at?: string | null;
   likes_count?: number;
   has_liked?: boolean;
   author?: {
@@ -136,6 +139,19 @@ export default function ForumTopic() {
       .map((t) => (withHash ? `#${t.replace(/^#+/, '')}` : t.replace(/^#+/, '')))
     return Array.from(new Set(normalized)).slice(0, 12)
   }, [])
+
+  const formatName = (name: string | null | undefined) => {
+    const parts = String(name || '').trim().split(/\s+/).filter(Boolean)
+    if (parts.length <= 1) return parts.join(' ')
+    return `${parts[0]} ${parts[parts.length - 1]}`
+  }
+
+  const initials = (name: string | null | undefined) => {
+    const parts = String(name || '').trim().split(/\s+/).filter(Boolean)
+    if (!parts.length) return '?'
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
+    return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase()
+  }
 
   const topicTitle = translatedTopic.title || topic?.title || ''
   const topicDescription = translatedTopic.description ?? topic?.description ?? ''
@@ -1348,14 +1364,16 @@ export default function ForumTopic() {
             .map((p) => {
               const replies = posts.filter((r) => r.parent_post_id === p.id)
               const postText = translatedPosts[p.id] || postLocalTranslations[p.id] || p.content_md
-              const authorLabel = (() => {
-                const sigla = p.author?.sigla_area || ''
-                const name = p.author?.name || ''
-                if (sigla && name) return `[${sigla}] ${name}`
-                if (sigla) return `[${sigla}]`
-                return name || tr('forumTopic.author.fallback')
-              })()
               const authorId = p.user_id || (p as any).author_id || null
+              const authorName = p.author?.name || tr('forumTopic.author.fallback')
+              const authorTeam = p.author?.sigla_area || null
+              const urls =
+                ((p as any)?.payload?.attachments ||
+                  (p as any)?.payload?.images ||
+                  (p as any)?.attachment_urls) as string[] | undefined
+              const hasAttachments = Array.isArray(urls) && urls.length > 0
+              const isDeleted = Boolean((p as any)?.payload?.deleted) || (!String(postText || '').trim() && !hasAttachments)
+              const wasEdited = Boolean((p as any)?.is_edited || (p as any)?.edited_at)
               return (
             <Card key={p.id} id={`post-${p.id}`}>
               <CardContent className="p-4 space-y-2">
@@ -1418,15 +1436,31 @@ export default function ForumTopic() {
                   </div>
                 ) : (
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="flex-1 min-w-0 space-y-1">
-                      <p className="text-[11px] font-semibold text-primary">
-                        <UserProfilePopover userId={authorId} name={p.author?.name} avatarUrl={p.author?.avatar_thumbnail_url || null}>
-                          <button type="button" className="text-[11px] font-semibold text-primary">
-                            {authorLabel}
-                          </button>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-start gap-2">
+                        <UserProfilePopover userId={authorId} name={authorName} avatarUrl={p.author?.avatar_thumbnail_url || null}>
+                          <Avatar className="h-9 w-9">
+                            <AvatarImage src={p.author?.avatar_thumbnail_url || undefined} alt={authorName} />
+                            <AvatarFallback>{initials(authorName)}</AvatarFallback>
+                          </Avatar>
                         </UserProfilePopover>
-                      </p>
-                      <div className="text-sm whitespace-pre-wrap break-words">{postText}</div>
+                        <div className="min-w-0 flex-1 space-y-1">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <UserProfilePopover userId={authorId} name={authorName} avatarUrl={p.author?.avatar_thumbnail_url || null}>
+                              <button type="button" className="text-[13px] font-semibold truncate">
+                                {formatName(authorName)}
+                              </button>
+                            </UserProfilePopover>
+                            {authorTeam ? <span className="text-[12px] text-muted-foreground truncate">{authorTeam}</span> : null}
+                            {wasEdited ? <span className="text-[11px] text-muted-foreground">{tr('forumTopic.post.edited')}</span> : null}
+                          </div>
+                          {isDeleted ? (
+                            <div className="text-[13px] italic text-muted-foreground">{tr('forumTopic.post.deleted')}</div>
+                          ) : (
+                            <div className="text-sm whitespace-pre-wrap break-words">{postText}</div>
+                          )}
+                        </div>
+                      </div>
                     </div>
                     <div className="w-full shrink-0 sm:w-auto">
                       <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-white/10 bg-black/20 p-1.5 sm:flex-nowrap sm:justify-end">
@@ -1475,7 +1509,7 @@ export default function ForumTopic() {
 	                          className="h-9 px-3 text-[11px]"
 	                          onClick={() => {
 	                            setReplyToPostId(p.id)
-	                            setReplyToExcerpt(postText.slice(0, 140))
+	                            setReplyToExcerpt((postText || tr('forumTopic.post.deleted')).slice(0, 140))
 	                          }}
 	                        >
 	                          <Reply className="h-4 w-4" />
@@ -1506,7 +1540,7 @@ export default function ForumTopic() {
                                   Feedback
                                 </DropdownMenuItem>
                               )}
-	                            {(isAdmin || p.user_id === user?.id) && (
+	                            {!isDeleted && (isAdmin || p.user_id === user?.id) && (
 	                              <DropdownMenuItem
 	                                onClick={() => handleCleanExistingPost(p)}
 	                                disabled={cleaningPostId === p.id}
@@ -1515,7 +1549,7 @@ export default function ForumTopic() {
 	                                {tr('forumTopic.post.reviewAi')}
 	                              </DropdownMenuItem>
 	                            )}
-	                            {(p.user_id === user?.id || (p as any).author_id === user?.id) && (
+	                            {!isDeleted && (p.user_id === user?.id || (p as any).author_id === user?.id) && (
 	                              <>
 	                                <DropdownMenuItem onClick={() => startEditPost(p)}>
 	                                  <Pencil className="h-4 w-4 mr-2" />
@@ -1523,7 +1557,7 @@ export default function ForumTopic() {
 	                                </DropdownMenuItem>
 	                              </>
 	                            )}
-	                            {(isAdmin || p.user_id === user?.id || (p as any).author_id === user?.id) && (
+	                            {!isDeleted && (isAdmin || p.user_id === user?.id || (p as any).author_id === user?.id) && (
 	                              <DropdownMenuItem
 	                                onClick={() => handleDeletePost(p.id)}
 	                                className="text-destructive focus:text-destructive"
@@ -1538,14 +1572,7 @@ export default function ForumTopic() {
 	                    </div>
 	                  </div>
 	                )}
-                {(() => {
-                  const urls =
-                    ((p as any)?.payload?.attachments ||
-                      (p as any)?.payload?.images ||
-                      (p as any)?.attachment_urls) as string[] | undefined;
-                  if (!Array.isArray(urls) || urls.length === 0) return null;
-                  return <AttachmentViewer urls={urls} postId={p.id} />;
-                })()}
+                {Array.isArray(urls) && urls.length > 0 ? <AttachmentViewer urls={urls} postId={p.id} /> : null}
                 {p.ai_assessment && (
                   <div className="mt-2 text-xs text-muted-foreground">
                     {tr('forumTopic.post.qualityLabel')}: {(p.ai_assessment.helpfulness ?? 0).toFixed(2)} / {(p.ai_assessment.clarity ?? 0).toFixed(2)} / {(p.ai_assessment.novelty ?? 0).toFixed(2)}
@@ -1555,35 +1582,51 @@ export default function ForumTopic() {
                   <div className="mt-3 space-y-2 border-l border-border/40 pl-3">
                     {replies.map((r) => {
                       const replyText = translatedPosts[r.id] || postLocalTranslations[r.id] || r.content_md
-                      const rAuthorLabel = (() => {
-                        const sigla = r.author?.sigla_area || ''
-                        const name = r.author?.name || ''
-                        if (sigla && name) return `[${sigla}] ${name}`
-                        if (sigla) return `[${sigla}]`
-                        return name || tr('forumTopic.author.fallback')
-                      })()
                       const replyAuthorId = r.user_id || (r as any).author_id || null
+                      const replyAuthorName = r.author?.name || tr('forumTopic.author.fallback')
+                      const replyAuthorTeam = r.author?.sigla_area || null
+                      const replyUrls =
+                        ((r as any)?.payload?.attachments ||
+                          (r as any)?.payload?.images ||
+                          (r as any)?.attachment_urls) as string[] | undefined
+                      const replyHasAttachments = Array.isArray(replyUrls) && replyUrls.length > 0
+                      const replyIsDeleted =
+                        Boolean((r as any)?.payload?.deleted) || (!String(replyText || '').trim() && !replyHasAttachments)
+                      const replyWasEdited = Boolean((r as any)?.is_edited || (r as any)?.edited_at)
                       return (
                       <div key={r.id} id={`post-${r.id}`} className="flex flex-col gap-3 text-sm text-muted-foreground sm:flex-row sm:items-start sm:justify-between">
-                        <div className="whitespace-pre-wrap flex-1 min-w-0 space-y-1">
-                          <p className="text-[11px] font-semibold text-muted-foreground flex items-center gap-1">
-                            <span className="text-xs">{tr('forumTopic.reply.label')}</span>
-                            <UserProfilePopover userId={replyAuthorId} name={r.author?.name} avatarUrl={r.author?.avatar_thumbnail_url || null}>
-                              <button type="button" className="text-[11px] font-semibold text-muted-foreground">
-                                {rAuthorLabel}
-                              </button>
+                        <div className="flex-1 min-w-0 space-y-2">
+                          <div className="flex items-start gap-2">
+                            <UserProfilePopover userId={replyAuthorId} name={replyAuthorName} avatarUrl={r.author?.avatar_thumbnail_url || null}>
+                              <Avatar className="h-8 w-8">
+                                <AvatarImage src={r.author?.avatar_thumbnail_url || undefined} alt={replyAuthorName} />
+                                <AvatarFallback>{initials(replyAuthorName)}</AvatarFallback>
+                              </Avatar>
                             </UserProfilePopover>
-                          </p>
-                          <div className="break-words">{replyText}</div>
-	                          {(() => {
-	                            const urls =
-	                              ((r as any)?.payload?.attachments ||
-	                                (r as any)?.payload?.images ||
-	                                (r as any)?.attachment_urls) as string[] | undefined;
-	                            if (!Array.isArray(urls) || urls.length === 0) return null;
-	                            return <AttachmentViewer urls={urls} postId={r.id} />;
-	                          })()}
-	                        </div>
+                            <div className="min-w-0 flex-1 space-y-1">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <span className="text-[11px] text-muted-foreground">{tr('forumTopic.reply.label')}</span>
+                                <UserProfilePopover userId={replyAuthorId} name={replyAuthorName} avatarUrl={r.author?.avatar_thumbnail_url || null}>
+                                  <button type="button" className="text-[12px] font-semibold truncate text-foreground/90">
+                                    {formatName(replyAuthorName)}
+                                  </button>
+                                </UserProfilePopover>
+                                {replyAuthorTeam ? (
+                                  <span className="text-[11px] text-muted-foreground truncate">{replyAuthorTeam}</span>
+                                ) : null}
+                                {replyWasEdited ? (
+                                  <span className="text-[11px] text-muted-foreground">{tr('forumTopic.post.edited')}</span>
+                                ) : null}
+                              </div>
+                              {replyIsDeleted ? (
+                                <div className="text-[13px] italic text-muted-foreground">{tr('forumTopic.post.deleted')}</div>
+                              ) : (
+                                <div className="break-words text-foreground/90">{replyText}</div>
+                              )}
+                            </div>
+                          </div>
+                          {Array.isArray(replyUrls) && replyUrls.length > 0 ? <AttachmentViewer urls={replyUrls} postId={r.id} /> : null}
+                        </div>
                         <div className="w-full shrink-0 sm:w-auto">
                           <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-white/10 bg-black/20 p-1.5 sm:flex-nowrap sm:justify-end">
 	                            <Button
@@ -1631,7 +1674,7 @@ export default function ForumTopic() {
 	                              className="h-9 px-3 text-[11px]"
 	                              onClick={() => {
 	                                setReplyToPostId(r.id)
-	                                setReplyToExcerpt(replyText.slice(0, 140))
+	                                setReplyToExcerpt((replyText || tr('forumTopic.post.deleted')).slice(0, 140))
 	                              }}
 	                            >
 	                              <Reply className="h-4 w-4" />
@@ -1663,7 +1706,7 @@ export default function ForumTopic() {
                                         Feedback
                                       </DropdownMenuItem>
                                     )}
-	                                  {(r.user_id === user?.id || (r as any).author_id === user?.id) && (
+	                                  {!replyIsDeleted && (r.user_id === user?.id || (r as any).author_id === user?.id) && (
 	                                    <DropdownMenuItem onClick={() => startEditPost(r)}>
 	                                      <Pencil className="h-4 w-4 mr-2" />
 	                                      {tr('forumTopic.actions.edit')}
@@ -1672,7 +1715,7 @@ export default function ForumTopic() {
 	                                </DropdownMenuContent>
 	                              </DropdownMenu>
 	                            )}
-	                            {(isAdmin || r.user_id === user?.id || (r as any).author_id === user?.id) && (
+	                            {!replyIsDeleted && (isAdmin || r.user_id === user?.id || (r as any).author_id === user?.id) && (
 	                              <Button
 	                                type="button"
 	                                size="icon"

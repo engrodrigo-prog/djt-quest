@@ -7,11 +7,14 @@ import { buildHashtagTree, type HashtagTreeNode } from "@/lib/forum/hashtagTree"
 import type { ForumKbSelection } from "@/components/ForumKbThemeSelector";
 
 const filterTree = (nodes: HashtagTreeNode[], q: string): HashtagTreeNode[] => {
-  const query = q.trim().toLowerCase();
+  const raw = q.trim().toLowerCase();
+  if (!raw) return nodes;
+  const tagOnly = raw.startsWith("#");
+  const query = raw.replace(/^#+/, "").trim();
   if (!query) return nodes;
 
   const keep = (n: HashtagTreeNode): HashtagTreeNode | null => {
-    const labelHit = n.label.toLowerCase().includes(query);
+    const labelHit = !tagOnly && n.label.toLowerCase().includes(query);
     const tagHit = (n.tags || []).some((t) => t.toLowerCase().includes(query));
     const children = (n.children || []).map(keep).filter(Boolean) as HashtagTreeNode[];
     if (labelHit || tagHit || children.length) {

@@ -363,6 +363,16 @@
     "title": "Laboratório de estudos",
     "subtitle": "Envie materiais, catalogue para consulta e converse com a IA sobre os conteúdos para aprofundar seus conhecimentos."
   },
+  "studylab": {
+    "gptModelLabel": "Modelo GPT",
+    "gptModelAuto": "Auto",
+    "gptModelAutoFast": "Auto rápido",
+    "gptModelExtended": "Pensamento estendido",
+    "gptModelAutoFastHint": "Mais rápido (respostas menores)",
+    "gptModelExtendedHint": "Mais detalhado (pode demorar mais)",
+    "hashtagFocus": "Foco hashtags",
+    "hashtagFocusHint": "Use # para priorizar contexto e palavras-chave na pesquisa."
+  },
   "forumInsights": {
     "title": "Top temas & ações (fórum)",
     "subtitle": "Curadoria por IA dos temas e ações mais relevantes, aplicando a lógica 80/20 (20% dos assuntos com 80% do impacto).",
@@ -514,6 +524,8 @@
       "shareMessage": "Veja esta contribuição no DJT Quest:\n{title}\n\n{preview}",
       "shareAria": "Compartilhar post no WhatsApp",
       "listenAria": "Ouvir post",
+      "edited": "editado",
+      "deleted": "Comentário removido",
       "reviewAi": "Revisar com IA",
       "qualityLabel": "Avaliação IA (ajuda/clareza/novidade)"
     },

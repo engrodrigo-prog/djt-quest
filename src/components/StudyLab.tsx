@@ -5,6 +5,7 @@ import { ChevronLeft, ChevronRight, LibraryBig, MessageCircle, Plus, Trash2 } fr
 
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { useI18n } from "@/contexts/I18nContext";
 
 import { apiFetch } from "@/lib/api";
 import { getActiveLocale } from "@/lib/i18n/activeLocale";
@@ -201,6 +202,7 @@ const TOPIC_LABELS: Record<string, string> = {
 
 export const StudyLab = () => {
   const { user, studioAccess, roles } = useAuth();
+  const { t } = useI18n();
   const navigate = useNavigate();
 
   const [sources, setSources] = useState<StudySource[]>([]);
@@ -250,6 +252,16 @@ export const StudyLab = () => {
   const [kbEnabled, setKbEnabled] = useState(false);
   const [kbSelection, setKbSelection] = useState<ForumKbSelection | null>(null);
   const chatAbortRef = useRef<AbortController | null>(null);
+  const [chatInputFocused, setChatInputFocused] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const isMobile = window.matchMedia?.("(max-width: 768px)")?.matches ?? false;
+    window.dispatchEvent(new CustomEvent("djt-nav-visibility", { detail: { hidden: Boolean(isMobile && chatInputFocused) } }));
+    return () => {
+      window.dispatchEvent(new CustomEvent("djt-nav-visibility", { detail: { hidden: false } }));
+    };
+  }, [chatInputFocused]);
 
   const isStaff = useMemo(() => {
     const set = new Set((roles || []).map((r) => String(r || "").toLowerCase()));
@@ -1125,6 +1137,9 @@ export const StudyLab = () => {
 
           <div className="flex flex-wrap items-center gap-2">
             <div className="flex items-center gap-1 rounded-full border p-1">
+              <span className="pl-2 pr-1 text-[11px] font-medium text-muted-foreground">
+                {t("studylab.gptModelLabel")}
+              </span>
               <Button
                 type="button"
                 size="sm"
@@ -1133,7 +1148,7 @@ export const StudyLab = () => {
                 onClick={() => setChatQuality("auto")}
                 disabled={chatLoading}
               >
-                Auto
+                {t("studylab.gptModelAuto")}
               </Button>
               <Button
                 type="button"
@@ -1142,9 +1157,9 @@ export const StudyLab = () => {
                 className="h-8 rounded-full px-3 text-xs"
                 onClick={() => setChatQuality("instant")}
                 disabled={chatLoading}
-                title="Mais rápido (respostas menores)"
+                title={t("studylab.gptModelAutoFastHint")}
               >
-                Instant
+                {t("studylab.gptModelAutoFast")}
               </Button>
               <Button
                 type="button"
@@ -1153,9 +1168,9 @@ export const StudyLab = () => {
                 className="h-8 rounded-full px-3 text-xs"
                 onClick={() => setChatQuality("thinking")}
                 disabled={chatLoading}
-                title="Mais detalhado (pode demorar mais)"
+                title={t("studylab.gptModelExtendedHint")}
               >
-                Thinking
+                {t("studylab.gptModelExtended")}
               </Button>
             </div>
             <div className="flex items-center gap-2 rounded-full border px-3 py-1.5">
@@ -1182,7 +1197,7 @@ export const StudyLab = () => {
             <div className="flex items-center gap-2 rounded-full border px-3 py-1.5">
               <Switch id="studylab-kb-toggle" checked={kbEnabled} onCheckedChange={setKbEnabled} />
               <Label htmlFor="studylab-kb-toggle" className="text-xs font-medium">
-                Foco hashtags
+                {t("studylab.hashtagFocus")}
               </Label>
             </div>
             {!oracleMode && (
@@ -1202,6 +1217,9 @@ export const StudyLab = () => {
 
           {kbEnabled && (
             <div className="rounded-md border p-3">
+              <p className="mb-2 text-[11px] text-muted-foreground">
+                {t("studylab.hashtagFocusHint")}
+              </p>
               <ForumKbThemeMenu selection={kbSelection} onSelect={setKbSelection} />
             </div>
           )}
@@ -1339,6 +1357,8 @@ export const StudyLab = () => {
             <Textarea
               value={chatInput}
               onChange={(e) => setChatInput(e.target.value)}
+              onFocus={() => setChatInputFocused(true)}
+              onBlur={() => setChatInputFocused(false)}
               placeholder={
                 oracleMode
                   ? "Digite sua pergunta…"

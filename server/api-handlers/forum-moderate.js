@@ -113,20 +113,97 @@ export default async function handler(req, res) {
                 return res.status(400).json({ error: 'post_id required' });
             const { data: post, error: postErr } = await admin
                 .from('forum_posts')
-                .select('id, user_id')
+                .select('id, user_id, author_id, payload')
                 .eq('id', post_id)
                 .maybeSingle();
             if (postErr)
                 return res.status(400).json({ error: postErr.message });
             if (!post)
                 return res.status(404).json({ error: 'Post não encontrado' });
-            if (!isAdmin && post.user_id !== uid) {
+            const ownerId = post.user_id || post.author_id;
+            if (!isAdmin && ownerId !== uid) {
                 return res.status(403).json({ error: 'Sem permissão para excluir este post' });
             }
+
+            // If the post has replies, keep the thread and soft-delete the content (SEPBook behavior).
+            let hasReplies = false;
+            try {
+                const { data: replies } = await admin.from('forum_posts').select('id').eq('parent_post_id', post_id).limit(1);
+                hasReplies = Boolean(replies && replies.length > 0);
+            }
+            catch { }
+
+            if (hasReplies) {
+                const now = new Date().toISOString();
+                const currentPayload = post?.payload && typeof post.payload === 'object' ? post.payload : {};
+                const nextPayload = { ...currentPayload, deleted: true, images: [] };
+                const deletedLabel = 'Comentário removido';
+
+                // Best-effort cleanup (may require service role to delete others' likes/mentions).
+                try {
+                    await admin.from('forum_likes').delete().eq('post_id', post_id);
+                }
+                catch { }
+                try {
+                    await admin.from('forum_mentions').delete().eq('post_id', post_id);
+                }
+                catch { }
+                try {
+                    await admin.from('forum_attachment_metadata').delete().eq('post_id', post_id);
+                }
+                catch { }
+
+                let updErr = null;
+                const fullUpdate = {
+                    content_md: '',
+                    content: deletedLabel,
+                    payload: nextPayload,
+                    attachment_urls: [],
+                    tags: [],
+                    translations: { 'pt-BR': '' },
+                    is_edited: true,
+                    edited_at: now,
+                };
+                const updateWithoutTranslations = { ...fullUpdate };
+                delete updateWithoutTranslations.translations;
+
+                const attemptUpdate = async (payload) => {
+                    const { error } = await admin.from('forum_posts').update(payload).eq('id', post_id);
+                    return error || null;
+                };
+
+                // Try in decreasing order of schema richness (avoid re-adding removed columns).
+                const candidates = (() => {
+                    const c1 = fullUpdate;
+                    const c2 = updateWithoutTranslations;
+                    const c3 = { ...c2 };
+                    delete c3.attachment_urls;
+                    const c4 = { ...c3 };
+                    delete c4.payload;
+                    const c5 = { ...c4 };
+                    delete c5.is_edited;
+                    delete c5.edited_at;
+                    return [c1, c2, c3, c4, c5];
+                })();
+
+                for (const candidate of candidates) {
+                    updErr = await attemptUpdate(candidate);
+                    if (!updErr)
+                        break;
+                    // Stop early only on definitive permission errors; otherwise keep trying fallbacks.
+                    const msg = String(updErr?.message || '');
+                    if (/row level security|permission denied|not authorized/i.test(msg))
+                        break;
+                }
+                if (updErr)
+                    return res.status(400).json({ error: updErr.message || 'Falha ao excluir post' });
+                return res.status(200).json({ success: true, deleted: 'soft' });
+            }
+
             const { error } = await admin.from('forum_posts').delete().eq('id', post_id);
             if (error)
                 return res.status(400).json({ error: error.message });
-            return res.status(200).json({ success: true });
+            return res.status(200).json({ success: true, deleted: 'hard' });
         }
         if (action === 'delete_topic') {
             if (!canDeleteTopic)
@@ -229,6 +306,7 @@ export default async function handler(req, res) {
             }
             catch (_c) { }
             let updErr;
+            const editMeta = { is_edited: true, edited_at: new Date().toISOString() };
             try {
                 const { error } = await admin
                     .from('forum_posts')
@@ -237,22 +315,44 @@ export default async function handler(req, res) {
                     content: text,
                     tags: hashtags,
                     translations,
+                    ...editMeta,
                 })
                     .eq('id', post_id);
                 updErr = error;
-                if (updErr && /column .*translations.* does not exist/i.test(updErr.message))
+                if (updErr && (/column .*translations.* does not exist/i.test(updErr.message) ||
+                    /column .*is_edited.* does not exist/i.test(updErr.message) ||
+                    /column .*edited_at.* does not exist/i.test(updErr.message))) {
                     throw updErr;
+                }
             }
             catch (_d) {
-                const { error } = await admin
-                    .from('forum_posts')
-                    .update({
-                    content_md: text,
-                    content: text,
-                    tags: hashtags,
-                })
-                    .eq('id', post_id);
-                updErr = error;
+                try {
+                    const { error } = await admin
+                        .from('forum_posts')
+                        .update({
+                        content_md: text,
+                        content: text,
+                        tags: hashtags,
+                        ...editMeta,
+                    })
+                        .eq('id', post_id);
+                    updErr = error;
+                    if (updErr && (/column .*is_edited.* does not exist/i.test(updErr.message) ||
+                        /column .*edited_at.* does not exist/i.test(updErr.message))) {
+                        throw updErr;
+                    }
+                }
+                catch (_e) {
+                    const { error } = await admin
+                        .from('forum_posts')
+                        .update({
+                        content_md: text,
+                        content: text,
+                        tags: hashtags,
+                    })
+                        .eq('id', post_id);
+                    updErr = error;
+                }
             }
             if (updErr)
                 return res.status(400).json({ error: updErr.message });

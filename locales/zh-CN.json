@@ -363,6 +363,16 @@
     "title": "学习实验室",
     "subtitle": "上传资料，整理归档以便查询，并与 AI 就内容进行对话以加深你的知识。"
   },
+  "studylab": {
+    "gptModelLabel": "GPT 模型",
+    "gptModelAuto": "自动",
+    "gptModelAutoFast": "自动快速",
+    "gptModelExtended": "扩展思考",
+    "gptModelAutoFastHint": "更快（更短的回答）",
+    "gptModelExtendedHint": "更详细（可能更慢）",
+    "hashtagFocus": "话题标签聚焦",
+    "hashtagFocusHint": "使用 # 在搜索中优先考虑上下文和关键词。"
+  },
   "forumInsights": {
     "title": "热门主题与行动（论坛）",
     "subtitle": "由 AI 对最相关的主题与行动进行策划，应用 80/20 原则（20% 的话题带来 80% 的影响）。",
@@ -514,6 +524,8 @@
       "shareMessage": "在 DJT Quest 查看这条贡献：\n{title}\n\n{preview}",
       "shareAria": "在 WhatsApp 分享帖子",
       "listenAria": "收听帖子",
+      "edited": "已编辑",
+      "deleted": "评论已删除",
       "reviewAi": "AI 审阅",
       "qualityLabel": "AI 评分（有用性/清晰度/新颖性）"
     },

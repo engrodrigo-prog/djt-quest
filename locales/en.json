@@ -363,6 +363,16 @@
     "title": "Study Lab",
     "subtitle": "Upload materials, catalog them for consultation and chat with the AI about the content to deepen your knowledge."
   },
+  "studylab": {
+    "gptModelLabel": "GPT model",
+    "gptModelAuto": "Auto",
+    "gptModelAutoFast": "Auto fast",
+    "gptModelExtended": "Extended thinking",
+    "gptModelAutoFastHint": "Faster (shorter answers)",
+    "gptModelExtendedHint": "More detailed (may take longer)",
+    "hashtagFocus": "Hashtag focus",
+    "hashtagFocusHint": "Use # to prioritize context and keywords in search."
+  },
   "forumInsights": {
     "title": "Top themes & actions (forum)",
     "subtitle": "AI curation of the most relevant themes and actions, applying the 80/20 principle (20% of topics with 80% impact).",
@@ -514,6 +524,8 @@
       "shareMessage": "Check out this contribution on DJT Quest:\n{title}\n\n{preview}",
       "shareAria": "Share post on WhatsApp",
       "listenAria": "Listen to post",
+      "edited": "edited",
+      "deleted": "Comment removed",
       "reviewAi": "Review with AI",
       "qualityLabel": "AI scores (helpfulness/clarity/novelty)"
     },
