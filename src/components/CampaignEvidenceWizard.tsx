@@ -538,7 +538,7 @@ export function CampaignEvidenceWizard({
       });
 
       const gpsFirst = gpsItems.find((g: any) => g && g.source !== "unavailable" && typeof g.lat === "number" && typeof g.lng === "number") || null;
-      const locationLabel = gpsFirst ? `${gpsFirst.source === "exif" ? "GPS da foto" : "Local atual"}: ${gpsFirst.lat.toFixed(5)}, ${gpsFirst.lng.toFixed(5)}` : null;
+      const locationLabel = gpsFirst ? (gpsFirst.source === "exif" ? "GPS da foto" : "Local atual") : null;
 
       if (publishSepbook) {
         const { data: session } = await supabase.auth.getSession();
@@ -912,8 +912,7 @@ export function CampaignEvidenceWizard({
 
                 {gpsEnabled && deviceLocation && (
                   <div className="text-[11px] text-muted-foreground">
-                    Local atual: {deviceLocation.lat.toFixed(5)}, {deviceLocation.lng.toFixed(5)}
-                    {deviceLocation.accuracy ? ` (±${Math.round(deviceLocation.accuracy)}m)` : ""}
+                    Local atual capturado{deviceLocation.accuracy ? ` (±${Math.round(deviceLocation.accuracy)}m)` : ""}
                   </div>
                 )}
 

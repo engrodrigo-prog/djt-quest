@@ -49,60 +49,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         .maybeSingle();
       if (!post) return res.status(404).json({ error: "Post não encontrado" });
       const isOwner = post.user_id === uid;
+      if (!isOwner && !isMod) return res.status(403).json({ error: "Sem permissão para excluir este post" });
 
-      // Reverter XP associado a esta publicação e seus comentários "ricos"
-      try {
-        if (!SERVICE_ROLE_KEY) throw new Error("no service role");
-        if (!isOwner && !isMod) throw new Error("not allowed");
-        const authorId = (post as any).user_id as string | undefined;
-        if (authorId) {
-          try {
-            const { data: prof } = await admin.from("profiles").select("xp").eq("id", authorId).maybeSingle();
-            const cur = Number((prof as any)?.xp || 0);
-            const next = Math.max(0, cur - 5); // cada post gerou +5 XP no momento da criação
-            await admin.from("profiles").update({ xp: next }).eq("id", authorId);
-          } catch {
-            // best-effort: se falhar, não bloqueia a exclusão
-          }
-        }
-
-        // Comentários ricos (>=30 chars, com # e @) geraram +1 XP cada; reverter também
-        try {
-          const { data: comments } = await admin
-            .from("sepbook_comments")
-            .select("user_id, content_md")
-            .eq("post_id", post_id);
-
-          for (const c of (comments || [])) {
-            const commenterId = (c as any).user_id as string | undefined;
-            const text = String((c as any).content_md || "");
-            const qualifies =
-              text.length >= 30 &&
-              text.includes("#") &&
-              /@[A-Za-z0-9_.-]+/.test(text);
-            if (!commenterId || !qualifies) continue;
-
-            try {
-              const { data: prof } = await admin.from("profiles").select("xp").eq("id", commenterId).maybeSingle();
-              const cur = Number((prof as any)?.xp || 0);
-              const next = Math.max(0, cur - 1);
-              await admin.from("profiles").update({ xp: next }).eq("id", commenterId);
-            } catch {
-              // ignora erros por usuário individual
-            }
-          }
-        } catch {
-          // falha ao carregar comentários não impede a exclusão
-        }
-      } catch {
-        // rollback de XP é best-effort; nunca bloqueia exclusão
-      }
-
-      const { error } = await authed.from("sepbook_posts").delete().eq("id", post_id);
+      // Exclusão deve remover post + comentários + curtidas, sem reverter XP já concedido.
+      const writer = SERVICE_ROLE_KEY ? admin : authed;
+      const { error } = await writer.from("sepbook_posts").delete().eq("id", post_id);
       if (error) {
         const msg = String(error.message || "");
         if (msg.toLowerCase().includes("row level security") || msg.toLowerCase().includes("permission denied")) {
-          return res.status(403).json({ error: "Sem permissão para excluir este post" });
+          return res.status(403).json({
+            error:
+              "Sem permissão para excluir este post (RLS). Configure SUPABASE_SERVICE_ROLE_KEY no Vercel para permitir exclusão com cascata.",
+          });
         }
         return res.status(400).json({ error: error.message });
       }

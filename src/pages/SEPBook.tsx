@@ -481,7 +481,7 @@ export default function SEPBook() {
       (pos) => {
         const { latitude, longitude } = pos.coords;
         setCoords({ lat: latitude, lng: longitude });
-        setLocationLabel(`Lat ${latitude.toFixed(4)}, Lng ${longitude.toFixed(4)}`);
+        setLocationLabel("Local atual");
       },
       (err) => {
         console.warn("Erro ao obter localização", err);
@@ -711,6 +711,44 @@ export default function SEPBook() {
     setEditingCommentText("");
   };
 
+  const deleteComment = async (postId: string, comment: SepComment) => {
+    if (!confirm("Excluir este comentário?")) return;
+    try {
+      const { data: session } = await supabase.auth.getSession();
+      const token = session.session?.access_token;
+      if (!token) throw new Error("Não autenticado");
+      const resp = await fetch(`/api/sepbook-comments?comment_id=${encodeURIComponent(comment.id)}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(json?.error || "Falha ao excluir comentário");
+
+      const mode = String(json?.deleted || "");
+      if (mode === "soft") {
+        setCommentsByPost((prev) => ({
+          ...prev,
+          [postId]: (prev[postId] || []).map((c) =>
+            c.id === comment.id
+              ? { ...c, content_md: "", attachments: [], like_count: 0, has_liked: false, updated_at: new Date().toISOString() }
+              : c,
+          ),
+        }));
+      } else {
+        setCommentsByPost((prev) => ({
+          ...prev,
+          [postId]: (prev[postId] || []).filter((c) => c.id !== comment.id),
+        }));
+        setPosts((prev) => prev.map((p) => (p.id === postId ? { ...p, comment_count: Math.max(0, (p.comment_count || 0) - 1) } : p)));
+      }
+
+      if (editingCommentId === comment.id) cancelEditComment();
+      toast({ title: "Comentário removido" });
+    } catch (e: any) {
+      toast({ title: "Erro ao excluir comentário", description: e?.message || "Tente novamente", variant: "destructive" });
+    }
+  };
+
   const handleCleanupCommentDraft = async (postId: string) => {
     const text = (newComment[postId] || "").trim();
     if (text.length < 3) {
@@ -882,6 +920,7 @@ export default function SEPBook() {
     const isEditing = editingCommentId === comment.id;
     const canEdit = comment.user_id === user?.id;
     const wasEdited = Boolean(comment.updated_at && comment.updated_at !== comment.created_at);
+    const isDeleted = !String(comment.content_md || "").trim() && !(comment.attachments && comment.attachments.length > 0);
     return (
       <div
         key={comment.id}
@@ -948,7 +987,9 @@ export default function SEPBook() {
             </div>
           ) : (
             <>
-              {comment.content_md?.trim() ? (
+              {isDeleted ? (
+                <div className="italic opacity-70">Comentário removido</div>
+              ) : comment.content_md?.trim() ? (
                 <div className="block">{renderRichText(comment.content_md)}</div>
               ) : null}
               {comment.attachments && comment.attachments.length > 0 && (
@@ -998,6 +1039,17 @@ export default function SEPBook() {
                 aria-label="Editar comentário"
               >
                 <Pencil className="h-3.5 w-3.5" />
+              </button>
+            )}
+            {canEdit && !isDeleted && (
+              <button
+                type="button"
+                className="inline-flex items-center justify-center h-7 w-7 rounded-full border border-border/50 hover:bg-accent"
+                onClick={() => deleteComment(postId, comment)}
+                title="Excluir comentário"
+                aria-label="Excluir comentário"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
               </button>
             )}
             <button

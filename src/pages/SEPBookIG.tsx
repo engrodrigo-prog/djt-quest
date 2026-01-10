@@ -54,6 +54,7 @@ import {
   Send,
   Share2,
   SlidersHorizontal,
+  Trash2,
   Volume2,
   Wand2,
   X,
@@ -295,8 +296,20 @@ const clampLatLng = (lat: number, lng: number) => {
 };
 
 const formatGpsLabel = (lat: number, lng: number, source: "photo" | "device") => {
-  const a = source === "photo" ? "GPS da foto" : "Local atual";
-  return `${a}: ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+  return source === "photo" ? "GPS da foto" : "Local atual";
+};
+
+const sanitizeLocationLabel = (raw: any) => {
+  const label = String(raw || "").trim();
+  if (!label) return null;
+  // Hide raw lat/lng even for older posts that stored coordinates in the label.
+  if (/(lat|lng)\s*-?\d{1,2}\.\d+|gps.*-?\d{1,2}\.\d+,\s*-?\d{1,3}\.\d+/i.test(label)) {
+    if (/gps da foto/i.test(label)) return "GPS da foto";
+    if (/local atual/i.test(label)) return "Local atual";
+    return "Localização";
+  }
+  if (/-?\d{1,2}\.\d{3,}\s*,\s*-?\d{1,3}\.\d{3,}/.test(label)) return "Localização";
+  return label;
 };
 
 async function extractGpsFromImage(file: File): Promise<{ lat: number; lng: number } | null> {
@@ -1232,6 +1245,33 @@ export default function SEPBookIG() {
     [toast],
   );
 
+  const deletePost = useCallback(
+    async (post: SepPost) => {
+      const id = String(post?.id || "").trim();
+      if (!id) return;
+      if (!confirm("Excluir esta publicação?")) return;
+      try {
+        const resp = await apiFetch("/api/sepbook-moderate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "delete_post", post_id: id }),
+        });
+        const json = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(json?.error || "Falha ao excluir publicação");
+        setPosts((prev) => prev.filter((p) => p.id !== id));
+        setCommentsByPost((prev) => {
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
+        toast({ title: "Publicação removida" });
+      } catch (e: any) {
+        toast({ title: "Erro ao excluir", description: e?.message || "Tente novamente", variant: "destructive" });
+      }
+    },
+    [toast],
+  );
+
   const toggleCommentLike = useCallback(
     async (postId: string, comment: SepComment) => {
       const cid = String(comment?.id || "").trim();
@@ -1328,6 +1368,7 @@ export default function SEPBookIG() {
     const hasAtt = Array.isArray(comment.attachments) && comment.attachments.length > 0;
     const isOwn = Boolean(user?.id && comment.user_id === user.id);
     const isEditing = editingCommentId === comment.id;
+    const isDeleted = !text && !hasAtt;
     const likeCount = Math.max(0, Number(comment.like_count || 0));
     const wasEdited =
       comment.updated_at &&
@@ -1384,8 +1425,22 @@ export default function SEPBookIG() {
                   onClick={() => startEditComment(comment)}
                   aria-label={tr("sepbook.edit")}
                   title={tr("sepbook.edit")}
+                  disabled={isDeleted}
                 >
                   <Pencil className="h-4 w-4" />
+                </Button>
+              ) : null}
+              {isOwn && !isEditing && !isDeleted ? (
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="h-8 w-8"
+                  onClick={() => void deleteComment(postId, comment)}
+                  aria-label="Excluir comentário"
+                  title="Excluir comentário"
+                >
+                  <Trash2 className="h-4 w-4" />
                 </Button>
               ) : null}
             </div>
@@ -1429,7 +1484,11 @@ export default function SEPBookIG() {
             </div>
           ) : (
             <>
-              {text ? <div className="text-[13px] mt-0.5">{renderRichText(toast, text)}</div> : null}
+              {isDeleted ? (
+                <div className="text-[13px] mt-0.5 italic text-muted-foreground">Comentário removido</div>
+              ) : text ? (
+                <div className="text-[13px] mt-0.5">{renderRichText(toast, text)}</div>
+              ) : null}
               {hasAtt ? (
                 <AttachmentViewer urls={comment.attachments || []} postId={comment.post_id} mediaLayout="grid" />
               ) : null}
@@ -1741,6 +1800,43 @@ export default function SEPBookIG() {
       }
     },
     [cancelEditComment, editingCommentText, toast],
+  );
+
+  const deleteComment = useCallback(
+    async (postId: string, comment: SepComment) => {
+      if (!confirm("Excluir este comentário?")) return;
+      try {
+        const resp = await apiFetch(`/api/sepbook-comments?comment_id=${encodeURIComponent(comment.id)}`, { method: "DELETE" });
+        const json = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(json?.error || "Falha ao excluir comentário");
+
+        const mode = String(json?.deleted || "");
+        if (mode === "soft") {
+          setCommentsByPost((prev) => ({
+            ...prev,
+            [postId]: (prev[postId] || []).map((c) =>
+              c.id === comment.id
+                ? { ...c, content_md: "", attachments: [], like_count: 0, has_liked: false, updated_at: new Date().toISOString() }
+                : c,
+            ),
+          }));
+        } else {
+          setCommentsByPost((prev) => ({
+            ...prev,
+            [postId]: (prev[postId] || []).filter((c) => c.id !== comment.id),
+          }));
+          setPosts((prev) =>
+            prev.map((p) => (p.id === postId ? { ...p, comment_count: Math.max(0, (p.comment_count || 0) - 1) } : p)),
+          );
+        }
+
+        if (editingCommentId === comment.id) cancelEditComment();
+        toast({ title: "Comentário removido" });
+      } catch (e: any) {
+        toast({ title: "Erro ao excluir comentário", description: e?.message || "Tente novamente", variant: "destructive" });
+      }
+    },
+    [cancelEditComment, editingCommentId, toast],
   );
 
   const submitPost = useCallback(async () => {
@@ -2131,6 +2227,7 @@ export default function SEPBookIG() {
             {visiblePosts.map((p) => {
               const createdLabel = new Date(p.created_at).toLocaleString();
               const caption = String(getPostDisplayText(p) || "").trim();
+              const safeLocationLabel = sanitizeLocationLabel(p.location_label);
               return (
                 <article key={p.id} id={`post-${p.id}`} className="border-b">
                   <div className="flex items-center justify-between gap-2 px-3 py-2">
@@ -2152,8 +2249,8 @@ export default function SEPBookIG() {
                             <span className="text-[12px] text-muted-foreground truncate">{p.author_team}</span>
                           ) : null}
                         </div>
-                        {p.location_label ? (
-                          <span className="text-[11px] text-muted-foreground truncate">{p.location_label}</span>
+                        {safeLocationLabel ? (
+                          <span className="text-[11px] text-muted-foreground truncate">{safeLocationLabel}</span>
                         ) : null}
                         {p.campaign?.id ? (
                           <button
@@ -2186,6 +2283,15 @@ export default function SEPBookIG() {
                         >
                           {tr("sepbook.copyLink")}
                         </DropdownMenuItem>
+                        {p.user_id === user?.id ? (
+                          <>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem onClick={() => void deletePost(p)}>
+                              <Trash2 className="h-4 w-4 mr-2" />
+                              Excluir publicação
+                            </DropdownMenuItem>
+                          </>
+                        ) : null}
                         {canGiveFeedback && p.user_id !== user?.id && (
                           <DropdownMenuItem
                             onClick={() =>
@@ -2221,10 +2327,10 @@ export default function SEPBookIG() {
                           if (!p.has_liked) void toggleLike(p);
                         }}
                       />
-                      {p.location_label ? (
+                      {safeLocationLabel ? (
                         <div className="pointer-events-none absolute left-3 top-3 z-10">
                           <span className="inline-flex items-center rounded-full border bg-background/80 backdrop-blur px-2 py-0.5 text-[11px] font-semibold text-foreground shadow">
-                            {p.location_label}
+                            {safeLocationLabel}
                           </span>
                         </div>
                       ) : null}
@@ -3052,7 +3158,7 @@ export default function SEPBookIG() {
                             </div>
                           </div>
                           <div className="text-[12px] text-muted-foreground truncate">
-                            {selectedMapPost.post.location_label || tr("sepbook.location")}
+                            {sanitizeLocationLabel(selectedMapPost.post.location_label) || tr("sepbook.location")}
                           </div>
                           <div className="text-[11px] text-muted-foreground">
                             {tr("sepbook.mapHintSelectThenOpen")}
@@ -3159,7 +3265,7 @@ export default function SEPBookIG() {
                           </button>
                         </UserProfilePopover>
                         <div className="text-[12px] text-muted-foreground truncate">
-                          {x.post.location_label || tr("sepbook.location")}
+                          {sanitizeLocationLabel(x.post.location_label) || tr("sepbook.location")}
                         </div>
                         <div className="text-[11px] text-muted-foreground truncate">
                           {new Date(x.post.created_at).toLocaleString()}

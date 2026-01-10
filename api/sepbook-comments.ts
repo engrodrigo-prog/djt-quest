@@ -547,6 +547,105 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
+    if (req.method === "DELETE") {
+      if (!authHeader?.startsWith("Bearer ")) return res.status(401).json({ error: "Unauthorized" });
+      let uid: string | null = null;
+      if (SERVICE_ROLE_KEY) {
+        try {
+          const { data: userData, error: authErr } = await admin.auth.getUser(token);
+          if (!authErr) uid = userData?.user?.id || null;
+        } catch {
+          uid = null;
+        }
+      } else if (authed) {
+        const { data: userData, error: authErr } = await authed.auth.getUser();
+        if (authErr) return res.status(401).json({ error: "Unauthorized" });
+        uid = userData?.user?.id || null;
+      } else {
+        return res.status(500).json({ error: "Missing Supabase anon key" });
+      }
+      if (!uid) return res.status(401).json({ error: "Unauthorized" });
+
+      const commentId = String(req.query.comment_id || req.body?.comment_id || "").trim();
+      if (!commentId) return res.status(400).json({ error: "comment_id obrigatório" });
+
+      const reader = SERVICE_ROLE_KEY ? admin : authed;
+      const { data: existing, error: fetchErr } = await reader
+        .from("sepbook_comments")
+        .select("id, post_id, user_id, parent_id, attachments, translations, content_md, created_at")
+        .eq("id", commentId)
+        .maybeSingle();
+      if (fetchErr) return res.status(400).json({ error: fetchErr.message });
+      if (!existing) return res.status(404).json({ error: "Comentário não encontrado" });
+      if (existing.user_id !== uid) return res.status(403).json({ error: "Sem permissão para excluir este comentário" });
+
+      // If the comment has replies, keep the thread and just clear the content.
+      let hasReplies = false;
+      try {
+        const { data: replies } = await reader.from("sepbook_comments").select("id").eq("parent_id", commentId).limit(1);
+        hasReplies = Boolean(replies && replies.length > 0);
+      } catch {
+        hasReplies = false;
+      }
+
+      const softDelete = async () => {
+        // Best-effort cleanup (requires service role to remove others' likes).
+        if (SERVICE_ROLE_KEY) {
+          try {
+            await admin.from("sepbook_comment_likes").delete().eq("comment_id", commentId);
+          } catch {}
+          try {
+            await admin.from("sepbook_comment_mentions").delete().eq("comment_id", commentId);
+          } catch {}
+        }
+
+        const effectiveAttachments: any[] = [];
+        const translations: any = existing?.translations && typeof existing.translations === "object" ? existing.translations : null;
+        const nextTranslations = translations ? { ...translations, "pt-BR": "" } : { "pt-BR": "" };
+        try {
+          const { error } = await reader
+            .from("sepbook_comments")
+            .update({ content_md: "", attachments: effectiveAttachments, translations: nextTranslations } as any)
+            .eq("id", commentId);
+          if (error && /column .*translations.* does not exist/i.test(String(error.message || ""))) throw error;
+          if (error) return { ok: false as const, error };
+          return { ok: true as const };
+        } catch {
+          const { error } = await reader
+            .from("sepbook_comments")
+            .update({ content_md: "", attachments: effectiveAttachments } as any)
+            .eq("id", commentId);
+          if (error) return { ok: false as const, error };
+          return { ok: true as const };
+        }
+      };
+
+      if (hasReplies) {
+        const soft = await softDelete();
+        if (!soft.ok) return res.status(400).json({ error: soft.error?.message || "Falha ao excluir comentário" });
+        return res.status(200).json({ success: true, deleted: "soft" });
+      }
+
+      // No replies: try hard delete (preferred to clean threads + likes).
+      const writer = SERVICE_ROLE_KEY ? admin : reader;
+      const { error: delErr } = await writer.from("sepbook_comments").delete().eq("id", commentId);
+      if (delErr) {
+        const msg = String(delErr.message || "");
+        if (/(row level security|rls|permission denied|not authorized)/i.test(msg)) {
+          // Fallback: keep thread consistent even when cascades are blocked by RLS.
+          const soft = await softDelete();
+          if (soft.ok) return res.status(200).json({ success: true, deleted: "soft" });
+          return res.status(403).json({
+            error:
+              "Sem permissão para excluir este comentário (RLS). Configure SUPABASE_SERVICE_ROLE_KEY no Vercel para permitir exclusão com cascata.",
+          });
+        }
+        return res.status(400).json({ error: delErr.message || "Falha ao excluir comentário" });
+      }
+
+      return res.status(200).json({ success: true, deleted: "hard" });
+    }
+
     return res.status(405).json({ error: "Method not allowed" });
   } catch (e: any) {
     console.error("sepbook-comments: unhandled error", {

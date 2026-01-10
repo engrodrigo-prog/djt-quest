@@ -88,6 +88,18 @@ type EvidenceItem = {
 
 const isImageUrl = (url: string) => /\.(png|jpg|jpeg|webp|gif)(\?|#|$)/i.test(String(url || ""));
 
+const sanitizeLocationLabel = (raw: any) => {
+  const label = String(raw || "").trim();
+  if (!label) return null;
+  if (/(lat|lng)\s*-?\d{1,2}\.\d+|gps.*-?\d{1,2}\.\d+,\s*-?\d{1,3}\.\d+/i.test(label)) {
+    if (/gps da foto/i.test(label)) return "GPS da foto";
+    if (/local atual/i.test(label)) return "Local atual";
+    return "Localização";
+  }
+  if (/-?\d{1,2}\.\d{3,}\s*,\s*-?\d{1,3}\.\d{3,}/.test(label)) return "Localização";
+  return label;
+};
+
 const toDateInputValue = (raw: string | null | undefined) => {
   const s = String(raw || "").trim();
   if (!s) return "";
@@ -820,7 +832,7 @@ export default function CampaignDetail() {
                               {x.e.author_name}
                             </button>
                           </UserProfilePopover>
-                          <div className="text-[12px] text-muted-foreground">{x.e.location_label || "GPS"}</div>
+                          <div className="text-[12px] text-muted-foreground">{sanitizeLocationLabel(x.e.location_label) || "GPS"}</div>
                           {x.imageUrl ? (
                             <img src={x.imageUrl} alt="Evidência" className="w-[220px] max-w-full rounded-md border" />
                           ) : null}
@@ -868,7 +880,7 @@ export default function CampaignDetail() {
                           {x.e.author_name}
                         </span>
                       </UserProfilePopover>
-                      <div className="text-[12px] text-muted-foreground truncate">{x.e.location_label || "GPS"}</div>
+                      <div className="text-[12px] text-muted-foreground truncate">{sanitizeLocationLabel(x.e.location_label) || "GPS"}</div>
                       <div className="text-[11px] text-muted-foreground truncate">
                         {new Date(x.e.created_at).toLocaleString(getActiveLocale())}
                       </div>
