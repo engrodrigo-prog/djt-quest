@@ -13,6 +13,7 @@ type ProfileInfo = {
   operational_base: string | null;
   sigla_area: string | null;
   phone: string | null;
+  telefone?: string | null;
   avatar_url: string | null;
   avatar_thumbnail_url?: string | null;
   team_id?: string | null;
@@ -55,7 +56,7 @@ export function UserProfilePopover({ userId, name, avatarUrl, children }: UserPr
       try {
         const { data } = await supabase
           .from("profiles")
-          .select("id, name, operational_base, sigla_area, phone, avatar_url, avatar_thumbnail_url, team_id")
+          .select("id, name, operational_base, sigla_area, phone, telefone, avatar_url, avatar_thumbnail_url, team_id")
           .eq("id", userId)
           .maybeSingle();
         if (!active) return;
@@ -76,9 +77,9 @@ export function UserProfilePopover({ userId, name, avatarUrl, children }: UserPr
 
   const displayName = profile?.name || name || tr("userPopover.userFallback");
   const displayBase = profile?.operational_base || tr("userPopover.baseFallback");
-  const displayPhone = profile?.phone || tr("userPopover.phoneFallback");
+  const displayPhone = profile?.phone || profile?.telefone || tr("userPopover.phoneFallback");
   const avatar = profile?.avatar_thumbnail_url || profile?.avatar_url || avatarUrl || null;
-  const digits = useMemo(() => cleanPhone(profile?.phone), [profile?.phone]);
+  const digits = useMemo(() => cleanPhone(profile?.phone || profile?.telefone), [profile?.phone, profile?.telefone]);
   const telUrl = digits ? `tel:${digits}` : null;
   const openWhatsApp = () => {
     if (!digits) return;

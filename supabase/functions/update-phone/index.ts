@@ -82,6 +82,7 @@ Deno.serve(async (req) => {
       .from('profiles')
       .update({
         phone,
+        telefone: phone,
         phone_confirmed_at: new Date().toISOString(),
       })
       .eq('id', data.user.id);

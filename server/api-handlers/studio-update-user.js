@@ -65,6 +65,7 @@ export default async function handler(req, res) {
             const raw = typeof body.phone === 'string' ? body.phone : '';
             const cleaned = raw.trim().replace(/[^0-9+()\s-]/g, '');
             updates.phone = cleaned || null;
+            updates.telefone = cleaned || null;
             // Admin/leader edit counts as confirmation
             updates.phone_confirmed_at = cleaned ? new Date().toISOString() : null;
         }

@@ -27,6 +27,7 @@ interface UserProfile {
   team_id?: string | null;
   matricula?: string | null;
   phone?: string | null;
+  telefone?: string | null;
   phone_confirmed_at?: string | null;
   is_leader?: boolean | null;
   studio_access?: boolean | null;
@@ -79,6 +80,7 @@ export const UserManagement = () => {
           team_id,
           matricula,
           phone,
+          telefone,
           phone_confirmed_at,
           is_leader,
           studio_access
@@ -117,7 +119,7 @@ export const UserManagement = () => {
       name: user.name || '',
       email: user.email || '',
       matricula: user.matricula || '',
-      phone: user.phone || '',
+      phone: user.phone || user.telefone || '',
       sigla_area: user.sigla_area || user.operational_base || '',
       operational_base: user.sigla_area || user.operational_base || '',
       team_id: '',
@@ -575,8 +577,8 @@ export const UserManagement = () => {
                           )}
                         </div>
                         <p className="text-sm text-muted-foreground truncate">{user.email}</p>
-                        {user.phone ? (
-                          <p className="text-xs text-muted-foreground truncate">WhatsApp: {user.phone}</p>
+                        {user.phone || user.telefone ? (
+                          <p className="text-xs text-muted-foreground truncate">WhatsApp: {user.phone || user.telefone}</p>
                         ) : null}
                         <div className="flex flex-wrap items-center gap-2 text-xs">
                           {normalizeTeamId(user.team_id || user.sigla_area || user.operational_base) ? (

@@ -180,6 +180,10 @@ Deno.serve(async (req) => {
           }
         } else if (change.field_name === 'telefone') {
           updates.phone = change.new_value;
+          updates.telefone = change.new_value;
+        } else if (change.field_name === 'phone') {
+          updates.phone = change.new_value;
+          updates.telefone = change.new_value;
         } else {
           updates[change.field_name] = change.new_value;
         }
