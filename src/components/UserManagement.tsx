@@ -26,6 +26,8 @@ interface UserProfile {
   sigla_area: string | null;
   team_id?: string | null;
   matricula?: string | null;
+  phone?: string | null;
+  phone_confirmed_at?: string | null;
   is_leader?: boolean | null;
   studio_access?: boolean | null;
 }
@@ -52,6 +54,7 @@ export const UserManagement = () => {
     name: '',
     email: '',
     matricula: '',
+    phone: '',
     operational_base: '',
     sigla_area: '',
     team_id: '',
@@ -75,6 +78,8 @@ export const UserManagement = () => {
           sigla_area,
           team_id,
           matricula,
+          phone,
+          phone_confirmed_at,
           is_leader,
           studio_access
         `)
@@ -112,6 +117,7 @@ export const UserManagement = () => {
       name: user.name || '',
       email: user.email || '',
       matricula: user.matricula || '',
+      phone: user.phone || '',
       sigla_area: user.sigla_area || user.operational_base || '',
       operational_base: user.sigla_area || user.operational_base || '',
       team_id: '',
@@ -164,6 +170,7 @@ export const UserManagement = () => {
         name: form.name,
         email: form.email,
         matricula: form.matricula || null,
+        phone: form.phone?.trim() || null,
         sigla_area: form.sigla_area || null,
         operational_base: form.sigla_area || null,
         is_leader: form.is_leader,
@@ -221,6 +228,7 @@ export const UserManagement = () => {
       return (
         user.email?.toLowerCase().includes(term) ||
         user.name?.toLowerCase().includes(term) ||
+        user.phone?.toLowerCase().includes(term) ||
         user.operational_base?.toLowerCase().includes(term) ||
         user.sigla_area?.toLowerCase().includes(term) ||
         user.team_id?.toLowerCase().includes(term)
@@ -559,7 +567,7 @@ export const UserManagement = () => {
                       />
                       <div className="space-y-1 min-w-0 flex-1">
                         <div className="flex items-center gap-2">
-                          <p className="font-medium text-foreground truncate">{user.name}</p>
+                        <p className="font-medium text-foreground truncate">{user.name}</p>
                           {isTestUser && (
                             <Badge variant="outline" className="bg-orange-500/10 text-orange-600 border-orange-500/20">
                               Teste
@@ -567,6 +575,9 @@ export const UserManagement = () => {
                           )}
                         </div>
                         <p className="text-sm text-muted-foreground truncate">{user.email}</p>
+                        {user.phone ? (
+                          <p className="text-xs text-muted-foreground truncate">WhatsApp: {user.phone}</p>
+                        ) : null}
                         <div className="flex flex-wrap items-center gap-2 text-xs">
                           {normalizeTeamId(user.team_id || user.sigla_area || user.operational_base) ? (
                             <span className="font-semibold text-primary">
@@ -630,6 +641,18 @@ export const UserManagement = () => {
             <div className="grid gap-1">
               <Label>Matrícula</Label>
               <Input value={form.matricula} onChange={(e) => updateForm('matricula', e.target.value)} />
+            </div>
+            <div className="grid gap-1">
+              <Label>Telefone (WhatsApp)</Label>
+              <Input
+                type="tel"
+                inputMode="tel"
+                autoComplete="tel"
+                placeholder="+55 11 91234-5678"
+                value={form.phone}
+                onChange={(e) => updateForm('phone', e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">Ao salvar aqui, o número é considerado confirmado.</p>
             </div>
             <div className="grid gap-1">
               <Label>Equipe / Sigla</Label>

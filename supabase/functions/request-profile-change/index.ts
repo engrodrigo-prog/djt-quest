@@ -48,7 +48,7 @@ Deno.serve(async (req) => {
       throw new Error('Missing changes');
     }
 
-    const allowedFields = new Set(['name', 'email', 'operational_base', 'sigla_area', 'date_of_birth', 'telefone', 'matricula']);
+    const allowedFields = new Set(['name', 'email', 'operational_base', 'sigla_area', 'date_of_birth', 'phone', 'telefone', 'matricula']);
     const normalizeSigla = (value: string) =>
       value
         .trim()
@@ -73,6 +73,8 @@ Deno.serve(async (req) => {
         case 'email':
           return value.trim().toLowerCase();
         case 'telefone':
+          return value.replace(/[^0-9+()\s-]/g, '').trim();
+        case 'phone':
           return value.replace(/[^0-9+()\s-]/g, '').trim();
         case 'matricula':
           return value.trim().toUpperCase();
@@ -176,6 +178,8 @@ Deno.serve(async (req) => {
             updates.coord_id = org.coordinationId;
             updates.team_id = org.teamId;
           }
+        } else if (change.field_name === 'telefone') {
+          updates.phone = change.new_value;
         } else {
           updates[change.field_name] = change.new_value;
         }

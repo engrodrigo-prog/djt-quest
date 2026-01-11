@@ -3,6 +3,8 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { CompleteProfile } from '@/components/CompleteProfile';
 import { requiresProfileCompletion } from '@/lib/profileCompletion';
+import { requiresPhoneConfirmation } from '@/lib/phone';
+import { PhoneConfirmation } from '@/components/PhoneConfirmation';
 
 interface ProtectedRouteProps {
   children: ReactNode;
@@ -23,6 +25,7 @@ export function ProtectedRoute({
 
   const allowedRolesKey = allowedRoles?.join(',') ?? '';
   const needsProfileCompletion = Boolean(user && profile && requiresProfileCompletion(profile));
+  const needsPhoneConfirm = Boolean(user && profile && !needsProfileCompletion && requiresPhoneConfirmation(profile));
 
   useEffect(() => {
     const needsRole = requireStudio || requireLeader || allowedRolesKey.length > 0;
@@ -37,7 +40,7 @@ export function ProtectedRoute({
       const next = `${location.pathname}${location.search}${location.hash}`;
       navigate(`/auth?redirect=${encodeURIComponent(next)}`);
     } else if (!loading && user) {
-      if (needsProfileCompletion) return;
+      if (needsProfileCompletion || needsPhoneConfirm) return;
 
       // Aguarda resolução do papel antes de decidir navegação
       if (roleNotLoadedYet) return;
@@ -56,7 +59,7 @@ export function ProtectedRoute({
         navigate('/');
       }
     }
-  }, [user, loading, needsProfileCompletion, studioAccess, requireStudio, isLeader, requireLeader, allowedRolesKey, userRole, navigate]);
+  }, [user, loading, needsProfileCompletion, needsPhoneConfirm, studioAccess, requireStudio, isLeader, requireLeader, allowedRolesKey, userRole, navigate]);
 
   if (loading) {
     return (
@@ -68,6 +71,10 @@ export function ProtectedRoute({
 
   if (needsProfileCompletion) {
     return <CompleteProfile profile={profile} />;
+  }
+
+  if (needsPhoneConfirm) {
+    return <PhoneConfirmation />;
   }
 
   const needsRole = requireStudio || requireLeader || allowedRolesKey.length > 0;

@@ -14,3 +14,6 @@ verify_jwt = false
 
 [functions.submit-quiz-answer]
 verify_jwt = true
+
+[functions.update-phone]
+verify_jwt = true

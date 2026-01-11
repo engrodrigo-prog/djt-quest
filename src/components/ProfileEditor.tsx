@@ -7,13 +7,14 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { getOperationalBaseOptions } from "@/lib/operationalBase";
+import { normalizePhone } from "@/lib/phone";
 
 export function ProfileEditor() {
   const { profile, refreshUserSession } = useAuth();
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     email: (profile as any)?.email || "",
-    telefone: (profile as any)?.telefone || "",
+    phone: (profile as any)?.phone || (profile as any)?.telefone || "",
     operational_base: (profile as any)?.operational_base || "",
     sigla_area: (profile as any)?.sigla_area || "",
   });
@@ -21,7 +22,7 @@ export function ProfileEditor() {
   useEffect(() => {
     setFormData({
       email: (profile as any)?.email || "",
-      telefone: (profile as any)?.telefone || "",
+      phone: (profile as any)?.phone || (profile as any)?.telefone || "",
       operational_base: (profile as any)?.operational_base || "",
       sigla_area: (profile as any)?.sigla_area || "",
     });
@@ -46,7 +47,7 @@ export function ProfileEditor() {
       const normalizedSigla = normalizeSigla(formData.sigla_area);
       const normalizedBase = trim(formData.operational_base);
       const normalizedEmail = trim(formData.email).toLowerCase();
-      const normalizedPhone = trim(formData.telefone);
+      const normalizedPhone = normalizePhone(trim(formData.phone)) || trim(formData.phone);
 
       const changes: { field_name: string; new_value: string }[] = [];
       const compare = (field: string, newValue: string) => {
@@ -57,7 +58,7 @@ export function ProfileEditor() {
       };
 
       compare('email', normalizedEmail);
-      compare('telefone', normalizedPhone);
+      compare('phone', normalizedPhone);
       compare('operational_base', normalizedBase);
       compare('sigla_area', normalizedSigla);
 
@@ -138,13 +139,15 @@ export function ProfileEditor() {
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="telefone">Telefone</Label>
+              <Label htmlFor="phone">Telefone (WhatsApp)</Label>
               <Input
-                id="telefone"
+                id="phone"
                 type="tel"
-                value={formData.telefone}
-                onChange={(e) => setFormData({ ...formData, telefone: e.target.value })}
-                placeholder="(00) 00000-0000"
+                inputMode="tel"
+                autoComplete="tel"
+                value={formData.phone}
+                onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                placeholder="+55 11 91234-5678"
               />
             </div>
             <div className="space-y-2">

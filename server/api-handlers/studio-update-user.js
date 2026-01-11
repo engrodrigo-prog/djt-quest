@@ -61,6 +61,13 @@ export default async function handler(req, res) {
             updates.matricula = body.matricula ?? null;
         if (typeof body.team_id !== 'undefined')
             updates.team_id = body.team_id ?? null;
+        if (typeof body.phone === 'string' || body.phone === null) {
+            const raw = typeof body.phone === 'string' ? body.phone : '';
+            const cleaned = raw.trim().replace(/[^0-9+()\s-]/g, '');
+            updates.phone = cleaned || null;
+            // Admin/leader edit counts as confirmation
+            updates.phone_confirmed_at = cleaned ? new Date().toISOString() : null;
+        }
         const hasSigla = Object.prototype.hasOwnProperty.call(body, 'sigla_area');
         const hasBase = Object.prototype.hasOwnProperty.call(body, 'operational_base');
         if (hasSigla) {
@@ -201,7 +208,7 @@ export default async function handler(req, res) {
         }
         const { data: updated } = await supabaseAdmin
             .from('profiles')
-            .select('id, email, name, matricula, team_id, operational_base, sigla_area, is_leader, studio_access')
+            .select('id, email, name, matricula, team_id, operational_base, sigla_area, is_leader, studio_access, phone, phone_confirmed_at')
             .eq('id', userId)
             .maybeSingle();
 

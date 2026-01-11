@@ -143,7 +143,8 @@ Deno.serve(async (req) => {
     };
 
     if (action === 'approved') {
-      const updates: Record<string, any> = { [request.field_name]: request.new_value };
+      const normalizedField = request.field_name === 'telefone' ? 'phone' : request.field_name;
+      const updates: Record<string, any> = { [normalizedField]: request.new_value };
 
       if (request.field_name === 'sigla_area') {
         const org = deriveOrg(request.new_value);
