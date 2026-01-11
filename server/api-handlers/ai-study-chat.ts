@@ -256,6 +256,53 @@ const normalizeForMatch = (raw: string) =>
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
 
+const pickSourceSubtitle = (meta: any) => {
+  const direct = meta && typeof meta === "object" ? meta.subtitle : null;
+  if (typeof direct === "string" && direct.trim()) return direct.trim();
+  const ai = meta?.ai && typeof meta.ai === "object" ? meta.ai.subtitle : null;
+  if (typeof ai === "string" && ai.trim()) return ai.trim();
+  return "";
+};
+
+const pickSourceTags = (meta: any) => {
+  const raw = Array.isArray(meta?.tags) ? meta.tags : Array.isArray(meta?.ai?.tags) ? meta.ai.tags : [];
+  return (raw || []).map((x: any) => String(x || "").trim()).filter(Boolean).slice(0, 24);
+};
+
+const flattenOutlineTitles = (outline: any, maxItems = 24) => {
+  const out: string[] = [];
+  const seen = new Set<string>();
+
+  const visit = (node: any, depth: number) => {
+    if (!node || out.length >= maxItems || depth > 6) return;
+    if (Array.isArray(node)) {
+      for (const item of node) visit(item, depth);
+      return;
+    }
+    if (typeof node === "string") {
+      const t = node.trim();
+      if (t && !seen.has(t)) {
+        seen.add(t);
+        out.push(t);
+      }
+      return;
+    }
+    if (typeof node !== "object") return;
+    const title = typeof (node as any)?.title === "string" ? String((node as any).title).trim() : "";
+    if (title && !seen.has(title)) {
+      seen.add(title);
+      out.push(title);
+    }
+    const children = (node as any)?.children;
+    if (Array.isArray(children)) {
+      for (const child of children) visit(child, depth + 1);
+    }
+  };
+
+  visit(outline, 0);
+  return out;
+};
+
 const RULES_KEYWORDS = [
   "djt",
   "quest",
@@ -936,18 +983,31 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             }
           }
 
-          if (baseText.trim()) {
-            const category = (sourceRow.category || "").toString().trim().toUpperCase();
-            const meta = sourceRow.metadata && typeof sourceRow.metadata === "object" ? sourceRow.metadata : null;
-            const incident = meta?.incident && typeof meta.incident === "object" ? meta.incident : null;
-            const aiIncident = meta?.ai?.incident && typeof meta.ai.incident === "object" ? meta.ai.incident : null;
-            const metaParts: string[] = [];
-            if (category) metaParts.push(`Tipo no catálogo: ${category}`);
-            if (incident) {
-              metaParts.push(
-                `Formulário (Relatório de Ocorrência):\n` +
-                  `- ocorrido: ${(incident.ocorrido || "").toString().slice(0, 500)}\n` +
-                  `- causa_raiz_modo_falha: ${(incident.causa_raiz_modo_falha || "").toString().slice(0, 500)}\n` +
+	          if (baseText.trim()) {
+	            const category = (sourceRow.category || "").toString().trim().toUpperCase();
+	            const meta = sourceRow.metadata && typeof sourceRow.metadata === "object" ? sourceRow.metadata : null;
+	            const incident = meta?.incident && typeof meta.incident === "object" ? meta.incident : null;
+	            const aiIncident = meta?.ai?.incident && typeof meta.ai.incident === "object" ? meta.ai.incident : null;
+	            const metaParts: string[] = [];
+	            if (category) metaParts.push(`Tipo no catálogo: ${category}`);
+	            const subtitle = pickSourceSubtitle(meta);
+	            if (subtitle) metaParts.push(`Subtítulo: ${subtitle}`);
+	            const topic = String(sourceRow.topic || "").trim();
+	            if (topic) metaParts.push(`Tema: ${topic}`);
+	            const tags = pickSourceTags(meta);
+	            if (tags.length) {
+	              metaParts.push(`Tags: ${tags.slice(0, 16).map((h: any) => `#${String(h || "").replace(/^#+/, "")}`).join(" ")}`);
+	            }
+	            const outlineTitles = flattenOutlineTitles(meta?.ai?.outline);
+	            if (outlineTitles.length) metaParts.push(`Tópicos: ${outlineTitles.slice(0, 12).join(" | ")}`);
+	            const summary = String(sourceRow.summary || "").trim();
+	            if (summary && sourceRow.full_text) metaParts.push(`Resumo do catálogo: ${summary.slice(0, 900)}`);
+	            if (sourceRow.url) metaParts.push(`Link: ${String(sourceRow.url)}`);
+	            if (incident) {
+	              metaParts.push(
+	                `Formulário (Relatório de Ocorrência):\n` +
+	                  `- ocorrido: ${(incident.ocorrido || "").toString().slice(0, 500)}\n` +
+	                  `- causa_raiz_modo_falha: ${(incident.causa_raiz_modo_falha || "").toString().slice(0, 500)}\n` +
                   `- barreiras_cuidados: ${(incident.barreiras_cuidados || "").toString().slice(0, 500)}\n` +
                   `- acoes_corretivas_preventivas: ${(incident.acoes_corretivas_preventivas || "").toString().slice(0, 500)}\n` +
                   `- mudancas_implementadas: ${(incident.mudancas_implementadas || "").toString().slice(0, 500)}`
@@ -1419,13 +1479,13 @@ You help collaborators find answers using the available internal base (published
 
 Rules:
 - Do NOT ask questions. If a detail is missing, state assumptions and how to verify in the field.
-- Be practical and instructive: steps, checks, safety notes when relevant.
-- Do NOT fabricate manufacturer specs, model numbers, or procedures not present in the base/web summary. If you can't find it, say so.
-- If “Automated web search (summary)” exists, use it and cite sources (links) at the end.
-- When using the internal base, cite the source title briefly.
-${qualityHint}
-${imageHint}
-${focusHint}
+	- Be practical and instructive: steps, checks, safety notes when relevant.
+	- Do NOT fabricate manufacturer specs, model numbers, or procedures not present in the base/web summary. If you can't find it, say so.
+	- If “Automated web search (summary)” exists, use it and cite sources (links) at the end.
+	- When using the internal base, cite the source title and include the link when available (Title — URL). If a link requires login, say so and still provide it.
+	${qualityHint}
+	${imageHint}
+	${focusHint}
 
 Output format (plain text, no JSON):
 1) Direct answer (short)
@@ -1439,13 +1499,13 @@ Você ajuda colaboradores a encontrar respostas usando a base interna (catálogo
 
 Regras:
 - NÃO faça perguntas. Se faltar um detalhe, declare suposições e diga como validar em campo.
-- Seja prático e instrutivo: passo a passo, checagens, pontos de segurança quando fizer sentido.
-- NÃO invente especificações, dados de fabricantes/modelos ou procedimentos que não estejam na base/resumo web. Se não encontrar, diga que não encontrou.
-- Se houver “Pesquisa web automatica (resumo)”, use-a e cite fontes (links) no fim.
-- Quando usar a base interna, cite rapidamente o título da fonte.
-${qualityHint}
-${imageHint}
-${focusHint}
+	- Seja prático e instrutivo: passo a passo, checagens, pontos de segurança quando fizer sentido.
+	- NÃO invente especificações, dados de fabricantes/modelos ou procedimentos que não estejam na base/resumo web. Se não encontrar, diga que não encontrou.
+	- Se houver “Pesquisa web automatica (resumo)”, use-a e cite fontes (links) no fim.
+	- Quando usar a base interna, cite o título e inclua o link quando existir (Título — URL). Se o link exigir login, diga isso e ainda assim forneça o link.
+	${qualityHint}
+	${imageHint}
+	${focusHint}
 
 Formato da resposta (texto livre, sem JSON):
 1) Resposta direta (curta)
@@ -1492,12 +1552,12 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
           question ||
           "") + "";
 
-      const text = lastUserMsg.toString();
-      lastUserText = text;
-      const normalizedQuery = normalizeForMatch(text);
-      const incidentLikely =
-        /\b(ocorrenc|ocorr|acident|inciden|seguranca|epi|nr\s*\d|cipa|quase\s+acident)\b/i.test(normalizedQuery);
-      const stop = new Set([
+	      const text = lastUserMsg.toString();
+	      lastUserText = text;
+	      const normalizedQuery = normalizeForMatch(text);
+	      const incidentLikely =
+	        /\b(ocorrenc|ocorr|acident|inciden|seguranca|epi|nr\s*\d|cipa|quase\s+acident)\b/i.test(normalizedQuery);
+	      const stop = new Set([
         "de",
         "da",
         "do",
@@ -1531,32 +1591,60 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
         "isso",
         "essa",
         "esse",
-        "esta",
-        "este",
-      ]);
-      const keywords = Array.from(
-        new Set(
-          text
-            .toLowerCase()
-            .replace(/[^\p{L}\p{N}\s]/gu, " ")
-            .split(/\s+/)
-            .map((w) => w.trim())
-            .filter((w) => w.length >= 4 && !stop.has(w))
-            .slice(0, 30)
-        )
-      ).slice(0, 8);
+	        "esta",
+	        "este",
+	      ]);
+	      const shortTech = new Set([
+	        "sel",
+	        "iec",
+	        "nbr",
+	        "nr",
+	        "abb",
+	        "sip",
+	        "scada",
+	        "rtu",
+	        "dnp",
+	        "goose",
+	        "gis",
+	      ]);
+	      const keywordSet = new Set<string>();
+	      const addKeyword = (raw: string) => {
+	        const normalized = normalizeForMatch(raw);
+	        if (!normalized) return;
+	        for (const part of normalized.split(/\s+/)) {
+	          const k = part.trim();
+	          if (!k || stop.has(k)) continue;
+	          keywordSet.add(k);
+	        }
+	      };
+	      for (const token of normalizedQuery.split(/\s+/).filter(Boolean)) {
+	        if (!token || stop.has(token)) continue;
+	        const hasDigit = /\d/.test(token);
+	        if (token.length >= 4) keywordSet.add(token);
+	        else if (hasDigit && token.length >= 2) keywordSet.add(token);
+	        else if (token.length === 3 && shortTech.has(token)) keywordSet.add(token);
+	      }
+	      // Uppercase abbreviations often carry meaning (e.g. SEL, IEC, NBR).
+	      for (const match of text.matchAll(/\b[A-Z]{2,6}\b/g)) {
+	        addKeyword(match[0]);
+	      }
+	      // Model codes (e.g. SEL-421, 7SJ62, etc.)
+	      for (const match of text.matchAll(/\b[A-Za-z]{2,6}[-_ ]?\d{2,6}[A-Za-z0-9]{0,4}\b/g)) {
+	        addKeyword(match[0]);
+	      }
+	      const keywords = Array.from(keywordSet).slice(0, 12);
 
-      // 1) Study sources (org + user)
-      let sourcesForOracle: any[] = [];
-      try {
-        const selectV2 = "id, user_id, title, summary, url, topic, category, scope, published, metadata, created_at";
-        const selectV1 = "id, user_id, title, summary, url, topic, created_at";
-        const buildQuery = (select: string) => {
-          const q = admin.from("study_sources").select(select).order("created_at", { ascending: false }).limit(80);
-          if (uid) {
-            if (isLeaderOrStaff) q.or(`user_id.eq.${uid},scope.eq.org`);
-            else q.or(`user_id.eq.${uid},and(scope.eq.org,published.eq.true)`);
-          } else {
+	      // 1) Study sources (org + user)
+	      let sourcesForOracle: any[] = [];
+	      try {
+	        const selectV2 = "id, user_id, title, summary, url, storage_path, topic, category, scope, published, metadata, created_at";
+	        const selectV1 = "id, user_id, title, summary, url, storage_path, topic, created_at";
+	        const buildQuery = (select: string) => {
+	          const q = admin.from("study_sources").select(select).order("created_at", { ascending: false }).limit(250);
+	          if (uid) {
+	            if (isLeaderOrStaff) q.or(`user_id.eq.${uid},scope.eq.org`);
+	            else q.or(`user_id.eq.${uid},and(scope.eq.org,published.eq.true)`);
+	          } else {
             q.eq("scope", "org").eq("published", true);
           }
           return q;
@@ -1571,24 +1659,60 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
         }
         if (error) throw error;
         sourcesForOracle = Array.isArray(data) ? data : [];
-      } catch {
-        sourcesForOracle = [];
-      }
+	      } catch {
+	        sourcesForOracle = [];
+	      }
 
-      const scoreText = (s: string, kws: string[]) => {
-        const hay = String(s || "").toLowerCase();
-        let score = 0;
-        for (const k of kws) if (hay.includes(k)) score += 1;
-        return score;
-      };
+	      const scoreText = (s: string, kws: string[]) => {
+	        const hay = normalizeForMatch(String(s || ""));
+	        let score = 0;
+	        for (const k of kws) {
+	          if (!k) continue;
+	          if (hay.includes(k)) score += /^\d+$/.test(k) ? 2 : 1;
+	        }
+	        return score;
+	      };
 
-      const rankedSourcesScored = sourcesForOracle
-        .map((s) => {
-          const hay = [s.title, s.summary, s.topic, s.category].filter(Boolean).join(" ");
-          return { s, score: keywords.length ? scoreText(hay, keywords) : 0 };
-        })
-        .filter((x) => (keywords.length ? x.score > 0 : true))
-        .sort((a, b) => b.score - a.score);
+	      const buildSourceHay = (s: any) => {
+	        const meta = s?.metadata && typeof s.metadata === "object" ? s.metadata : null;
+	        const subtitle = pickSourceSubtitle(meta);
+	        const tags = pickSourceTags(meta);
+	        const outlineTitles = flattenOutlineTitles(meta?.ai?.outline);
+	        const fileName = (() => {
+	          const sp = String(s?.storage_path || "").trim();
+	          if (sp) return sp.split("/").pop() || sp;
+	          const u = String(s?.url || "").trim();
+	          if (!u) return "";
+	          try {
+	            const parsed = new URL(u);
+	            const name = parsed.pathname.split("/").filter(Boolean).pop() || "";
+	            return name;
+	          } catch {
+	            return u.split("/").pop() || "";
+	          }
+	        })();
+	        return [
+	          s?.title,
+	          subtitle,
+	          s?.summary,
+	          fileName,
+	          s?.url,
+	          s?.topic,
+	          s?.category,
+	          tags.length ? tags.join(" ") : "",
+	          outlineTitles.length ? outlineTitles.join(" ") : "",
+	        ]
+	          .filter(Boolean)
+	          .join(" ");
+	      };
+
+	      const rankedSourcesScored = sourcesForOracle
+	        .map((s) => {
+	          const hay = buildSourceHay(s);
+	          return { s, score: keywords.length ? scoreText(hay, keywords) : 0 };
+	        })
+	        .filter((x) => (keywords.length ? x.score > 0 : true))
+	        .sort((a, b) => b.score - a.score);
       const bestSourceScore = rankedSourcesScored[0]?.score || 0;
       const rankedSourcesBase = rankedSourcesScored.slice(0, 3).map((x) => x.s);
 
@@ -1697,32 +1821,65 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
         .filter((x) => (keywords.length ? x.score > 0 : true))
         .sort((a, b) => b.score - a.score)
         .slice(0, 6);
-      const bestForumScore = rankedForumKb[0]?.score || 0;
-      oracleBestScore = Math.max(bestSourceScore, bestCompendiumScore, bestForumScore);
+	      const bestForumScore = rankedForumKb[0]?.score || 0;
+	      oracleBestScore = Math.max(bestSourceScore, bestCompendiumScore, bestForumScore);
 
-      const contextParts: string[] = [];
-      if (attachmentContext) {
-        contextParts.push(`### Anexos enviados\n${attachmentContext}`);
-      }
-      if (rankedSources.length) {
+	      const formatTags = (rawTags: any[]) => {
+	        const out: string[] = [];
+	        for (const raw of rawTags || []) {
+	          const tag = normalizeHashtagTag(raw);
+	          if (tag) out.push(`#${tag}`);
+	        }
+	        return out.join(" ");
+	      };
+
+	      const buildKeywordExcerpt = (rawText: string, kws: string[], maxLen = 900) => {
+	        const raw = String(rawText || "").replace(/\s+/g, " ").trim();
+	        if (!raw) return "";
+	        const lower = raw.toLowerCase();
+	        let bestIdx = -1;
+	        for (const k of kws || []) {
+	          const kk = String(k || "").trim().toLowerCase();
+	          if (!kk || kk.length < 2) continue;
+	          const idx = lower.indexOf(kk);
+	          if (idx >= 0 && (bestIdx === -1 || idx < bestIdx)) bestIdx = idx;
+	        }
+	        if (bestIdx === -1) return raw.slice(0, maxLen);
+	        const start = Math.max(0, bestIdx - 220);
+	        const end = Math.min(raw.length, start + maxLen);
+	        const snippet = raw.slice(start, end);
+	        return `${start > 0 ? "…" : ""}${snippet}${end < raw.length ? "…" : ""}`;
+	      };
+
+	      const contextParts: string[] = [];
+	      if (attachmentContext) {
+	        contextParts.push(`### Anexos enviados\n${attachmentContext}`);
+	      }
+	      if (rankedSources.length) {
         contextParts.push(
           "### Catálogo de Estudos (trechos)\n" +
-            rankedSources
-              .map((s, idx) => {
-                const title = String(s.title || `Fonte ${idx + 1}`);
-                const summary = String(s.summary || "").trim();
-                const text = String(s.full_text || "").trim();
-                const excerpt = text ? text.slice(0, 900) : "";
-                return (
-                  `- ${title}\n` +
-                  (summary ? `  Resumo: ${summary}\n` : "") +
-                  (excerpt ? `  Trecho: ${excerpt}\n` : "") +
-                  (s.url ? `  Link: ${s.url}\n` : "")
-                );
-              })
-              .join("\n")
-        );
-      }
+	            rankedSources
+	              .map((s, idx) => {
+	                const title = String(s.title || `Fonte ${idx + 1}`);
+	                const summary = String(s.summary || "").trim();
+	                const meta = s.metadata && typeof s.metadata === "object" ? s.metadata : null;
+	                const subtitle = pickSourceSubtitle(meta);
+	                const tags = pickSourceTags(meta);
+	                const tagLine = tags.length ? formatTags(tags.slice(0, 14)) : "";
+	                const text = String(s.full_text || "").trim();
+	                const excerpt = text ? buildKeywordExcerpt(text, keywords, 900) : "";
+	                return (
+	                  `- ${title}\n` +
+	                  (subtitle ? `  Subtítulo: ${subtitle}\n` : "") +
+	                  (summary ? `  Resumo: ${summary}\n` : "") +
+	                  (tagLine ? `  Tags: ${tagLine}\n` : "") +
+	                  (excerpt ? `  Trecho: ${excerpt}\n` : "") +
+	                  (s.url ? `  Link: ${s.url}\n` : "")
+	                );
+	              })
+	              .join("\n")
+	        );
+	      }
 
       if (rankedCompendium.length) {
         contextParts.push(
