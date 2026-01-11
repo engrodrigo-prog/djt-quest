@@ -1118,9 +1118,51 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             content: userContent,
           },
         ];
-        let resp: any = null;
+        const repairJson = async (raw: string) => {
+          try {
+            const repairModel = pickJsonRepairModel(baseModel);
+            const isRepairGpt5 = /^gpt-5/i.test(String(repairModel || ""));
+            const repairBody: any = {
+              model: repairModel,
+              messages: [
+                {
+                  role: "system",
+                  content: "Você corrige JSON malformado e devolve APENAS um JSON válido seguindo o mesmo esquema esperado.",
+                },
+                {
+                  role: "user",
+                  content: raw.slice(0, 6000),
+                },
+              ],
+              ...(isRepairGpt5 ? { max_completion_tokens: 400 } : { max_tokens: 400 }),
+            };
+            if (!isRepairGpt5) {
+              repairBody.response_format = { type: "json_object" };
+            }
+            const repairResp = await fetch("https://api.openai.com/v1/chat/completions", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${OPENAI_API_KEY}`,
+              },
+              body: JSON.stringify(repairBody),
+            });
+            if (!repairResp.ok) return null;
+            const repairData = await repairResp.json().catch(() => null);
+            const repairContent = repairData?.choices?.[0]?.message?.content || "";
+            return parseJsonFromAiContent(repairContent).parsed;
+          } catch {
+            return null;
+          }
+        };
+
+        let parsed: any = null;
         let lastErrTxt = "";
+        let lastErrKind: "openai" | "parse" | "" = "";
+        let lastModel = "";
+
         for (const model of modelCandidates) {
+          lastModel = String(model || "");
           const isGpt5 = /^gpt-5/i.test(String(model || ""));
           const requestBody: any = {
             model,
@@ -1138,82 +1180,55 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             },
             body: JSON.stringify(requestBody),
           });
-          if (attempt.ok) {
-            resp = attempt;
+
+          if (!attempt.ok) {
+            lastErrKind = "openai";
+            lastErrTxt = await attempt.text().catch(() => `HTTP ${attempt.status}`);
+            if (isFatalOpenAiStatus(attempt.status)) break;
+            continue;
+          }
+
+          const data = await attempt.json().catch(() => null);
+          const content = data?.choices?.[0]?.message?.content || "";
+          let candidateParsed: any = parseJsonFromAiContent(content).parsed;
+          if (!candidateParsed && content) {
+            candidateParsed = await repairJson(content);
+          }
+          if (candidateParsed && typeof candidateParsed === "object") {
+            parsed = candidateParsed;
             break;
           }
-          lastErrTxt = await attempt.text().catch(() => `HTTP ${attempt.status}`);
-          if (isFatalOpenAiStatus(attempt.status)) break;
+          lastErrKind = "parse";
+          lastErrTxt = "Resposta inválida da IA (JSON não parseável).";
         }
 
-        if (!resp || !resp.ok) {
+        if (!parsed || typeof parsed !== "object") {
           const txt = lastErrTxt || "OpenAI request failed";
-          console.warn("Study ingest OpenAI error", txt);
-          try {
-            await updateStudySourceWithFallback(admin, source_id, {
-              full_text: trimmed,
-              ingest_status: "failed",
-              ingest_error: `OpenAI error: ${txt}`.slice(0, 900),
-              ingested_at: new Date().toISOString(),
-            });
-          } catch {}
-          return res.status(200).json({ success: false, error: `OpenAI error: ${txt}` });
-        } else {
-          const data = await resp.json().catch(() => null);
-          const content = data?.choices?.[0]?.message?.content || "";
-          const repairJson = async (raw: string) => {
-            try {
-              const repairModel = pickJsonRepairModel(baseModel);
-              const isRepairGpt5 = /^gpt-5/i.test(String(repairModel || ""));
-              const repairBody: any = {
-                model: repairModel,
-                messages: [
-                  {
-                    role: "system",
-                    content:
-                      "Você corrige JSON malformado e devolve APENAS um JSON válido seguindo o mesmo esquema esperado.",
-                  },
-                  {
-                    role: "user",
-                    content: raw.slice(0, 6000),
-                  },
-                ],
-                ...(isRepairGpt5 ? { max_completion_tokens: 400 } : { max_tokens: 400 }),
-              };
-              if (!isRepairGpt5) {
-                repairBody.response_format = { type: "json_object" };
-              }
-              const repairResp = await fetch("https://api.openai.com/v1/chat/completions", {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  Authorization: `Bearer ${OPENAI_API_KEY}`,
-                },
-                body: JSON.stringify(repairBody),
-              });
-              if (!repairResp.ok) return null;
-              const repairData = await repairResp.json().catch(() => null);
-              const repairContent = repairData?.choices?.[0]?.message?.content || "";
-              return parseJsonFromAiContent(repairContent).parsed;
-            } catch {
-              return null;
-            }
-          };
-          let parsed: any = parseJsonFromAiContent(content).parsed;
-          if (!parsed && content) {
-            parsed = await repairJson(content);
-          }
-
-          if (!parsed || typeof parsed !== "object") {
+          const errKind = lastErrKind || "openai";
+          if (errKind === "openai") {
+            console.warn("Study ingest OpenAI error", txt);
             try {
               await updateStudySourceWithFallback(admin, source_id, {
                 full_text: trimmed,
                 ingest_status: "failed",
-                ingest_error: "Resposta inválida da IA (JSON não parseável).",
+                ingest_error: `OpenAI error: ${txt}`.slice(0, 900),
+                ingested_at: new Date().toISOString(),
               });
             } catch {}
-            return res.status(200).json({ success: false, error: "Resposta inválida da IA (JSON não parseável)." });
+            return res.status(200).json({ success: false, error: `OpenAI error: ${txt}` });
           }
+
+          console.warn("Study ingest invalid JSON response", { model: lastModel, err: txt });
+          try {
+            await updateStudySourceWithFallback(admin, source_id, {
+              full_text: trimmed,
+              ingest_status: "failed",
+              ingest_error: `Resposta inválida da IA (JSON não parseável). Model: ${lastModel}`.slice(0, 900),
+              ingested_at: new Date().toISOString(),
+            });
+          } catch {}
+          return res.status(200).json({ success: false, error: "Resposta inválida da IA (JSON não parseável)." });
+        } else {
 
           const newTitle = typeof parsed?.title === "string" ? parsed.title.trim() : null;
           const newSubtitle = typeof parsed?.subtitle === "string" ? parsed.subtitle.trim() : null;

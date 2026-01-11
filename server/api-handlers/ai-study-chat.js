@@ -907,104 +907,116 @@ ${metaParts.join("\n\n")}` : ""}`;
             content: userContent
           }
         ];
-        let resp2 = null;
-        let lastErrTxt = "";
-        for (const model2 of modelCandidates) {
-          const isGpt5 = /^gpt-5/i.test(String(model2 || ""));
-          const requestBody = {
-            model: model2,
-            messages: requestMessages,
-            ...(isGpt5 ? { max_completion_tokens: isIncident ? 650 : 420 } : { max_tokens: isIncident ? 650 : 420 })
-          };
-          if (!isGpt5) {
-            requestBody.response_format = { type: "json_object" };
-          }
-          const attempt = await fetch("https://api.openai.com/v1/chat/completions", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${OPENAI_API_KEY}`
-            },
-            body: JSON.stringify(requestBody)
-          });
-          if (attempt.ok) {
-            resp2 = attempt;
-            break;
-          }
-          lastErrTxt = await attempt.text().catch(() => `HTTP ${attempt.status}`);
-          if (isFatalOpenAiStatus(attempt.status)) break;
-        }
-        if (!resp2 || !resp2.ok) {
-          const txt = lastErrTxt || "OpenAI request failed";
-          console.warn("Study ingest OpenAI error", txt);
-          try {
-            await updateStudySourceWithFallback(admin, source_id, {
-              full_text: trimmed,
-              ingest_status: "failed",
-              ingest_error: `OpenAI error: ${txt}`.slice(0, 900),
-              ingested_at: (/* @__PURE__ */ new Date()).toISOString()
-            });
-          } catch {
-          }
-          return res.status(200).json({ success: false, error: `OpenAI error: ${txt}` });
-        } else {
-          const data2 = await resp2.json().catch(() => null);
-          const content2 = data2?.choices?.[0]?.message?.content || "";
-          const repairJson = async (raw) => {
-            try {
-              const repairModel = pickJsonRepairModel(baseModel);
-              const isRepairGpt5 = /^gpt-5/i.test(String(repairModel || ""));
-              const repairBody = {
-                model: repairModel,
-                messages: [
-                  {
-                    role: "system",
-                    content: "Voc\xEA corrige JSON malformado e devolve APENAS um JSON v\xE1lido seguindo o mesmo esquema esperado."
-                  },
-                  {
-                    role: "user",
-                    content: raw.slice(0, 6e3)
-                  }
-                ],
-                ...(isRepairGpt5 ? { max_completion_tokens: 400 } : { max_tokens: 400 })
-              };
-              if (!isRepairGpt5) {
-                repairBody.response_format = { type: "json_object" };
-              }
-              const repairResp = await fetch("https://api.openai.com/v1/chat/completions", {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  Authorization: `Bearer ${OPENAI_API_KEY}`
-                },
-                body: JSON.stringify(repairBody)
-              });
-              if (!repairResp.ok) return null;
-              const repairData = await repairResp.json().catch(() => null);
-              const repairContent = repairData?.choices?.[0]?.message?.content || "";
-              return parseJsonFromAiContent(repairContent).parsed;
-            } catch {
-              return null;
-            }
-          };
-          let parsed = parseJsonFromAiContent(content2).parsed;
-          if (!parsed && content2) {
-            parsed = await repairJson(content2);
-          }
-          if (!parsed || typeof parsed !== "object") {
-            try {
-              await updateStudySourceWithFallback(admin, source_id, {
-                full_text: trimmed,
-                ingest_status: "failed",
-                ingest_error: "Resposta inv\xE1lida da IA (JSON n\xE3o parse\xE1vel)."
-              });
-            } catch {
-            }
-            return res.status(200).json({ success: false, error: "Resposta inv\xE1lida da IA (JSON n\xE3o parse\xE1vel)." });
-          }
-          const newTitle = typeof parsed?.title === "string" ? parsed.title.trim() : null;
-          const newSubtitle = typeof parsed?.subtitle === "string" ? parsed.subtitle.trim() : null;
-          const newSummary = typeof parsed?.summary === "string" ? parsed.summary.trim() : null;
+	        const repairJson = async (raw) => {
+	          try {
+	            const repairModel = pickJsonRepairModel(baseModel);
+	            const isRepairGpt5 = /^gpt-5/i.test(String(repairModel || ""));
+	            const repairBody = {
+	              model: repairModel,
+	              messages: [
+	                {
+	                  role: "system",
+	                  content: "Voc\xEA corrige JSON malformado e devolve APENAS um JSON v\xE1lido seguindo o mesmo esquema esperado."
+	                },
+	                {
+	                  role: "user",
+	                  content: raw.slice(0, 6e3)
+	                }
+	              ],
+	              ...(isRepairGpt5 ? { max_completion_tokens: 400 } : { max_tokens: 400 })
+	            };
+	            if (!isRepairGpt5) {
+	              repairBody.response_format = { type: "json_object" };
+	            }
+	            const repairResp = await fetch("https://api.openai.com/v1/chat/completions", {
+	              method: "POST",
+	              headers: {
+	                "Content-Type": "application/json",
+	                Authorization: `Bearer ${OPENAI_API_KEY}`
+	              },
+	              body: JSON.stringify(repairBody)
+	            });
+	            if (!repairResp.ok) return null;
+	            const repairData = await repairResp.json().catch(() => null);
+	            const repairContent = repairData?.choices?.[0]?.message?.content || "";
+	            return parseJsonFromAiContent(repairContent).parsed;
+	          } catch {
+	            return null;
+	          }
+	        };
+	        let parsed = null;
+	        let lastErrTxt = "";
+	        let lastErrKind = "";
+	        let lastModel = "";
+	        for (const model2 of modelCandidates) {
+	          lastModel = String(model2 || "");
+	          const isGpt5 = /^gpt-5/i.test(String(model2 || ""));
+	          const requestBody = {
+	            model: model2,
+	            messages: requestMessages,
+	            ...(isGpt5 ? { max_completion_tokens: isIncident ? 650 : 420 } : { max_tokens: isIncident ? 650 : 420 })
+	          };
+	          if (!isGpt5) {
+	            requestBody.response_format = { type: "json_object" };
+	          }
+	          const attempt = await fetch("https://api.openai.com/v1/chat/completions", {
+	            method: "POST",
+	            headers: {
+	              "Content-Type": "application/json",
+	              Authorization: `Bearer ${OPENAI_API_KEY}`
+	            },
+	            body: JSON.stringify(requestBody)
+	          });
+	          if (!attempt.ok) {
+	            lastErrKind = "openai";
+	            lastErrTxt = await attempt.text().catch(() => `HTTP ${attempt.status}`);
+	            if (isFatalOpenAiStatus(attempt.status)) break;
+	            continue;
+	          }
+	          const data2 = await attempt.json().catch(() => null);
+	          const content2 = data2?.choices?.[0]?.message?.content || "";
+	          let candidateParsed = parseJsonFromAiContent(content2).parsed;
+	          if (!candidateParsed && content2) {
+	            candidateParsed = await repairJson(content2);
+	          }
+	          if (candidateParsed && typeof candidateParsed === "object") {
+	            parsed = candidateParsed;
+	            break;
+	          }
+	          lastErrKind = "parse";
+	          lastErrTxt = "Resposta inv\xE1lida da IA (JSON n\xE3o parse\xE1vel).";
+	        }
+	        if (!parsed || typeof parsed !== "object") {
+	          const txt = lastErrTxt || "OpenAI request failed";
+	          const errKind = lastErrKind || "openai";
+	          if (errKind === "openai") {
+	            console.warn("Study ingest OpenAI error", txt);
+	            try {
+	              await updateStudySourceWithFallback(admin, source_id, {
+	                full_text: trimmed,
+	                ingest_status: "failed",
+	                ingest_error: `OpenAI error: ${txt}`.slice(0, 900),
+	                ingested_at: (/* @__PURE__ */ new Date()).toISOString()
+	              });
+	            } catch {
+	            }
+	            return res.status(200).json({ success: false, error: `OpenAI error: ${txt}` });
+	          }
+	          console.warn("Study ingest invalid JSON response", { model: lastModel, err: txt });
+	          try {
+	            await updateStudySourceWithFallback(admin, source_id, {
+	              full_text: trimmed,
+	              ingest_status: "failed",
+	              ingest_error: `Resposta inv\xE1lida da IA (JSON n\xE3o parse\xE1vel). Model: ${lastModel}`.slice(0, 900),
+	              ingested_at: (/* @__PURE__ */ new Date()).toISOString()
+	            });
+	          } catch {
+	          }
+	          return res.status(200).json({ success: false, error: "Resposta inv\xE1lida da IA (JSON n\xE3o parse\xE1vel)." });
+	        } else {
+	          const newTitle = typeof parsed?.title === "string" ? parsed.title.trim() : null;
+	          const newSubtitle = typeof parsed?.subtitle === "string" ? parsed.subtitle.trim() : null;
+	          const newSummary = typeof parsed?.summary === "string" ? parsed.summary.trim() : null;
           const topicRaw = typeof parsed?.topic === "string" ? parsed.topic.toUpperCase().trim() : null;
           const topic = topicRaw && allowedTopics.includes(topicRaw) ? topicRaw : null;
           const categoryRaw = typeof parsed?.category === "string" ? parsed.category.toUpperCase().trim() : null;

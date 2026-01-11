@@ -1,3 +1,4 @@
+import { jsonrepair } from 'jsonrepair';
 import { normalizeChatModel } from './openai-models.js';
 
 const tryParseJson = (raw) => {
@@ -10,6 +11,14 @@ const tryParseJson = (raw) => {
 
 const stripBOM = (s) => (s && s.charCodeAt(0) === 0xfeff ? s.slice(1) : s);
 const removeTrailingCommas = (s) => String(s || '').replace(/,\s*([}\]])/g, '$1');
+const tryRepairJsonString = (raw) => {
+  try {
+    const repaired = jsonrepair(String(raw || ''));
+    return typeof repaired === 'string' ? repaired : null;
+  } catch {
+    return null;
+  }
+};
 
 const extractFirstJsonValue = (raw) => {
   const s = String(raw || '');
@@ -68,8 +77,18 @@ export const parseJsonFromAiContent = (content) => {
   if (!trimmed) return { parsed: null, candidate: null };
 
   // 1) Direct JSON
-  const direct = tryParseJson(trimmed);
-  if (direct && typeof direct === 'object') return { parsed: direct, candidate: trimmed };
+  {
+    const cleaned = stripBOM(removeTrailingCommas(trimmed));
+    const direct = tryParseJson(cleaned);
+    if (direct && typeof direct === 'object') return { parsed: direct, candidate: cleaned };
+    if (/^[{\[]/.test(cleaned)) {
+      const repaired = tryRepairJsonString(cleaned);
+      if (repaired) {
+        const repairedParsed = tryParseJson(repaired);
+        if (repairedParsed && typeof repairedParsed === 'object') return { parsed: repairedParsed, candidate: repaired };
+      }
+    }
+  }
 
   // 2) Code fences (```json ... ```)
   const fenceRe = /```(?:json)?\s*([\s\S]*?)\s*```/gi;
@@ -77,6 +96,11 @@ export const parseJsonFromAiContent = (content) => {
     const block = stripBOM(removeTrailingCommas(String(match?.[1] || '').trim()));
     const parsed = tryParseJson(block);
     if (parsed && typeof parsed === 'object') return { parsed, candidate: block };
+    const repaired = tryRepairJsonString(block);
+    if (repaired) {
+      const repairedParsed = tryParseJson(repaired);
+      if (repairedParsed && typeof repairedParsed === 'object') return { parsed: repairedParsed, candidate: repaired };
+    }
   }
 
   // 3) First balanced JSON object/array inside the text
@@ -85,6 +109,11 @@ export const parseJsonFromAiContent = (content) => {
     const cleaned = stripBOM(removeTrailingCommas(extracted.trim()));
     const parsed = tryParseJson(cleaned);
     if (parsed && typeof parsed === 'object') return { parsed, candidate: cleaned };
+    const repaired = tryRepairJsonString(cleaned);
+    if (repaired) {
+      const repairedParsed = tryParseJson(repaired);
+      if (repairedParsed && typeof repairedParsed === 'object') return { parsed: repairedParsed, candidate: repaired };
+    }
   }
 
   return { parsed: null, candidate: extracted || null };
