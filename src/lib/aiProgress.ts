@@ -13,18 +13,21 @@ type Snapshot = {
 
 let tasks = new Map<string, AiProgressTask>();
 let listeners = new Set<() => void>();
+let snapshot: Snapshot = { pendingCount: 0, current: null };
 
-const emit = () => {
-  for (const l of listeners) l();
-};
-
-const getCurrent = () => {
+const rebuildSnapshot = () => {
+  let pendingCount = 0;
   let current: AiProgressTask | null = null;
   for (const task of tasks.values()) {
     if (!task.pending) continue;
+    pendingCount += 1;
     if (!current || task.startedAt > current.startedAt) current = task;
   }
-  return current;
+  snapshot = { pendingCount, current };
+};
+
+const emit = () => {
+  for (const l of listeners) l();
 };
 
 export const aiProgressStore = {
@@ -33,9 +36,7 @@ export const aiProgressStore = {
     return () => listeners.delete(listener);
   },
   getSnapshot(): Snapshot {
-    let pendingCount = 0;
-    for (const t of tasks.values()) if (t.pending) pendingCount += 1;
-    return { pendingCount, current: getCurrent() };
+    return snapshot;
   },
   startTask(input: { handler: string; taskKey?: string }) {
     const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -46,6 +47,7 @@ export const aiProgressStore = {
       startedAt: Date.now(),
       pending: true,
     });
+    rebuildSnapshot();
     emit();
     return id;
   },
@@ -54,12 +56,13 @@ export const aiProgressStore = {
     if (!t) return;
     t.pending = false;
     tasks.set(id, t);
+    rebuildSnapshot();
     emit();
     // cleanup shortly after completion to avoid stale state
     setTimeout(() => {
       tasks.delete(id);
+      rebuildSnapshot();
       emit();
     }, 400);
   },
 };
-
