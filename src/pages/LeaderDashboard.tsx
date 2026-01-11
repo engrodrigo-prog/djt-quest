@@ -258,13 +258,14 @@ export default function LeaderDashboard() {
     const computeBaseXp = (b: any) => {
       const quizXp = Number(b?.quiz_xp || 0);
       const initiativesXp = Number(b?.initiatives_xp || 0);
+      const quizPublishXp = Number(b?.quiz_publish_xp || 0);
       const forumXp = Number(b?.forum_posts || 0) * 10;
       const sepbookXp =
         Number(b?.sepbook_photo_count || 0) * 5 +
         Number(b?.sepbook_comments || 0) * 2 +
         Number(b?.sepbook_likes || 0);
       const evalXp = Number(b?.evaluations_completed || 0) * 5;
-      return quizXp + initiativesXp + forumXp + sepbookXp + evalXp;
+      return quizXp + initiativesXp + quizPublishXp + forumXp + sepbookXp + evalXp;
     };
 
     const baseQuery = (supabase as any)

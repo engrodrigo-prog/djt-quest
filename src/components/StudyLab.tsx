@@ -14,6 +14,7 @@ import { AttachmentUploader } from "@/components/AttachmentUploader";
 import { ForumKbThemeMenu } from "@/components/ForumKbThemeMenu";
 import type { ForumKbSelection } from "@/components/ForumKbThemeSelector";
 import { TipDialogButton } from "@/components/TipDialogButton";
+import { VoiceRecorderButton } from "@/components/VoiceRecorderButton";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -1373,6 +1374,11 @@ export const StudyLab = () => {
                   handleChatSend();
                 }
               }}
+            />
+            <VoiceRecorderButton
+              size="sm"
+              label="Falar"
+              onText={(text) => setChatInput((prev) => [prev, text].filter(Boolean).join("\n\n"))}
             />
             <Button
               type="button"

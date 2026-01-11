@@ -1828,6 +1828,11 @@ export default function ForumTopic() {
                 </div>
               )}
               <div className="flex items-center justify-between gap-3">
+                <VoiceRecorderButton
+                  size="sm"
+                  label={tr('forumTopic.audio.record')}
+                  onText={(text) => setContent((prev) => [prev, text].filter(Boolean).join('\n\n'))}
+                />
                 <Dialog open={composerPlusOpen} onOpenChange={setComposerPlusOpen}>
                   <DialogTrigger asChild>
                     <Button

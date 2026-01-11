@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import Navigation from '@/components/Navigation';
 import { ThemedBackground } from '@/components/ThemedBackground';
@@ -86,8 +86,9 @@ const resolveQuizImportsMime = (file: File): string | null => {
 };
 
 export default function StudioCuration() {
-  const { user, userRole, isContentCurator } = useAuth();
+  const { user, userRole, isLeader, isContentCurator } = useAuth();
   const nav = useNavigate();
+  const location = useLocation();
 
   const isAdmin = userRole === 'admin' || userRole === 'gerente_djt';
   const canCurate = isContentCurator || isAdmin;
@@ -98,6 +99,17 @@ export default function StudioCuration() {
   const [quizzes, setQuizzes] = useState<QuizListItem[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selected = useMemo(() => quizzes.find((q) => q.id === selectedId) || null, [quizzes, selectedId]);
+
+  const initialQuizId = useMemo(() => {
+    const qs = new URLSearchParams(location.search);
+    const qid = String(qs.get('quizId') || '').trim();
+    return qid || null;
+  }, [location.search]);
+
+  useEffect(() => {
+    if (!initialQuizId) return;
+    setSelectedId((prev) => prev || initialQuizId);
+  }, [initialQuizId]);
 
   const [detailLoading, setDetailLoading] = useState(false);
   const [detail, setDetail] = useState<any | null>(null);
@@ -275,6 +287,24 @@ export default function StudioCuration() {
     }
   };
 
+  const onPublishDirect = async () => {
+    if (!selectedId) return;
+    try {
+      const resp = await apiFetch('/api/admin?handler=studio-publish-quiz', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ challengeId: selectedId }),
+      });
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(json?.error || 'Falha ao publicar');
+      toast.success('Publicado');
+      await fetchList();
+      await fetchDetail(selectedId);
+    } catch (e: any) {
+      toast.error(e?.message || 'Falha ao publicar');
+    }
+  };
+
   const onRepublish = async () => {
     if (!selectedId) return;
     try {
@@ -295,6 +325,7 @@ export default function StudioCuration() {
 
   const workflow: QuizWorkflow = String(detail?.quiz?.quiz_workflow_status || selected?.quiz_workflow_status || 'PUBLISHED');
   const canEditDraft = workflow === 'DRAFT' || (workflow === 'REJECTED' && Boolean(detail?.isOwner));
+  const canPublishDirect = Boolean(isLeader || isAdmin) && Boolean(detail?.isOwner) && workflow === 'DRAFT';
   const canSeeAnswerKey = Boolean(detail?.isOwner || detail?.canCurate);
   const answerKey = useMemo(() => {
     const qs = Array.isArray(detail?.questions) ? detail.questions : [];
@@ -1118,6 +1149,11 @@ export default function StudioCuration() {
                   <Button onClick={onSaveMeta} disabled={!selectedId || (!canEditDraft && !canCurate)}>Salvar</Button>
                   {!canCurate && workflow === 'DRAFT' && (
                     <Button variant="secondary" onClick={onSubmitForCuration}>Submeter para curadoria</Button>
+                  )}
+                  {canPublishDirect && (
+                    <Button onClick={onPublishDirect} title="Publica direto (sem curadoria) e bonifica +100 XP para líderes">
+                      Publicar
+                    </Button>
                   )}
                   {canCurate && workflow === 'SUBMITTED' && (
                     <>

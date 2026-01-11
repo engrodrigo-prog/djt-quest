@@ -75,6 +75,7 @@ interface XpBreakdown {
   sepbookLikes: number;
   sepbookLikeXp: number;
   campaignsXp: number;
+  quizPublishXp: number;
   evaluationsCompleted: number;
   evaluationsXp: number;
 }
@@ -86,13 +87,14 @@ const LEADER_EVAL_POINTS = 5;
 const computeBaseXpFromBreakdown = (b: any) => {
   const quizXp = Number(b?.quiz_xp || 0);
   const initiativesXp = Number(b?.initiatives_xp || 0);
+  const quizPublishXp = Number(b?.quiz_publish_xp || 0);
   const forumXp = Number(b?.forum_posts || 0) * 10;
   const sepbookXp =
     Number(b?.sepbook_photo_count || 0) * 5 +
     Number(b?.sepbook_comments || 0) * 2 +
     Number(b?.sepbook_likes || 0);
   const evaluationsXp = Number(b?.evaluations_completed || 0) * LEADER_EVAL_POINTS;
-  return quizXp + initiativesXp + forumXp + sepbookXp + evaluationsXp;
+  return quizXp + initiativesXp + quizPublishXp + forumXp + sepbookXp + evaluationsXp;
 };
 
 function Rankings() {
@@ -657,6 +659,7 @@ function Rankings() {
         const sepbookLikes = Number(b?.sepbook_likes || 0);
         const sepbookLikeXp = sepbookLikes;
         const campaignsXp = Number(b?.initiatives_xp || 0);
+        const quizPublishXp = Number(b?.quiz_publish_xp || 0);
         const evaluationsCompleted = Number(b?.evaluations_completed || 0);
         const evaluationsXp = evaluationsCompleted * LEADER_EVAL_POINTS;
 
@@ -672,6 +675,7 @@ function Rankings() {
             sepbookLikes,
             sepbookLikeXp,
             campaignsXp,
+            quizPublishXp,
             evaluationsCompleted,
             evaluationsXp,
           });
@@ -834,6 +838,10 @@ function Rankings() {
                             <div>
                               {tr("rankings.breakdown.campaigns")}:{" "}
                               <span className="font-semibold">{selectedBreakdown.campaignsXp.toLocaleString()}</span> XP
+                            </div>
+                            <div>
+                              Publicação de quizzes:{" "}
+                              <span className="font-semibold">{selectedBreakdown.quizPublishXp.toLocaleString()}</span> XP
                             </div>
                             <div>
                               {tr("rankings.breakdown.evaluations")}:{" "}

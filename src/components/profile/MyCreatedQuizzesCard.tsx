@@ -19,12 +19,15 @@ type MyQuizRow = {
 const fmt = (s?: string | null) => (s ? new Date(s).toLocaleDateString(getActiveLocale()) : '—');
 
 export function MyCreatedQuizzesCard() {
-  const { user, isContentCurator, userRole } = useAuth();
+  const { user, studioAccess, isLeader, isContentCurator, userRole } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState<MyQuizRow[]>([]);
 
-  const canOpenStudio = useMemo(() => Boolean(isContentCurator || userRole === 'admin' || userRole === 'gerente_djt'), [isContentCurator, userRole]);
+  const canOpenStudio = useMemo(
+    () => Boolean(studioAccess || isLeader || isContentCurator || userRole === 'admin' || userRole === 'gerente_djt'),
+    [isContentCurator, isLeader, studioAccess, userRole],
+  );
 
   useEffect(() => {
     if (!user) return;
@@ -77,7 +80,18 @@ export function MyCreatedQuizzesCard() {
                   Criado: {fmt(q.created_at)} • Aprovado: {fmt(q.approved_at)} • Publicado: {fmt(q.published_at)}
                 </p>
               </div>
-              <Badge variant="secondary">{q.quiz_workflow_status || '—'}</Badge>
+              <div className="flex items-center gap-2">
+                <Badge variant="secondary">{q.quiz_workflow_status || '—'}</Badge>
+                {canOpenStudio && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => navigate(`/studio/curadoria?quizId=${encodeURIComponent(q.id)}`)}
+                  >
+                    {String(q.quiz_workflow_status || '').toUpperCase() === 'DRAFT' ? 'Editar' : 'Abrir'}
+                  </Button>
+                )}
+              </div>
             </div>
           </div>
         ))}

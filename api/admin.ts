@@ -22,6 +22,7 @@ import adminAdjustXp from '../server/api-handlers/admin-adjust-xp.js';
 import leadershipChallenges from '../server/api-handlers/leadership-challenges.js';
 import coordRankingBonus from '../server/api-handlers/coord-ranking-bonus.js';
 import studioPublishQuizMilhao from '../server/api-handlers/studio-publish-quiz-milhao.js';
+import studioPublishQuiz from '../server/api-handlers/studio-publish-quiz.js';
 import adminResetMilhaoAttempts from '../server/api-handlers/admin-reset-milhao-attempts.js';
 import curationListQuizzes from '../server/api-handlers/curation-list-quizzes.js';
 import curationCreateQuiz from '../server/api-handlers/curation-create-quiz.js';
@@ -75,6 +76,7 @@ const handlers: Record<string, Handler> = {
   'leadership-challenges': leadershipChallenges,
   'coord-ranking-bonus': coordRankingBonus,
   'studio-publish-quiz-milhao': studioPublishQuizMilhao,
+  'studio-publish-quiz': studioPublishQuiz,
   'admin-reset-milhao-attempts': adminResetMilhaoAttempts,
   'curation-list-quizzes': curationListQuizzes,
   'curation-create-quiz': curationCreateQuiz,
