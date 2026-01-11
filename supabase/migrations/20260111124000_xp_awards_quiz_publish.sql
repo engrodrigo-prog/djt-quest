@@ -41,6 +41,7 @@ with check (
 );
 
 -- Extend points breakdown with quiz publish XP (leaders publishing quizzes).
+drop function if exists public.user_points_breakdown(uuid[]);
 create or replace function public.user_points_breakdown(_user_ids uuid[])
 returns table(
   user_id uuid,
@@ -137,4 +138,3 @@ as $$
   left join evals on evals.user_id = u.user_id
   left join qp on qp.user_id = u.user_id;
 $$;
-
