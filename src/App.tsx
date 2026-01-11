@@ -70,11 +70,11 @@ const App = () => (
     <TooltipProvider>
       <Toaster />
       <Sonner />
-      <AiProgressOverlay />
       <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <RouteRefreshManager />
         <AuthProvider>
           <I18nProvider>
+            <AiProgressOverlay />
             <SfxProvider>
               <TtsProvider>
                 <TtsPlayerBar />
