@@ -79,50 +79,18 @@ export function UserProfilePopover({ userId, name, avatarUrl, children }: UserPr
   const displayPhone = profile?.phone || tr("userPopover.phoneFallback");
   const avatar = profile?.avatar_thumbnail_url || profile?.avatar_url || avatarUrl || null;
   const digits = useMemo(() => cleanPhone(profile?.phone), [profile?.phone]);
-  const whatsappLinks = useMemo(() => {
-    if (!digits) return null;
-    return {
-      app: `whatsapp://send?phone=${digits}`,
-      web: `https://web.whatsapp.com/send?phone=${digits}`,
-      mobile: `https://wa.me/${digits}`,
-    };
-  }, [digits]);
   const telUrl = digits ? `tel:${digits}` : null;
-  const handleWhatsAppClick = (event: React.MouseEvent<HTMLAnchorElement>) => {
-    if (!whatsappLinks) {
-      event.preventDefault();
-      return;
-    }
+  const openWhatsApp = () => {
+    if (!digits) return;
 
-    event.preventDefault();
     const isMobile =
       typeof navigator !== "undefined" &&
       ("userAgentData" in navigator
         ? Boolean((navigator as Navigator & { userAgentData?: { mobile?: boolean } }).userAgentData?.mobile)
         : /Android|iPhone|iPad|iPod|IEMobile|Opera Mini/i.test(navigator.userAgent));
-    const fallbackUrl = isMobile ? whatsappLinks.mobile : whatsappLinks.web;
-    const appUrl = whatsappLinks.app;
+    const url = isMobile ? `https://wa.me/${digits}` : `https://web.whatsapp.com/send?phone=${digits}`;
 
-    let fallbackTimer: number | undefined;
-    const clearFallback = () => {
-      if (fallbackTimer) window.clearTimeout(fallbackTimer);
-      document.removeEventListener("visibilitychange", onVisibilityChange);
-    };
-    const onVisibilityChange = () => {
-      if (document.visibilityState === "hidden") {
-        clearFallback();
-      }
-    };
-
-    document.addEventListener("visibilitychange", onVisibilityChange);
-    fallbackTimer = window.setTimeout(() => {
-      if (document.visibilityState === "visible") {
-        window.open(fallbackUrl, "_blank", "noopener,noreferrer");
-      }
-      clearFallback();
-    }, 800);
-
-    window.location.href = appUrl;
+    window.open(url, "_blank", "noopener,noreferrer");
   };
 
   if (!userId) return children;
@@ -159,17 +127,9 @@ export function UserProfilePopover({ userId, name, avatarUrl, children }: UserPr
               {tr("userPopover.call")}
             </a>
           </Button>
-          <Button type="button" size="sm" asChild disabled={!whatsappLinks}>
-            <a
-              href={whatsappLinks?.app || "#"}
-              onClick={handleWhatsAppClick}
-              target="_blank"
-              rel="noreferrer"
-              aria-disabled={!whatsappLinks}
-            >
-              <MessageCircle className="h-4 w-4 mr-1 text-green-500" />
-              {tr("userPopover.whatsapp")}
-            </a>
+          <Button type="button" size="sm" disabled={!digits} onClick={openWhatsApp}>
+            <MessageCircle className="h-4 w-4 mr-1 text-green-500" />
+            {tr("userPopover.whatsapp")}
           </Button>
         </div>
       </PopoverContent>
