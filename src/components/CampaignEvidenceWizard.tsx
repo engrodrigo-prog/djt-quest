@@ -16,6 +16,7 @@ import { ParticipantsSelector } from "@/components/ParticipantsSelector";
 import { normalizeTeamId } from "@/lib/constants/points";
 import { getActiveLocale } from "@/lib/i18n/activeLocale";
 import { localeToSpeechLanguage } from "@/lib/i18n/language";
+import { apiFetch } from "@/lib/api";
 
 type CampaignLite = {
   id: string;
@@ -305,7 +306,7 @@ export function CampaignEvidenceWizard({
     if (body.trim().length < 5) return;
     setTagsLoading(true);
     try {
-      const resp = await fetch("/api/ai?handler=suggest-hashtags", {
+      const resp = await apiFetch("/api/ai?handler=suggest-hashtags", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: body }),
@@ -358,7 +359,7 @@ export function CampaignEvidenceWizard({
         setAudioUploading(false);
 
         // transcribe
-        const resp = await fetch("/api/ai?handler=transcribe-audio", {
+        const resp = await apiFetch("/api/ai?handler=transcribe-audio", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ fileUrl: publicUrl, mode: "organize", language: localeToSpeechLanguage(getActiveLocale()) }),

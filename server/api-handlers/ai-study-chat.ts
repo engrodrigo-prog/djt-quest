@@ -37,6 +37,10 @@ const OPENAI_MODEL_STUDYLAB_CHAT = normalizeChatModel(
   (process.env.OPENAI_MODEL_STUDYLAB_CHAT as string) || "",
   STUDYLAB_DEFAULT_CHAT_MODEL,
 );
+const OPENAI_MODEL_STUDYLAB_INGEST = normalizeChatModel(
+  (process.env.OPENAI_MODEL_STUDYLAB_INGEST as string) || "",
+  "gpt-4.1-mini",
+);
 
 function chooseModel(preferPremium = false) {
   const premium = process.env.OPENAI_MODEL_PREMIUM;
@@ -69,6 +73,17 @@ const pickStudyLabChatModels = (fallbackModel: string) =>
     // Compatibility fallbacks in case the environment key does not have access to GPT-5 models.
     process.env.OPENAI_MODEL_COMPAT,
     "gpt-4.1-mini",
+    "gpt-4o-mini",
+  ]);
+const pickStudyLabIngestModels = (fallbackModel: string) =>
+  uniqueStrings([
+    OPENAI_MODEL_STUDYLAB_INGEST,
+    "gpt-4.1-mini",
+    OPENAI_MODEL_STUDYLAB_CHAT,
+    STUDYLAB_DEFAULT_CHAT_MODEL,
+    fallbackModel,
+    // Compatibility fallbacks in case the environment key does not have access to GPT-5 models.
+    process.env.OPENAI_MODEL_COMPAT,
     "gpt-4o-mini",
   ]);
 const pickJsonRepairModel = (fallbackModel: string) => {
@@ -989,7 +1004,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const preferPremiumIngest =
           sourceRow && String(sourceRow.scope || "").toLowerCase() === "org" && sourceRow.published !== false;
         const baseModel = chooseModel(preferPremiumIngest);
-        const modelCandidates = pickStudyLabChatModels(baseModel);
+        const modelCandidates = pickStudyLabIngestModels(baseModel);
 
         const allowedTopics = [
           "LINHAS",

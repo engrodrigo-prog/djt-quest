@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Wand2 } from "lucide-react";
 import { getActiveLocale } from "@/lib/i18n/activeLocale";
 import { localeToOpenAiLanguageTag } from "@/lib/i18n/language";
+import { apiFetch } from "@/lib/api";
 
 type RangeKey = "30" | "60" | "180" | "365";
 
@@ -238,7 +239,7 @@ export const CampaignManagement = () => {
                               const source = editDescription.trim();
                               if (source.length < 3) return;
                               try {
-                                const resp = await fetch("/api/ai?handler=cleanup-text", {
+                                const resp = await apiFetch("/api/ai?handler=cleanup-text", {
                                   method: "POST",
                                   headers: { "Content-Type": "application/json" },
                                   body: JSON.stringify({ title: "Descrição da campanha", description: source, language: localeToOpenAiLanguageTag(getActiveLocale()) }),

@@ -18,6 +18,7 @@ import { VoiceRecorderButton } from '@/components/VoiceRecorderButton';
 import { buildAbsoluteAppUrl, openWhatsAppShare } from '@/lib/whatsappShare';
 import { getActiveLocale } from '@/lib/i18n/activeLocale';
 import { localeToOpenAiLanguageTag, localeToSpeechLanguage } from '@/lib/i18n/language';
+import { apiFetch } from '@/lib/api';
 
 interface Challenge {
   id: string;
@@ -635,7 +636,7 @@ const ChallengeDetail = () => {
                       const text = description.trim();
                       if (text.length < 3) return;
                       try {
-                        const resp = await fetch('/api/ai?handler=cleanup-text', {
+                        const resp = await apiFetch('/api/ai?handler=cleanup-text', {
                           method: 'POST',
                           headers: { 'Content-Type': 'application/json' },
                           body: JSON.stringify({ title: 'Descrição da ação', description: text, language: localeToOpenAiLanguageTag(getActiveLocale()) }),
@@ -709,7 +710,7 @@ const ChallengeDetail = () => {
                               reader.readAsDataURL(f);
                             });
                           const b64 = await toBase64(audioFile);
-                          const resp = await fetch('/api/ai?handler=transcribe-audio', {
+                          const resp = await apiFetch('/api/ai?handler=transcribe-audio', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({ audioBase64: b64, mode: 'organize', language: localeToSpeechLanguage(getActiveLocale()) })

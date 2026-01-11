@@ -48,6 +48,7 @@ export const assertDjtQuestServerEnv = (opts = {}) => {
   normalizeEnvModel("OPENAI_MODEL_FAST");
   normalizeEnvModel("OPENAI_MODEL_PREMIUM");
   normalizeEnvModel("OPENAI_MODEL_STUDYLAB_CHAT");
+  normalizeEnvModel("OPENAI_MODEL_STUDYLAB_INGEST");
   normalizeEnvModel("OPENAI_TEXT_MODEL");
   normalizeEnvModel("OPENAI_MODEL_OVERRIDE");
 

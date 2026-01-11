@@ -33,6 +33,39 @@
     "evaluations": "评审",
     "studio": "Studio"
   },
+  "aiProgress": {
+    "label": "正在使用 AI 处理",
+    "more": "+{count} 个排队",
+    "stage": {
+      "preparing": "准备中…",
+      "processing": "处理中…",
+      "finishing": "收尾中…"
+    },
+    "task": {
+      "catalog": "整理资料目录",
+      "quiz": "生成测验",
+      "hashtags": "推荐话题标签",
+      "rewrite": "优化文本",
+      "transcribe": "音频转文字",
+      "translate": "翻译文本",
+      "generic": "运行 AI"
+    },
+    "steps": {
+      "prepare": "准备请求",
+      "aiWork": "AI 处理中",
+      "save": "完成收尾",
+      "prepareMaterial": "准备资料",
+      "aiAnalyze": "分析内容",
+      "organizeCatalog": "整理目录",
+      "collectContext": "收集上下文",
+      "aiGenerate": "生成结果",
+      "validate": "校验输出",
+      "aiRewrite": "重写文本",
+      "processAudio": "处理音频",
+      "aiTranscribe": "转写",
+      "aiTranslate": "翻译"
+    }
+  },
   "sepbook": {
     "feedTitle": "动态",
     "map": "地图",

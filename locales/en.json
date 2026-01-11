@@ -33,6 +33,39 @@
     "evaluations": "Review",
     "studio": "Studio"
   },
+  "aiProgress": {
+    "label": "Processing with AI",
+    "more": "+{count} queued",
+    "stage": {
+      "preparing": "Preparing…",
+      "processing": "Processing…",
+      "finishing": "Finishing…"
+    },
+    "task": {
+      "catalog": "Cataloging material",
+      "quiz": "Generating quiz",
+      "hashtags": "Suggesting hashtags",
+      "rewrite": "Revising text",
+      "transcribe": "Transcribing audio",
+      "translate": "Translating text",
+      "generic": "Running AI"
+    },
+    "steps": {
+      "prepare": "Preparing request",
+      "aiWork": "AI running",
+      "save": "Finalizing",
+      "prepareMaterial": "Preparing material",
+      "aiAnalyze": "Analyzing content",
+      "organizeCatalog": "Organizing catalog",
+      "collectContext": "Collecting context",
+      "aiGenerate": "Generating output",
+      "validate": "Validating output",
+      "aiRewrite": "Rewriting text",
+      "processAudio": "Processing audio",
+      "aiTranscribe": "Transcribing",
+      "aiTranslate": "Translating"
+    }
+  },
   "sepbook": {
     "feedTitle": "Feed",
     "map": "Map",

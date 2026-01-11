@@ -13,6 +13,7 @@ import Navigation from '@/components/Navigation';
 import { getActiveLocale } from '@/lib/i18n/activeLocale';
 import { localeToOpenAiLanguageTag } from '@/lib/i18n/language';
 import { UserProfilePopover } from '@/components/UserProfilePopover';
+import { apiFetch } from '@/lib/api';
 
 interface PendingEvent {
   id: string;
@@ -334,7 +335,7 @@ const Evaluations = () => {
                           return;
                         }
                         try {
-                          const resp = await fetch('/api/ai?handler=cleanup-text', {
+                          const resp = await apiFetch('/api/ai?handler=cleanup-text', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({ title: 'Feedback positivo', description: text, language: localeToOpenAiLanguageTag(getActiveLocale()) }),
@@ -400,7 +401,7 @@ const Evaluations = () => {
                           return;
                         }
                         try {
-                          const resp = await fetch('/api/ai?handler=cleanup-text', {
+                          const resp = await apiFetch('/api/ai?handler=cleanup-text', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({ title: 'Feedback construtivo', description: text, language: localeToOpenAiLanguageTag(getActiveLocale()) }),

@@ -19,6 +19,7 @@ import { buildAbsoluteAppUrl, openWhatsAppShare } from "@/lib/whatsappShare";
 import { useTts } from "@/lib/tts";
 import { getActiveLocale } from "@/lib/i18n/activeLocale";
 import { localeToOpenAiLanguageTag } from "@/lib/i18n/language";
+import { apiFetch } from "@/lib/api";
 
 type SepPostRepost = {
   id: string;
@@ -647,7 +648,7 @@ export default function SEPBook() {
     let finalText = text;
     if (text.length >= 2) {
       try {
-        const resp = await fetch("/api/ai?handler=suggest-hashtags", {
+        const resp = await apiFetch("/api/ai?handler=suggest-hashtags", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ text }),
@@ -756,7 +757,7 @@ export default function SEPBook() {
       return;
     }
     try {
-      const resp = await fetch("/api/ai?handler=cleanup-text", {
+      const resp = await apiFetch("/api/ai?handler=cleanup-text", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -796,7 +797,7 @@ export default function SEPBook() {
       return;
     }
     try {
-      const resp = await fetch("/api/ai?handler=cleanup-text", {
+      const resp = await apiFetch("/api/ai?handler=cleanup-text", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1096,7 +1097,7 @@ export default function SEPBook() {
     }
     try {
       setCleaning(true);
-      const resp = await fetch("/api/ai?handler=cleanup-text", {
+      const resp = await apiFetch("/api/ai?handler=cleanup-text", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title: "Publicação SEPBook", description: text, language: localeToOpenAiLanguageTag(getActiveLocale()) }),
@@ -1135,7 +1136,7 @@ export default function SEPBook() {
     if (!text || text.trim().length < 8) return;
     setHashtagLoading(true);
     try {
-      const resp = await fetch("/api/ai?handler=suggest-hashtags", {
+      const resp = await apiFetch("/api/ai?handler=suggest-hashtags", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text }),
@@ -1231,7 +1232,7 @@ export default function SEPBook() {
     try {
       if (!text.includes("#")) {
         try {
-          const r = await fetch("/api/ai?handler=suggest-hashtags", {
+          const r = await apiFetch("/api/ai?handler=suggest-hashtags", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ text }),
@@ -1329,7 +1330,7 @@ export default function SEPBook() {
     setCleaningPostId(post.id);
     try {
       const body = { title: "Publicação SEPBook", description: post.content_md, language: localeToOpenAiLanguageTag(getActiveLocale()) };
-      const resp = await fetch("/api/ai?handler=cleanup-text", {
+      const resp = await apiFetch("/api/ai?handler=cleanup-text", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -1989,7 +1990,7 @@ export default function SEPBook() {
                           const source = editingText.trim();
                           if (source.length < 3) return;
                           try {
-                            const resp = await fetch("/api/ai?handler=cleanup-text", {
+                            const resp = await apiFetch("/api/ai?handler=cleanup-text", {
                               method: "POST",
                               headers: { "Content-Type": "application/json" },
                               body: JSON.stringify({ title: "Publicação SEPBook (edição)", description: source, language: localeToOpenAiLanguageTag(getActiveLocale()) }),

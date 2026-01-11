@@ -27,6 +27,7 @@ import { translateTextsCached } from '@/lib/i18n/aiTranslate'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { apiFetch } from '@/lib/api'
 
 interface Topic {
   id: string;
@@ -526,7 +527,7 @@ export default function ForumTopic() {
       }
       const toBase64 = (f: File) => new Promise<string>((resolve, reject) => { const r = new FileReader(); r.onload = () => resolve(String(r.result)); r.onerror = reject; r.readAsDataURL(f) })
       const b64 = await toBase64(audioFile)
-      const resp = await fetch('/api/ai?handler=transcribe-audio', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ audioBase64: b64, mode:'organize', language: localeToSpeechLanguage(getActiveLocale()) }) })
+      const resp = await apiFetch('/api/ai?handler=transcribe-audio', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ audioBase64: b64, mode:'organize', language: localeToSpeechLanguage(getActiveLocale()) }) })
       const j = await resp.json(); if (!resp.ok) throw new Error(j?.error || tr('forumTopic.errors.transcribeFailed'))
       setContent(prev => [prev, j.text || j.transcript].filter(Boolean).join('\n\n'))
       toast({ title: tr('forumTopic.toast.audioInsertedTitle') })
@@ -551,7 +552,7 @@ export default function ForumTopic() {
     }
     try {
       setCleaning(true)
-      const resp = await fetch('/api/ai?handler=cleanup-text', {
+      const resp = await apiFetch('/api/ai?handler=cleanup-text', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: topic?.title || '', description: text, language: localeToOpenAiLanguageTag(getActiveLocale()) })
@@ -744,7 +745,7 @@ export default function ForumTopic() {
     }
     // Sugestão de hashtags via IA antes de enviar (confirmando com usuário)
     try {
-      const resp = await fetch('/api/ai?handler=suggest-hashtags', {
+      const resp = await apiFetch('/api/ai?handler=suggest-hashtags', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text })
@@ -930,7 +931,7 @@ export default function ForumTopic() {
       return
     }
     try {
-      const resp = await fetch('/api/ai?handler=suggest-hashtags', {
+      const resp = await apiFetch('/api/ai?handler=suggest-hashtags', {
         method:'POST',
         headers:{ 'Content-Type':'application/json' },
         body: JSON.stringify({ text })
@@ -976,7 +977,7 @@ export default function ForumTopic() {
   const handleCleanExistingPost = async (post: Post) => {
     setCleaningPostId(post.id)
     try {
-      const resp = await fetch('/api/ai?handler=cleanup-text', {
+      const resp = await apiFetch('/api/ai?handler=cleanup-text', {
         method:'POST',
         headers:{ 'Content-Type':'application/json' },
         body: JSON.stringify({ title: topic?.title || '', description: post.content_md, language: localeToOpenAiLanguageTag(getActiveLocale()) })
@@ -1141,7 +1142,7 @@ export default function ForumTopic() {
                           const textDesc = editDesc.trim()
                           if (!textTitle && !textDesc) return
                           try {
-                            const resp = await fetch('/api/ai?handler=cleanup-text', {
+                            const resp = await apiFetch('/api/ai?handler=cleanup-text', {
                               method: 'POST',
                               headers: { 'Content-Type': 'application/json' },
                               body: JSON.stringify({ title: textTitle, description: textDesc, language: localeToOpenAiLanguageTag(getActiveLocale()) })
@@ -1389,7 +1390,7 @@ export default function ForumTopic() {
                           const source = (editingPostText || '').trim()
                           if (source.length < 3) return
                           try {
-                            const resp = await fetch('/api/ai?handler=cleanup-text', {
+                            const resp = await apiFetch('/api/ai?handler=cleanup-text', {
                               method:'POST',
                               headers:{ 'Content-Type':'application/json' },
                               body: JSON.stringify({ title: topic?.title || '', description: source, language: localeToOpenAiLanguageTag(getActiveLocale()) })

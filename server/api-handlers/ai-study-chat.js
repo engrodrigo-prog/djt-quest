@@ -28,6 +28,7 @@ const STUDYLAB_INLINE_IMAGE_BYTES = Math.max(
   Math.min(3e6, Number(process.env.STUDYLAB_INLINE_IMAGE_BYTES || 1500000))
 );
 const OPENAI_MODEL_STUDYLAB_CHAT = normalizeChatModel(process.env.OPENAI_MODEL_STUDYLAB_CHAT || "", STUDYLAB_DEFAULT_CHAT_MODEL);
+const OPENAI_MODEL_STUDYLAB_INGEST = normalizeChatModel(process.env.OPENAI_MODEL_STUDYLAB_INGEST || "", "gpt-4.1-mini");
 function chooseModel(preferPremium = false) {
   const premium = process.env.OPENAI_MODEL_PREMIUM;
   const fast = process.env.OPENAI_MODEL_FAST;
@@ -56,6 +57,16 @@ const pickStudyLabChatModels = (fallbackModel) => uniqueStrings([
   // Compatibility fallbacks in case the environment key does not have access to GPT-5 models.
   process.env.OPENAI_MODEL_COMPAT,
   "gpt-4.1-mini",
+  "gpt-4o-mini"
+]);
+const pickStudyLabIngestModels = (fallbackModel) => uniqueStrings([
+  OPENAI_MODEL_STUDYLAB_INGEST,
+  "gpt-4.1-mini",
+  OPENAI_MODEL_STUDYLAB_CHAT,
+  STUDYLAB_DEFAULT_CHAT_MODEL,
+  fallbackModel,
+  // Compatibility fallbacks in case the environment key does not have access to GPT-5 models.
+  process.env.OPENAI_MODEL_COMPAT,
   "gpt-4o-mini"
 ]);
 const pickJsonRepairModel = (fallbackModel) => {
@@ -791,7 +802,7 @@ ${metaParts.join("\n\n")}` : ""}`;
       try {
         const preferPremiumIngest = sourceRow && String(sourceRow.scope || "").toLowerCase() === "org" && sourceRow.published !== false;
         const baseModel = chooseModel(preferPremiumIngest);
-        const modelCandidates = pickStudyLabChatModels(baseModel);
+        const modelCandidates = pickStudyLabIngestModels(baseModel);
         const allowedTopics = [
           "LINHAS",
           "SUBESTACOES",

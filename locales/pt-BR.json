@@ -33,6 +33,39 @@
     "evaluations": "Avaliar",
     "studio": "Studio"
   },
+  "aiProgress": {
+    "label": "Processando com IA",
+    "more": "+{count} em fila",
+    "stage": {
+      "preparing": "Preparando…",
+      "processing": "Processando…",
+      "finishing": "Finalizando…"
+    },
+    "task": {
+      "catalog": "Catalogando material",
+      "quiz": "Gerando quiz",
+      "hashtags": "Sugerindo hashtags",
+      "rewrite": "Revisando texto",
+      "transcribe": "Transcrevendo áudio",
+      "translate": "Traduzindo texto",
+      "generic": "Executando IA"
+    },
+    "steps": {
+      "prepare": "Preparando solicitação",
+      "aiWork": "IA em execução",
+      "save": "Finalizando",
+      "prepareMaterial": "Preparando material",
+      "aiAnalyze": "Analisando conteúdo",
+      "organizeCatalog": "Organizando catálogo",
+      "collectContext": "Coletando contexto",
+      "aiGenerate": "Gerando resultado",
+      "validate": "Validando saída",
+      "aiRewrite": "Reescrevendo texto",
+      "processAudio": "Processando áudio",
+      "aiTranscribe": "Transcrevendo",
+      "aiTranslate": "Traduzindo"
+    }
+  },
   "sepbook": {
     "feedTitle": "Feed",
     "map": "Mapa",

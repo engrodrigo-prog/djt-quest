@@ -17,6 +17,7 @@ import { getActiveLocale } from "@/lib/i18n/activeLocale";
 import { localeToOpenAiLanguageTag, localeToSpeechLanguage } from "@/lib/i18n/language";
 import { ForumKbThemeSelector, type ForumKbSelection } from "@/components/ForumKbThemeSelector";
 import { fetchForumKbSnippets, type ForumKbSnippet } from "@/lib/forum/fetchKbSnippets";
+import { apiFetch } from "@/lib/api";
 
 export const CampaignForm = () => {
   const { toast } = useToast();
@@ -121,7 +122,7 @@ export const CampaignForm = () => {
     try {
       const desc = (document.getElementById("description") as HTMLTextAreaElement | null)?.value || "";
       if (!desc.trim()) return;
-      const resp = await fetch("/api/ai?handler=cleanup-text", {
+      const resp = await apiFetch("/api/ai?handler=cleanup-text", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title: "", description: desc, language: localeToOpenAiLanguageTag(getActiveLocale()) }),

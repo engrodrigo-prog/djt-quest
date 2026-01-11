@@ -1123,7 +1123,7 @@ export default function SEPBookIG() {
       if (base.length < 3) {
         return { ok: false, reason: "too_short" as const };
       }
-      const resp = await fetch("/api/ai?handler=cleanup-text", {
+      const resp = await apiFetch("/api/ai?handler=cleanup-text", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

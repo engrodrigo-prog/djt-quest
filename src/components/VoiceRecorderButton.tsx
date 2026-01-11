@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { supabase } from "@/integrations/supabase/client";
 import { getActiveLocale } from "@/lib/i18n/activeLocale";
 import { localeToSpeechLanguage } from "@/lib/i18n/language";
+import { apiFetch } from "@/lib/api";
 
 interface VoiceRecorderButtonProps {
   onText: (text: string) => void;
@@ -178,7 +179,7 @@ export function VoiceRecorderButton({
             const publicUrl = publicData?.publicUrl;
             if (!publicUrl) throw new Error("Falha ao obter URL do áudio");
 
-            const resp = await fetch("/api/ai?handler=transcribe-audio", {
+            const resp = await apiFetch("/api/ai?handler=transcribe-audio", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ fileUrl: publicUrl, mode, language }),
@@ -208,7 +209,7 @@ export function VoiceRecorderButton({
               reader.readAsDataURL(f);
             });
           const b64 = await toBase64(file);
-          const resp = await fetch("/api/ai?handler=transcribe-audio", {
+          const resp = await apiFetch("/api/ai?handler=transcribe-audio", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ audioBase64: b64, mode, language }),
@@ -442,7 +443,7 @@ export function VoiceRecorderButton({
                   if (base.length < 10) return;
                   try {
                     setSuggestingTags(true);
-                    const resp = await fetch("/api/ai?handler=suggest-hashtags", {
+                    const resp = await apiFetch("/api/ai?handler=suggest-hashtags", {
                       method: "POST",
                       headers: { "Content-Type": "application/json" },
                       body: JSON.stringify({ text: base }),

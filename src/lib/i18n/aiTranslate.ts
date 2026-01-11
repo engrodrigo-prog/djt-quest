@@ -56,7 +56,7 @@ export async function translateTextsCached(params: {
   try {
     const resp = await apiFetch("/api/ai?handler=translate-text", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "X-AI-UI": "silent" },
       body: JSON.stringify({ targetLocale, texts: missingTexts }),
     });
     const json = await resp.json().catch(() => ({} as any));
