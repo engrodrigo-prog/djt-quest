@@ -932,10 +932,11 @@ ${metaParts.join("\n\n")}` : ""}`;
 - summary: 2 a 4 frases, em português.
 - category: escolha UMA categoria entre: ${allowedCategories.join(", ")}.
 - topic: escolha UMA categoria entre: ${allowedTopics.join(", ")}.
-- hashtags: 4 a 8 hashtags curtas (sem espa\xE7os), use termos do material.
-- outline: 4 a 10 subt\xEDtulos, at\xE9 3 n\xEDveis (use [] se n\xE3o fizer sentido).
-- questions: 4 a 8 perguntas com 4 alternativas (use [] se o material for insuficiente).
-- aprendizados/cuidados/mudancas: 3 a 7 itens cada (use [] se n\xE3o tiver evid\xEAncia no texto/formul\xE1rio).
+- hashtags: 3 a 6 hashtags curtas (sem espa\xE7os), use termos do material.
+- outline: 3 a 8 subt\xEDtulos, at\xE9 3 n\xEDveis (use [] se n\xE3o fizer sentido).
+- questions: 0 a 4 perguntas com 4 alternativas (use [] se o material for insuficiente).
+- aprendizados/cuidados/mudancas: 3 a 6 itens cada (use [] se n\xE3o tiver evid\xEAncia no texto/formul\xE1rio).
+- Mantenha o JSON compacto: textos curtos, sem par\xE1grafos longos.
 - N\xC3O invente detalhes que n\xE3o estejam no material ou no formul\xE1rio.
 
 ` + (materialHints ? `### Contexto do item\n${materialHints}\n\n` : "") + incidentContext + "### Material\n" + baseMaterial : `Leia o material abaixo e responda APENAS em JSON válido no formato:
@@ -955,9 +956,10 @@ ${metaParts.join("\n\n")}` : ""}`;
 - summary: 2 a 4 frases, em português, destacando o que o material cobre e como usar.
 - category: escolha UMA categoria entre: ${allowedCategories.join(", ")}.
 - topic: escolha UMA categoria entre: ${allowedTopics.join(", ")}.
-- hashtags: 4 a 8 hashtags curtas (sem espa\xE7os), use termos do material.
-- outline: 4 a 10 subt\xEDtulos, at\xE9 3 n\xEDveis (use [] se n\xE3o fizer sentido).
-- questions: 4 a 8 perguntas com 4 alternativas (use [] se o material for insuficiente).
+- hashtags: 3 a 6 hashtags curtas (sem espa\xE7os), use termos do material.
+- outline: 3 a 8 subt\xEDtulos, at\xE9 3 n\xEDveis (use [] se n\xE3o fizer sentido).
+- questions: 0 a 4 perguntas com 4 alternativas (use [] se o material for insuficiente).
+- Mantenha o JSON compacto: textos curtos, sem par\xE1grafos longos.
 
  - Critério de qualidade: o título/subtítulo devem diferenciar este material de outros (use termos, equipamentos, tensão, norma, procedimento, local ou fabricante se existirem no texto).
  - NÃO invente dados (especialmente modelo/fabricante) se não houver evidência no material.
@@ -966,7 +968,7 @@ ${metaParts.join("\n\n")}` : ""}`;
         const requestMessages = [
           {
             role: "system",
-            content: isIncident ? "Você é um bibliotecário técnico: resume e extrai aprendizados de Relatórios de Ocorrência no setor elétrico (CPFL). Gere título, subtítulo, resumo, tema, aprendizados, cuidados e mudanças com linguagem clara e pesquisável." : "Você é um bibliotecário técnico: renomeia e classifica materiais de estudo técnicos (setor elétrico CPFL). Gere título, subtítulo, resumo, tema e tags de forma pesquisável e específica."
+            content: isIncident ? "Você é um bibliotecário técnico: resume e extrai aprendizados de Relatórios de Ocorrência no setor elétrico (CPFL). Responda APENAS com JSON válido (sem Markdown, sem texto extra)." : "Você é um bibliotecário técnico: renomeia e classifica materiais de estudo técnicos (setor elétrico CPFL). Responda APENAS com JSON válido (sem Markdown, sem texto extra)."
           },
           {
             role: "user",
@@ -1020,7 +1022,7 @@ ${metaParts.join("\n\n")}` : ""}`;
 	          const requestBody = {
 	            model: model2,
 	            messages: requestMessages,
-	            ...(isGpt5 ? { max_completion_tokens: isIncident ? 650 : 420 } : { max_tokens: isIncident ? 650 : 420 })
+	            ...(isGpt5 ? { max_completion_tokens: isIncident ? 1200 : 900 } : { max_tokens: isIncident ? 1200 : 900, temperature: 0.2 })
 	          };
 	          if (!isGpt5) {
 	            requestBody.response_format = { type: "json_object" };

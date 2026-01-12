@@ -1147,10 +1147,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             "- summary: 2 a 4 frases, em português.\n" +
             `- category: escolha UMA categoria entre: ${allowedCategories.join(", ")}.\n` +
             `- topic: escolha UMA categoria entre: ${allowedTopics.join(", ")}.\n` +
-            "- hashtags: 4 a 8 hashtags curtas (sem espaços), use termos do material.\n" +
-            "- outline: 4 a 10 subtítulos, até 3 níveis (use [] se não fizer sentido).\n" +
-            "- questions: 4 a 8 perguntas com 4 alternativas (use [] se o material for insuficiente).\n" +
-            "- aprendizados/cuidados/mudancas: 3 a 7 itens cada (use [] se não tiver evidência no texto/formulário).\n" +
+            "- hashtags: 3 a 6 hashtags curtas (sem espaços), use termos do material.\n" +
+            "- outline: 3 a 8 subtítulos, até 3 níveis (use [] se não fizer sentido).\n" +
+            "- questions: 0 a 4 perguntas com 4 alternativas (use [] se o material for insuficiente).\n" +
+            "- aprendizados/cuidados/mudancas: 3 a 6 itens cada (use [] se não tiver evidência no texto/formulário).\n" +
+            "- Mantenha o JSON compacto: textos curtos, sem parágrafos longos.\n" +
             "- NÃO invente detalhes que não estejam no material ou no formulário.\n\n" +
             (materialHints ? `### Contexto do item\n${materialHints}\n\n` : "") +
             incidentContext +
@@ -1172,9 +1173,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             "- summary: 2 a 4 frases, em português, destacando o que o material cobre e como usar.\n" +
             `- category: escolha UMA categoria entre: ${allowedCategories.join(", ")}.\n` +
             `- topic: escolha UMA categoria entre: ${allowedTopics.join(", ")}.\n` +
-            "- hashtags: 4 a 8 hashtags curtas (sem espaços), use termos do material.\n" +
-            "- outline: 4 a 10 subtítulos, até 3 níveis (use [] se não fizer sentido).\n" +
-            "- questions: 4 a 8 perguntas com 4 alternativas (use [] se o material for insuficiente).\n\n" +
+            "- hashtags: 3 a 6 hashtags curtas (sem espaços), use termos do material.\n" +
+            "- outline: 3 a 8 subtítulos, até 3 níveis (use [] se não fizer sentido).\n" +
+            "- questions: 0 a 4 perguntas com 4 alternativas (use [] se o material for insuficiente).\n" +
+            "- Mantenha o JSON compacto: textos curtos, sem parágrafos longos.\n\n" +
             "- Critério de qualidade: o título/subtítulo devem diferenciar este material de outros (use termos, equipamentos, tensão, norma, procedimento, local ou fabricante se existirem no texto).\n" +
             "- NÃO invente dados (especialmente modelo/fabricante) se não houver evidência no material.\n\n" +
             (materialHints ? `### Contexto do item\n${materialHints}\n\n` : "") +
@@ -1185,8 +1187,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             role: "system",
             content:
               isIncident
-                ? "Você é um bibliotecário técnico: resume e extrai aprendizados de Relatórios de Ocorrência no setor elétrico (CPFL). Gere título, subtítulo, resumo, tema, aprendizados, cuidados e mudanças com linguagem clara e pesquisável."
-                : "Você é um bibliotecário técnico: renomeia e classifica materiais de estudo técnicos (setor elétrico CPFL). Gere título, subtítulo, resumo, tema e tags de forma pesquisável e específica.",
+                ? "Você é um bibliotecário técnico: resume e extrai aprendizados de Relatórios de Ocorrência no setor elétrico (CPFL). Responda APENAS com JSON válido (sem Markdown, sem texto extra)."
+                : "Você é um bibliotecário técnico: renomeia e classifica materiais de estudo técnicos (setor elétrico CPFL). Responda APENAS com JSON válido (sem Markdown, sem texto extra).",
           },
           {
             role: "user",
@@ -1242,7 +1244,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           const requestBody: any = {
             model,
             messages: requestMessages,
-            ...(isGpt5 ? { max_completion_tokens: isIncident ? 650 : 420 } : { max_tokens: isIncident ? 650 : 420 }),
+            ...(isGpt5
+              ? { max_completion_tokens: isIncident ? 1200 : 900 }
+              : { max_tokens: isIncident ? 1200 : 900, temperature: 0.2 }),
           };
           if (!isGpt5) {
             requestBody.response_format = { type: "json_object" };
