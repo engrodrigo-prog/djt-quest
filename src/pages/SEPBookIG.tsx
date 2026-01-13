@@ -171,6 +171,17 @@ type SepMapItem = {
 
 const randomId = () => Math.random().toString(36).slice(2);
 
+type MapProfile = {
+  id: string;
+  name: string | null;
+  operational_base: string | null;
+  sigla_area: string | null;
+  phone: string | null;
+  telefone?: string | null;
+  avatar_url: string | null;
+  avatar_thumbnail_url?: string | null;
+};
+
 const getExtFromType = (mime: string) => {
   const t = String(mime || "").toLowerCase();
   if (t === "image/jpeg") return "jpg";
@@ -211,6 +222,22 @@ const detectMentionQuery = (text: string) => {
   // - "@rodrigo " -> no match (wait for next char)
   const m = v.match(/@([\p{L}0-9_.-]+(?:\s+[\p{L}0-9_.-]+)*)$/u);
   return m?.[1] || "";
+};
+
+const cleanPhoneDigits = (raw: any) => {
+  const d = String(raw || "").replace(/\D+/g, "");
+  return d.length >= 8 ? d : "";
+};
+
+const getWhatsAppUrl = (digitsRaw: any) => {
+  const digits = cleanPhoneDigits(digitsRaw);
+  if (!digits) return null;
+  const isMobile =
+    typeof navigator !== "undefined" &&
+    ("userAgentData" in navigator
+      ? Boolean((navigator as Navigator & { userAgentData?: { mobile?: boolean } }).userAgentData?.mobile)
+      : /Android|iPhone|iPad|iPod|IEMobile|Opera Mini/i.test(navigator.userAgent));
+  return isMobile ? `https://wa.me/${digits}` : `https://web.whatsapp.com/send?phone=${digits}`;
 };
 
 const detectCampaignQuery = (text: string) => {
@@ -300,21 +327,33 @@ const isImageUrl = (url: string) => {
   return /\.(png|jpg|jpeg|webp|gif)(\?|#|$)/i.test(u);
 };
 
-const STORAGE_SEPBOOK_LOCATION_CONSENT = "sepbook_location_consent"; // 'allow' | 'deny'
+const STORAGE_SEPBOOK_LOCATION_CONSENT = "sepbook_location_consent"; // 'allow'
 
-const readLocationConsent = (): "allow" | "deny" | "unknown" => {
+const readLocationConsent = (): "allow" | "unknown" => {
   try {
     const raw = localStorage.getItem(STORAGE_SEPBOOK_LOCATION_CONSENT);
-    if (raw === "allow" || raw === "deny") return raw;
+    if (raw === "allow") return "allow";
+    if (raw === "deny") {
+      // Legacy: we no longer persist denial (we ask again on the next attempt).
+      localStorage.removeItem(STORAGE_SEPBOOK_LOCATION_CONSENT);
+    }
     return "unknown";
   } catch {
     return "unknown";
   }
 };
 
-const writeLocationConsent = (next: "allow" | "deny") => {
+const writeLocationConsent = (next: "allow") => {
   try {
     localStorage.setItem(STORAGE_SEPBOOK_LOCATION_CONSENT, next);
+  } catch {
+    /* ignore */
+  }
+};
+
+const clearLocationConsent = () => {
+  try {
+    localStorage.removeItem(STORAGE_SEPBOOK_LOCATION_CONSENT);
   } catch {
     /* ignore */
   }
@@ -329,16 +368,17 @@ const clampLatLng = (lat: number, lng: number) => {
 };
 
 const formatGpsLabel = (lat: number, lng: number, source: "photo" | "device") => {
-  return source === "photo" ? "GPS da foto" : "Local atual";
+  return source === "photo" ? "GPS da foto" : "Localização";
 };
 
 const sanitizeLocationLabel = (raw: any) => {
   const label = String(raw || "").trim();
   if (!label) return null;
+  if (/^local atual$/i.test(label)) return null;
   // Hide raw lat/lng even for older posts that stored coordinates in the label.
   if (/(lat|lng)\s*-?\d{1,2}\.\d+|gps.*-?\d{1,2}\.\d+,\s*-?\d{1,3}\.\d+/i.test(label)) {
     if (/gps da foto/i.test(label)) return "GPS da foto";
-    if (/local atual/i.test(label)) return "Local atual";
+    if (/local atual/i.test(label)) return null;
     return "Localização";
   }
   if (/-?\d{1,2}\.\d{3,}\s*,\s*-?\d{1,3}\.\d{3,}/.test(label)) return "Localização";
@@ -652,6 +692,31 @@ export default function SEPBookIG() {
   const { locale, t: tr } = useI18n();
   const isAdmin = (Array.isArray(roles) && roles.includes("admin")) || (typeof userRole === "string" && userRole.includes("admin"));
   const canGiveFeedback = Boolean(isLeader || studioAccess || isAdmin);
+  const [myProfile, setMyProfile] = useState<MapProfile | null>(null);
+
+  useEffect(() => {
+    const uid = String(user?.id || "").trim();
+    if (!uid) {
+      setMyProfile(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data } = await supabase
+          .from("profiles")
+          .select("id, name, operational_base, sigla_area, phone, telefone, avatar_url, avatar_thumbnail_url")
+          .eq("id", uid)
+          .maybeSingle();
+        if (!cancelled) setMyProfile((data as any) || null);
+      } catch {
+        if (!cancelled) setMyProfile(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
 
   const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false);
   const [feedbackTarget, setFeedbackTarget] = useState<{
@@ -696,12 +761,13 @@ export default function SEPBookIG() {
   const mapInstanceRef = useRef<L.Map | null>(null);
   const [commentGpsItems, setCommentGpsItems] = useState<SepCommentGps[]>([]);
   const [commentGpsLoading, setCommentGpsLoading] = useState(false);
+  const [mapProfiles, setMapProfiles] = useState<Record<string, MapProfile>>({});
   const isMobileDevice = useMemo(() => {
     if (typeof navigator === "undefined") return false;
     return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || "");
   }, []);
 
-  const [locationConsent, setLocationConsent] = useState<"allow" | "deny" | "unknown">("unknown");
+  const [locationConsent, setLocationConsent] = useState<"allow" | "unknown">("unknown");
   const [locationConsentDialogOpen, setLocationConsentDialogOpen] = useState(false);
   const [useDeviceLocationDialogOpen, setUseDeviceLocationDialogOpen] = useState(false);
   const locationConsentResolverRef = useRef<((allowed: boolean) => void) | null>(null);
@@ -769,18 +835,22 @@ export default function SEPBookIG() {
   const [fallbackTranslations, setFallbackTranslations] = useState<Record<string, string>>({});
   const translationInFlightRef = useRef(0);
 
-  const composerGpsFromPhoto = useMemo(() => {
+  const composerGpsSource = useMemo(() => {
     const items = composerMedia.filter((m) => m.kind === "image");
     for (const it of items) {
-      if (it.gps && typeof it.gps.lat === "number" && typeof it.gps.lng === "number") return it.gps;
+      if (it.gps && typeof it.gps.lat === "number" && typeof it.gps.lng === "number") {
+        return { gps: it.gps, url: it.url || null, id: it.id };
+      }
     }
     return null;
   }, [composerMedia]);
 
-  const commentGpsFromPhoto = useMemo(() => {
+  const commentGpsSource = useMemo(() => {
     const items = commentMedia.filter((m) => m.kind === "image");
     for (const it of items) {
-      if (it.gps && typeof it.gps.lat === "number" && typeof it.gps.lng === "number") return it.gps;
+      if (it.gps && typeof it.gps.lat === "number" && typeof it.gps.lng === "number") {
+        return { gps: it.gps, url: it.url || null, id: it.id };
+      }
     }
     return null;
   }, [commentMedia]);
@@ -938,6 +1008,42 @@ export default function SEPBookIG() {
     return [...postItems, ...commentItems];
   }, [commentGpsItems, visiblePosts]);
 
+  const mapUserIdsKey = useMemo(() => {
+    const ids = mapPosts.map((x) => String(x.user_id || "")).filter(Boolean);
+    ids.sort();
+    return ids.join(",");
+  }, [mapPosts]);
+
+  useEffect(() => {
+    if (!mapOpen) return;
+    const ids = Array.from(new Set(mapPosts.map((x) => x.user_id).filter(Boolean))).slice(0, 140);
+    if (!ids.length) {
+      setMapProfiles({});
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data } = await supabase
+          .from("profiles")
+          .select("id, name, operational_base, sigla_area, phone, telefone, avatar_url, avatar_thumbnail_url")
+          .in("id", ids);
+        if (cancelled) return;
+        const next: Record<string, MapProfile> = {};
+        (Array.isArray(data) ? data : []).forEach((p: any) => {
+          if (!p?.id) return;
+          next[String(p.id)] = p as any;
+        });
+        setMapProfiles(next);
+      } catch {
+        if (!cancelled) setMapProfiles({});
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [mapOpen, mapUserIdsKey]);
+
   const visibleMapPosts = useMemo(() => {
     if (!mapBounds) return mapPosts;
     return mapPosts.filter((x) => {
@@ -986,6 +1092,20 @@ export default function SEPBookIG() {
     if (!mapSelectedId) return null;
     return mapPosts.find((x) => x.key === mapSelectedId) || null;
   }, [mapPosts, mapSelectedId]);
+
+  const selectedMapProfile = useMemo(() => {
+    if (!selectedMapPost) return null;
+    return mapProfiles[String(selectedMapPost.user_id || "")] || null;
+  }, [mapProfiles, selectedMapPost]);
+
+  const selectedMapPhoneDigits = useMemo(() => {
+    if (!selectedMapProfile) return "";
+    return cleanPhoneDigits(selectedMapProfile.phone || selectedMapProfile.telefone);
+  }, [selectedMapProfile]);
+
+  const selectedMapTelUrl = useMemo(() => (selectedMapPhoneDigits ? `tel:${selectedMapPhoneDigits}` : null), [selectedMapPhoneDigits]);
+
+  const selectedMapWhatsAppUrl = useMemo(() => getWhatsAppUrl(selectedMapPhoneDigits), [selectedMapPhoneDigits]);
 
   const selectedMapLinks = useMemo(() => {
     if (!selectedMapPost) return null;
@@ -1152,7 +1272,6 @@ export default function SEPBookIG() {
 
   const requestLocationConsent = useCallback(async () => {
     if (locationConsent === "allow") return true;
-    if (locationConsent === "deny") return false;
     return await new Promise<boolean>((resolve) => {
       locationConsentResolverRef.current = resolve;
       setLocationConsentDialogOpen(true);
@@ -1187,11 +1306,12 @@ export default function SEPBookIG() {
     if (!allowed) return null;
 
     // Prefer EXIF GPS from the image, if present.
-    if (composerGpsFromPhoto) {
+    if (composerGpsSource?.gps && composerGpsSource.url) {
       return {
-        location_lat: composerGpsFromPhoto.lat,
-        location_lng: composerGpsFromPhoto.lng,
-        location_label: formatGpsLabel(composerGpsFromPhoto.lat, composerGpsFromPhoto.lng, "photo"),
+        location_lat: composerGpsSource.gps.lat,
+        location_lng: composerGpsSource.gps.lng,
+        location_label: formatGpsLabel(composerGpsSource.gps.lat, composerGpsSource.gps.lng, "photo"),
+        __gps_url: composerGpsSource.url || null,
       };
     }
 
@@ -1211,20 +1331,21 @@ export default function SEPBookIG() {
     return {
       location_lat: coords.lat,
       location_lng: coords.lng,
-      location_label: formatGpsLabel(coords.lat, coords.lng, "device"),
+      location_label: myProfile?.operational_base || formatGpsLabel(coords.lat, coords.lng, "device"),
     };
-  }, [composerGpsFromPhoto, getCurrentPosition, requestLocationConsent, requestUseDeviceLocation, toast]);
+  }, [composerGpsSource, getCurrentPosition, myProfile?.operational_base, requestLocationConsent, requestUseDeviceLocation, toast]);
 
   const resolveLocationForNewComment = useCallback(async () => {
-    if (!commentGpsFromPhoto) return null;
+    if (!commentGpsSource?.gps || !commentGpsSource.url) return null;
     const allowed = await requestLocationConsent();
     if (!allowed) return null;
     return {
-      location_lat: commentGpsFromPhoto.lat,
-      location_lng: commentGpsFromPhoto.lng,
-      location_label: formatGpsLabel(commentGpsFromPhoto.lat, commentGpsFromPhoto.lng, "photo"),
+      location_lat: commentGpsSource.gps.lat,
+      location_lng: commentGpsSource.gps.lng,
+      location_label: formatGpsLabel(commentGpsSource.gps.lat, commentGpsSource.gps.lng, "photo"),
+      __gps_url: commentGpsSource.url || null,
     };
-  }, [commentGpsFromPhoto, requestLocationConsent]);
+  }, [commentGpsSource, requestLocationConsent]);
 
   const uploadedComposerUrls = useMemo(
     () => composerMedia.filter((m) => m.url).map((m) => m.url!) as string[],
@@ -1234,6 +1355,14 @@ export default function SEPBookIG() {
     () => commentMedia.filter((m) => m.url).map((m) => m.url!) as string[],
     [commentMedia],
   );
+
+  const orderUrlsWithGpsFirst = useCallback((urls: string[], gpsUrl: string | null) => {
+    const list = (urls || []).filter(Boolean);
+    const target = String(gpsUrl || "").trim();
+    if (!target) return list;
+    if (!list.includes(target)) return list;
+    return [target, ...list.filter((u) => u !== target)];
+  }, []);
 
   const speakText = useCallback(
     async (text: string) => {
@@ -2070,14 +2199,17 @@ export default function SEPBookIG() {
     try {
       setComposerSubmitting(true);
       const locationPayload = await resolveLocationForNewPost();
+      const gpsUrl = locationPayload && typeof (locationPayload as any).__gps_url === "string" ? String((locationPayload as any).__gps_url) : null;
+      const { __gps_url: _omit, ...locationFields } = (locationPayload as any) || {};
+      const orderedAttachments = orderUrlsWithGpsFirst(uploadedComposerUrls, gpsUrl);
       const resp = await apiFetch("/api/sepbook-post", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           content_md: text,
-          attachments: uploadedComposerUrls,
+          attachments: orderedAttachments,
           campaign_id: composerCampaignId || null,
-          ...(locationPayload || {}),
+          ...(locationFields || {}),
         }),
       });
       const json = await resp.json().catch(() => ({}));
@@ -2098,7 +2230,16 @@ export default function SEPBookIG() {
     } finally {
       setComposerSubmitting(false);
     }
-  }, [composerCampaignId, composerMedia, composerText, composerUploading, resolveLocationForNewPost, toast, uploadedComposerUrls]);
+  }, [
+    composerCampaignId,
+    composerMedia,
+    composerText,
+    composerUploading,
+    orderUrlsWithGpsFirst,
+    resolveLocationForNewPost,
+    toast,
+    uploadedComposerUrls,
+  ]);
 
   const submitComment = useCallback(async () => {
     const postId = String(commentsOpenFor || "").trim();
@@ -2113,15 +2254,18 @@ export default function SEPBookIG() {
     try {
       setCommentSubmitting(true);
       const locationPayload = await resolveLocationForNewComment();
+      const gpsUrl = locationPayload && typeof (locationPayload as any).__gps_url === "string" ? String((locationPayload as any).__gps_url) : null;
+      const { __gps_url: _omit, ...locationFields } = (locationPayload as any) || {};
+      const orderedAttachments = orderUrlsWithGpsFirst(uploadedCommentUrls, gpsUrl);
       const resp = await apiFetch("/api/sepbook-comments", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           post_id: postId,
           content_md: text,
-          attachments: uploadedCommentUrls,
+          attachments: orderedAttachments,
           parent_id: replyTarget?.id || null,
-          ...(locationPayload || {}),
+          ...(locationFields || {}),
         }),
       });
       const json = await resp.json().catch(() => ({}));
@@ -2142,7 +2286,17 @@ export default function SEPBookIG() {
     } finally {
       setCommentSubmitting(false);
     }
-  }, [commentMedia, commentText, commentUploading, commentsOpenFor, replyTarget, resolveLocationForNewComment, toast, uploadedCommentUrls]);
+  }, [
+    commentMedia,
+    commentText,
+    commentUploading,
+    commentsOpenFor,
+    orderUrlsWithGpsFirst,
+    replyTarget,
+    resolveLocationForNewComment,
+    toast,
+    uploadedCommentUrls,
+  ]);
 
   const loadMentionsInbox = useCallback(async () => {
     setMentionsLoading(true);
@@ -2456,6 +2610,8 @@ export default function SEPBookIG() {
               const createdLabel = new Date(p.created_at).toLocaleString();
               const caption = String(getPostDisplayText(p) || "").trim();
               const safeLocationLabel = sanitizeLocationLabel(p.location_label);
+              const hasGps = Number.isFinite(Number(p.location_lat)) && Number.isFinite(Number(p.location_lng));
+              const locationDisplay = safeLocationLabel || (hasGps ? (p.author_base || null) : null);
               return (
                 <article key={p.id} id={`post-${p.id}`} className="border-b">
                   <div className="flex items-center justify-between gap-2 px-3 py-2">
@@ -2477,8 +2633,21 @@ export default function SEPBookIG() {
                             <span className="text-[12px] text-muted-foreground truncate">{p.author_team}</span>
                           ) : null}
                         </div>
-                        {safeLocationLabel ? (
-                          <span className="text-[11px] text-muted-foreground truncate">{safeLocationLabel}</span>
+                        {hasGps ? (
+                          <button
+                            type="button"
+                            className="mt-0.5 inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:underline truncate"
+                            onClick={() => {
+                              setMapSelectedId(`post:${p.id}`);
+                              setMapHasInteracted(false);
+                              setMapFitToken((v) => v + 1);
+                              setMapOpen(true);
+                            }}
+                            title={tr("sepbook.map")}
+                          >
+                            <MapPinned className="h-3.5 w-3.5" />
+                            <span className="truncate">{locationDisplay || tr("sepbook.location")}</span>
+                          </button>
                         ) : null}
                         {p.campaign?.id ? (
                           <button
@@ -2559,13 +2728,6 @@ export default function SEPBookIG() {
                           if (!p.has_liked) void toggleLike(p);
                         }}
                       />
-                      {safeLocationLabel ? (
-                        <div className="pointer-events-none absolute left-3 top-3 z-10">
-                          <span className="inline-flex items-center rounded-full border bg-background/80 backdrop-blur px-2 py-0.5 text-[11px] font-semibold text-foreground shadow">
-                            {safeLocationLabel}
-                          </span>
-                        </div>
-                      ) : null}
                     </div>
                   ) : null}
 
@@ -3368,7 +3530,6 @@ export default function SEPBookIG() {
           }
           if (open) {
             setMapBounds(null);
-            setMapSelectedId(null);
             setMapHasInteracted(false);
             setMapFitToken((v) => v + 1);
           }
@@ -3463,8 +3624,31 @@ export default function SEPBookIG() {
                           <div className="text-[12px] text-muted-foreground truncate">
                             {sanitizeLocationLabel(selectedMapPost.location_label) || tr("sepbook.location")}
                           </div>
+                          {selectedMapProfile?.operational_base ? (
+                            <div className="text-[12px] text-muted-foreground truncate">
+                              {tr("userPopover.baseLabel")}: {selectedMapProfile.operational_base}
+                            </div>
+                          ) : null}
+                          {selectedMapProfile?.sigla_area ? (
+                            <div className="text-[12px] text-muted-foreground truncate">{selectedMapProfile.sigla_area}</div>
+                          ) : null}
                           <div className="text-[11px] text-muted-foreground">
                             {tr("sepbook.mapHintSelectThenOpen")}
+                          </div>
+                          <div className="mt-1 flex flex-wrap items-center gap-2">
+                            <Button type="button" size="sm" variant="outline" asChild disabled={!selectedMapTelUrl}>
+                              <a href={selectedMapTelUrl || "#"} aria-disabled={!selectedMapTelUrl} onClick={(e) => !selectedMapTelUrl && e.preventDefault()}>
+                                {tr("userPopover.call")}
+                              </a>
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              disabled={!selectedMapWhatsAppUrl}
+                              onClick={() => selectedMapWhatsAppUrl && window.open(selectedMapWhatsAppUrl, "_blank", "noopener,noreferrer")}
+                            >
+                              {tr("userPopover.whatsapp")}
+                            </Button>
                           </div>
                           {selectedMapLinks ? (
                             <div className="mt-1 flex flex-wrap items-center gap-2">
@@ -3573,6 +3757,11 @@ export default function SEPBookIG() {
                             {formatName(x.author_name)}
                           </button>
                         </UserProfilePopover>
+                        {mapProfiles[String(x.user_id || "")]?.operational_base ? (
+                          <div className="text-[12px] text-muted-foreground truncate">
+                            {tr("userPopover.baseLabel")}: {mapProfiles[String(x.user_id || "")]!.operational_base}
+                          </div>
+                        ) : null}
                         <div className="text-[12px] text-muted-foreground truncate">
                           {sanitizeLocationLabel(x.location_label) || tr("sepbook.location")}
                           {x.kind === "comment" ? ` • ${tr("sepbook.commentLabel")}` : ""}
@@ -3614,8 +3803,8 @@ export default function SEPBookIG() {
               type="button"
               variant="outline"
               onClick={() => {
-                setLocationConsent("deny");
-                writeLocationConsent("deny");
+                setLocationConsent("unknown");
+                clearLocationConsent();
                 setLocationConsentDialogOpen(false);
                 locationConsentResolverRef.current?.(false);
                 locationConsentResolverRef.current = null;

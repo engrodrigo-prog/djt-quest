@@ -53,6 +53,7 @@ import systemCleanup from '../server/api-handlers/system-cleanup.js';
 import quizResetAttempt from '../server/api-handlers/quiz-reset-attempt.js';
 import sepbookBackfillTranslations from '../server/api-handlers/sepbook-backfill-translations.js';
 import adminEvaluationsDashboard from '../server/api-handlers/admin-evaluations-dashboard.js';
+import systemStorageDiagnostics from '../server/api-handlers/system-storage-diagnostics.js';
 
 type Handler = (req: VercelRequest, res: VercelResponse) => any | Promise<any>;
 
@@ -107,6 +108,7 @@ const handlers: Record<string, Handler> = {
   'quiz-reset-attempt': quizResetAttempt,
   'sepbook-backfill-translations': sepbookBackfillTranslations,
   'admin-evaluations-dashboard': adminEvaluationsDashboard,
+  'system-storage-diagnostics': systemStorageDiagnostics,
 };
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {

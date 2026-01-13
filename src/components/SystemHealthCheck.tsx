@@ -30,6 +30,19 @@ export const SystemHealthCheck = () => {
   const [applyingBonus, setApplyingBonus] = useState(false);
   const [forumBonusPreview, setForumBonusPreview] = useState<any[] | null>(null);
   const [cleanupLoading, setCleanupLoading] = useState<string | null>(null);
+  const [storageLoading, setStorageLoading] = useState(false);
+  const [storageDiagnostics, setStorageDiagnostics] = useState<any | null>(null);
+
+  const formatBytes = (bytesRaw: any) => {
+    const bytes = Math.max(0, Number(bytesRaw) || 0);
+    if (bytes < 1024) return `${bytes} B`;
+    const kb = bytes / 1024;
+    if (kb < 1024) return `${kb.toFixed(1)} KB`;
+    const mb = kb / 1024;
+    if (mb < 1024) return `${mb.toFixed(1)} MB`;
+    const gb = mb / 1024;
+    return `${gb.toFixed(2)} GB`;
+  };
 
   const clearLocalCache = () => {
     try {
@@ -123,6 +136,28 @@ export const SystemHealthCheck = () => {
       setAiStatus({ ok: false, stage: 'network', error: e?.message || 'network error' });
     } finally {
       setAiLoading(false);
+    }
+  };
+
+  const loadStorage = async () => {
+    setStorageLoading(true);
+    try {
+      const { data: session } = await supabase.auth.getSession();
+      const token = session.session?.access_token;
+      if (!token) throw new Error('Não autenticado');
+      const resp = await apiFetch('/api/admin?handler=system-storage-diagnostics', {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(json?.error || 'Falha ao carregar armazenamento');
+      setStorageDiagnostics(json?.diagnostics || null);
+      toast.success('Diagnóstico de armazenamento carregado');
+    } catch (e: any) {
+      toast.error('Erro ao carregar armazenamento', { description: e?.message || '' });
+      setStorageDiagnostics(null);
+    } finally {
+      setStorageLoading(false);
     }
   };
 
@@ -547,6 +582,102 @@ export const SystemHealthCheck = () => {
             </div>
             {!aiStatus.ok && (
               <p className="text-xs text-muted-foreground mt-2">{[aiStatus.stage, aiStatus.error].filter(Boolean).join(' • ')}</p>
+            )}
+          </CardContent>
+        )}
+      </Card>
+
+      {/* Storage diagnostics */}
+      <Card className="border-border/60 bg-card">
+        <CardHeader>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Sparkles className="h-5 w-5" />
+                Armazenamento (DB + Storage)
+              </CardTitle>
+              <CardDescription>
+                Tamanho do banco (Postgres) e ocupação por tipo de arquivo (fotos, áudios, vídeos e documentos).
+              </CardDescription>
+            </div>
+            <Button onClick={loadStorage} variant="outline" size="sm" disabled={storageLoading}>
+              {storageLoading ? 'Carregando...' : 'Atualizar'}
+            </Button>
+          </div>
+        </CardHeader>
+        {storageDiagnostics && (
+          <CardContent className="space-y-3">
+            <div className="text-sm">
+              <span className="font-semibold">Banco (Postgres):</span> {formatBytes(storageDiagnostics?.db?.bytes)}
+              {storageDiagnostics?.generated_at ? (
+                <span className="text-xs text-muted-foreground"> {' '}• {new Date(storageDiagnostics.generated_at).toLocaleString()}</span>
+              ) : null}
+            </div>
+
+            <div className="text-sm">
+              <span className="font-semibold">Storage (arquivos):</span> {formatBytes(storageDiagnostics?.storage?.total_bytes)}
+            </div>
+
+            {Array.isArray(storageDiagnostics?.storage?.by_kind) && storageDiagnostics.storage.by_kind.length > 0 && (
+              <div className="space-y-2">
+                <div className="text-xs font-semibold text-muted-foreground">Por tipo</div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {storageDiagnostics.storage.by_kind.map((k: any) => {
+                    const total = Math.max(0, Number(storageDiagnostics?.storage?.total_bytes) || 0);
+                    const bytes = Math.max(0, Number(k?.bytes) || 0);
+                    const pct = total > 0 ? Math.round((bytes / total) * 100) : 0;
+                    const labelMap: Record<string, string> = {
+                      images: 'Fotos',
+                      audio: 'Áudios',
+                      video: 'Vídeos',
+                      docs: 'Docs',
+                      other: 'Outros',
+                    };
+                    const label = labelMap[String(k?.kind || '')] || String(k?.kind || 'Outros');
+                    return (
+                      <div key={String(k?.kind || label)} className="rounded-lg border p-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="text-sm font-semibold">{label}</div>
+                          <div className="text-xs text-muted-foreground">{pct}%</div>
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {formatBytes(bytes)} • {Number(k?.files) || 0} arquivo(s)
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {Array.isArray(storageDiagnostics?.storage?.by_bucket) && storageDiagnostics.storage.by_bucket.length > 0 && (
+              <div className="space-y-2">
+                <div className="text-xs font-semibold text-muted-foreground">Por bucket</div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {storageDiagnostics.storage.by_bucket.slice(0, 10).map((b: any) => (
+                    <div key={String(b?.bucket_id || '')} className="rounded-lg border p-2">
+                      <div className="text-sm font-semibold truncate">{String(b?.bucket_id || '')}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {formatBytes(b?.bytes)} • {Number(b?.files) || 0} arquivo(s)
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {Array.isArray(storageDiagnostics?.public_tables_top) && storageDiagnostics.public_tables_top.length > 0 && (
+              <div className="space-y-2">
+                <div className="text-xs font-semibold text-muted-foreground">Top tabelas (por tamanho)</div>
+                <div className="max-h-56 overflow-auto rounded-lg border">
+                  {storageDiagnostics.public_tables_top.slice(0, 20).map((t: any, idx: number) => (
+                    <div key={`${t?.name || idx}`} className="flex items-center justify-between gap-3 px-3 py-2 border-b last:border-b-0">
+                      <div className="text-xs font-medium truncate">{String(t?.name || '')}</div>
+                      <div className="text-xs text-muted-foreground">{formatBytes(t?.bytes)}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
             )}
           </CardContent>
         )}
