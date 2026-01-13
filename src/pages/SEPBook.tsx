@@ -1708,9 +1708,9 @@ export default function SEPBook() {
                 )}
                 <AttachmentUploader
                   onAttachmentsChange={setAttachments}
-                  maxFiles={4}
+                  maxFiles={5}
                   maxImages={3}
-                  maxVideos={1}
+                  maxVideos={2}
                   maxSizeMB={50}
                   bucket="evidence"
                   pathPrefix="sepbook"
@@ -1722,7 +1722,7 @@ export default function SEPBook() {
                   onUploadingChange={setAttachmentsUploading}
                 />
                 <p className="text-[11px] text-muted-foreground text-center">
-                  Imagens são otimizadas para até 4K. Vídeos: até 30s (preferencialmente 1080p/FullHD). Limite: 3 fotos + 1 vídeo por post.
+                  Imagens são otimizadas para até 4K. Vídeos: até 30s (preferencialmente 1080p/FullHD). Limite: 3 fotos + 2 vídeos por post.
                 </p>
                 <div className="flex flex-col items-center justify-center gap-2">
                   <div className="flex flex-wrap items-center gap-3">
@@ -2026,9 +2026,9 @@ export default function SEPBook() {
                     />
                     <AttachmentUploader
                       onAttachmentsChange={setEditingNewAttachments}
-                      maxFiles={4}
+                      maxFiles={5}
                       maxImages={3}
-                      maxVideos={1}
+                      maxVideos={2}
                       maxSizeMB={50}
                       bucket="evidence"
                       pathPrefix="sepbook"

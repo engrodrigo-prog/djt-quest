@@ -50,6 +50,7 @@ const clampLatLng = (latRaw: any, lngRaw: any) => {
   const lng = Number(lngRaw);
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
   if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
+  if (Math.abs(lat) < 1e-9 && Math.abs(lng) < 1e-9) return null;
   return { lat, lng };
 };
 
@@ -178,7 +179,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       const reader = SERVICE_ROLE_KEY ? admin : authed;
       const baseSelect =
-        "id, post_id, user_id, content_md, created_at, parent_id, updated_at, location_label, location_lat, location_lng";
+        "id, post_id, user_id, content_md, created_at, parent_id, updated_at, location_label, location_lat, location_lng, deleted_at, deleted_by";
       const selectWithAttachments = `${baseSelect}, attachments, translations`;
       let data: any[] | null = null;
       let error: any = null;
@@ -192,7 +193,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       error = attempt.error as any;
       if (
         error &&
-        /attachments|translations|parent_id|updated_at|location_lat|location_lng|location_label/i.test(
+        /attachments|translations|parent_id|updated_at|location_lat|location_lng|location_label|deleted_at|deleted_by/i.test(
           String(error.message || ""),
         )
       ) {
@@ -287,6 +288,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           location_lng: typeof c?.location_lng === "number" ? c.location_lng : null,
           created_at: c.created_at,
           updated_at: c?.updated_at || null,
+          deleted_at: c?.deleted_at || null,
+          deleted_by: c?.deleted_by || null,
           like_count: likeCounts.get(String(c.id)) || 0,
           has_liked: likedByUser.has(String(c.id)),
         };
@@ -474,6 +477,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (!uid) return res.status(401).json({ error: "Unauthorized" });
 
       const { comment_id, content_md } = req.body || {};
+      const restore = Boolean(req.body?.restore);
       const commentId = String(comment_id || "").trim();
       if (!commentId) return res.status(400).json({ error: "comment_id obrigatório" });
       const rawAttachments = Array.isArray(req.body?.attachments) ? req.body.attachments : null;
@@ -489,12 +493,51 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const reader = SERVICE_ROLE_KEY ? admin : authed;
       const { data: existing, error: fetchErr } = await reader
         .from("sepbook_comments")
-        .select("id, post_id, user_id, attachments, translations, parent_id, location_label, location_lat, location_lng")
+        .select(
+          "id, post_id, user_id, attachments, translations, parent_id, location_label, location_lat, location_lng, deleted_at, deleted_by, deleted_backup",
+        )
         .eq("id", commentId)
         .maybeSingle();
       if (fetchErr) return res.status(400).json({ error: fetchErr.message });
       if (!existing) return res.status(404).json({ error: "Comentário não encontrado" });
       if (existing.user_id !== uid) return res.status(403).json({ error: "Sem permissão para editar este comentário" });
+
+      if (restore) {
+        const backup = (existing as any)?.deleted_backup && typeof (existing as any).deleted_backup === "object" ? (existing as any).deleted_backup : null;
+        if (!backup) return res.status(400).json({ error: "Nada para restaurar" });
+        const restoreText = String(backup?.content_md || "").trim();
+        const restoreAttachments = Array.isArray(backup?.attachments) ? backup.attachments : [];
+        const restoreTranslations = backup?.translations && typeof backup.translations === "object" ? backup.translations : null;
+        const patch: any = {
+          content_md: restoreText,
+          attachments: restoreAttachments,
+          translations: restoreTranslations,
+          updated_at: new Date().toISOString(),
+          deleted_at: null,
+          deleted_by: null,
+          deleted_backup: null,
+        };
+        const { error } = await reader.from("sepbook_comments").update(patch as any).eq("id", commentId);
+        if (error) return res.status(400).json({ error: error.message || "Falha ao restaurar comentário" });
+        return res.status(200).json({
+          success: true,
+          comment: {
+            id: existing.id,
+            post_id: existing.post_id,
+            user_id: existing.user_id,
+            parent_id: existing.parent_id || null,
+            content_md: restoreText,
+            attachments: restoreAttachments,
+            translations: restoreTranslations,
+            location_label: (existing as any)?.location_label || null,
+            location_lat: (existing as any)?.location_lat || null,
+            location_lng: (existing as any)?.location_lng || null,
+            deleted_at: null,
+            deleted_by: null,
+            updated_at: patch.updated_at,
+          },
+        });
+      }
 
       const effectiveAttachments = nextAttachments ?? (Array.isArray(existing.attachments) ? existing.attachments : []);
       if (normalizedText.length < 2 && effectiveAttachments.length === 0) {
@@ -524,6 +567,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             attachments: effectiveAttachments,
             translations,
             ...locationPatch,
+            deleted_at: null,
+            deleted_by: null,
+            deleted_backup: null,
           } as any)
           .eq("id", commentId);
         updateError = error;
@@ -531,6 +577,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (
           updateError &&
           /location_(lat|lng|label)/i.test(String(updateError.message || "")) &&
+          /(column|schema cache|does not exist)/i.test(String(updateError.message || ""))
+        ) {
+          throw updateError;
+        }
+        if (
+          updateError &&
+          /deleted_(at|by|backup)/i.test(String(updateError.message || "")) &&
           /(column|schema cache|does not exist)/i.test(String(updateError.message || ""))
         ) {
           throw updateError;
@@ -591,6 +644,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           location_label: maybeCoords ? locationLabel : (existing as any)?.location_label || null,
           location_lat: maybeCoords ? maybeCoords.lat : (existing as any)?.location_lat || null,
           location_lng: maybeCoords ? maybeCoords.lng : (existing as any)?.location_lng || null,
+          deleted_at: (existing as any)?.deleted_at || null,
+          deleted_by: (existing as any)?.deleted_by || null,
           author_name: profile?.name || "Colaborador",
           author_team: profile?.sigla_area || null,
           author_avatar: profile?.avatar_url || null,
@@ -624,7 +679,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const reader = SERVICE_ROLE_KEY ? admin : authed;
       const { data: existing, error: fetchErr } = await reader
         .from("sepbook_comments")
-        .select("id, post_id, user_id, parent_id, attachments, translations, content_md, created_at")
+        .select("id, post_id, user_id, parent_id, attachments, translations, content_md, created_at, deleted_at, deleted_by, deleted_backup")
         .eq("id", commentId)
         .maybeSingle();
       if (fetchErr) return res.status(400).json({ error: fetchErr.message });
@@ -654,12 +709,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const effectiveAttachments: any[] = [];
         const translations: any = existing?.translations && typeof existing.translations === "object" ? existing.translations : null;
         const nextTranslations = translations ? { ...translations, "pt-BR": "" } : { "pt-BR": "" };
+        const backup = {
+          content_md: existing?.content_md || "",
+          attachments: Array.isArray(existing?.attachments) ? existing.attachments : [],
+          translations: translations,
+        };
         try {
           const { error } = await reader
             .from("sepbook_comments")
-            .update({ content_md: "", attachments: effectiveAttachments, translations: nextTranslations } as any)
+            .update(
+              {
+                content_md: "",
+                attachments: effectiveAttachments,
+                translations: nextTranslations,
+                deleted_at: new Date().toISOString(),
+                deleted_by: uid,
+                deleted_backup: backup,
+              } as any,
+            )
             .eq("id", commentId);
           if (error && /column .*translations.* does not exist/i.test(String(error.message || ""))) throw error;
+          if (error && /deleted_(at|by|backup)/i.test(String(error.message || ""))) throw error;
           if (error) return { ok: false as const, error };
           return { ok: true as const };
         } catch {
@@ -672,30 +742,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }
       };
 
-      if (hasReplies) {
-        const soft = await softDelete();
-        if (!soft.ok) return res.status(400).json({ error: soft.error?.message || "Falha ao excluir comentário" });
-        return res.status(200).json({ success: true, deleted: "soft" });
-      }
-
-      // No replies: try hard delete (preferred to clean threads + likes).
-      const writer = SERVICE_ROLE_KEY ? admin : reader;
-      const { error: delErr } = await writer.from("sepbook_comments").delete().eq("id", commentId);
-      if (delErr) {
-        const msg = String(delErr.message || "");
-        if (/(row level security|rls|permission denied|not authorized)/i.test(msg)) {
-          // Fallback: keep thread consistent even when cascades are blocked by RLS.
-          const soft = await softDelete();
-          if (soft.ok) return res.status(200).json({ success: true, deleted: "soft" });
-          return res.status(403).json({
-            error:
-              "Sem permissão para excluir este comentário (RLS). Configure SUPABASE_SERVICE_ROLE_KEY no Vercel para permitir exclusão com cascata.",
-          });
-        }
-        return res.status(400).json({ error: delErr.message || "Falha ao excluir comentário" });
-      }
-
-      return res.status(200).json({ success: true, deleted: "hard" });
+      const soft = await softDelete();
+      if (!soft.ok) return res.status(400).json({ error: soft.error?.message || "Falha ao excluir comentário" });
+      return res.status(200).json({ success: true, deleted: hasReplies ? "soft" : "soft_no_replies" });
     }
 
     return res.status(405).json({ error: "Method not allowed" });

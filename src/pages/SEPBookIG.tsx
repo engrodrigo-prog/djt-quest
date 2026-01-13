@@ -51,6 +51,7 @@ import {
   Pencil,
   Plus,
   Reply,
+  RotateCcw,
   Send,
   Share2,
   SlidersHorizontal,
@@ -106,6 +107,8 @@ type SepComment = {
   like_count?: number;
   has_liked?: boolean;
   updated_at?: string | null;
+  deleted_at?: string | null;
+  deleted_by?: string | null;
   created_at: string;
 };
 
@@ -180,6 +183,7 @@ type MapProfile = {
   telefone?: string | null;
   avatar_url: string | null;
   avatar_thumbnail_url?: string | null;
+  sepbook_gps_consent?: boolean | null;
 };
 
 const getExtFromType = (mime: string) => {
@@ -327,48 +331,17 @@ const isImageUrl = (url: string) => {
   return /\.(png|jpg|jpeg|webp|gif)(\?|#|$)/i.test(u);
 };
 
-const STORAGE_SEPBOOK_LOCATION_CONSENT = "sepbook_location_consent"; // 'allow'
-
-const readLocationConsent = (): "allow" | "unknown" => {
-  try {
-    const raw = localStorage.getItem(STORAGE_SEPBOOK_LOCATION_CONSENT);
-    if (raw === "allow") return "allow";
-    if (raw === "deny") {
-      // Legacy: we no longer persist denial (we ask again on the next attempt).
-      localStorage.removeItem(STORAGE_SEPBOOK_LOCATION_CONSENT);
-    }
-    return "unknown";
-  } catch {
-    return "unknown";
-  }
-};
-
-const writeLocationConsent = (next: "allow") => {
-  try {
-    localStorage.setItem(STORAGE_SEPBOOK_LOCATION_CONSENT, next);
-  } catch {
-    /* ignore */
-  }
-};
-
-const clearLocationConsent = () => {
-  try {
-    localStorage.removeItem(STORAGE_SEPBOOK_LOCATION_CONSENT);
-  } catch {
-    /* ignore */
-  }
-};
-
 const clampLatLng = (lat: number, lng: number) => {
   const la = Number(lat);
   const ln = Number(lng);
   if (!Number.isFinite(la) || !Number.isFinite(ln)) return null;
   if (Math.abs(la) > 90 || Math.abs(ln) > 180) return null;
+  if (Math.abs(la) < 1e-9 && Math.abs(ln) < 1e-9) return null;
   return { lat: la, lng: ln };
 };
 
-const formatGpsLabel = (lat: number, lng: number, source: "photo" | "device") => {
-  return source === "photo" ? "GPS da foto" : "Localização";
+const formatGpsLabel = (_lat: number, _lng: number, _source: "photo") => {
+  return "GPS da foto";
 };
 
 const sanitizeLocationLabel = (raw: any) => {
@@ -705,7 +678,7 @@ export default function SEPBookIG() {
       try {
         const { data } = await supabase
           .from("profiles")
-          .select("id, name, operational_base, sigla_area, phone, telefone, avatar_url, avatar_thumbnail_url")
+          .select("id, name, operational_base, sigla_area, phone, telefone, avatar_url, avatar_thumbnail_url, sepbook_gps_consent")
           .eq("id", uid)
           .maybeSingle();
         if (!cancelled) setMyProfile((data as any) || null);
@@ -767,12 +740,6 @@ export default function SEPBookIG() {
     return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || "");
   }, []);
 
-  const [locationConsent, setLocationConsent] = useState<"allow" | "unknown">("unknown");
-  const [locationConsentDialogOpen, setLocationConsentDialogOpen] = useState(false);
-  const [useDeviceLocationDialogOpen, setUseDeviceLocationDialogOpen] = useState(false);
-  const locationConsentResolverRef = useRef<((allowed: boolean) => void) | null>(null);
-  const useDeviceLocationResolverRef = useRef<((allowed: boolean) => void) | null>(null);
-
   const [composerOpen, setComposerOpen] = useState(false);
   const [composerText, setComposerText] = useState("");
   const [composerMentionQuery, setComposerMentionQuery] = useState("");
@@ -786,6 +753,7 @@ export default function SEPBookIG() {
   const [composerSubmitting, setComposerSubmitting] = useState(false);
   const composerCameraRef = useRef<HTMLInputElement | null>(null);
   const composerGalleryRef = useRef<HTMLInputElement | null>(null);
+  const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
 
   const [editingPostId, setEditingPostId] = useState<string | null>(null);
   const [editingPostText, setEditingPostText] = useState("");
@@ -807,6 +775,7 @@ export default function SEPBookIG() {
   const commentGalleryRef = useRef<HTMLInputElement | null>(null);
   const commentInputRef = useRef<HTMLTextAreaElement | null>(null);
   const [commentLiking, setCommentLiking] = useState<Record<string, boolean>>({});
+  const [commentRestoring, setCommentRestoring] = useState<Record<string, boolean>>({});
   const [replyTarget, setReplyTarget] = useState<SepComment | null>(null);
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
   const [editingCommentText, setEditingCommentText] = useState("");
@@ -961,6 +930,7 @@ export default function SEPBookIG() {
         const lat = Number(p.location_lat);
         const lng = Number(p.location_lng);
         if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+        if (Math.abs(lat) < 1e-9 && Math.abs(lng) < 1e-9) return null;
         const imageUrl = (Array.isArray(p.attachments) ? p.attachments : []).find((u) => isImageUrl(u)) || null;
         if (!imageUrl) return null;
         return {
@@ -986,6 +956,7 @@ export default function SEPBookIG() {
         const lat = Number((c as any).location_lat);
         const lng = Number((c as any).location_lng);
         if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+        if (Math.abs(lat) < 1e-9 && Math.abs(lng) < 1e-9) return null;
         const imageUrl = String((c as any).image_url || "").trim();
         if (!imageUrl || !isImageUrl(imageUrl)) return null;
         return {
@@ -1026,7 +997,7 @@ export default function SEPBookIG() {
       try {
         const { data } = await supabase
           .from("profiles")
-          .select("id, name, operational_base, sigla_area, phone, telefone, avatar_url, avatar_thumbnail_url")
+          .select("id, name, operational_base, sigla_area, phone, telefone, avatar_url, avatar_thumbnail_url, sepbook_gps_consent")
           .in("id", ids);
         if (cancelled) return;
         const next: Record<string, MapProfile> = {};
@@ -1189,10 +1160,6 @@ export default function SEPBookIG() {
   );
 
   useEffect(() => {
-    setLocationConsent(readLocationConsent());
-  }, []);
-
-  useEffect(() => {
     setFallbackTranslations({});
   }, [locale]);
 
@@ -1270,82 +1237,31 @@ export default function SEPBookIG() {
     })();
   }, [commentsByPost, commentsOpenFor, locale, visiblePosts]);
 
-  const requestLocationConsent = useCallback(async () => {
-    if (locationConsent === "allow") return true;
-    return await new Promise<boolean>((resolve) => {
-      locationConsentResolverRef.current = resolve;
-      setLocationConsentDialogOpen(true);
-    });
-  }, [locationConsent]);
-
-  const requestUseDeviceLocation = useCallback(async () => {
-    return await new Promise<boolean>((resolve) => {
-      useDeviceLocationResolverRef.current = resolve;
-      setUseDeviceLocationDialogOpen(true);
-    });
-  }, []);
-
-  const getCurrentPosition = useCallback(async (): Promise<{ lat: number; lng: number } | null> => {
-    try {
-      if (typeof navigator === "undefined" || !navigator.geolocation) return null;
-      const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
-        navigator.geolocation.getCurrentPosition(resolve, reject, {
-          enableHighAccuracy: true,
-          timeout: 9000,
-          maximumAge: 30000,
-        });
-      });
-      return clampLatLng(pos.coords.latitude, pos.coords.longitude);
-    } catch {
-      return null;
-    }
-  }, []);
-
   const resolveLocationForNewPost = useCallback(async () => {
-    const allowed = await requestLocationConsent();
-    if (!allowed) return null;
+    if (myProfile?.sepbook_gps_consent !== true) return null;
 
     // Prefer EXIF GPS from the image, if present.
     if (composerGpsSource?.gps && composerGpsSource.url) {
       return {
         location_lat: composerGpsSource.gps.lat,
         location_lng: composerGpsSource.gps.lng,
-        location_label: formatGpsLabel(composerGpsSource.gps.lat, composerGpsSource.gps.lng, "photo"),
+        location_label: myProfile?.operational_base || formatGpsLabel(composerGpsSource.gps.lat, composerGpsSource.gps.lng, "photo"),
         __gps_url: composerGpsSource.url || null,
       };
     }
-
-    // No EXIF GPS: confirm with the user every time before using device location.
-    const ok = await requestUseDeviceLocation();
-    if (!ok) return null;
-
-    const coords = await getCurrentPosition();
-    if (!coords) {
-      toast({
-        title: "Localização indisponível",
-        description: "Não foi possível obter sua localização atual. A publicação será enviada sem GPS.",
-      });
-      return null;
-    }
-
-    return {
-      location_lat: coords.lat,
-      location_lng: coords.lng,
-      location_label: myProfile?.operational_base || formatGpsLabel(coords.lat, coords.lng, "device"),
-    };
-  }, [composerGpsSource, getCurrentPosition, myProfile?.operational_base, requestLocationConsent, requestUseDeviceLocation, toast]);
+    return null;
+  }, [composerGpsSource, myProfile?.operational_base, myProfile?.sepbook_gps_consent]);
 
   const resolveLocationForNewComment = useCallback(async () => {
     if (!commentGpsSource?.gps || !commentGpsSource.url) return null;
-    const allowed = await requestLocationConsent();
-    if (!allowed) return null;
+    if (myProfile?.sepbook_gps_consent !== true) return null;
     return {
       location_lat: commentGpsSource.gps.lat,
       location_lng: commentGpsSource.gps.lng,
-      location_label: formatGpsLabel(commentGpsSource.gps.lat, commentGpsSource.gps.lng, "photo"),
+      location_label: myProfile?.operational_base || formatGpsLabel(commentGpsSource.gps.lat, commentGpsSource.gps.lng, "photo"),
       __gps_url: commentGpsSource.url || null,
     };
-  }, [commentGpsSource, requestLocationConsent]);
+  }, [commentGpsSource, myProfile?.operational_base, myProfile?.sepbook_gps_consent]);
 
   const uploadedComposerUrls = useMemo(
     () => composerMedia.filter((m) => m.url).map((m) => m.url!) as string[],
@@ -1481,9 +1397,20 @@ export default function SEPBookIG() {
       commentMedia.forEach((m) => m.previewUrl && URL.revokeObjectURL(m.previewUrl));
       setCommentMedia([]);
       if (!commentsByPost[id]) await loadComments(id);
+      window.setTimeout(() => {
+        commentInputRef.current?.focus();
+      }, 120);
     },
     [commentMedia, commentsByPost, loadComments],
   );
+
+  useEffect(() => {
+    if (!composerOpen) return;
+    const t = window.setTimeout(() => {
+      composerInputRef.current?.focus();
+    }, 120);
+    return () => window.clearTimeout(t);
+  }, [composerOpen]);
 
   const toggleLike = useCallback(
     async (post: SepPost) => {
@@ -1837,7 +1764,21 @@ export default function SEPBookIG() {
           ) : (
             <>
               {isDeleted ? (
-                <div className="text-[13px] mt-0.5 italic text-muted-foreground">Comentário removido</div>
+                <div className="mt-0.5 space-y-1">
+                  <div className="text-[13px] italic text-muted-foreground">Comentário removido</div>
+                  {isOwn && comment.deleted_at ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => void restoreComment(postId, comment)}
+                      disabled={commentRestoring[comment.id]}
+                    >
+                      <RotateCcw className="h-4 w-4 mr-1" />
+                      Restaurar
+                    </Button>
+                  ) : null}
+                </div>
               ) : text ? (
                 <div className="text-[13px] mt-0.5">{renderRichText(toast, text)}</div>
               ) : null}
@@ -1914,9 +1855,9 @@ export default function SEPBookIG() {
       if (!list.length) return;
 
       const isPost = opts.context === "post";
-      const maxFiles = isPost ? 4 : 3;
+      const maxFiles = isPost ? 5 : 3;
       const maxImages = isPost ? 3 : 3;
-      const maxVideos = isPost ? 1 : 0;
+      const maxVideos = isPost ? 2 : 0;
       const maxSizeMB = isPost ? 50 : 20;
       const bucket = "evidence";
       const pathPrefix = isPost ? "sepbook" : "sepbook-comments";
@@ -2160,12 +2101,22 @@ export default function SEPBookIG() {
         if (!resp.ok) throw new Error(json?.error || "Falha ao excluir comentário");
 
         const mode = String(json?.deleted || "");
-        if (mode === "soft") {
+        if (mode.startsWith("soft")) {
+          const nowIso = new Date().toISOString();
           setCommentsByPost((prev) => ({
             ...prev,
             [postId]: (prev[postId] || []).map((c) =>
               c.id === comment.id
-                ? { ...c, content_md: "", attachments: [], like_count: 0, has_liked: false, updated_at: new Date().toISOString() }
+                ? {
+                    ...c,
+                    content_md: "",
+                    attachments: [],
+                    like_count: 0,
+                    has_liked: false,
+                    updated_at: nowIso,
+                    deleted_at: nowIso,
+                    deleted_by: user?.id || null,
+                  }
                 : c,
             ),
           }));
@@ -2185,7 +2136,36 @@ export default function SEPBookIG() {
         toast({ title: "Erro ao excluir comentário", description: e?.message || "Tente novamente", variant: "destructive" });
       }
     },
-    [cancelEditComment, editingCommentId, toast],
+    [cancelEditComment, editingCommentId, toast, user?.id],
+  );
+
+  const restoreComment = useCallback(
+    async (postId: string, comment: SepComment) => {
+      const cid = String(comment?.id || "").trim();
+      if (!cid) return;
+      if (commentRestoring[cid]) return;
+      setCommentRestoring((prev) => ({ ...prev, [cid]: true }));
+      try {
+        const resp = await apiFetch("/api/sepbook-comments", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ comment_id: cid, restore: true }),
+        });
+        const json = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(json?.error || "Falha ao restaurar comentário");
+        const restored = json?.comment || null;
+        setCommentsByPost((prev) => ({
+          ...prev,
+          [postId]: (prev[postId] || []).map((c) => (c.id === cid ? { ...c, ...(restored || {}), deleted_at: null, deleted_by: null } : c)),
+        }));
+        toast({ title: "Comentário restaurado" });
+      } catch (e: any) {
+        toast({ title: "Erro ao restaurar", description: e?.message || "Tente novamente", variant: "destructive" });
+      } finally {
+        setCommentRestoring((prev) => ({ ...prev, [cid]: false }));
+      }
+    },
+    [commentRestoring, toast],
   );
 
   const submitPost = useCallback(async () => {
@@ -2845,6 +2825,7 @@ export default function SEPBookIG() {
                 {renderMediaThumbs(composerMedia, (m) => removeMediaItem(m, setComposerMedia))}
 
                 <Textarea
+                  ref={composerInputRef}
                   value={composerText}
                   onChange={(e) => setComposerText(e.target.value)}
                   placeholder={tr("sepbook.captionPlaceholder")}
@@ -3779,99 +3760,7 @@ export default function SEPBookIG() {
         </DialogContent>
       </Dialog>
 
-      <Dialog
-        open={locationConsentDialogOpen}
-        onOpenChange={(open) => {
-          if (open) {
-            setLocationConsentDialogOpen(true);
-            return;
-          }
-          setLocationConsentDialogOpen(false);
-          locationConsentResolverRef.current?.(false);
-          locationConsentResolverRef.current = null;
-        }}
-      >
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>{tr("sepbook.gpsConsentTitle")}</DialogTitle>
-            <DialogDescription>
-              {tr("sepbook.gpsConsentDescription")}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex items-center justify-end gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => {
-                setLocationConsent("unknown");
-                clearLocationConsent();
-                setLocationConsentDialogOpen(false);
-                locationConsentResolverRef.current?.(false);
-                locationConsentResolverRef.current = null;
-              }}
-            >
-              {tr("sepbook.gpsConsentDeny")}
-            </Button>
-            <Button
-              type="button"
-              onClick={() => {
-                setLocationConsent("allow");
-                writeLocationConsent("allow");
-                setLocationConsentDialogOpen(false);
-                locationConsentResolverRef.current?.(true);
-                locationConsentResolverRef.current = null;
-              }}
-            >
-              {tr("sepbook.gpsConsentAllow")}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog
-        open={useDeviceLocationDialogOpen}
-        onOpenChange={(open) => {
-          if (open) {
-            setUseDeviceLocationDialogOpen(true);
-            return;
-          }
-          setUseDeviceLocationDialogOpen(false);
-          useDeviceLocationResolverRef.current?.(false);
-          useDeviceLocationResolverRef.current = null;
-        }}
-      >
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>{tr("sepbook.photoNoGpsTitle")}</DialogTitle>
-            <DialogDescription>
-              {tr("sepbook.photoNoGpsDescription")}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex items-center justify-end gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => {
-                setUseDeviceLocationDialogOpen(false);
-                useDeviceLocationResolverRef.current?.(false);
-                useDeviceLocationResolverRef.current = null;
-              }}
-            >
-              {tr("sepbook.photoNoGpsDeny")}
-            </Button>
-            <Button
-              type="button"
-              onClick={() => {
-                setUseDeviceLocationDialogOpen(false);
-                useDeviceLocationResolverRef.current?.(true);
-                useDeviceLocationResolverRef.current = null;
-              }}
-            >
-              {tr("sepbook.photoNoGpsAllow")}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      {/* GPS consent is handled globally on login via SepbookGpsConsentPrompt */}
     </div>
   );
 }

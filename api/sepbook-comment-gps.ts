@@ -80,7 +80,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ error: msg || "Falha ao carregar comentários com GPS" });
     }
 
-    const rows = Array.isArray(data) ? data : [];
+    const rows = (Array.isArray(data) ? data : []).filter((c: any) => {
+      const lat = Number(c?.location_lat);
+      const lng = Number(c?.location_lng);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+      if (Math.abs(lat) < 1e-9 && Math.abs(lng) < 1e-9) return false;
+      return true;
+    });
     const userIds = Array.from(new Set(rows.map((c: any) => c.user_id).filter(Boolean)));
     let profiles: any[] = [];
     try {
@@ -125,4 +131,3 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 }
 
 export const config = { api: { bodyParser: false } };
-
