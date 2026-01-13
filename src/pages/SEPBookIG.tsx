@@ -99,10 +99,28 @@ type SepComment = {
   content_md: string;
   translations?: Record<string, string> | null;
   attachments?: string[];
+  location_label?: string | null;
+  location_lat?: number | null;
+  location_lng?: number | null;
   parent_id?: string | null;
   like_count?: number;
   has_liked?: boolean;
   updated_at?: string | null;
+  created_at: string;
+};
+
+type SepCommentGps = {
+  id: string;
+  post_id: string;
+  user_id: string;
+  author_name: string;
+  author_team: string | null;
+  author_avatar: string | null;
+  author_base?: string | null;
+  image_url: string;
+  location_label: string | null;
+  location_lat: number;
+  location_lng: number;
   created_at: string;
 };
 
@@ -134,6 +152,21 @@ type MediaItem = {
   bucket?: string;
   filePath?: string;
   error?: string;
+};
+
+type SepMapItem = {
+  key: string;
+  kind: "post" | "comment";
+  lat: number;
+  lng: number;
+  imageUrl: string;
+  user_id: string;
+  author_name: string;
+  author_avatar: string | null;
+  created_at: string;
+  location_label: string | null;
+  post_id: string;
+  comment_id: string | null;
 };
 
 const randomId = () => Math.random().toString(36).slice(2);
@@ -661,6 +694,8 @@ export default function SEPBookIG() {
   const [mapHasInteracted, setMapHasInteracted] = useState(false);
   const [mapFitToken, setMapFitToken] = useState(0);
   const mapInstanceRef = useRef<L.Map | null>(null);
+  const [commentGpsItems, setCommentGpsItems] = useState<SepCommentGps[]>([]);
+  const [commentGpsLoading, setCommentGpsLoading] = useState(false);
   const isMobileDevice = useMemo(() => {
     if (typeof navigator === "undefined") return false;
     return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || "");
@@ -686,6 +721,12 @@ export default function SEPBookIG() {
   const composerCameraRef = useRef<HTMLInputElement | null>(null);
   const composerGalleryRef = useRef<HTMLInputElement | null>(null);
 
+  const [editingPostId, setEditingPostId] = useState<string | null>(null);
+  const [editingPostText, setEditingPostText] = useState("");
+  const [editingPostMentionQuery, setEditingPostMentionQuery] = useState("");
+  const editingPostMentions = useMentionSuggest(editingPostMentionQuery);
+  const [editingPostSaving, setEditingPostSaving] = useState(false);
+
   const [commentsOpenFor, setCommentsOpenFor] = useState<string | null>(null);
   const [commentsByPost, setCommentsByPost] = useState<Record<string, SepComment[]>>({});
   const [commentsLoading, setCommentsLoading] = useState<Record<string, boolean>>({});
@@ -703,6 +744,8 @@ export default function SEPBookIG() {
   const [replyTarget, setReplyTarget] = useState<SepComment | null>(null);
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
   const [editingCommentText, setEditingCommentText] = useState("");
+  const [editingCommentMentionQuery, setEditingCommentMentionQuery] = useState("");
+  const editingCommentMentions = useMentionSuggest(editingCommentMentionQuery);
   const [editingCommentSaving, setEditingCommentSaving] = useState(false);
   const [cleaningComment, setCleaningComment] = useState(false);
   const [cleaningCommentEdit, setCleaningCommentEdit] = useState(false);
@@ -721,6 +764,7 @@ export default function SEPBookIG() {
   const deepLinkPostHandledRef = useRef<string | null>(null);
 
   const activePost = useMemo(() => posts.find((p) => p.id === commentsOpenFor) || null, [commentsOpenFor, posts]);
+  const editingPost = useMemo(() => posts.find((p) => p.id === editingPostId) || null, [editingPostId, posts]);
 
   const [fallbackTranslations, setFallbackTranslations] = useState<Record<string, string>>({});
   const translationInFlightRef = useRef(0);
@@ -732,6 +776,14 @@ export default function SEPBookIG() {
     }
     return null;
   }, [composerMedia]);
+
+  const commentGpsFromPhoto = useMemo(() => {
+    const items = commentMedia.filter((m) => m.kind === "image");
+    for (const it of items) {
+      if (it.gps && typeof it.gps.lat === "number" && typeof it.gps.lng === "number") return it.gps;
+    }
+    return null;
+  }, [commentMedia]);
 
   const authorOptions = useMemo(() => {
     const map = new Map<
@@ -803,23 +855,94 @@ export default function SEPBookIG() {
     return items;
   }, [filterCampaignId, filterMine, filterUserId, posts, sortMode, user?.id]);
 
+  const visiblePostIdsKey = useMemo(() => visiblePosts.map((p) => p.id).slice(0, 80).join(","), [visiblePosts]);
+
+  useEffect(() => {
+    if (!mapOpen) return;
+    const ids = visiblePosts.map((p) => p.id).slice(0, 80);
+    if (!ids.length) {
+      setCommentGpsItems([]);
+      return;
+    }
+    let cancelled = false;
+    setCommentGpsLoading(true);
+    (async () => {
+      try {
+        const resp = await apiFetch(`/api/sepbook-comment-gps?post_ids=${encodeURIComponent(ids.join(","))}&limit=800`);
+        const json = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(json?.error || "Falha ao carregar comentários com GPS");
+        if (!cancelled) setCommentGpsItems(Array.isArray(json.items) ? (json.items as any) : []);
+      } catch {
+        if (!cancelled) setCommentGpsItems([]);
+      } finally {
+        if (!cancelled) setCommentGpsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [mapOpen, visiblePostIdsKey]);
+
   const mapPosts = useMemo(() => {
-    return visiblePosts
-      .filter((p) => typeof p.location_lat === "number" && typeof p.location_lng === "number")
+    const visibleIds = new Set(visiblePosts.map((p) => p.id));
+
+    const postItems: SepMapItem[] = visiblePosts
       .map((p) => {
+        const lat = Number(p.location_lat);
+        const lng = Number(p.location_lng);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
         const imageUrl = (Array.isArray(p.attachments) ? p.attachments : []).find((u) => isImageUrl(u)) || null;
-        return { post: p, imageUrl };
+        if (!imageUrl) return null;
+        return {
+          key: `post:${p.id}`,
+          kind: "post",
+          lat,
+          lng,
+          imageUrl,
+          user_id: p.user_id,
+          author_name: p.author_name,
+          author_avatar: p.author_avatar || null,
+          created_at: p.created_at,
+          location_label: p.location_label || null,
+          post_id: p.id,
+          comment_id: null,
+        } as SepMapItem;
       })
-      .filter((x) => Boolean(x.imageUrl));
-  }, [visiblePosts]);
+      .filter(Boolean) as SepMapItem[];
+
+    const commentItems: SepMapItem[] = (commentGpsItems || [])
+      .filter((c) => visibleIds.has(String(c.post_id || "")))
+      .map((c) => {
+        const lat = Number((c as any).location_lat);
+        const lng = Number((c as any).location_lng);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+        const imageUrl = String((c as any).image_url || "").trim();
+        if (!imageUrl || !isImageUrl(imageUrl)) return null;
+        return {
+          key: `comment:${c.id}`,
+          kind: "comment",
+          lat,
+          lng,
+          imageUrl,
+          user_id: c.user_id,
+          author_name: c.author_name,
+          author_avatar: (c as any).author_avatar || null,
+          created_at: c.created_at,
+          location_label: (c as any).location_label || null,
+          post_id: c.post_id,
+          comment_id: c.id,
+        } as SepMapItem;
+      })
+      .filter(Boolean) as SepMapItem[];
+
+    return [...postItems, ...commentItems];
+  }, [commentGpsItems, visiblePosts]);
 
   const visibleMapPosts = useMemo(() => {
     if (!mapBounds) return mapPosts;
     return mapPosts.filter((x) => {
-      const lat = Number(x.post.location_lat);
-      const lng = Number(x.post.location_lng);
-      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
-      return mapBounds.contains(L.latLng(lat, lng));
+      if (!Number.isFinite(x.lat) || !Number.isFinite(x.lng)) return false;
+      return mapBounds.contains(L.latLng(x.lat, x.lng));
     });
   }, [mapBounds, mapPosts]);
 
@@ -827,8 +950,8 @@ export default function SEPBookIG() {
     if (!mapPosts.length) return [-23.55052, -46.633308]; // fallback: São Paulo
     const sum = mapPosts.reduce(
       (acc, item) => {
-        acc.lat += Number(item.post.location_lat || 0);
-        acc.lng += Number(item.post.location_lng || 0);
+        acc.lat += Number(item.lat || 0);
+        acc.lng += Number(item.lng || 0);
         return acc;
       },
       { lat: 0, lng: 0 },
@@ -847,15 +970,27 @@ export default function SEPBookIG() {
     }, 80);
   }, []);
 
+  const openCommentById = useCallback(
+    (postId: string, commentId: string) => {
+      const pid = String(postId || "").trim();
+      const cid = String(commentId || "").trim();
+      if (!pid || !cid) return;
+      setMapOpen(false);
+      setAuthorPickerOpen(false);
+      navigate(`/sepbook?comment=${encodeURIComponent(cid)}#post-${encodeURIComponent(pid)}`);
+    },
+    [navigate],
+  );
+
   const selectedMapPost = useMemo(() => {
     if (!mapSelectedId) return null;
-    return mapPosts.find((x) => x.post.id === mapSelectedId) || null;
+    return mapPosts.find((x) => x.key === mapSelectedId) || null;
   }, [mapPosts, mapSelectedId]);
 
   const selectedMapLinks = useMemo(() => {
     if (!selectedMapPost) return null;
-    const lat = Number(selectedMapPost.post.location_lat);
-    const lng = Number(selectedMapPost.post.location_lng);
+    const lat = Number(selectedMapPost.lat);
+    const lng = Number(selectedMapPost.lng);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
     const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
     const wazeUrl = `https://waze.com/ul?ll=${lat},${lng}&navigate=yes`;
@@ -879,14 +1014,14 @@ export default function SEPBookIG() {
   const defaultMarkerIcon = useMemo(() => new L.Icon.Default(), []);
 
   const focusMapPost = useCallback(
-    (postId: string, opts?: { openPost?: boolean }) => {
-      const id = String(postId || "").trim();
-      if (!id) return;
-      setMapSelectedId(id);
-      const target = mapPosts.find((x) => x.post.id === id);
+    (itemKey: string, opts?: { openPost?: boolean }) => {
+      const key = String(itemKey || "").trim();
+      if (!key) return;
+      setMapSelectedId(key);
+      const target = mapPosts.find((x) => x.key === key);
       if (target && mapInstanceRef.current) {
-        const lat = Number(target.post.location_lat);
-        const lng = Number(target.post.location_lng);
+        const lat = Number(target.lat);
+        const lng = Number(target.lng);
         if (Number.isFinite(lat) && Number.isFinite(lng)) {
           try {
             const bounds = mapInstanceRef.current.getBounds?.();
@@ -903,26 +1038,31 @@ export default function SEPBookIG() {
         }
       }
       if (opts?.openPost) {
-        openPostById(id);
+        if (!target) return;
+        if (target.kind === "comment" && target.comment_id) {
+          openCommentById(target.post_id, target.comment_id);
+        } else {
+          openPostById(target.post_id);
+        }
       }
     },
-    [mapPosts, openPostById],
+    [mapPosts, openCommentById, openPostById],
   );
 
   const handleMapSelection = useCallback(
-    (postId: string, opts?: { openOnSecond?: boolean; openPost?: boolean }) => {
-      const id = String(postId || "").trim();
-      if (!id) return;
+    (itemKey: string, opts?: { openOnSecond?: boolean; openPost?: boolean }) => {
+      const key = String(itemKey || "").trim();
+      if (!key) return;
       setMapHasInteracted(true);
-      const isSelected = mapSelectedId === id;
+      const isSelected = mapSelectedId === key;
       if (!isSelected) {
-        focusMapPost(id);
+        focusMapPost(key);
         return;
       }
       if (opts?.openPost || opts?.openOnSecond) {
-        focusMapPost(id, { openPost: true });
+        focusMapPost(key, { openPost: true });
       } else {
-        focusMapPost(id);
+        focusMapPost(key);
       }
     },
     [focusMapPost, mapSelectedId],
@@ -1074,6 +1214,17 @@ export default function SEPBookIG() {
       location_label: formatGpsLabel(coords.lat, coords.lng, "device"),
     };
   }, [composerGpsFromPhoto, getCurrentPosition, requestLocationConsent, requestUseDeviceLocation, toast]);
+
+  const resolveLocationForNewComment = useCallback(async () => {
+    if (!commentGpsFromPhoto) return null;
+    const allowed = await requestLocationConsent();
+    if (!allowed) return null;
+    return {
+      location_lat: commentGpsFromPhoto.lat,
+      location_lng: commentGpsFromPhoto.lng,
+      location_label: formatGpsLabel(commentGpsFromPhoto.lat, commentGpsFromPhoto.lng, "photo"),
+    };
+  }, [commentGpsFromPhoto, requestLocationConsent]);
 
   const uploadedComposerUrls = useMemo(
     () => composerMedia.filter((m) => m.url).map((m) => m.url!) as string[],
@@ -1272,6 +1423,57 @@ export default function SEPBookIG() {
     [toast],
   );
 
+  const startEditPost = useCallback((post: SepPost) => {
+    setEditingPostId(post.id);
+    setEditingPostText(String(post.content_md || ""));
+  }, []);
+
+  const cancelEditPost = useCallback(() => {
+    setEditingPostId(null);
+    setEditingPostText("");
+    setEditingPostMentionQuery("");
+  }, []);
+
+  const savePostEdit = useCallback(async () => {
+    if (!editingPostId || !editingPost) return;
+    const text = String(editingPostText || "").trim();
+    const hasAttachments = Array.isArray(editingPost.attachments) && editingPost.attachments.length > 0;
+    if (!text && !hasAttachments) {
+      toast({ title: "Conteúdo obrigatório", description: "Digite um texto ou mantenha uma mídia.", variant: "destructive" });
+      return;
+    }
+
+    setEditingPostSaving(true);
+    try {
+      const resp = await apiFetch("/api/sepbook-edit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          post_id: editingPostId,
+          content_md: text,
+          attachments: editingPost.attachments || [],
+        }),
+      });
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(json?.error || "Falha ao atualizar publicação");
+
+      setPosts((prev) =>
+        prev.map((p) =>
+          p.id === editingPostId
+            ? { ...p, content_md: text, translations: { ...(p.translations || {}), "pt-BR": text } }
+            : p,
+        ),
+      );
+      setFallbackTranslations((prev) => ({ ...prev, [`post:${editingPostId}`]: text }));
+      cancelEditPost();
+      toast({ title: "Publicação atualizada" });
+    } catch (e: any) {
+      toast({ title: "Erro ao editar", description: e?.message || "Tente novamente", variant: "destructive" });
+    } finally {
+      setEditingPostSaving(false);
+    }
+  }, [cancelEditPost, editingPost, editingPostId, editingPostText, toast]);
+
   const toggleCommentLike = useCallback(
     async (postId: string, comment: SepComment) => {
       const cid = String(comment?.id || "").trim();
@@ -1453,6 +1655,27 @@ export default function SEPBookIG() {
                 value={editingCommentText}
                 onChange={(e) => setEditingCommentText(e.target.value)}
               />
+              {editingCommentMentionQuery && editingCommentMentions.items.length > 0 && (
+                <div className="rounded-xl border bg-background">
+                  <div className="px-3 py-2 text-[12px] text-muted-foreground">{tr("sepbook.mentionSuggestions")}</div>
+                  <div className="max-h-[160px] overflow-auto">
+                    {editingCommentMentions.items
+                      .filter((s) => String((s as any)?.kind || "") === "user")
+                      .slice(0, 8)
+                      .map((s, idx) => (
+                        <button
+                          key={`edit-${s.kind}-${s.handle}-${idx}`}
+                          type="button"
+                          className="w-full text-left px-3 py-2 hover:bg-muted text-[13px]"
+                          onClick={() => setEditingCommentText((prev) => applyMention(prev, editingCommentMentionQuery, s.handle))}
+                        >
+                          <span className="font-semibold">@{s.handle}</span>{" "}
+                          <span className="text-muted-foreground">{s.label}</span>
+                        </button>
+                      ))}
+                  </div>
+                </div>
+              )}
               <div className="flex flex-wrap items-center gap-2">
                 <Button
                   type="button"
@@ -1615,10 +1838,7 @@ export default function SEPBookIG() {
 
         const id = randomId();
         const previewUrl = URL.createObjectURL(file);
-        const gps =
-          opts.context === "post" && kind === "image"
-            ? await extractGpsFromImage(file)
-            : null;
+        const gps = kind === "image" ? await extractGpsFromImage(file) : null;
         const item: MediaItem = { id, file, kind, previewUrl, gps, uploading: true, progress: 30 };
         setState((prev: MediaItem[]) => [...prev, item]);
 
@@ -1892,6 +2112,7 @@ export default function SEPBookIG() {
     if (text.length < 2 && uploadedCommentUrls.length === 0) return;
     try {
       setCommentSubmitting(true);
+      const locationPayload = await resolveLocationForNewComment();
       const resp = await apiFetch("/api/sepbook-comments", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1900,6 +2121,7 @@ export default function SEPBookIG() {
           content_md: text,
           attachments: uploadedCommentUrls,
           parent_id: replyTarget?.id || null,
+          ...(locationPayload || {}),
         }),
       });
       const json = await resp.json().catch(() => ({}));
@@ -1920,7 +2142,7 @@ export default function SEPBookIG() {
     } finally {
       setCommentSubmitting(false);
     }
-  }, [commentMedia, commentText, commentUploading, commentsOpenFor, replyTarget, toast, uploadedCommentUrls]);
+  }, [commentMedia, commentText, commentUploading, commentsOpenFor, replyTarget, resolveLocationForNewComment, toast, uploadedCommentUrls]);
 
   const loadMentionsInbox = useCallback(async () => {
     setMentionsLoading(true);
@@ -2080,6 +2302,12 @@ export default function SEPBookIG() {
   useEffect(() => {
     setCommentMentionQuery(detectMentionQuery(commentText));
   }, [commentText]);
+  useEffect(() => {
+    setEditingCommentMentionQuery(detectMentionQuery(editingCommentText));
+  }, [editingCommentText]);
+  useEffect(() => {
+    setEditingPostMentionQuery(detectMentionQuery(editingPostText));
+  }, [editingPostText]);
 
   const renderMediaThumbs = (items: MediaItem[], onRemove: (item: MediaItem) => void) => {
     if (!items.length) return null;
@@ -2286,6 +2514,10 @@ export default function SEPBookIG() {
                         {p.user_id === user?.id ? (
                           <>
                             <DropdownMenuSeparator />
+                            <DropdownMenuItem onClick={() => startEditPost(p)}>
+                              <Pencil className="h-4 w-4 mr-2" />
+                              {tr("sepbook.edit")}
+                            </DropdownMenuItem>
                             <DropdownMenuItem onClick={() => void deletePost(p)}>
                               <Trash2 className="h-4 w-4 mr-2" />
                               Excluir publicação
@@ -2439,157 +2671,228 @@ export default function SEPBookIG() {
           }
         }}
       >
-        <DrawerContent className="max-h-[90vh]">
+        <DrawerContent className="max-h-[92vh]">
           <DrawerHeader>
             <DrawerTitle>{tr("sepbook.newPost")}</DrawerTitle>
             <DrawerDescription className="sr-only">Criar uma nova postagem, com menções e campanha opcional</DrawerDescription>
           </DrawerHeader>
 
-          <div className="px-3 pb-3 space-y-3">
-            {renderMediaThumbs(composerMedia, (m) => removeMediaItem(m, setComposerMedia))}
+          <div className="flex flex-col h-full">
+            <ScrollArea className="flex-1 px-3 pb-3">
+              <div className="space-y-3">
+                {renderMediaThumbs(composerMedia, (m) => removeMediaItem(m, setComposerMedia))}
 
-            <div className="flex flex-wrap items-center gap-2">
-              <VoiceRecorderButton
-                size="sm"
-                label={tr("sepbook.voice")}
-                onText={(text) => setComposerText((prev) => [prev, text].filter(Boolean).join("\n\n"))}
-              />
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={handleCleanupComposer}
-                disabled={cleaningComposer}
-              >
-                <Wand2 className="h-4 w-4 mr-1" />
-                {tr("sepbook.cleanup")}
-              </Button>
+                <Textarea
+                  value={composerText}
+                  onChange={(e) => setComposerText(e.target.value)}
+                  placeholder={tr("sepbook.captionPlaceholder")}
+                  className="min-h-[140px]"
+                />
+
+                {composerCampaignId ? (
+                  <div className="flex items-center justify-between gap-2 rounded-xl border bg-muted/20 px-3 py-2">
+                    <div className="min-w-0">
+                      <div className="text-[11px] text-muted-foreground">{tr("sepbook.campaignSelected")}</div>
+                      <div className="text-[13px] font-semibold truncate">{composerCampaignLabel || composerCampaignId}</div>
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        setComposerCampaignId(null);
+                        setComposerCampaignLabel(null);
+                        setComposerText((prev) => String(prev || "").replace(/&\"[^\"\n]{2,160}\"/g, "").replace(/\s{2,}/g, " "));
+                      }}
+                    >
+                      {tr("sepbook.remove")}
+                    </Button>
+                  </div>
+                ) : null}
+
+                {composerCampaignQuery && composerCampaigns.items.length > 0 && (
+                  <div className="rounded-xl border bg-background">
+                    <div className="px-3 py-2 text-[12px] text-muted-foreground">{tr("sepbook.campaignSuggestions")}</div>
+                    <div className="max-h-[220px] overflow-auto">
+                      {composerCampaigns.items.slice(0, 10).map((c) => (
+                        <button
+                          key={`camp-${c.id}`}
+                          type="button"
+                          className="w-full text-left px-3 py-2 hover:bg-muted text-[13px]"
+                          onClick={() => {
+                            setComposerCampaignId(c.id);
+                            setComposerCampaignLabel(c.label || c.title);
+                            setComposerText((prev) => applyCampaign(prev, composerCampaignQuery, c.title));
+                          }}
+                        >
+                          <span className="font-semibold">&amp;{c.label || c.title}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {composerMentionQuery && composerMentions.items.length > 0 && (
+                  <div className="rounded-xl border bg-background">
+                    <div className="px-3 py-2 text-[12px] text-muted-foreground">{tr("sepbook.mentionSuggestions")}</div>
+                    <div className="max-h-[220px] overflow-auto">
+                      {composerMentions.items.slice(0, 12).map((s, idx) => (
+                        <button
+                          key={`${s.kind}-${s.handle}-${idx}`}
+                          type="button"
+                          className="w-full text-left px-3 py-2 hover:bg-muted text-[13px]"
+                          onClick={() => setComposerText((prev) => applyMention(prev, composerMentionQuery, s.handle))}
+                        >
+                          <span className="font-semibold">@{s.handle}</span>{" "}
+                          <span className="text-muted-foreground">{s.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </ScrollArea>
+
+            <div className="border-t bg-background px-3 py-3 space-y-2 pb-[calc(env(safe-area-inset-bottom)+12px)]">
+              <div className="flex flex-wrap items-center gap-2">
+                <VoiceRecorderButton
+                  size="sm"
+                  label={tr("sepbook.voice")}
+                  onText={(text) => setComposerText((prev) => [prev, text].filter(Boolean).join("\n\n"))}
+                />
+                <Button type="button" size="sm" variant="outline" onClick={handleCleanupComposer} disabled={cleaningComposer}>
+                  <Wand2 className="h-4 w-4 mr-1" />
+                  {tr("sepbook.cleanup")}
+                </Button>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="outline"
+                  onClick={() => composerCameraRef.current?.click()}
+                  disabled={composerUploading || composerSubmitting}
+                  aria-label={tr("sepbook.camera")}
+                  title={tr("sepbook.camera")}
+                >
+                  <Camera className="h-4 w-4" />
+                </Button>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="outline"
+                  onClick={() => composerGalleryRef.current?.click()}
+                  disabled={composerUploading || composerSubmitting}
+                  aria-label={tr("sepbook.gallery")}
+                  title={tr("sepbook.gallery")}
+                >
+                  <ImageIcon className="h-4 w-4" />
+                </Button>
+
+                <input
+                  ref={composerCameraRef}
+                  type="file"
+                  accept="image/*,video/*"
+                  capture="environment"
+                  className="hidden"
+                  onChange={(e) => void addMediaFiles({ files: e.target.files, context: "post", source: "camera" })}
+                />
+                <input
+                  ref={composerGalleryRef}
+                  type="file"
+                  accept="image/*,video/*"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => void addMediaFiles({ files: e.target.files, context: "post", source: "gallery" })}
+                />
+
+                <div className="flex-1" />
+
+                <Button
+                  type="button"
+                  onClick={() => void submitPost()}
+                  disabled={
+                    composerSubmitting ||
+                    composerUploading ||
+                    composerMedia.some((m) => m.uploading) ||
+                    (!composerText.trim() && uploadedComposerUrls.length === 0)
+                  }
+                >
+                  {tr("sepbook.publish")}
+                </Button>
+              </div>
             </div>
+          </div>
+        </DrawerContent>
+      </Drawer>
 
-            <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                size="icon"
-                variant="outline"
-                onClick={() => composerCameraRef.current?.click()}
-                disabled={composerUploading || composerSubmitting}
-                aria-label={tr("sepbook.camera")}
-                title={tr("sepbook.camera")}
-              >
-                <Camera className="h-4 w-4" />
-              </Button>
-              <Button
-                type="button"
-                size="icon"
-                variant="outline"
-                onClick={() => composerGalleryRef.current?.click()}
-                disabled={composerUploading || composerSubmitting}
-                aria-label={tr("sepbook.gallery")}
-                title={tr("sepbook.gallery")}
-              >
-                <ImageIcon className="h-4 w-4" />
-              </Button>
+      <Drawer
+        open={Boolean(editingPostId)}
+        onOpenChange={(open) => {
+          if (!open) cancelEditPost();
+        }}
+      >
+        <DrawerContent className="max-h-[92vh]">
+          <DrawerHeader>
+            <DrawerTitle>{tr("sepbook.edit")} </DrawerTitle>
+            <DrawerDescription className="sr-only">Editar texto e menções da publicação</DrawerDescription>
+          </DrawerHeader>
 
-              <input
-                ref={composerCameraRef}
-                type="file"
-                accept="image/*,video/*"
-                capture="environment"
-                className="hidden"
-                onChange={(e) => void addMediaFiles({ files: e.target.files, context: "post", source: "camera" })}
-              />
-              <input
-                ref={composerGalleryRef}
-                type="file"
-                accept="image/*,video/*"
-                multiple
-                className="hidden"
-                onChange={(e) => void addMediaFiles({ files: e.target.files, context: "post", source: "gallery" })}
-              />
+          <div className="flex flex-col h-full">
+            <ScrollArea className="flex-1 px-3 pb-3">
+              <div className="space-y-3">
+                {editingPost?.attachments?.length ? (
+                  <div className="rounded-xl border bg-muted/10 p-2">
+                    <AttachmentViewer
+                      urls={editingPost.attachments}
+                      postId={editingPost.id}
+                      mediaLayout="carousel"
+                      className="mt-0 space-y-0"
+                      enableLightbox={false}
+                      showMetadata={false}
+                    />
+                  </div>
+                ) : null}
 
-              <div className="flex-1" />
+                <Textarea
+                  value={editingPostText}
+                  onChange={(e) => setEditingPostText(e.target.value)}
+                  placeholder={tr("sepbook.captionPlaceholder")}
+                  className="min-h-[140px]"
+                />
 
-              <Button
-                type="button"
-                onClick={() => void submitPost()}
-                disabled={
-                  composerSubmitting ||
-                  composerUploading ||
-                  composerMedia.some((m) => m.uploading) ||
-                  (!composerText.trim() && uploadedComposerUrls.length === 0)
-                }
-              >
-                {tr("sepbook.publish")}
-              </Button>
+                {editingPostMentionQuery && editingPostMentions.items.length > 0 && (
+                  <div className="rounded-xl border bg-background">
+                    <div className="px-3 py-2 text-[12px] text-muted-foreground">{tr("sepbook.mentionSuggestions")}</div>
+                    <div className="max-h-[220px] overflow-auto">
+                      {editingPostMentions.items.slice(0, 12).map((s, idx) => (
+                        <button
+                          key={`editpost-${s.kind}-${s.handle}-${idx}`}
+                          type="button"
+                          className="w-full text-left px-3 py-2 hover:bg-muted text-[13px]"
+                          onClick={() => setEditingPostText((prev) => applyMention(prev, editingPostMentionQuery, s.handle))}
+                        >
+                          <span className="font-semibold">@{s.handle}</span>{" "}
+                          <span className="text-muted-foreground">{s.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </ScrollArea>
+
+            <div className="border-t bg-background px-3 py-3">
+              <div className="flex items-center justify-end gap-2">
+                <Button type="button" variant="outline" onClick={cancelEditPost} disabled={editingPostSaving}>
+                  {tr("sepbook.cancel")}
+                </Button>
+                <Button type="button" onClick={() => void savePostEdit()} disabled={editingPostSaving}>
+                  {editingPostSaving ? tr("common.loading") : tr("sepbook.save")}
+                </Button>
+              </div>
             </div>
-
-              <Textarea
-                value={composerText}
-                onChange={(e) => setComposerText(e.target.value)}
-                placeholder={tr("sepbook.captionPlaceholder")}
-                className="min-h-[120px]"
-              />
-
-              {composerCampaignId ? (
-                <div className="flex items-center justify-between gap-2 rounded-xl border bg-muted/20 px-3 py-2">
-                  <div className="min-w-0">
-                    <div className="text-[11px] text-muted-foreground">{tr("sepbook.campaignSelected")}</div>
-                    <div className="text-[13px] font-semibold truncate">{composerCampaignLabel || composerCampaignId}</div>
-                  </div>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    onClick={() => {
-                      setComposerCampaignId(null);
-                      setComposerCampaignLabel(null);
-                      setComposerText((prev) => String(prev || "").replace(/&\"[^\"\n]{2,160}\"/g, "").replace(/\s{2,}/g, " "));
-                    }}
-                  >
-                    {tr("sepbook.remove")}
-                  </Button>
-                </div>
-              ) : null}
-
-              {composerCampaignQuery && composerCampaigns.items.length > 0 && (
-                <div className="rounded-xl border bg-background">
-                  <div className="px-3 py-2 text-[12px] text-muted-foreground">{tr("sepbook.campaignSuggestions")}</div>
-                  <div className="max-h-[220px] overflow-auto">
-                    {composerCampaigns.items.slice(0, 10).map((c) => (
-                      <button
-                        key={`camp-${c.id}`}
-                        type="button"
-                        className="w-full text-left px-3 py-2 hover:bg-muted text-[13px]"
-                        onClick={() => {
-                          setComposerCampaignId(c.id);
-                          setComposerCampaignLabel(c.label || c.title);
-                          setComposerText((prev) => applyCampaign(prev, composerCampaignQuery, c.title));
-                        }}
-                      >
-                        <span className="font-semibold">&amp;{c.label || c.title}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {composerMentionQuery && composerMentions.items.length > 0 && (
-                <div className="rounded-xl border bg-background">
-                  <div className="px-3 py-2 text-[12px] text-muted-foreground">{tr("sepbook.mentionSuggestions")}</div>
-                  <div className="max-h-[220px] overflow-auto">
-                    {composerMentions.items.slice(0, 12).map((s, idx) => (
-                      <button
-                        key={`${s.kind}-${s.handle}-${idx}`}
-                        type="button"
-                        className="w-full text-left px-3 py-2 hover:bg-muted text-[13px]"
-                        onClick={() => setComposerText((prev) => applyMention(prev, composerMentionQuery, s.handle))}
-                      >
-                        <span className="font-semibold">@{s.handle}</span> <span className="text-muted-foreground">{s.label}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
           </div>
         </DrawerContent>
       </Drawer>
@@ -2673,7 +2976,7 @@ export default function SEPBookIG() {
               )}
             </ScrollArea>
 
-            <div className="border-t bg-background px-3 py-3 space-y-2">
+            <div className="border-t bg-background px-3 py-3 space-y-2 pb-[calc(env(safe-area-inset-bottom)+12px)]">
               {replyTarget && (
                 <div className="flex items-center justify-between gap-2 rounded-xl border bg-muted/30 px-3 py-2 text-[12px]">
                   <span>
@@ -3105,7 +3408,7 @@ export default function SEPBookIG() {
                       url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                     />
                     <SepbookFitBounds
-                      points={mapPosts.map((x) => [Number(x.post.location_lat), Number(x.post.location_lng)] as [number, number])}
+                      points={mapPosts.map((x) => [Number(x.lat), Number(x.lng)] as [number, number])}
                       disabled={mapHasInteracted}
                       token={mapFitToken}
                     />
@@ -3113,11 +3416,11 @@ export default function SEPBookIG() {
                     <SepbookMapUserActivity onActivity={() => setMapHasInteracted(true)} />
                     {mapPosts.map((x) => (
                       <Marker
-                        key={x.post.id}
-                        position={[Number(x.post.location_lat), Number(x.post.location_lng)]}
-                        icon={mapSelectedId === x.post.id ? selectedMarkerIcon : defaultMarkerIcon}
+                        key={x.key}
+                        position={[Number(x.lat), Number(x.lng)]}
+                        icon={mapSelectedId === x.key ? selectedMarkerIcon : defaultMarkerIcon}
                         eventHandlers={{
-                          click: () => handleMapSelection(x.post.id, { openOnSecond: true }),
+                          click: () => handleMapSelection(x.key, { openOnSecond: true }),
                         }}
                       >
                       </Marker>
@@ -3130,8 +3433,8 @@ export default function SEPBookIG() {
                           <button
                             type="button"
                             className="p-0 bg-transparent border-0"
-                            onClick={() => handleMapSelection(selectedMapPost.post.id, { openOnSecond: true })}
-                            title={tr("sepbook.openPost")}
+                            onClick={() => handleMapSelection(selectedMapPost.key, { openOnSecond: true })}
+                            title={selectedMapPost.kind === "comment" ? tr("sepbook.openComment") : tr("sepbook.openPost")}
                           >
                             <img
                               src={selectedMapPost.imageUrl}
@@ -3145,20 +3448,20 @@ export default function SEPBookIG() {
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center justify-between gap-2">
                             <UserProfilePopover
-                              userId={selectedMapPost.post.user_id}
-                              name={selectedMapPost.post.author_name}
-                              avatarUrl={selectedMapPost.post.author_avatar}
+                              userId={selectedMapPost.user_id}
+                              name={selectedMapPost.author_name}
+                              avatarUrl={selectedMapPost.author_avatar}
                             >
                               <button type="button" className="text-[13px] font-semibold truncate hover:underline p-0 bg-transparent border-0">
-                                {formatName(selectedMapPost.post.author_name)}
+                                {formatName(selectedMapPost.author_name)}
                               </button>
                             </UserProfilePopover>
                             <div className="text-[11px] text-muted-foreground truncate">
-                              {new Date(selectedMapPost.post.created_at).toLocaleString()}
+                              {new Date(selectedMapPost.created_at).toLocaleString()}
                             </div>
                           </div>
                           <div className="text-[12px] text-muted-foreground truncate">
-                            {sanitizeLocationLabel(selectedMapPost.post.location_label) || tr("sepbook.location")}
+                            {sanitizeLocationLabel(selectedMapPost.location_label) || tr("sepbook.location")}
                           </div>
                           <div className="text-[11px] text-muted-foreground">
                             {tr("sepbook.mapHintSelectThenOpen")}
@@ -3197,9 +3500,15 @@ export default function SEPBookIG() {
                             </div>
                           ) : null}
                         </div>
-                        <Button type="button" size="sm" onClick={() => openPostById(selectedMapPost.post.id)}>
-                          {tr("sepbook.openPost")}
-                        </Button>
+                        {selectedMapPost.kind === "comment" && selectedMapPost.comment_id ? (
+                          <Button type="button" size="sm" onClick={() => openCommentById(selectedMapPost.post_id, selectedMapPost.comment_id!)}>
+                            {tr("sepbook.openComment")}
+                          </Button>
+                        ) : (
+                          <Button type="button" size="sm" onClick={() => openPostById(selectedMapPost.post_id)}>
+                            {tr("sepbook.openPost")}
+                          </Button>
+                        )}
                       </div>
                     </div>
                   ) : null}
@@ -3237,13 +3546,13 @@ export default function SEPBookIG() {
                 ) : (
                   visibleMapPosts.map((x) => (
                     <button
-                      key={`gps-${x.post.id}`}
+                      key={`gps-${x.key}`}
                       type="button"
                       className={cn(
                         "w-full flex items-center gap-3 rounded-xl border p-2 hover:bg-muted text-left",
-                        mapSelectedId === x.post.id && "border-amber-400/80 bg-amber-100/10",
+                        mapSelectedId === x.key && "border-amber-400/80 bg-amber-100/10",
                       )}
-                      onClick={() => handleMapSelection(x.post.id, { openOnSecond: true })}
+                      onClick={() => handleMapSelection(x.key, { openOnSecond: true })}
                     >
                       <img
                         src={x.imageUrl || undefined}
@@ -3251,24 +3560,25 @@ export default function SEPBookIG() {
                         className="h-16 w-16 rounded-lg object-cover border"
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleMapSelection(x.post.id, { openOnSecond: true });
+                          handleMapSelection(x.key, { openOnSecond: true });
                         }}
                       />
                       <div className="min-w-0 flex-1">
-                        <UserProfilePopover userId={x.post.user_id} name={x.post.author_name} avatarUrl={x.post.author_avatar}>
+                        <UserProfilePopover userId={x.user_id} name={x.author_name} avatarUrl={x.author_avatar}>
                           <button
                             type="button"
                             className="text-[13px] font-semibold truncate hover:underline p-0 bg-transparent border-0 text-left"
                             onClick={(event) => event.stopPropagation()}
                           >
-                            {formatName(x.post.author_name)}
+                            {formatName(x.author_name)}
                           </button>
                         </UserProfilePopover>
                         <div className="text-[12px] text-muted-foreground truncate">
-                          {sanitizeLocationLabel(x.post.location_label) || tr("sepbook.location")}
+                          {sanitizeLocationLabel(x.location_label) || tr("sepbook.location")}
+                          {x.kind === "comment" ? ` • ${tr("sepbook.commentLabel")}` : ""}
                         </div>
                         <div className="text-[11px] text-muted-foreground truncate">
-                          {new Date(x.post.created_at).toLocaleString()}
+                          {new Date(x.created_at).toLocaleString()}
                         </div>
                       </div>
                     </button>

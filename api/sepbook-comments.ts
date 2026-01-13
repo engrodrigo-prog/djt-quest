@@ -45,6 +45,20 @@ const normalizeRequestedLocales = (raw: any) => {
   return [];
 };
 
+const clampLatLng = (latRaw: any, lngRaw: any) => {
+  const lat = Number(latRaw);
+  const lng = Number(lngRaw);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
+  return { lat, lng };
+};
+
+const normalizeLocationLabel = (raw: any) => {
+  const label = String(raw || "").trim();
+  if (!label) return null;
+  return label.slice(0, 80);
+};
+
 const extractUserMentions = (md: string) => {
   const text = String(md || "");
   const hits = Array.from(text.matchAll(/@([A-Za-z0-9_.-]+@[A-Za-z0-9_.-]+|[A-Za-z0-9_.-]+)/g)).map((m) => String(m[1] || ""));
@@ -163,7 +177,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (!SERVICE_ROLE_KEY && !authed) return res.status(401).json({ error: "Unauthorized" });
 
       const reader = SERVICE_ROLE_KEY ? admin : authed;
-      const baseSelect = "id, post_id, user_id, content_md, created_at, parent_id, updated_at";
+      const baseSelect =
+        "id, post_id, user_id, content_md, created_at, parent_id, updated_at, location_label, location_lat, location_lng";
       const selectWithAttachments = `${baseSelect}, attachments, translations`;
       let data: any[] | null = null;
       let error: any = null;
@@ -175,7 +190,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         .limit(100);
       data = attempt.data as any;
       error = attempt.error as any;
-      if (error && /attachments|translations|parent_id|updated_at/i.test(String(error.message || ""))) {
+      if (
+        error &&
+        /attachments|translations|parent_id|updated_at|location_lat|location_lng|location_label/i.test(
+          String(error.message || ""),
+        )
+      ) {
         const fallback = await reader
           .from("sepbook_comments")
           .select("id, post_id, user_id, content_md, created_at")
@@ -262,6 +282,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           content_md: c.content_md,
           attachments,
           translations,
+          location_label: typeof c?.location_label === "string" ? c.location_label : null,
+          location_lat: typeof c?.location_lat === "number" ? c.location_lat : null,
+          location_lng: typeof c?.location_lng === "number" ? c.location_lng : null,
           created_at: c.created_at,
           updated_at: c?.updated_at || null,
           like_count: likeCounts.get(String(c.id)) || 0,
@@ -292,6 +315,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (!uid) return res.status(401).json({ error: "Unauthorized" });
 
       const { post_id, content_md, parent_id } = req.body || {};
+      const maybeCoords = clampLatLng(req.body?.location_lat, req.body?.location_lng);
+      const locationLabel = normalizeLocationLabel(req.body?.location_label);
       const rawAttachments = Array.isArray(req.body?.attachments) ? req.body.attachments : [];
       const attachments = rawAttachments
         .filter((item: any) => typeof item === "string" && item.trim())
@@ -344,6 +369,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         attachments,
         translations,
         ...(parentId ? { parent_id: parentId } : {}),
+        ...(maybeCoords ? { location_lat: maybeCoords.lat, location_lng: maybeCoords.lng, location_label: locationLabel } : {}),
       };
 
       let data: any = null;
@@ -353,8 +379,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         data = resp.data;
         error = resp.error;
         if (error && /column .*translations.* does not exist/i.test(String(error.message || ""))) throw error;
+        if (
+          error &&
+          /location_(lat|lng|label)/i.test(String(error.message || "")) &&
+          /(column|schema cache|does not exist)/i.test(String(error.message || ""))
+        ) {
+          throw error;
+        }
       } catch {
-        const { translations: _omit, ...fallbackPayload } = insertPayload;
+        const { translations: _omit, location_label: _l1, location_lat: _l2, location_lng: _l3, ...fallbackPayload } = insertPayload;
         const resp2 = await writer.from("sepbook_comments").insert(fallbackPayload).select().single();
         data = resp2.data;
         error = resp2.error;
@@ -412,6 +445,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           ...data,
           author_name: profile?.name || "Colaborador",
           author_team: profile?.sigla_area || null,
+          location_label: maybeCoords ? locationLabel : (data as any)?.location_label || null,
+          location_lat: maybeCoords ? maybeCoords.lat : (data as any)?.location_lat || null,
+          location_lng: maybeCoords ? maybeCoords.lng : (data as any)?.location_lng || null,
           like_count: 0,
           has_liked: false,
         },
@@ -444,6 +480,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const nextAttachments = rawAttachments
         ? rawAttachments.filter((item: any) => typeof item === "string" && item.trim()).slice(0, 3)
         : null;
+      const maybeCoords = clampLatLng(req.body?.location_lat, req.body?.location_lng);
+      const locationLabel = normalizeLocationLabel(req.body?.location_label);
       const text = String(content_md || "").trim();
       const normalizedText = text.length >= 2 ? text : "";
       const targetLocales = normalizeRequestedLocales(req.body?.locales);
@@ -451,7 +489,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const reader = SERVICE_ROLE_KEY ? admin : authed;
       const { data: existing, error: fetchErr } = await reader
         .from("sepbook_comments")
-        .select("id, post_id, user_id, attachments, translations, parent_id")
+        .select("id, post_id, user_id, attachments, translations, parent_id, location_label, location_lat, location_lng")
         .eq("id", commentId)
         .maybeSingle();
       if (fetchErr) return res.status(400).json({ error: fetchErr.message });
@@ -476,16 +514,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       let updateError: any = null;
       try {
+        const locationPatch = maybeCoords
+          ? { location_lat: maybeCoords.lat, location_lng: maybeCoords.lng, location_label: locationLabel }
+          : {};
         const { error } = await reader
           .from("sepbook_comments")
           .update({
             content_md: normalizedText,
             attachments: effectiveAttachments,
             translations,
+            ...locationPatch,
           } as any)
           .eq("id", commentId);
         updateError = error;
         if (updateError && /column .*translations.* does not exist/i.test(String(updateError.message || ""))) throw updateError;
+        if (
+          updateError &&
+          /location_(lat|lng|label)/i.test(String(updateError.message || "")) &&
+          /(column|schema cache|does not exist)/i.test(String(updateError.message || ""))
+        ) {
+          throw updateError;
+        }
       } catch {
         const { error } = await reader
           .from("sepbook_comments")
@@ -539,6 +588,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           content_md: normalizedText,
           attachments: effectiveAttachments,
           translations,
+          location_label: maybeCoords ? locationLabel : (existing as any)?.location_label || null,
+          location_lat: maybeCoords ? maybeCoords.lat : (existing as any)?.location_lat || null,
+          location_lng: maybeCoords ? maybeCoords.lng : (existing as any)?.location_lng || null,
           author_name: profile?.name || "Colaborador",
           author_team: profile?.sigla_area || null,
           author_avatar: profile?.avatar_url || null,

@@ -131,6 +131,8 @@
     "location": "位置",
     "photo": "照片",
     "openPost": "打开发布",
+    "openComment": "打开评论",
+    "commentLabel": "评论",
     "gpsConsentTitle": "在 SEPBook 中使用位置（GPS）？",
     "gpsConsentDescription": "如果允许，SEPBook 会保存发布位置：优先使用照片 GPS（元数据），否则在照片没有 GPS 时使用你当前的位置。",
     "gpsConsentDeny": "不允许",

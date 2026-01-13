@@ -131,6 +131,8 @@
     "location": "Localização",
     "photo": "Foto",
     "openPost": "Abrir publicação",
+    "openComment": "Abrir comentário",
+    "commentLabel": "Comentário",
     "gpsConsentTitle": "Usar localização (GPS) no SEPBook?",
     "gpsConsentDescription": "Se permitido, o SEPBook vai salvar a localização da publicação: preferencialmente o GPS da foto (metadados), ou a sua localização atual quando a foto não tiver GPS.",
     "gpsConsentDeny": "Não permitir",
