@@ -500,6 +500,10 @@ export function CampaignEvidenceWizard({
       toast({ title: "Campanha sem fluxo de evidência", description: "Peça ao admin para aplicar a migração de evidência.", variant: "destructive" });
       return;
     }
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(campaign.evidence_challenge_id))) {
+      toast({ title: "Desafio inválido", description: "O desafio de evidência desta campanha está inválido. Avise o admin.", variant: "destructive" });
+      return;
+    }
     if (!hasEvidence) {
       toast({
         title: "Envie uma evidência",
@@ -608,7 +612,10 @@ export function CampaignEvidenceWizard({
           } as any)
           .select("id")
           .single();
-        if (error) throw error;
+        if (error) {
+          const details = [error.message, error.details, error.hint].filter(Boolean).join(" • ");
+          throw new Error(details || "Falha ao registrar evidência");
+        }
         const eventId = String((ev as any)?.id || "");
         if (!eventId) throw new Error("Falha ao registrar evidência");
 

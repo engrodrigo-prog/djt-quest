@@ -326,6 +326,9 @@ const ChallengeDetail = () => {
               sap_service_note: sapNote || null,
             },
             evidence_urls: evidenceUrls.length > 0 ? evidenceUrls : [],
+            action_date: actionDate || null,
+            action_location: actionLocation || null,
+            sap_service_note: sapNote || null,
             status: 'submitted'
           })
           .eq('id', retryEventId);
@@ -357,6 +360,9 @@ const ChallengeDetail = () => {
               sap_service_note: sapNote || null,
             },
             evidence_urls: evidenceUrls.length > 0 ? evidenceUrls : [],
+            action_date: actionDate || null,
+            action_location: actionLocation || null,
+            sap_service_note: sapNote || null,
             status: challenge.require_two_leader_eval ? 'submitted' : 'evaluated'
           }])
           .select('id')
@@ -382,11 +388,12 @@ const ChallengeDetail = () => {
       navigate('/profile');
     } catch (error) {
       console.error('Error submitting:', error);
-      const msg = (error as any)?.message || '';
+      const errAny = error as any;
+      const msg = [errAny?.message, errAny?.details, errAny?.hint].filter(Boolean).join(" • ");
       if (msg.includes('uq_events_dedup_meta') || msg.includes('duplicate')) {
         toast({ title: 'Ação duplicada', description: 'Já existe uma ação com este desafio, data, local e nota SAP', variant: 'destructive' });
       } else {
-        toast({ title: 'Erro', description: 'Não foi possível submeter a ação', variant: 'destructive' });
+        toast({ title: 'Erro', description: msg || 'Não foi possível submeter a ação', variant: 'destructive' });
       }
     } finally {
       setSubmitting(false);
