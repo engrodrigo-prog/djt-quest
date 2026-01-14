@@ -333,6 +333,7 @@
       "sepbookNew": "SEPBook 新帖子",
       "evaluations": "待评估任务",
       "campaigns": "进行中的活动",
+      "challengesActive": "进行中的挑战",
       "quizzesPending": "待完成测验"
     }
   },

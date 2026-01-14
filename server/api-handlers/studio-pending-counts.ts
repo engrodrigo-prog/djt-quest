@@ -42,6 +42,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     registrations: 0,
     notifications: 0,
     campaigns: 0,
+    challengesActive: 0,
     quizzesPending: 0,
   }
 
@@ -199,8 +200,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       campaigns = 0
     }
 
-    // Quizzes pendentes: desafios do tipo quiz, ativos, sem tentativa submetida
+    // Desafios vigentes + quizzes pendentes (alvos do usuário)
     let quizzesPending = 0
+    let challengesActive = 0
     try {
       const now = new Date().toISOString()
       const { data: quizChallenges } = await admin
@@ -221,9 +223,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const coordId = userProfile?.coord_id ? String(userProfile.coord_id) : null
       const divId = userProfile?.division_id ? String(userProfile.division_id) : null
 
-      quizzesPending = (quizChallenges || []).filter((c: any) => {
+      const eligible = (quizChallenges || []).filter((c: any) => {
         const type = String(c?.type || '').toLowerCase()
-        if (!type.includes('quiz')) return false
         const status = String(c?.status || 'active').toLowerCase()
         if (status === 'closed' || status === 'canceled' || status === 'cancelled') return false
         const startOk = !c.start_date || c.start_date <= now
@@ -236,10 +237,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const matchCoord = !targetsCoord || (coordId && c.target_coord_ids.map(String).includes(coordId))
         const matchDiv = !targetsDiv || (divId && c.target_div_ids.map(String).includes(divId))
         if (!matchTeam || !matchCoord || !matchDiv) return false
+        return true
+      })
+
+      challengesActive = eligible.filter((c: any) => {
+        const type = String(c?.type || '').toLowerCase()
+        return !type.includes('quiz')
+      }).length
+
+      quizzesPending = eligible.filter((c: any) => {
+        const type = String(c?.type || '').toLowerCase()
+        if (!type.includes('quiz')) return false
         return !completed.has(String(c.id || ''))
       }).length
     } catch {
       quizzesPending = 0
+      challengesActive = 0
     }
 
     return res.status(200).json({
@@ -251,6 +264,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       registrations: pendingRegistrations,
       notifications,
       campaigns,
+      challengesActive,
       quizzesPending,
     })
   } catch (err: any) {

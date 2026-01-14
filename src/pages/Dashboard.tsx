@@ -70,6 +70,7 @@ const Dashboard = () => {
     evaluations: 0,
     leadershipAssignments: 0,
     campaigns: 0,
+    challengesActive: 0,
     quizzesPending: 0,
   });
   const [sepbookSummary, setSepbookSummary] = useState({ new_posts: 0, mentions: 0 });
@@ -308,6 +309,7 @@ const Dashboard = () => {
             evaluations: Number(json?.evaluations || 0),
             leadershipAssignments: Number(json?.leadershipAssignments || 0),
             campaigns: Number(json?.campaigns || 0),
+            challengesActive: Number(json?.challengesActive || 0),
             quizzesPending: Number(json?.quizzesPending || 0),
           });
         }
@@ -317,6 +319,7 @@ const Dashboard = () => {
           evaluations: 0,
           leadershipAssignments: 0,
           campaigns: 0,
+          challengesActive: 0,
           quizzesPending: 0,
         });
       }
@@ -400,11 +403,18 @@ const Dashboard = () => {
       action: () => navigate("/dashboard"),
     },
     {
+      key: "challengesActive",
+      label: tr("dashboard.notifications.challengesActive"),
+      count: pendingCounts.challengesActive,
+      icon: Target,
+      action: () => navigate("/dashboard"),
+    },
+    {
       key: "quizzesPending",
       label: tr("dashboard.notifications.quizzesPending"),
       count: pendingCounts.quizzesPending,
       icon: Trophy,
-      action: () => navigate("/dashboard"),
+      action: () => navigate("/study"),
     },
   ].filter((item) => !item.hidden);
 

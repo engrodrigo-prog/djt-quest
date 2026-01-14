@@ -790,7 +790,18 @@ export default function ForumTopic() {
         setReplyToPostId(null)
         setReplyToExcerpt('')
         load()
-        try { await fetch('/api/forum?handler=assess-post', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ post_id: (j as any)?.post?.id }) }) } catch {}
+        try {
+          const isStaff = (Array.isArray(roles) && roles.includes('admin')) || String(userRole || '').includes('gerente') || String(userRole || '').includes('coordenador') || (Array.isArray(roles) && roles.includes('content_curator'))
+          if (isStaff && (j as any)?.post?.id) {
+            const { data: session } = await supabase.auth.getSession()
+            const token = session.session?.access_token
+            await fetch('/api/forum?handler=assess-post', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+              body: JSON.stringify({ post_id: (j as any)?.post?.id }),
+            })
+          }
+        } catch {}
         return
       } catch (apiErr:any) {
         // Fallback: direct insert via Supabase client (requires forum_posts to exist and RLS enabled)

@@ -333,6 +333,7 @@
       "sepbookNew": "New SEPBook posts",
       "evaluations": "Pending evaluations",
       "campaigns": "Active campaigns",
+      "challengesActive": "Ongoing challenges",
       "quizzesPending": "Pending quizzes"
     }
   },

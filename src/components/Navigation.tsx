@@ -34,6 +34,7 @@ const Navigation = () => {
   const [forumBadge, setForumBadge] = useState(0);
   const [notifBadge, setNotifBadge] = useState(0);
   const [homeBadge, setHomeBadge] = useState(0);
+  const [studyBadge, setStudyBadge] = useState(0);
   const [sepbookNew, setSepbookNew] = useState(0);
   const [sepbookMentions, setSepbookMentions] = useState(0);
   const barRef = useRef<HTMLDivElement | null>(null);
@@ -111,15 +112,18 @@ const Navigation = () => {
         const forumMentions = json?.forumMentions || 0;
         const notifications = json?.notifications || 0;
         const campaigns = json?.campaigns || 0;
+        const challengesActive = json?.challengesActive || 0;
         const quizzesPending = json?.quizzesPending || 0;
+        const nextHomeBadge = Math.max(0, Number(campaigns) + Number(challengesActive));
+        const nextStudyBadge = Math.max(0, Number(quizzesPending));
 	        const evalTotal = evaluations + leadershipAssignments;
           let sepNew = 0;
           let sepMentions = 0;
 
 	        // SEPBook summary continua vindo da API dedicada
-	        try {
-	          const resp2 = await apiFetch('/api/sepbook-summary');
-	          const json2 = await resp2.json();
+	      try {
+	        const resp2 = await apiFetch('/api/sepbook-summary');
+	        const json2 = await resp2.json();
 	          if (resp2.ok) {
 	            sepNew = json2.new_posts || 0;
 	            sepMentions = json2.mentions || 0;
@@ -129,22 +133,23 @@ const Navigation = () => {
 	          sepMentions = 0;
 	        }
 
-	        if (!active) return;
-	        setStudioBadge(studioAccess ? approvals + passwordResets + registrations + evaluations : 0);
-	        setEvalBadge(isLeader ? evalTotal : 0);
-	        setForumBadge(forumMentions);
+		        if (!active) return;
+		        setStudioBadge(studioAccess ? approvals + passwordResets + registrations + evaluations : 0);
+		        setEvalBadge(isLeader ? evalTotal : 0);
+		        setForumBadge(forumMentions);
           setNotifBadge(notifications);
-          setHomeBadge(Math.max(0, campaigns + quizzesPending));
-	        setSepbookNew(sepNew);
-	        setSepbookMentions(sepMentions);
+          setHomeBadge(nextHomeBadge);
+          setStudyBadge(nextStudyBadge);
+		        setSepbookNew(sepNew);
+		        setSepbookMentions(sepMentions);
 
           const nextTotal =
             (studioAccess ? approvals + passwordResets + registrations + evaluations : 0) +
             (isLeader ? evalTotal : 0) +
             forumMentions +
             notifications +
-            campaigns +
-            quizzesPending +
+            nextHomeBadge +
+            nextStudyBadge +
             sepNew +
             sepMentions;
           const prevTotal = notifTotalRef.current;
@@ -156,13 +161,14 @@ const Navigation = () => {
         if (!active) return;
         setStudioBadge(0);
         setEvalBadge(0);
-        setForumBadge(0);
-        setNotifBadge(0);
-        setHomeBadge(0);
-        setSepbookNew(0);
-        setSepbookMentions(0);
-      }
-    };
+	        setForumBadge(0);
+	        setNotifBadge(0);
+	        setHomeBadge(0);
+          setStudyBadge(0);
+	        setSepbookNew(0);
+	        setSepbookMentions(0);
+	      }
+	    };
 
     const stopPolling = () => {
       clearInterval(timer);
@@ -248,7 +254,7 @@ const Navigation = () => {
     );
 
   if (navHidden && !navExpanded) {
-    const totalBadge = studioBadge + evalBadge + forumBadge + notifBadge + homeBadge + sepbookNew + sepbookMentions;
+    const totalBadge = studioBadge + evalBadge + forumBadge + notifBadge + homeBadge + studyBadge + sepbookNew + sepbookMentions;
     return (
       <div
         className="fixed bottom-0 right-0 z-30 p-3"
@@ -391,6 +397,11 @@ const Navigation = () => {
             <span className="absolute inset-[3px] rounded-2xl overflow-hidden">
               <img src={iconStudy} alt={t("nav.study")} className="w-full h-full object-cover" />
             </span>
+            {studyBadge > 0 && (
+              <span className={badgeClass(true)} style={{ zIndex: 5 }}>
+                {studyBadge > 99 ? '99+' : studyBadge}
+              </span>
+            )}
           </span>
           <span className={labelClass(isActive('/study'))} title={t("nav.study")}>{t("nav.study")}</span>
         </Button>

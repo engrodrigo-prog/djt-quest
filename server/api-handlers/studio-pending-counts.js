@@ -31,18 +31,19 @@ export default async function handler(req, res) {
         return res.status(204).send('');
     if (req.method !== 'GET')
         return res.status(405).json({ error: 'Method not allowed' });
-    try {
-    const emptyPayload = {
-        approvals: 0,
-        passwordResets: 0,
-        evaluations: 0,
-        leadershipAssignments: 0,
-        forumMentions: 0,
-        registrations: 0,
-        notifications: 0,
-        campaigns: 0,
-        quizzesPending: 0,
-    };
+	    try {
+	    const emptyPayload = {
+	        approvals: 0,
+	        passwordResets: 0,
+	        evaluations: 0,
+	        leadershipAssignments: 0,
+	        forumMentions: 0,
+	        registrations: 0,
+	        notifications: 0,
+	        campaigns: 0,
+	        challengesActive: 0,
+	        quizzesPending: 0,
+	    };
         if (!SUPABASE_URL || (!SERVICE_ROLE_KEY && !PUBLIC_KEY)) {
             return res.status(200).json(emptyPayload);
         }
@@ -200,9 +201,10 @@ export default async function handler(req, res) {
         }
         catch { campaigns = 0; }
 
-        // Quizzes pendentes: desafios do tipo quiz, ativos, sem tentativa submetida
-        let quizzesPending = 0;
-        try {
+	        // Desafios vigentes + quizzes pendentes (alvos do usuário)
+	        let quizzesPending = 0;
+	        let challengesActive = 0;
+	        try {
             const now = new Date().toISOString();
             const { data: quizChallenges } = await admin
                 .from('challenges')
@@ -222,25 +224,32 @@ export default async function handler(req, res) {
             const coordId = userProfile?.coord_id ? String(userProfile.coord_id) : null;
             const divId = userProfile?.division_id ? String(userProfile.division_id) : null;
 
-            quizzesPending = (quizChallenges || []).filter((c) => {
-                const type = String(c?.type || '').toLowerCase();
-                if (!type.includes('quiz')) return false;
-                const status = String(c?.status || 'active').toLowerCase();
-                if (status === 'closed' || status === 'canceled' || status === 'cancelled') return false;
-                const startOk = !c.start_date || c.start_date <= now;
-                const endOk = !c.end_date || c.end_date >= now;
-                if (!startOk || !endOk) return false;
-                const targetsTeam = Array.isArray(c.target_team_ids) && c.target_team_ids.length;
-                const targetsCoord = Array.isArray(c.target_coord_ids) && c.target_coord_ids.length;
-                const targetsDiv = Array.isArray(c.target_div_ids) && c.target_div_ids.length;
-                const matchTeam = !targetsTeam || (teamId && c.target_team_ids.map(String).includes(teamId));
-                const matchCoord = !targetsCoord || (coordId && c.target_coord_ids.map(String).includes(coordId));
-                const matchDiv = !targetsDiv || (divId && c.target_div_ids.map(String).includes(divId));
-                if (!matchTeam || !matchCoord || !matchDiv) return false;
-                return !completed.has(String(c.id || ''));
-            }).length;
-        }
-        catch { quizzesPending = 0; }
+	            const eligible = (quizChallenges || []).filter((c) => {
+	                const status = String(c?.status || 'active').toLowerCase();
+	                if (status === 'closed' || status === 'canceled' || status === 'cancelled') return false;
+	                const startOk = !c.start_date || c.start_date <= now;
+	                const endOk = !c.end_date || c.end_date >= now;
+	                if (!startOk || !endOk) return false;
+	                const targetsTeam = Array.isArray(c.target_team_ids) && c.target_team_ids.length;
+	                const targetsCoord = Array.isArray(c.target_coord_ids) && c.target_coord_ids.length;
+	                const targetsDiv = Array.isArray(c.target_div_ids) && c.target_div_ids.length;
+	                const matchTeam = !targetsTeam || (teamId && c.target_team_ids.map(String).includes(teamId));
+	                const matchCoord = !targetsCoord || (coordId && c.target_coord_ids.map(String).includes(coordId));
+	                const matchDiv = !targetsDiv || (divId && c.target_div_ids.map(String).includes(divId));
+	                if (!matchTeam || !matchCoord || !matchDiv) return false;
+	                return true;
+	            });
+	            challengesActive = eligible.filter((c) => {
+	                const type = String(c?.type || '').toLowerCase();
+	                return !type.includes('quiz');
+	            }).length;
+	            quizzesPending = eligible.filter((c) => {
+	                const type = String(c?.type || '').toLowerCase();
+	                if (!type.includes('quiz')) return false;
+	                return !completed.has(String(c.id || ''));
+	            }).length;
+	        }
+	        catch { quizzesPending = 0; challengesActive = 0; }
 
         return res.status(200).json({
             approvals,
@@ -248,11 +257,12 @@ export default async function handler(req, res) {
             evaluations,
             leadershipAssignments,
             forumMentions,
-            registrations: pendingRegistrations,
-            notifications: notifications + feedbackMessages,
-            campaigns,
-            quizzesPending,
-        });
+	            registrations: pendingRegistrations,
+	            notifications: notifications + feedbackMessages,
+	            campaigns,
+	            challengesActive,
+	            quizzesPending,
+	        });
     }
     catch (err) {
         return res.status(200).json({
@@ -261,11 +271,12 @@ export default async function handler(req, res) {
             evaluations: 0,
             leadershipAssignments: 0,
             forumMentions: 0,
-            registrations: 0,
-            notifications: 0,
-            campaigns: 0,
-            quizzesPending: 0,
-        });
+	            registrations: 0,
+	            notifications: 0,
+	            campaigns: 0,
+	            challengesActive: 0,
+	            quizzesPending: 0,
+	        });
     }
 }
 export const config = { api: { bodyParser: false } };
