@@ -133,8 +133,22 @@ export function CampaignEvidenceWizard({
   const [deviceLocation, setDeviceLocation] = useState<{ lat: number; lng: number; accuracy?: number | null; timestamp?: string | null } | null>(null);
   const [gpsLoading, setGpsLoading] = useState(false);
 
-  const [publishSepbook, setPublishSepbook] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [publishPromptOpen, setPublishPromptOpen] = useState(false);
+  const [publishLoading, setPublishLoading] = useState(false);
+  const [publishPayload, setPublishPayload] = useState<{
+    eventId: string;
+    attachments: string[];
+    content: string;
+    participantIds: string[];
+    gpsItems: any[];
+    locationLabel: string | null;
+    locationLat: number | null;
+    locationLng: number | null;
+    tags: string[];
+    transcript: string | null;
+    sapNote: string | null;
+  } | null>(null);
 
   // init participants + draft restore when opening
   useEffect(() => {
@@ -156,7 +170,6 @@ export function CampaignEvidenceWizard({
           setText(typeof d.text === "string" ? d.text : "");
           setSapNote(typeof d.sapNote === "string" ? d.sapNote : "");
           setTags(Array.isArray(d.tags) ? d.tags : []);
-          setPublishSepbook(Boolean(d.publishSepbook));
           restored = true;
         }
       }
@@ -172,7 +185,6 @@ export function CampaignEvidenceWizard({
       setSapNote("");
       setTags([]);
       setSuggestedHashtags([]);
-      setPublishSepbook(false);
       setDeviceLocation(null);
       setGpsEnabled(false);
     }
@@ -194,13 +206,12 @@ export function CampaignEvidenceWizard({
           text,
           sapNote,
           tags,
-          publishSepbook,
         }),
       );
     } catch {
       /* ignore */
     }
-  }, [campaign?.id, currentUserId, imageItems, attachmentUrls, open, participants, publishSepbook, sapNote, step, tags, text]);
+  }, [campaign?.id, currentUserId, imageItems, attachmentUrls, open, participants, sapNote, step, tags, text]);
 
   // audio preview URL
   useEffect(() => {
@@ -494,6 +505,104 @@ export function CampaignEvidenceWizard({
     return `${base}\n\n${missing.join(" ")}`.trim();
   }, [combinedHashtags, text]);
 
+  const extractMentions = (value: string) =>
+    Array.from(String(value || "").matchAll(/@([A-Za-z0-9_.-]+@[A-Za-z0-9_.-]+|[A-Za-z0-9_.-]+)/g)).map(
+      (m) => String(m[1] || "").trim().toLowerCase(),
+    );
+
+  const pickMentionToken = (p: any) => {
+    const handle = String(p?.mention_handle || "").trim();
+    if (handle) return handle.replace(/^@+/, "");
+    const email = String(p?.email || "").trim().toLowerCase();
+    if (email) return email.replace(/^@+/, "");
+    return "";
+  };
+
+  const buildMentionLine = (label: string, tokens: string[]) => {
+    if (!tokens.length) return "";
+    const unique = Array.from(new Set(tokens.filter(Boolean)));
+    if (!unique.length) return "";
+    return `${label}: ${unique.map((t) => `@${t}`).join(" ")}`;
+  };
+
+  const publishToSepbook = async () => {
+    if (!publishPayload || !campaign?.id) return;
+    setPublishLoading(true);
+    try {
+      const { data: session } = await supabase.auth.getSession();
+      const token = session.session?.access_token;
+      if (!token) throw new Error("Não autenticado");
+
+      let leaders: any[] = [];
+      let participants: any[] = [];
+      try {
+        const resp = await fetch(
+          `/api/admin?handler=event-evaluators&event_id=${encodeURIComponent(publishPayload.eventId)}`,
+          { headers: { Authorization: `Bearer ${token}` } },
+        );
+        const json = await resp.json().catch(() => ({}));
+        if (resp.ok) {
+          leaders = Array.isArray(json?.leaders) ? json.leaders : [];
+          participants = Array.isArray(json?.participants) ? json.participants : [];
+        }
+      } catch {
+        leaders = [];
+        participants = [];
+      }
+
+      const baseText = String(publishPayload.content || "").trim();
+      const existing = new Set(extractMentions(baseText));
+      const leaderTokens = leaders
+        .map((p) => pickMentionToken(p))
+        .filter((t) => t && !existing.has(t.toLowerCase()))
+        .filter((t) => /^([A-Za-z0-9_.-]+@[A-Za-z0-9_.-]+|[A-Za-z0-9_.-]+)$/.test(t));
+      const leaderSet = new Set(leaderTokens.map((t) => t.toLowerCase()));
+      const participantTokens = participants
+        .map((p) => pickMentionToken(p))
+        .filter((t) => t && !existing.has(t.toLowerCase()) && !leaderSet.has(t.toLowerCase()))
+        .filter((t) => /^([A-Za-z0-9_.-]+@[A-Za-z0-9_.-]+|[A-Za-z0-9_.-]+)$/.test(t));
+
+      const lines = [baseText].filter(Boolean);
+      const leaderLine = buildMentionLine("Avaliadores", leaderTokens);
+      const participantLine = buildMentionLine("Participantes", participantTokens);
+      if (leaderLine) lines.push(leaderLine);
+      if (participantLine) lines.push(participantLine);
+      const finalText = lines.join("\n\n").trim();
+
+      const resp = await fetch("/api/sepbook-post", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          content_md: finalText,
+          attachments: publishPayload.attachments,
+          campaign_id: campaign.id,
+          challenge_id: campaign.evidence_challenge_id,
+          participant_ids: publishPayload.participantIds,
+          sap_service_note: publishPayload.sapNote,
+          transcript: publishPayload.transcript,
+          tags: publishPayload.tags,
+          gps_meta: publishPayload.gpsItems,
+          location_label: publishPayload.locationLabel,
+          location_lat: publishPayload.locationLat,
+          location_lng: publishPayload.locationLng,
+          event_id: publishPayload.eventId,
+        }),
+      });
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(json?.error || "Falha ao publicar no SEPBook");
+
+      toast({ title: "Publicado", description: "Evidência publicada no SEPBook." });
+      onSubmitted?.({ eventId: publishPayload.eventId, sepbookPostId: json?.post?.id || null });
+      setPublishPromptOpen(false);
+      setPublishPayload(null);
+      onOpenChange(false);
+    } catch (e: any) {
+      toast({ title: "Falha ao publicar", description: e?.message || "Tente novamente", variant: "destructive" });
+    } finally {
+      setPublishLoading(false);
+    }
+  };
+
   const submitEvidence = async () => {
     if (!currentUserId) return;
     if (!campaign?.evidence_challenge_id) {
@@ -555,78 +664,61 @@ export function CampaignEvidenceWizard({
       const gpsFirst = gpsItems.find((g: any) => g && g.source !== "unavailable" && typeof g.lat === "number" && typeof g.lng === "number") || null;
       const locationLabel = gpsFirst ? (gpsFirst.source === "exif" ? "GPS da foto" : "Local atual") : null;
 
-      if (publishSepbook) {
-        const { data: session } = await supabase.auth.getSession();
-        const token = session.session?.access_token;
-        if (!token) throw new Error("Não autenticado");
+      const attachments = [...attachmentUrls, ...(audioUrl ? [audioUrl] : [])];
+      const payload: any = {
+        source: "campaign_evidence",
+        campaign_id: campaign.id,
+        description: contentForSepbook,
+        transcript: audioTranscript || null,
+        tags,
+        gps_meta: gpsItems,
+        location_label: locationLabel,
+        location_lat: gpsFirst ? gpsFirst.lat : null,
+        location_lng: gpsFirst ? gpsFirst.lng : null,
+        publish_sepbook: false,
+        attachments,
+      };
 
-        const attachments = [...attachmentUrls, ...(audioUrl ? [audioUrl] : [])];
-        const resp = await fetch("/api/sepbook-post", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-          body: JSON.stringify({
-            text: contentForSepbook,
-            attachments,
-            campaign_id: campaign.id,
-            challenge_id: campaign.evidence_challenge_id,
-            participant_ids: participantIds.filter((id) => id !== currentUserId),
-            sap_service_note: cleanSap || null,
-            transcript: audioTranscript || null,
-            tags,
-            gps_meta: gpsItems,
-            location_label: locationLabel,
-            location_lat: gpsFirst ? gpsFirst.lat : null,
-            location_lng: gpsFirst ? gpsFirst.lng : null,
-          }),
-        });
-        const json = await resp.json().catch(() => ({}));
-        if (!resp.ok) throw new Error(json?.error || "Falha ao publicar no SEPBook");
-
-        toast({ title: "Publicado", description: "Evidência publicada no SEPBook e enviada para avaliação." });
-        onSubmitted?.({ eventId: json?.event_id || null, sepbookPostId: json?.post?.id || null });
-      } else {
-        const attachments = [...attachmentUrls, ...(audioUrl ? [audioUrl] : [])];
-        const payload: any = {
-          source: "campaign_evidence",
-          campaign_id: campaign.id,
-          description: contentForSepbook,
-          transcript: audioTranscript || null,
-          tags,
-          gps_meta: gpsItems,
-          location_label: locationLabel,
-          location_lat: gpsFirst ? gpsFirst.lat : null,
-          location_lng: gpsFirst ? gpsFirst.lng : null,
-          publish_sepbook: false,
-          attachments,
-        };
-
-        const { data: ev, error } = await supabase
-          .from("events")
-          .insert({
-            user_id: currentUserId,
-            challenge_id: campaign.evidence_challenge_id,
-            status: "submitted",
-            evidence_urls: attachments,
-            sap_service_note: cleanSap || null,
-            payload,
-          } as any)
-          .select("id")
-          .single();
-        if (error) {
-          const details = [error.message, error.details, error.hint].filter(Boolean).join(" • ");
-          throw new Error(details || "Falha ao registrar evidência");
-        }
-        const eventId = String((ev as any)?.id || "");
-        if (!eventId) throw new Error("Falha ao registrar evidência");
-
-        const rows = Array.from(new Set(participantIds))
-          .filter(Boolean)
-          .map((uid) => ({ event_id: eventId, user_id: uid }));
-        await supabase.from("event_participants").upsert(rows as any, { onConflict: "event_id,user_id" } as any);
-
-        toast({ title: "Evidência registrada", description: "Enviada para avaliação. Obrigado!" });
-        onSubmitted?.({ eventId, sepbookPostId: null });
+      const { data: ev, error } = await supabase
+        .from("events")
+        .insert({
+          user_id: currentUserId,
+          challenge_id: campaign.evidence_challenge_id,
+          status: "submitted",
+          evidence_urls: attachments,
+          sap_service_note: cleanSap || null,
+          payload,
+        } as any)
+        .select("id")
+        .single();
+      if (error) {
+        const details = [error.message, error.details, error.hint].filter(Boolean).join(" • ");
+        throw new Error(details || "Falha ao registrar evidência");
       }
+      const eventId = String((ev as any)?.id || "");
+      if (!eventId) throw new Error("Falha ao registrar evidência");
+
+      const rows = Array.from(new Set(participantIds))
+        .filter(Boolean)
+        .map((uid) => ({ event_id: eventId, user_id: uid }));
+      await supabase.from("event_participants").upsert(rows as any, { onConflict: "event_id,user_id" } as any);
+
+      toast({ title: "Evidência registrada", description: "Enviada para avaliação. Obrigado!" });
+      onSubmitted?.({ eventId, sepbookPostId: null });
+      setPublishPayload({
+        eventId,
+        attachments,
+        content: contentForSepbook,
+        participantIds: participantIds.filter((id) => id !== currentUserId),
+        gpsItems,
+        locationLabel,
+        locationLat: gpsFirst ? gpsFirst.lat : null,
+        locationLng: gpsFirst ? gpsFirst.lng : null,
+        tags,
+        transcript: audioTranscript || null,
+        sapNote: cleanSap || null,
+      });
+      setPublishPromptOpen(true);
 
       // Clear draft (best-effort)
       try {
@@ -634,7 +726,6 @@ export function CampaignEvidenceWizard({
       } catch {
         /* ignore */
       }
-      onOpenChange(false);
     } catch (e: any) {
       toast({ title: "Falha ao enviar evidência", description: e?.message || "Tente novamente", variant: "destructive" });
     } finally {
@@ -647,7 +738,7 @@ export function CampaignEvidenceWizard({
     2: "2/5 Evidência",
     3: "3/5 Texto, @ e #",
     4: "4/5 Metadados (SAP e GPS)",
-    5: "5/5 SEPBook (opcional)",
+    5: "5/5 Revisão",
   };
 
   return (
@@ -952,14 +1043,8 @@ export function CampaignEvidenceWizard({
 
           {step === 5 && (
             <div className="space-y-4">
-              <div className="flex items-center justify-between gap-3 rounded-md border bg-white/5 p-3">
-                <div className="space-y-1">
-                  <p className="text-sm font-semibold">Publicar no SEPBook</p>
-                  <p className="text-[11px] text-muted-foreground">
-                    Opcional. Quando ligado, publica o post e envia a evidência para avaliação. Visível para todos.
-                  </p>
-                </div>
-                <Switch checked={publishSepbook} onCheckedChange={setPublishSepbook} />
+              <div className="rounded-md border bg-white/5 p-3 text-[11px] text-muted-foreground">
+                Após enviar a evidência, vamos perguntar se você deseja publicar no SEPBook com marcação de líderes e participantes.
               </div>
 
               <div className="rounded-md border bg-white/5 p-3 space-y-3">
@@ -1009,7 +1094,7 @@ export function CampaignEvidenceWizard({
             </div>
             <div className="flex items-center gap-2">
               <Button type="button" onClick={submitEvidence} disabled={!canNextFromStep(5) || step !== 5 || submitting}>
-                {submitting ? "Enviando..." : publishSepbook ? "Publicar no SEPBook" : "Salvar evidência"}
+                {submitting ? "Enviando..." : "Enviar evidência"}
               </Button>
             </div>
           </div>
@@ -1056,6 +1141,56 @@ export function CampaignEvidenceWizard({
               }}
             >
               Permitir
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={publishPromptOpen}
+        onOpenChange={(openNext) => {
+          if (openNext) {
+            setPublishPromptOpen(true);
+            return;
+          }
+          setPublishPromptOpen(false);
+          setPublishPayload(null);
+          onOpenChange(false);
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Publicar no SEPBook?</DialogTitle>
+            <DialogDescription>
+              Vamos publicar a evidência com o texto informado, marcando os líderes que vão avaliar e os participantes da ação.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-md border bg-white/5 p-3 text-[11px] text-muted-foreground">
+            {publishPayload ? (
+              <>
+                <div>{publishPayload.attachments.length} anexo(s)</div>
+                <div>{publishPayload.participantIds.length} participante(s) marcado(s)</div>
+                <div>{publishPayload.locationLabel ? `Local: ${publishPayload.locationLabel}` : "Sem localização"}</div>
+              </>
+            ) : (
+              <div>Resumo indisponível.</div>
+            )}
+          </div>
+          <div className="flex items-center justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setPublishPromptOpen(false);
+                setPublishPayload(null);
+                onOpenChange(false);
+              }}
+              disabled={publishLoading}
+            >
+              Agora não
+            </Button>
+            <Button type="button" onClick={publishToSepbook} disabled={publishLoading}>
+              {publishLoading ? "Publicando..." : "Publicar no SEPBook"}
             </Button>
           </div>
         </DialogContent>

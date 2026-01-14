@@ -17,6 +17,8 @@ const normalizeTeamId = (raw: any) => String(raw || "").trim().toUpperCase();
 const isGuestTeamId = (raw: any) => normalizeTeamId(raw) === "CONVIDADOS";
 const isGuestProfile = (p: any) =>
   isGuestTeamId(p?.team_id) || isGuestTeamId(p?.sigla_area) || isGuestTeamId(p?.operational_base);
+const isUuid = (value: any) =>
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || ""));
 
 const extractCampaignTitles = (md: string) => {
   const text = String(md || "");
@@ -242,13 +244,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 	      attachments = [],
 	      location_lat,
 	      location_lng,
-	      locales,
-	      participant_ids,
-	      campaign_id,
-	      challenge_id,
-	      group_label,
-	      repost_of,
-	      sap_service_note,
+      locales,
+      participant_ids,
+      campaign_id,
+      challenge_id,
+      event_id,
+      group_label,
+      repost_of,
+      sap_service_note,
 	      transcript,
 	      tags,
 	      gps_meta,
@@ -278,17 +281,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
 	    const cleanSap = typeof sap_service_note === "string" ? sap_service_note.trim().slice(0, 120) : "";
 	    const cleanTranscript = typeof transcript === "string" ? transcript.trim().slice(0, 12000) : "";
-	    const cleanTags = Array.isArray(tags)
-	      ? Array.from(
-	          new Set(
-	            (tags as any[])
-	              .map((t) => String(t || "").trim())
-	              .filter(Boolean)
-	              .map((t) => t.replace(/^#+/, "").slice(0, 40)),
-	          ),
-	        ).slice(0, 10)
-	      : [];
-	    const cleanGpsMeta = Array.isArray(gps_meta) ? gps_meta.slice(0, 8) : null;
+    const cleanTags = Array.isArray(tags)
+      ? Array.from(
+          new Set(
+            (tags as any[])
+              .map((t) => String(t || "").trim())
+              .filter(Boolean)
+              .map((t) => t.replace(/^#+/, "").slice(0, 40)),
+          ),
+        ).slice(0, 10)
+      : [];
+    const cleanGpsMeta = Array.isArray(gps_meta) ? gps_meta.slice(0, 8) : null;
+    const eventIdClean = isUuid(event_id) ? String(event_id).trim() : "";
 
 	    let authorIsGuest = isGuestProfile(profile);
 	    try {
@@ -426,53 +430,84 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     let eventId: string | null = null;
     let eventError: string | null = null;
     try {
-      const nextChallengeId = challenge_id || evidenceChallengeId || null;
-      if (resolvedCampaignId || nextChallengeId || safeParticipantIds.length > 0) {
-        // Em ambientes sem service role, essa integração é best-effort.
-        const writer = SERVICE_ROLE_KEY ? admin : authed;
-        const payload = {
-          source: "sepbook",
-          sepbook_post_id: post.id,
-          content_md: text,
-          attachments: atts,
-          campaign_id: resolvedCampaignId || null,
-          group_label: group_label || null,
-          location_label: computedLocationLabel,
-          location_lat: maybeCoords ? maybeCoords.lat : null,
-          location_lng: maybeCoords ? maybeCoords.lng : null,
-          sap_service_note: cleanSap || null,
-          transcript: cleanTranscript || null,
-          tags: cleanTags,
-          gps_meta: cleanGpsMeta,
-          publish_sepbook: true,
-        };
-
-        const { data: newEvent, error: eventErr } = await writer
-          .from("events")
-          .insert({
-            user_id: uid,
-            challenge_id: nextChallengeId,
-            status: "submitted",
-            evidence_urls: atts,
-            sap_service_note: cleanSap || null,
-            payload,
-          })
-          .select("id")
-          .single();
-
-        if (eventErr) throw eventErr;
-        eventId = newEvent?.id || null;
-
-        // Upsert participantes (inclui sempre o autor)
-        const participantsSet = new Set<string>(safeParticipantIds);
-        participantsSet.add(uid);
-        const participantRows = Array.from(participantsSet).map((pid) => ({ event_id: eventId, user_id: pid }));
-        await writer.from("event_participants").upsert(participantRows as any, { onConflict: "event_id,user_id" } as any);
-
-        // Persist back-reference on the post if the column exists (best-effort)
+      if (eventIdClean) {
+        eventId = eventIdClean;
         try {
-          await writer.from("sepbook_posts").update({ event_id: eventId } as any).eq("id", post.id);
+          await (SERVICE_ROLE_KEY ? admin : authed)
+            .from("sepbook_posts")
+            .update({ event_id: eventId } as any)
+            .eq("id", post.id);
         } catch {}
+        try {
+          const { data: ev } = await (SERVICE_ROLE_KEY ? admin : authed)
+            .from("events")
+            .select("id,user_id,payload,evidence_urls")
+            .eq("id", eventId)
+            .maybeSingle();
+          if (ev && String(ev.user_id) === String(uid)) {
+            const nextPayload = {
+              ...(ev.payload && typeof ev.payload === "object" ? ev.payload : {}),
+              sepbook_post_id: post.id,
+              publish_sepbook: true,
+            };
+            await (SERVICE_ROLE_KEY ? admin : authed)
+              .from("events")
+              .update({
+                payload: nextPayload,
+                evidence_urls: Array.isArray(ev.evidence_urls) && ev.evidence_urls.length ? ev.evidence_urls : atts,
+              })
+              .eq("id", eventId);
+          }
+        } catch {}
+      } else {
+        const nextChallengeId = challenge_id || evidenceChallengeId || null;
+        if (resolvedCampaignId || nextChallengeId || safeParticipantIds.length > 0) {
+          // Em ambientes sem service role, essa integração é best-effort.
+          const writer = SERVICE_ROLE_KEY ? admin : authed;
+          const payload = {
+            source: "sepbook",
+            sepbook_post_id: post.id,
+            content_md: text,
+            attachments: atts,
+            campaign_id: resolvedCampaignId || null,
+            group_label: group_label || null,
+            location_label: computedLocationLabel,
+            location_lat: maybeCoords ? maybeCoords.lat : null,
+            location_lng: maybeCoords ? maybeCoords.lng : null,
+            sap_service_note: cleanSap || null,
+            transcript: cleanTranscript || null,
+            tags: cleanTags,
+            gps_meta: cleanGpsMeta,
+            publish_sepbook: true,
+          };
+
+          const { data: newEvent, error: eventErr } = await writer
+            .from("events")
+            .insert({
+              user_id: uid,
+              challenge_id: nextChallengeId,
+              status: "submitted",
+              evidence_urls: atts,
+              sap_service_note: cleanSap || null,
+              payload,
+            })
+            .select("id")
+            .single();
+
+          if (eventErr) throw eventErr;
+          eventId = newEvent?.id || null;
+
+          // Upsert participantes (inclui sempre o autor)
+          const participantsSet = new Set<string>(safeParticipantIds);
+          participantsSet.add(uid);
+          const participantRows = Array.from(participantsSet).map((pid) => ({ event_id: eventId, user_id: pid }));
+          await writer.from("event_participants").upsert(participantRows as any, { onConflict: "event_id,user_id" } as any);
+
+          // Persist back-reference on the post if the column exists (best-effort)
+          try {
+            await writer.from("sepbook_posts").update({ event_id: eventId } as any).eq("id", post.id);
+          } catch {}
+        }
       }
     } catch (e: any) {
       const msg = e?.message || "Falha ao criar evidência";
