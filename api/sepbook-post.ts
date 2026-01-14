@@ -4,6 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 import { extractSepbookMentions } from "./sepbook-mentions.js";
 import { translateForumTexts } from "../server/lib/forum-translations.js";
 import { assertDjtQuestServerEnv } from "../server/env-guard.js";
+import { normalizeLatLng, reverseGeocodeCityLabel } from "../server/lib/reverse-geocode.js";
 
 const SUPABASE_URL = process.env.SUPABASE_URL as string;
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY as string | undefined;
@@ -239,7 +240,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 	    const {
 	      content_md,
 	      attachments = [],
-	      location_label,
 	      location_lat,
 	      location_lng,
 	      locales,
@@ -334,6 +334,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     }
 
+    const maybeCoords = normalizeLatLng(location_lat, location_lng);
+    const computedLocationLabel = maybeCoords ? await reverseGeocodeCityLabel(maybeCoords.lat, maybeCoords.lng) : null;
+
     // Resolve campaign by explicit campaign_id or by &"Nome"
     let resolvedCampaignId = campaign_id || null;
     let evidenceChallengeId: string | null = null;
@@ -363,9 +366,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       attachments: atts,
       has_media: atts.length > 0,
       repost_of: repostOf || null,
-      location_label: location_label || null,
-      location_lat: typeof location_lat === "number" ? location_lat : null,
-      location_lng: typeof location_lng === "number" ? location_lng : null,
+      location_label: computedLocationLabel,
+      location_lat: maybeCoords ? maybeCoords.lat : null,
+      location_lng: maybeCoords ? maybeCoords.lng : null,
       campaign_id: resolvedCampaignId || null,
       challenge_id: challenge_id || null,
       group_label: group_label || null,
@@ -434,9 +437,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           attachments: atts,
           campaign_id: resolvedCampaignId || null,
           group_label: group_label || null,
-          location_label: location_label || null,
-          location_lat: typeof location_lat === "number" ? location_lat : null,
-          location_lng: typeof location_lng === "number" ? location_lng : null,
+          location_label: computedLocationLabel,
+          location_lat: maybeCoords ? maybeCoords.lat : null,
+          location_lng: maybeCoords ? maybeCoords.lng : null,
           sap_service_note: cleanSap || null,
           transcript: cleanTranscript || null,
           tags: cleanTags,

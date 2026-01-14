@@ -4,6 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 import { assertDjtQuestServerEnv, DJT_QUEST_SUPABASE_HOST } from "../server/env-guard.js";
 import { getSupabaseUrlFromEnv } from "../server/lib/supabase-url.js";
 import { translateForumTexts } from "../server/lib/forum-translations.js";
+import { reverseGeocodeCityLabel } from "../server/lib/reverse-geocode.js";
 
 const SUPABASE_URL =
   getSupabaseUrlFromEnv(process.env, { expectedHostname: DJT_QUEST_SUPABASE_HOST, allowLocal: true }) ||
@@ -52,12 +53,6 @@ const clampLatLng = (latRaw: any, lngRaw: any) => {
   if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
   if (Math.abs(lat) < 1e-9 && Math.abs(lng) < 1e-9) return null;
   return { lat, lng };
-};
-
-const normalizeLocationLabel = (raw: any) => {
-  const label = String(raw || "").trim();
-  if (!label) return null;
-  return label.slice(0, 80);
 };
 
 const extractMentions = (md: string) => {
@@ -362,7 +357,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       const { post_id, content_md, parent_id } = req.body || {};
       const maybeCoords = clampLatLng(req.body?.location_lat, req.body?.location_lng);
-      const locationLabel = normalizeLocationLabel(req.body?.location_label);
+      const locationLabel = maybeCoords ? await reverseGeocodeCityLabel(maybeCoords.lat, maybeCoords.lng) : null;
       const rawAttachments = Array.isArray(req.body?.attachments) ? req.body.attachments : [];
       const attachments = rawAttachments
         .filter((item: any) => typeof item === "string" && item.trim())
@@ -528,7 +523,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         ? rawAttachments.filter((item: any) => typeof item === "string" && item.trim()).slice(0, 3)
         : null;
       const maybeCoords = clampLatLng(req.body?.location_lat, req.body?.location_lng);
-      const locationLabel = normalizeLocationLabel(req.body?.location_label);
+      const locationLabel = maybeCoords ? await reverseGeocodeCityLabel(maybeCoords.lat, maybeCoords.lng) : null;
       const text = String(content_md || "").trim();
       const normalizedText = text.length >= 2 ? text : "";
       const targetLocales = normalizeRequestedLocales(req.body?.locales);
@@ -600,7 +595,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       let updateError: any = null;
       try {
-        const locationPatch = maybeCoords
+      const locationPatch = maybeCoords
           ? { location_lat: maybeCoords.lat, location_lng: maybeCoords.lng, location_label: locationLabel }
           : {};
         const { error } = await reader

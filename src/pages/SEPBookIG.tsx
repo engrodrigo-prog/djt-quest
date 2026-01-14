@@ -340,9 +340,8 @@ const clampLatLng = (lat: number, lng: number) => {
   return { lat: la, lng: ln };
 };
 
-const formatGpsLabel = (_lat: number, _lng: number, _source: "photo") => {
-  return "GPS da foto";
-};
+const geoKeyFor = (lat: number, lng: number) => `${Number(lat).toFixed(5)},${Number(lng).toFixed(5)}`;
+const formatLatLng = (lat: number, lng: number) => `${Number(lat).toFixed(5)}, ${Number(lng).toFixed(5)}`;
 
 const sanitizeLocationLabel = (raw: any) => {
   const label = String(raw || "").trim();
@@ -1245,12 +1244,13 @@ export default function SEPBookIG() {
       return {
         location_lat: composerGpsSource.gps.lat,
         location_lng: composerGpsSource.gps.lng,
-        location_label: myProfile?.operational_base || formatGpsLabel(composerGpsSource.gps.lat, composerGpsSource.gps.lng, "photo"),
+        // The backend will reverse-geocode (city/state) from lat/lng; never use operational_base as "location".
+        location_label: null,
         __gps_url: composerGpsSource.url || null,
       };
     }
     return null;
-  }, [composerGpsSource, myProfile?.operational_base, myProfile?.sepbook_gps_consent]);
+  }, [composerGpsSource, myProfile?.sepbook_gps_consent]);
 
   const resolveLocationForNewComment = useCallback(async () => {
     if (!commentGpsSource?.gps || !commentGpsSource.url) return null;
@@ -1258,10 +1258,68 @@ export default function SEPBookIG() {
     return {
       location_lat: commentGpsSource.gps.lat,
       location_lng: commentGpsSource.gps.lng,
-      location_label: myProfile?.operational_base || formatGpsLabel(commentGpsSource.gps.lat, commentGpsSource.gps.lng, "photo"),
+      // The backend will reverse-geocode (city/state) from lat/lng; never use operational_base as "location".
+      location_label: null,
       __gps_url: commentGpsSource.url || null,
     };
-  }, [commentGpsSource, myProfile?.operational_base, myProfile?.sepbook_gps_consent]);
+  }, [commentGpsSource, myProfile?.sepbook_gps_consent]);
+
+  const geoLabelCacheRef = useRef<Record<string, string>>({});
+  const geoInFlightRef = useRef<Set<string>>(new Set());
+  const [geoLabels, setGeoLabels] = useState<Record<string, string>>({});
+  useEffect(() => {
+    geoLabelCacheRef.current = geoLabels;
+  }, [geoLabels]);
+
+  const fetchGeoLabel = useCallback(async (latRaw: any, lngRaw: any) => {
+    const coords = clampLatLng(Number(latRaw), Number(lngRaw));
+    if (!coords) return;
+    const key = geoKeyFor(coords.lat, coords.lng);
+    if (geoLabelCacheRef.current[key]) return;
+    if (geoInFlightRef.current.has(key)) return;
+    geoInFlightRef.current.add(key);
+    try {
+      const resp = await apiFetch(`/api/reverse-geocode?lat=${encodeURIComponent(String(coords.lat))}&lng=${encodeURIComponent(String(coords.lng))}`);
+      const json = await resp.json().catch(() => ({}));
+      if (resp.ok && typeof json?.label === "string" && json.label.trim()) {
+        const label = String(json.label).trim();
+        setGeoLabels((prev) => (prev[key] ? prev : { ...prev, [key]: label }));
+      }
+    } catch {
+      /* ignore */
+    } finally {
+      geoInFlightRef.current.delete(key);
+    }
+  }, []);
+
+  useEffect(() => {
+    // Preload reverse-geocoded labels for visible posts with GPS.
+    const targets = visiblePosts.slice(0, 40).map((p) => {
+      const coords = clampLatLng(Number(p.location_lat), Number(p.location_lng));
+      if (!coords) return null;
+      const safe = sanitizeLocationLabel(p.location_label);
+      const authorBase = String((p as any)?.author_base || "").trim().toLowerCase();
+      const treatAsMissing = !safe || (authorBase && safe.toLowerCase() === authorBase);
+      if (!treatAsMissing) return null;
+      const key = geoKeyFor(coords.lat, coords.lng);
+      if (geoLabelCacheRef.current[key]) return null;
+      if (geoInFlightRef.current.has(key)) return null;
+      return { lat: coords.lat, lng: coords.lng };
+    }).filter(Boolean) as Array<{ lat: number; lng: number }>;
+
+    if (!targets.length) return;
+    let cancelled = false;
+    (async () => {
+      for (const t of targets) {
+        if (cancelled) return;
+        await fetchGeoLabel(t.lat, t.lng);
+        await new Promise((r) => setTimeout(r, 80));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchGeoLabel, visiblePosts]);
 
   const uploadedComposerUrls = useMemo(
     () => composerMedia.filter((m) => m.url).map((m) => m.url!) as string[],
@@ -2591,7 +2649,13 @@ export default function SEPBookIG() {
               const caption = String(getPostDisplayText(p) || "").trim();
               const safeLocationLabel = sanitizeLocationLabel(p.location_label);
               const hasGps = Number.isFinite(Number(p.location_lat)) && Number.isFinite(Number(p.location_lng));
-              const locationDisplay = safeLocationLabel || (hasGps ? (p.author_base || null) : null);
+              const coords = hasGps ? clampLatLng(Number(p.location_lat), Number(p.location_lng)) : null;
+              const authorBase = String((p as any)?.author_base || "").trim().toLowerCase();
+              const labelLooksLikeBase = safeLocationLabel && authorBase && safeLocationLabel.toLowerCase() === authorBase;
+              const geoKey = coords ? geoKeyFor(coords.lat, coords.lng) : null;
+              const geoLabel = geoKey ? geoLabelCacheRef.current[geoKey] || null : null;
+              const locationCity = coords ? (labelLooksLikeBase || !safeLocationLabel ? geoLabel : safeLocationLabel) : null;
+              const locationCoords = coords ? formatLatLng(coords.lat, coords.lng) : null;
               return (
                 <article key={p.id} id={`post-${p.id}`} className="border-b">
                   <div className="flex items-center justify-between gap-2 px-3 py-2">
@@ -2626,7 +2690,8 @@ export default function SEPBookIG() {
                             title={tr("sepbook.map")}
                           >
                             <MapPinned className="h-3.5 w-3.5" />
-                            <span className="truncate">{locationDisplay || tr("sepbook.location")}</span>
+                            {locationCity ? <span className="truncate">{locationCity}</span> : null}
+                            {locationCoords ? <span className="opacity-70 truncate">{locationCity ? `• ${locationCoords}` : locationCoords}</span> : null}
                           </button>
                         ) : null}
                         {p.campaign?.id ? (
@@ -3603,7 +3668,18 @@ export default function SEPBookIG() {
                             </div>
                           </div>
                           <div className="text-[12px] text-muted-foreground truncate">
-                            {sanitizeLocationLabel(selectedMapPost.location_label) || tr("sepbook.location")}
+                            {(() => {
+                              const coords = clampLatLng(Number(selectedMapPost.location_lat), Number(selectedMapPost.location_lng));
+                              const safe = sanitizeLocationLabel(selectedMapPost.location_label);
+                              const base = String(selectedMapProfile?.operational_base || "").trim().toLowerCase();
+                              const looksLikeBase = safe && base && safe.toLowerCase() === base;
+                              const key = coords ? geoKeyFor(coords.lat, coords.lng) : null;
+                              const geo = key ? geoLabelCacheRef.current[key] || null : null;
+                              const city = coords ? (looksLikeBase || !safe ? geo : safe) : null;
+                              const coordLabel = coords ? formatLatLng(coords.lat, coords.lng) : null;
+                              const out = [city, coordLabel].filter(Boolean).join(" • ");
+                              return out || tr("sepbook.location");
+                            })()}
                           </div>
                           {selectedMapProfile?.operational_base ? (
                             <div className="text-[12px] text-muted-foreground truncate">
@@ -3744,7 +3820,18 @@ export default function SEPBookIG() {
                           </div>
                         ) : null}
                         <div className="text-[12px] text-muted-foreground truncate">
-                          {sanitizeLocationLabel(x.location_label) || tr("sepbook.location")}
+                          {(() => {
+                            const coords = clampLatLng(Number(x.location_lat), Number(x.location_lng));
+                            const safe = sanitizeLocationLabel(x.location_label);
+                            const base = String(mapProfiles[String(x.user_id || "")]?.operational_base || "").trim().toLowerCase();
+                            const looksLikeBase = safe && base && safe.toLowerCase() === base;
+                            const key = coords ? geoKeyFor(coords.lat, coords.lng) : null;
+                            const geo = key ? geoLabelCacheRef.current[key] || null : null;
+                            const city = coords ? (looksLikeBase || !safe ? geo : safe) : null;
+                            const coordLabel = coords ? formatLatLng(coords.lat, coords.lng) : null;
+                            const out = [city, coordLabel].filter(Boolean).join(" • ");
+                            return out || tr("sepbook.location");
+                          })()}
                           {x.kind === "comment" ? ` • ${tr("sepbook.commentLabel")}` : ""}
                         </div>
                         <div className="text-[11px] text-muted-foreground truncate">
