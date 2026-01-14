@@ -55,6 +55,19 @@ const Auth = () => {
   const [searchParams] = useSearchParams();
   const redirectParam = searchParams.get('redirect');
 
+  const lookupProfiles = useCallback(async (params: { mode: string; query: string; limit?: number }) => {
+    const resp = await apiFetch('/api/profile-lookup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    });
+    const json = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      throw new Error(json?.error || 'Falha ao buscar perfis');
+    }
+    return Array.isArray(json?.users) ? (json.users as UserOption[]) : [];
+  }, []);
+
   const resolveRedirect = useCallback(() => {
     const raw = (redirectParam || '').trim();
     if (!raw) return null;
@@ -173,30 +186,10 @@ const Auth = () => {
     matriculaLookupRef.current = digits;
     try {
       // Try exact match first to avoid selecting a wrong partial match.
-      const { data: exact, error: exactErr } = await supabase
-        .from('profiles')
-        .select('id, name, email, matricula')
-        .eq('matricula', digits)
-        .maybeSingle();
+      const exact = await lookupProfiles({ mode: 'matricula_exact', query: digits, limit: 1 });
+      const option = exact[0] || (await lookupProfiles({ mode: 'matricula_partial', query: digits, limit: 1 }))[0];
+      if (!option) return;
 
-      let data = exact;
-      let error = exactErr;
-
-      if (!data) {
-        const { data: partial, error: partialErr } = await supabase
-          .from('profiles')
-          .select('id, name, email, matricula')
-          .ilike('matricula', `%${digits}%`)
-          .order('matricula', { ascending: true })
-          .limit(1)
-          .maybeSingle();
-        data = partial;
-        error = partialErr;
-      }
-
-      if (error || !data) return;
-
-      const option = data as UserOption;
       setUsers((prev) => {
         if (prev.some((u) => u.id === option.id)) return prev;
         return [option, ...prev];
@@ -209,7 +202,7 @@ const Auth = () => {
         matriculaLookupRef.current = null;
       }
     }
-  }, [selectUser]);
+  }, [lookupProfiles, selectUser]);
 
   const resolveUserFromQuery = useCallback(async (): Promise<UserOption | null> => {
     const trimmed = query.trim();
@@ -219,48 +212,27 @@ const Auth = () => {
 
     try {
       if (digitsOnly.length >= MATRICULA_LOOKUP_MIN_LENGTH) {
-        const { data: exact, error: exactErr } = await supabase
-          .from('profiles')
-          .select('id, name, email, matricula')
-          .eq('matricula', digitsOnly)
-          .maybeSingle();
-        if (!exactErr && exact) return exact as UserOption;
-
-        const { data: partial, error: partialErr } = await supabase
-          .from('profiles')
-          .select('id, name, email, matricula')
-          .ilike('matricula', `%${digitsOnly}%`)
-          .order('matricula', { ascending: true })
-          .limit(1)
-          .maybeSingle();
-        if (!partialErr && partial) return partial as UserOption;
+        const exact = await lookupProfiles({ mode: 'matricula_exact', query: digitsOnly, limit: 1 });
+        if (exact[0]) return exact[0];
+        const partial = await lookupProfiles({ mode: 'matricula_partial', query: digitsOnly, limit: 1 });
+        if (partial[0]) return partial[0];
       }
 
       if (trimmed.includes('@')) {
-        const { data, error } = await supabase
-          .from('profiles')
-          .select('id, name, email, matricula')
-          .or(`email.eq.${lower},email.ilike.%${lower}%`)
-          .limit(1)
-          .maybeSingle();
-        if (!error && data) return data as UserOption;
+        const email = await lookupProfiles({ mode: 'email', query: lower, limit: 1 });
+        if (email[0]) return email[0];
       }
 
       if (words.length >= 2 && words[1].length >= 1) {
-        const { data, error } = await supabase
-          .from('profiles')
-          .select('id, name, email, matricula')
-          .or(`name.ilike.%${lower}%,email.ilike.%${lower}%`)
-          .limit(1)
-          .maybeSingle();
-        if (!error && data) return data as UserOption;
+        const name = await lookupProfiles({ mode: 'name', query: lower, limit: 1 });
+        if (name[0]) return name[0];
       }
     } catch (error) {
       console.error('Login lookup error:', error);
     }
 
     return null;
-  }, [query]);
+  }, [lookupProfiles, query]);
 
   const fetchSuggestions = useCallback(async (input: string) => {
     const trimmed = input.trim();
@@ -283,26 +255,14 @@ const Auth = () => {
     suggestionsLookupRef.current = key;
 
     try {
-      let q = supabase
-        .from('profiles')
-        .select('id, name, email, matricula');
-
-      if (isDigitsOnly) {
-        q = q.or(`matricula.eq.${digitsOnly},matricula.ilike.%${digitsOnly}%`);
-      } else if (isEmail) {
-        q = q.or(`email.eq.${lower},email.ilike.%${lower}%`);
-      } else {
-        q = q.or(`name.ilike.%${lower}%,email.ilike.%${lower}%`);
-      }
-
-      const { data, error } = await q.order('name', { ascending: true }).limit(10);
+      const mode = isDigitsOnly ? 'matricula_partial' : isEmail ? 'email' : 'name';
+      const data = await lookupProfiles({ mode, query: isDigitsOnly ? digitsOnly : lower, limit: 10 });
       if (suggestionsLookupRef.current !== key) return; // stale response
-      if (error) return;
-      setUsers((data as UserOption[]) || []);
+      setUsers(data || []);
     } catch (error) {
       console.error('Suggestions lookup error:', error);
     }
-  }, []);
+  }, [lookupProfiles]);
 
   useEffect(() => {
     const lastUserId = localStorage.getItem(LAST_USER_KEY);
@@ -311,13 +271,9 @@ const Auth = () => {
     let cancelled = false;
     (async () => {
       try {
-        const { data, error } = await supabase
-          .from('profiles')
-          .select('id, name, email, matricula')
-          .eq('id', lastUserId)
-          .maybeSingle();
-        if (cancelled || error || !data) return;
-        const option = data as UserOption;
+        const data = await lookupProfiles({ mode: 'id', query: lastUserId, limit: 1 });
+        if (cancelled || !data?.[0]) return;
+        const option = data[0];
         setUsers((prev) => (prev.some((u) => u.id === option.id) ? prev : [option, ...prev]));
         selectUser(option);
       } catch (error) {
@@ -328,7 +284,7 @@ const Auth = () => {
     return () => {
       cancelled = true;
     };
-  }, [selectUser]);
+  }, [lookupProfiles, selectUser]);
 
   useEffect(() => {
     if (!allowSuggestions) return;

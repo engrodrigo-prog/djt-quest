@@ -27,6 +27,27 @@ const clampInt = (n: number, min: number, max: number) => {
   return Math.max(min, Math.min(max, Math.floor(n)));
 };
 
+const FEEDBACK_MIN_CHARS = 10;
+
+const findImmediateLeaderId = async (supabase: any, params: { submitterId: string; teamId?: string | null }) => {
+  const { submitterId, teamId } = params;
+  if (!teamId) return null;
+  try {
+    const { data } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('is_leader', true)
+      .eq('team_id', teamId)
+      .neq('id', submitterId)
+      .order('id', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    return data?.id ? String(data.id) : null;
+  } catch {
+    return null;
+  }
+};
+
 const xpNeededToAdvanceTierSteps = (params: { currentXp: number; currentTier: unknown; steps: number }) => {
   const { currentXp, currentTier, steps } = params;
   const parsed = parseTier(currentTier);
@@ -85,7 +106,7 @@ Deno.serve(async (req) => {
       .from('events')
       .select(`
         *,
-        user:profiles!events_user_id_fkey(id, name, coord_id, team_id, xp, tier),
+        user:profiles!events_user_id_fkey(id, name, coord_id, team_id, division_id, xp, tier),
         challenge:challenges(id, title, xp_reward, reward_mode, reward_tier_steps, require_two_leader_eval, type)
       `)
       .eq('id', eventId)
@@ -97,6 +118,10 @@ Deno.serve(async (req) => {
 
     const challenge = event.challenge;
     const collaborator = event.user;
+    const immediateLeaderId = await findImmediateLeaderId(supabase, {
+      submitterId: String(event.user_id),
+      teamId: collaborator?.team_id ?? null,
+    });
 
     // Garantir que o líder está atribuído na fila (regra de negócio: líder imediato + líder randômico)
     const { data: queueRow } = await supabase
@@ -144,8 +169,11 @@ Deno.serve(async (req) => {
         throw new Error('Nota deve estar entre 0 e 10');
       }
 
-      if (!feedbackPositivo || feedbackPositivo.trim().length < 50) {
-        throw new Error('Feedback positivo deve ter no mínimo 50 caracteres');
+      if (!feedbackPositivo || feedbackPositivo.trim().length < FEEDBACK_MIN_CHARS) {
+        throw new Error(`Feedback positivo deve ter no mínimo ${FEEDBACK_MIN_CHARS} caracteres`);
+      }
+      if (!feedbackConstrutivo || feedbackConstrutivo.trim().length < FEEDBACK_MIN_CHARS) {
+        throw new Error(`Feedback construtivo deve ter no mínimo ${FEEDBACK_MIN_CHARS} caracteres`);
       }
 
       // Verificar se requer dupla avaliação
@@ -164,6 +192,21 @@ Deno.serve(async (req) => {
         const evalCount = existingEvals?.length || 0;
 
         if (evalCount === 0) {
+          if (immediateLeaderId && String(immediateLeaderId) !== String(user.id)) {
+            try {
+              const { data: immediateQueue } = await supabase
+                .from('evaluation_queue')
+                .select('id, completed_at')
+                .eq('event_id', eventId)
+                .eq('assigned_to', immediateLeaderId)
+                .maybeSingle();
+              if (immediateQueue?.id && !immediateQueue.completed_at) {
+                throw new Error('A 1ª avaliação deve ser feita pelo líder imediato da equipe.');
+              }
+            } catch (err) {
+              if (err instanceof Error) throw err;
+            }
+          }
           // ✅ PRIMEIRA AVALIAÇÃO
           await supabase
             .from('action_evaluations')
@@ -415,8 +458,8 @@ Deno.serve(async (req) => {
 
     // **REJEITAR AÇÃO**
     if (action === 'reject') {
-      if (!feedbackConstrutivo || feedbackConstrutivo.trim().length < 50) {
-        throw new Error('Feedback construtivo deve ter no mínimo 50 caracteres para rejeição');
+      if (!feedbackConstrutivo || feedbackConstrutivo.trim().length < FEEDBACK_MIN_CHARS) {
+        throw new Error(`Feedback construtivo deve ter no mínimo ${FEEDBACK_MIN_CHARS} caracteres para rejeição`);
       }
 
       await supabase
@@ -453,8 +496,8 @@ Deno.serve(async (req) => {
 
     // **SOLICITAR RETRY**
     if (action === 'retry') {
-      if (!feedbackConstrutivo || feedbackConstrutivo.trim().length < 50) {
-        throw new Error('Feedback construtivo deve ter no mínimo 50 caracteres para retry');
+      if (!feedbackConstrutivo || feedbackConstrutivo.trim().length < FEEDBACK_MIN_CHARS) {
+        throw new Error(`Feedback construtivo deve ter no mínimo ${FEEDBACK_MIN_CHARS} caracteres para retry`);
       }
 
       await supabase

@@ -30,6 +30,15 @@ interface PendingEvent {
   sepbookPostId?: string | null;
 }
 
+const FEEDBACK_MIN_CHARS = 10;
+const EVALUATION_CRITERIA = [
+  { key: 'criterio1', title: 'Contexto e clareza', description: 'Objetivo, cenário e ação descritos com clareza.' },
+  { key: 'criterio2', title: 'Segurança e conformidade', description: 'Ação segura e alinhada às normas/boas práticas.' },
+  { key: 'criterio3', title: 'Execução', description: 'Qualidade da execução e aderência ao plano.' },
+  { key: 'criterio4', title: 'Resultado', description: 'Impacto/resultado alcançado ou evidenciado.' },
+  { key: 'criterio5', title: 'Aprendizado', description: 'Lições aprendidas e potencial de replicação.' },
+];
+
 const Evaluations = () => {
   const { user, userRole, studioAccess, orgScope } = useAuth();
   const { toast } = useToast();
@@ -40,13 +49,9 @@ const Evaluations = () => {
   const [evaluating, setEvaluating] = useState(false);
   
   // Evaluation form state
-  const [scores, setScores] = useState({
-    criterio1: 3,
-    criterio2: 3,
-    criterio3: 3,
-    criterio4: 3,
-    criterio5: 3,
-  });
+  const [scores, setScores] = useState<Record<string, number>>(
+    Object.fromEntries(EVALUATION_CRITERIA.map((c) => [c.key, 3])),
+  );
   const [feedbackPositivo, setFeedbackPositivo] = useState('');
   const [feedbackConstrutivo, setFeedbackConstrutivo] = useState('');
 
@@ -115,19 +120,19 @@ const Evaluations = () => {
   const handleSubmitEvaluation = async () => {
     if (!selectedEvent) return;
 
-    if (feedbackPositivo.length < 140) {
+    if (feedbackPositivo.length < FEEDBACK_MIN_CHARS) {
       toast({
         title: 'Feedback Incompleto',
-        description: 'O feedback positivo deve ter no mínimo 140 caracteres',
+        description: `O feedback positivo deve ter no mínimo ${FEEDBACK_MIN_CHARS} caracteres`,
         variant: 'destructive'
       });
       return;
     }
 
-    if (feedbackConstrutivo.length < 140) {
+    if (feedbackConstrutivo.length < FEEDBACK_MIN_CHARS) {
       toast({
         title: 'Feedback Incompleto',
-        description: 'O feedback construtivo deve ter no mínimo 140 caracteres',
+        description: `O feedback construtivo deve ter no mínimo ${FEEDBACK_MIN_CHARS} caracteres`,
         variant: 'destructive'
       });
       return;
@@ -153,13 +158,7 @@ const Evaluations = () => {
       });
 
       setSelectedEvent(null);
-      setScores({
-        criterio1: 3,
-        criterio2: 3,
-        criterio3: 3,
-        criterio4: 3,
-        criterio5: 3,
-      });
+      setScores(Object.fromEntries(EVALUATION_CRITERIA.map((c) => [c.key, 3])));
       setFeedbackPositivo('');
       setFeedbackConstrutivo('');
 
@@ -201,7 +200,7 @@ const Evaluations = () => {
   }
 
   const avgScore = Object.values(scores).reduce((a, b) => a + b, 0) / 5;
-  const canSubmit = feedbackPositivo.length >= 140 && feedbackConstrutivo.length >= 140;
+  const canSubmit = feedbackPositivo.length >= FEEDBACK_MIN_CHARS && feedbackConstrutivo.length >= FEEDBACK_MIN_CHARS;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-secondary/5 pb-40">
@@ -313,22 +312,26 @@ const Evaluations = () => {
                 <div className="space-y-4">
                   <h3 className="font-semibold">Critérios de Avaliação (1.0 - 5.0)</h3>
                   
-                  {Object.keys(scores).map((key, index) => (
-                    <div key={key} className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <Label>Critério {index + 1}</Label>
-                        <span className="text-sm font-bold">{scores[key as keyof typeof scores].toFixed(1)}</span>
+                  {EVALUATION_CRITERIA.map((criterion, index) => {
+                    const score = scores[criterion.key] ?? 3;
+                    return (
+                      <div key={criterion.key} className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <Label>{`${index + 1}. ${criterion.title}`}</Label>
+                          <span className="text-sm font-bold">{score.toFixed(1)}</span>
+                        </div>
+                        <p className="text-xs text-muted-foreground">{criterion.description}</p>
+                        <Slider
+                          value={[score]}
+                          onValueChange={(value) => setScores({ ...scores, [criterion.key]: value[0] })}
+                          min={1}
+                          max={5}
+                          step={0.5}
+                          className="w-full"
+                        />
                       </div>
-                      <Slider
-                        value={[scores[key as keyof typeof scores]]}
-                        onValueChange={(value) => setScores({ ...scores, [key]: value[0] })}
-                        min={1}
-                        max={5}
-                        step={0.5}
-                        className="w-full"
-                      />
-                    </div>
-                  ))}
+                    );
+                  })}
 
                   <div className="p-3 bg-primary/10 rounded-lg">
                     <p className="text-sm font-semibold">
@@ -339,7 +342,7 @@ const Evaluations = () => {
 
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <Label>Feedback Positivo (mínimo 140 caracteres)</Label>
+                    <Label>{`Feedback Positivo (mínimo ${FEEDBACK_MIN_CHARS} caracteres)`}</Label>
                     <Button
                       type="button"
                       size="icon"
@@ -393,11 +396,11 @@ const Evaluations = () => {
                     className="resize-none"
                   />
                   <p className="text-xs text-muted-foreground">
-                    {feedbackPositivo.length} / 140 caracteres
-                    {feedbackPositivo.length < 140 && (
+                    {feedbackPositivo.length} / {FEEDBACK_MIN_CHARS} caracteres
+                    {feedbackPositivo.length < FEEDBACK_MIN_CHARS && (
                       <span className="text-destructive ml-2">
                         <AlertCircle className="h-3 w-3 inline mr-1" />
-                        Necessário mais {140 - feedbackPositivo.length} caracteres
+                        Necessário mais {FEEDBACK_MIN_CHARS - feedbackPositivo.length} caracteres
                       </span>
                     )}
                   </p>
@@ -405,7 +408,7 @@ const Evaluations = () => {
 
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <Label>Feedback Construtivo (mínimo 140 caracteres)</Label>
+                    <Label>{`Feedback Construtivo (mínimo ${FEEDBACK_MIN_CHARS} caracteres)`}</Label>
                     <Button
                       type="button"
                       size="icon"
@@ -459,11 +462,11 @@ const Evaluations = () => {
                     className="resize-none"
                   />
                   <p className="text-xs text-muted-foreground">
-                    {feedbackConstrutivo.length} / 140 caracteres
-                    {feedbackConstrutivo.length < 140 && (
+                    {feedbackConstrutivo.length} / {FEEDBACK_MIN_CHARS} caracteres
+                    {feedbackConstrutivo.length < FEEDBACK_MIN_CHARS && (
                       <span className="text-destructive ml-2">
                         <AlertCircle className="h-3 w-3 inline mr-1" />
-                        Necessário mais {140 - feedbackConstrutivo.length} caracteres
+                        Necessário mais {FEEDBACK_MIN_CHARS - feedbackConstrutivo.length} caracteres
                       </span>
                     )}
                   </p>
