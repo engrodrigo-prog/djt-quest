@@ -1715,10 +1715,7 @@ export default function SEPBookIG() {
                 <div className="rounded-xl border bg-background">
                   <div className="px-3 py-2 text-[12px] text-muted-foreground">{tr("sepbook.mentionSuggestions")}</div>
                   <div className="max-h-[160px] overflow-auto">
-                    {editingCommentMentions.items
-                      .filter((s) => String((s as any)?.kind || "") === "user")
-                      .slice(0, 8)
-                      .map((s, idx) => (
+                    {editingCommentMentions.items.slice(0, 8).map((s, idx) => (
                         <button
                           key={`edit-${s.kind}-${s.handle}-${idx}`}
                           type="button"
@@ -1726,7 +1723,10 @@ export default function SEPBookIG() {
                           onClick={() => setEditingCommentText((prev) => applyMention(prev, editingCommentMentionQuery, s.handle))}
                         >
                           <span className="font-semibold">@{s.handle}</span>{" "}
-                          <span className="text-muted-foreground">{s.label}</span>
+                          <span className="text-muted-foreground">
+                            {s.label}
+                            {String((s as any)?.kind || "") === "team" ? " (equipe)" : ""}
+                          </span>
                         </button>
                       ))}
                   </div>
@@ -3138,10 +3138,7 @@ export default function SEPBookIG() {
                 <div className="rounded-xl border bg-background">
                   <div className="px-3 py-2 text-[12px] text-muted-foreground">{tr("sepbook.mentionSuggestions")}</div>
                   <div className="max-h-[160px] overflow-auto">
-                    {commentMentions.items
-                      .filter((s) => String((s as any)?.kind || "") === "user")
-                      .slice(0, 8)
-                      .map((s, idx) => (
+                    {commentMentions.items.slice(0, 8).map((s, idx) => (
                       <button
                         key={`${s.kind}-${s.handle}-${idx}`}
                         type="button"
@@ -3149,7 +3146,10 @@ export default function SEPBookIG() {
                         onClick={() => setCommentText((prev) => applyMention(prev, commentMentionQuery, s.handle))}
                       >
                         <span className="font-semibold">@{s.handle}</span>{" "}
-                        <span className="text-muted-foreground">{s.label}</span>
+                        <span className="text-muted-foreground">
+                          {s.label}
+                          {String((s as any)?.kind || "") === "team" ? " (equipe)" : ""}
+                        </span>
                       </button>
                     ))}
                   </div>

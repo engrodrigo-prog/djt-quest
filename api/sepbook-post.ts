@@ -79,47 +79,49 @@ const normalizeRequestedLocales = (raw: any) => {
 };
 
 async function resolveMentionIds(admin: any, mentions: string[]) {
-  const emailMentions = Array.from(new Set((mentions || []).filter((m) => String(m).includes("@"))));
-  const handleMentions = Array.from(new Set((mentions || []).filter((m) => !String(m).includes("@") && String(m).includes("."))));
-  const teamMentions = Array.from(new Set((mentions || []).filter((m) => !String(m).includes("@") && !String(m).includes("."))));
+  const list = Array.from(new Set((mentions || []).map((m) => String(m || "").trim()).filter(Boolean))).slice(0, 60);
+  const emailMentions = Array.from(new Set(list.filter((m) => m.includes("@")).map((m) => m.toLowerCase())));
+  const handleMentions = Array.from(new Set(list.filter((m) => !m.includes("@")).map((m) => m.toLowerCase())));
+  const teamMentions = Array.from(new Set(list.filter((m) => !m.includes("@")).map((m) => m.toUpperCase())));
 
-  let ids: string[] = [];
+  const ids = new Set<string>();
 
   if (emailMentions.length) {
-    const { data: usersByEmail } = await admin
-      .from("profiles")
-      .select("id, email")
-      .in("email", emailMentions);
-    ids.push(...((usersByEmail || []).map((u: any) => String(u.id))));
+    const { data: usersByEmail } = await admin.from("profiles").select("id, email").in("email", emailMentions);
+    (usersByEmail || []).forEach((u: any) => u?.id && ids.add(String(u.id)));
   }
 
   if (handleMentions.length) {
     try {
-      const { data: usersByHandle } = await admin
-        .from("profiles")
-        .select("id, mention_handle")
-        .in("mention_handle", handleMentions);
-      ids.push(...((usersByHandle || []).map((u: any) => String(u.id))));
+      const { data: usersByHandle } = await admin.from("profiles").select("id, mention_handle").in("mention_handle", handleMentions);
+      (usersByHandle || []).forEach((u: any) => u?.id && ids.add(String(u.id)));
     } catch {
       // ignore (schema without mention_handle)
     }
   }
 
-  for (const code of teamMentions) {
-    const upper = String(code || "").toUpperCase();
-    let query = admin.from("profiles").select("id, sigla_area");
+  const baseTeams = new Set(["DJT", "DJTB", "DJTV"]);
+  const baseRequested = teamMentions.filter((t) => baseTeams.has(t));
+  const exactTeams = teamMentions.filter((t) => !baseTeams.has(t));
 
-    if (upper === "DJT" || upper === "DJTB" || upper === "DJTV") {
-      query = query.ilike("sigla_area", `${upper}-%`);
-    } else {
-      query = query.eq("sigla_area", upper);
-    }
-
-    const { data: teamProfiles } = await query;
-    ids.push(...((teamProfiles || []).map((u: any) => String(u.id))));
+  if (exactTeams.length) {
+    try {
+      const { data: exactProfiles } = await admin.from("profiles").select("id, sigla_area").in("sigla_area", exactTeams);
+      (exactProfiles || []).forEach((u: any) => u?.id && ids.add(String(u.id)));
+    } catch {}
   }
 
-  return Array.from(new Set(ids));
+  for (const base of baseRequested) {
+    try {
+      const { data: teamProfiles } = await admin
+        .from("profiles")
+        .select("id, sigla_area")
+        .or(`sigla_area.eq.${base},sigla_area.ilike.${base}-%`);
+      (teamProfiles || []).forEach((u: any) => u?.id && ids.add(String(u.id)));
+    } catch {}
+  }
+
+  return Array.from(ids);
 }
 
 async function syncPostMentions(params: {
@@ -159,16 +161,34 @@ async function syncPostMentions(params: {
     } catch {}
   }
 
-  for (const uid of toInsert) {
+  if (toInsert.length) {
+    const message = `${String(authorName || "Alguém")} mencionou você em uma publicação.`;
+    const metadata = { post_id: postId, mentioned_by: authorId };
+    const chunks: string[][] = [];
+    for (let i = 0; i < toInsert.length; i += 200) chunks.push(toInsert.slice(i, i + 200));
     try {
-      await admin.rpc("create_notification", {
-        _user_id: uid,
-        _type: "sepbook_mention",
-        _title: "Você foi mencionado no SEPBook",
-        _message: `${String(authorName || "Alguém")} mencionou você em uma publicação.`,
-        _metadata: { post_id: postId, mentioned_by: authorId },
-      });
-    } catch {}
+      for (const chunk of chunks) {
+        await admin.rpc("create_notifications_bulk", {
+          _user_ids: chunk,
+          _type: "sepbook_mention",
+          _title: "Você foi mencionado no SEPBook",
+          _message: message,
+          _metadata: metadata,
+        });
+      }
+    } catch {
+      for (const uid of toInsert) {
+        try {
+          await admin.rpc("create_notification", {
+            _user_id: uid,
+            _type: "sepbook_mention",
+            _title: "Você foi mencionado no SEPBook",
+            _message: message,
+            _metadata: metadata,
+          });
+        } catch {}
+      }
+    }
   }
 }
 

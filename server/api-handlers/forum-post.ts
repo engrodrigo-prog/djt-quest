@@ -74,6 +74,29 @@ async function resolveMentionedUserIds(admin: any, rawMentions: string[], opts?:
         for (const u of data || []) if (u?.id) out.add(String(u.id))
       } catch {}
     }
+
+    // Team mentions by sigla_area (e.g., DJT, DJTB-CUB). Only consider tokens without dot.
+    const teamCandidates = Array.from(new Set(handles.filter((h) => !h.includes('.')).map((h) => String(h).toUpperCase()))).slice(0, 20)
+    if (teamCandidates.length) {
+      const baseTeams = new Set(['DJT', 'DJTB', 'DJTV'])
+      const baseRequested = teamCandidates.filter((t) => baseTeams.has(t))
+      const exactTeams = teamCandidates.filter((t) => !baseTeams.has(t))
+      if (exactTeams.length) {
+        try {
+          const { data } = await admin.from('profiles').select('id, sigla_area').in('sigla_area', exactTeams)
+          for (const u of data || []) if (u?.id) out.add(String(u.id))
+        } catch {}
+      }
+      for (const base of baseRequested) {
+        try {
+          const { data } = await admin
+            .from('profiles')
+            .select('id, sigla_area')
+            .or(`sigla_area.eq.${base},sigla_area.ilike.${base}-%`)
+          for (const u of data || []) if (u?.id) out.add(String(u.id))
+        } catch {}
+      }
+    }
   }
 
   if (excludeUserId) out.delete(excludeUserId)
@@ -242,17 +265,31 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             .eq('id', uid)
             .maybeSingle()
           const authorName = String(authorProfile?.name || 'Alguém')
-          await Promise.all(
-            ids.map((id: string) =>
-              writer.rpc('create_notification', {
-                _user_id: id,
+          const message = `${authorName} mencionou você em um fórum`
+          const metadata = { post_id: post.id, topic_id }
+          try {
+            for (let i = 0; i < ids.length; i += 200) {
+              await writer.rpc('create_notifications_bulk', {
+                _user_ids: ids.slice(i, i + 200),
                 _type: 'forum_mention',
                 _title: 'Você foi mencionado',
-                _message: `${authorName} mencionou você em um fórum`,
-                _metadata: { post_id: post.id, topic_id },
-              }),
-            ),
-          )
+                _message: message,
+                _metadata: metadata,
+              })
+            }
+          } catch {
+            await Promise.all(
+              ids.map((id: string) =>
+                writer.rpc('create_notification', {
+                  _user_id: id,
+                  _type: 'forum_mention',
+                  _title: 'Você foi mencionado',
+                  _message: message,
+                  _metadata: metadata,
+                }),
+              ),
+            )
+          }
         }
       } catch {}
     }

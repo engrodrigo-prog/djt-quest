@@ -60,33 +60,58 @@ const normalizeLocationLabel = (raw: any) => {
   return label.slice(0, 80);
 };
 
-const extractUserMentions = (md: string) => {
+const extractMentions = (md: string) => {
   const text = String(md || "");
-  const hits = Array.from(text.matchAll(/@([A-Za-z0-9_.-]+@[A-Za-z0-9_.-]+|[A-Za-z0-9_.-]+)/g)).map((m) => String(m[1] || ""));
-  // Comments: only notify direct users (handles with '.' or explicit emails) to avoid mass-team mentions.
-  return hits.filter((h) => h.includes("@") || h.includes(".")).slice(0, 20);
+  const hits = Array.from(text.matchAll(/@([A-Za-z0-9_.-]+@[A-Za-z0-9_.-]+|[A-Za-z0-9_.-]+)/g)).map((m) =>
+    String(m[1] || "").trim(),
+  );
+  return Array.from(new Set(hits.filter(Boolean))).slice(0, 40);
 };
 
 async function resolveMentionedUserIds(admin: any, mentions: string[]) {
-  const emailMentions = Array.from(new Set(mentions.filter((m) => m.includes("@"))));
-  const handleMentions = Array.from(new Set(mentions.filter((m) => !m.includes("@") && m.includes("."))));
-  const ids: string[] = [];
+  const list = Array.from(new Set((mentions || []).map((m) => String(m || "").trim()).filter(Boolean))).slice(0, 60);
+  const emailMentions = Array.from(new Set(list.filter((m) => m.includes("@")).map((m) => m.toLowerCase())));
+  const handleMentions = Array.from(new Set(list.filter((m) => !m.includes("@")).map((m) => m.toLowerCase())));
+  const teamMentions = Array.from(new Set(list.filter((m) => !m.includes("@")).map((m) => m.toUpperCase())));
+  const ids = new Set<string>();
 
   if (emailMentions.length) {
     const { data } = await admin.from("profiles").select("id, email").in("email", emailMentions);
-    ids.push(...((data || []).map((u: any) => String(u.id))));
+    (data || []).forEach((u: any) => u?.id && ids.add(String(u.id)));
   }
 
   if (handleMentions.length) {
     try {
       const { data } = await admin.from("profiles").select("id, mention_handle").in("mention_handle", handleMentions);
-      ids.push(...((data || []).map((u: any) => String(u.id))));
+      (data || []).forEach((u: any) => u?.id && ids.add(String(u.id)));
     } catch {
       // ignore (schema without mention_handle)
     }
   }
 
-  return Array.from(new Set(ids));
+  // Team mentions by sigla_area (ex.: DJT, DJTB-CUB, DJTV-VOR)
+  const baseTeams = new Set(["DJT", "DJTB", "DJTV"]);
+  const baseRequested = teamMentions.filter((t) => baseTeams.has(t));
+  const exactTeams = teamMentions.filter((t) => !baseTeams.has(t));
+
+  if (exactTeams.length) {
+    try {
+      const { data } = await admin.from("profiles").select("id, sigla_area").in("sigla_area", exactTeams);
+      (data || []).forEach((u: any) => u?.id && ids.add(String(u.id)));
+    } catch {}
+  }
+
+  for (const base of baseRequested) {
+    try {
+      const { data } = await admin
+        .from("profiles")
+        .select("id, sigla_area")
+        .or(`sigla_area.eq.${base},sigla_area.ilike.${base}-%`);
+      (data || []).forEach((u: any) => u?.id && ids.add(String(u.id)));
+    } catch {}
+  }
+
+  return Array.from(ids);
 }
 
 async function syncCommentMentions(params: {
@@ -134,16 +159,34 @@ async function syncCommentMentions(params: {
   }
 
   // Notifications for newly mentioned users (best-effort, avoid duplicates by only notifying on insert)
-  for (const uid of toInsert) {
+  if (toInsert.length) {
+    const message = `${String(authorName || "Alguém")} mencionou você em um comentário.`;
+    const metadata = { post_id: postId, comment_id: commentId, mentioned_by: authorId };
+    const chunks: string[][] = [];
+    for (let i = 0; i < toInsert.length; i += 200) chunks.push(toInsert.slice(i, i + 200));
     try {
-      await admin.rpc("create_notification", {
-        _user_id: uid,
-        _type: "sepbook_comment_mention",
-        _title: "Você foi mencionado no SEPBook",
-        _message: `${String(authorName || "Alguém")} mencionou você em um comentário.`,
-        _metadata: { post_id: postId, comment_id: commentId, mentioned_by: authorId },
-      });
-    } catch {}
+      for (const chunk of chunks) {
+        await admin.rpc("create_notifications_bulk", {
+          _user_ids: chunk,
+          _type: "sepbook_comment_mention",
+          _title: "Você foi mencionado no SEPBook",
+          _message: message,
+          _metadata: metadata,
+        });
+      }
+    } catch {
+      for (const uid of toInsert) {
+        try {
+          await admin.rpc("create_notification", {
+            _user_id: uid,
+            _type: "sepbook_comment_mention",
+            _title: "Você foi mencionado no SEPBook",
+            _message: message,
+            _metadata: metadata,
+          });
+        } catch {}
+      }
+    }
   }
 }
 
@@ -428,7 +471,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       try {
         if (!SERVICE_ROLE_KEY) throw new Error("no service role");
-        const mentionedHandles = extractUserMentions(normalizedText);
+        const mentionedHandles = extractMentions(normalizedText);
         if (mentionedHandles.length) {
           const mentionedIds = await resolveMentionedUserIds(admin, mentionedHandles);
           await syncCommentMentions({
@@ -603,7 +646,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       let mentionedIds: string[] = [];
       try {
         if (!SERVICE_ROLE_KEY) throw new Error("no service role");
-        const mentionedHandles = extractUserMentions(normalizedText);
+        const mentionedHandles = extractMentions(normalizedText);
         mentionedIds = mentionedHandles.length ? await resolveMentionedUserIds(admin, mentionedHandles) : [];
       } catch {}
 

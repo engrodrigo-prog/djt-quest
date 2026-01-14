@@ -13,6 +13,56 @@ export function extractSepbookMentions(md: string): string[] {
   );
 }
 
+async function resolveMentionedUserIds(admin: any, mentions: string[]) {
+  const list = Array.from(new Set((mentions || []).map((m) => String(m || "").trim()).filter(Boolean))).slice(0, 80);
+  if (!list.length) return [];
+
+  const emailMentions = Array.from(new Set(list.filter((m) => m.includes("@")).map((m) => m.toLowerCase())));
+  const handleMentions = Array.from(new Set(list.filter((m) => !m.includes("@")).map((m) => m.toLowerCase())));
+  const teamMentions = Array.from(new Set(list.filter((m) => !m.includes("@")).map((m) => m.toUpperCase())));
+
+  const ids = new Set<string>();
+
+  if (emailMentions.length) {
+    try {
+      const { data } = await admin.from("profiles").select("id, email").in("email", emailMentions);
+      (data || []).forEach((u: any) => u?.id && ids.add(String(u.id)));
+    } catch {}
+  }
+
+  if (handleMentions.length) {
+    try {
+      const { data } = await admin.from("profiles").select("id, mention_handle").in("mention_handle", handleMentions);
+      (data || []).forEach((u: any) => u?.id && ids.add(String(u.id)));
+    } catch {
+      // schema without mention_handle: ignore (best-effort)
+    }
+  }
+
+  const baseTeams = new Set(["DJT", "DJTB", "DJTV"]);
+  const baseRequested = teamMentions.filter((t) => baseTeams.has(t));
+  const exactTeams = teamMentions.filter((t) => !baseTeams.has(t));
+
+  if (exactTeams.length) {
+    try {
+      const { data } = await admin.from("profiles").select("id, sigla_area").in("sigla_area", exactTeams);
+      (data || []).forEach((u: any) => u?.id && ids.add(String(u.id)));
+    } catch {}
+  }
+
+  for (const base of baseRequested) {
+    try {
+      const { data } = await admin
+        .from("profiles")
+        .select("id, sigla_area")
+        .or(`sigla_area.eq.${base},sigla_area.ilike.${base}-%`);
+      (data || []).forEach((u: any) => u?.id && ids.add(String(u.id)));
+    } catch {}
+  }
+
+  return Array.from(ids);
+}
+
 export async function recomputeSepbookMentionsForPost(postId: string) {
   assertDjtQuestServerEnv({ requireSupabaseUrl: false });
   if (!SUPABASE_URL || !SERVICE_KEY) return;
@@ -46,47 +96,7 @@ export async function recomputeSepbookMentionsForPost(postId: string) {
     return;
   }
 
-  const emailMentions = Array.from(new Set(mentions.filter((m) => m.includes("@"))));
-  const handleMentions = Array.from(new Set(mentions.filter((m) => !m.includes("@") && m.includes("."))));
-  const teamMentions = Array.from(new Set(mentions.filter((m) => !m.includes("@") && !m.includes("."))));
-
-  let ids: string[] = [];
-
-  if (emailMentions.length) {
-    const { data: usersByEmail } = await admin
-      .from("profiles")
-      .select("id, email")
-      .in("email", emailMentions);
-    ids.push(...((usersByEmail || []).map((u: any) => u.id)));
-  }
-
-  if (handleMentions.length) {
-    try {
-      const { data: usersByHandle } = await admin
-        .from("profiles")
-        .select("id, mention_handle")
-        .in("mention_handle", handleMentions);
-      ids.push(...((usersByHandle || []).map((u: any) => u.id)));
-    } catch {
-      // schema without mention_handle: ignore (best-effort)
-    }
-  }
-
-  for (const code of teamMentions) {
-    const upper = code.toUpperCase();
-    let query = admin.from("profiles").select("id, sigla_area");
-
-    if (upper === "DJT" || upper === "DJTB" || upper === "DJTV") {
-      query = query.ilike("sigla_area", `${upper}-%`);
-    } else {
-      query = query.eq("sigla_area", upper);
-    }
-
-    const { data: teamProfiles } = await query;
-    ids.push(...((teamProfiles || []).map((u: any) => u.id)));
-  }
-
-  ids = Array.from(new Set(ids));
+  const ids = await resolveMentionedUserIds(admin, mentions);
 
   await admin.from("sepbook_mentions").delete().eq("post_id", id);
   if (ids.length) {
@@ -121,51 +131,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(200).json({ success: true, mentions: [] });
     }
 
-  const emailMentions = Array.from(new Set(mentions.filter((m) => m.includes("@"))));
-  const handleMentions = Array.from(new Set(mentions.filter((m) => !m.includes("@") && m.includes("."))));
-  const teamMentions = Array.from(new Set(mentions.filter((m) => !m.includes("@") && !m.includes("."))));
-
-    let ids: string[] = [];
-
-    // Menções diretas por e-mail
-    if (emailMentions.length) {
-      const { data: usersByEmail } = await admin
-        .from("profiles")
-        .select("id, email")
-        .in("email", emailMentions);
-    ids.push(...((usersByEmail || []).map((u: any) => u.id)));
-  }
-
-  if (handleMentions.length) {
-    try {
-      const { data: usersByHandle } = await admin
-        .from("profiles")
-        .select("id, mention_handle")
-        .in("mention_handle", handleMentions);
-      ids.push(...((usersByHandle || []).map((u: any) => u.id)));
-    } catch {
-      // schema without mention_handle: ignore (best-effort)
-    }
-  }
-
-  // Menções por equipe/sigla (ex.: DJT, DJTV-SUL, DJTB-CUB)
-  for (const code of teamMentions) {
-    const upper = code.toUpperCase();
-      let query = admin.from("profiles").select("id, sigla_area");
-
-      if (upper === "DJT" || upper === "DJTB" || upper === "DJTV") {
-        // Departamento / grupo maior: qualquer sigla que comece com esse prefixo
-        query = query.ilike("sigla_area", `${upper}-%`);
-      } else {
-        // Equipe específica
-        query = query.eq("sigla_area", upper);
-      }
-
-      const { data: teamProfiles } = await query;
-      ids.push(...((teamProfiles || []).map((u: any) => u.id)));
-    }
-
-    ids = Array.from(new Set(ids));
+    const ids = await resolveMentionedUserIds(admin, mentions);
 
     // limpar mentions antigas e inserir novas
     await admin.from("sepbook_mentions").delete().eq("post_id", postId);
