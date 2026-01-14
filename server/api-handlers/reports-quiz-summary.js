@@ -42,11 +42,22 @@ const chunk = (arr, size) => {
   return out;
 };
 
+const toPct = (scoreRaw, maxRaw) => {
+  const score = Number(scoreRaw) || 0;
+  const max = Number(maxRaw) || 0;
+  if (!Number.isFinite(score) || !Number.isFinite(max) || max <= 0) return null;
+  const pct = (score / max) * 100;
+  if (!Number.isFinite(pct)) return null;
+  return Math.max(0, Math.min(100, pct));
+};
+
 export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(204).send('');
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
+    res.setHeader('Cache-Control', 'no-store');
+
     const admin = createSupabaseAdminClient();
     const caller = await requireCallerUser(admin, req);
 
@@ -141,24 +152,64 @@ export default async function handler(req, res) {
     const toIso = toIsoEnd(to);
 
     // 2) Buscar tentativas concluídas dentro do período (por lotes, para respeitar limite do IN)
-    const attempts = [];
-    for (const ids of chunk(userIds, 500)) {
-      const { data: rows, error } = await admin
-        .from('quiz_attempts')
-        .select('user_id, challenge_id, submitted_at')
-        .in('user_id', ids)
-        .not('submitted_at', 'is', null)
-        .gte('submitted_at', fromIso)
-        .lte('submitted_at', toIso)
-        .limit(5000);
-      if (error) {
-        // Se quiz_attempts não existir em algum ambiente, cai para resposta vazia.
-        break;
+    // Observação: usamos o score/max_score do quiz_attempts (muito mais leve que varrer user_quiz_answers).
+    const byQuiz = new Map(); // challenge_id -> { attempts, scoreSum, maxSum }
+    const attemptStats = new Map(); // `${user_id}:${challenge_id}` -> { score, max }
+    const participantsSet = new Set();
+    const challengeSet = new Set();
+
+    const userIdChunks = chunk(userIds, 400);
+    const concurrency = 3;
+    for (let i = 0; i < userIdChunks.length; i += concurrency) {
+      const slice = userIdChunks.slice(i, i + concurrency);
+      const results = await Promise.all(
+        slice.map((ids) =>
+          admin
+            .from('quiz_attempts')
+            .select('user_id, challenge_id, submitted_at, score, max_score')
+            .in('user_id', ids)
+            .not('submitted_at', 'is', null)
+            .gte('submitted_at', fromIso)
+            .lte('submitted_at', toIso)
+            .limit(5000),
+        ),
+      );
+
+      for (const r of results) {
+        if (r?.error) {
+          const msg = String(r.error.message || '');
+          if (/quiz_attempts/i.test(msg) && /(does not exist|schema cache|relation)/i.test(msg)) {
+            return res.status(400).json({
+              error:
+                'Tabela quiz_attempts não encontrada. Aplique a migração supabase/migrations/202511110945_quiz_attempts.sql.',
+            });
+          }
+          return res.status(400).json({ error: msg || 'Falha ao carregar tentativas' });
+        }
+
+        for (const row of r.data || []) {
+          const uid = String(row?.user_id || '').trim();
+          const cid = String(row?.challenge_id || '').trim();
+          if (!uid || !cid) continue;
+          const pct = toPct(row?.score, row?.max_score);
+          const max = Number(row?.max_score) || 0;
+          const score = Number(row?.score) || 0;
+          if (pct == null || max <= 0) continue;
+
+          participantsSet.add(uid);
+          challengeSet.add(cid);
+          attemptStats.set(`${uid}:${cid}`, { score, max });
+
+          const q = byQuiz.get(cid) || { attempts: 0, scoreSum: 0, maxSum: 0 };
+          q.attempts += 1;
+          q.scoreSum += score;
+          q.maxSum += max;
+          byQuiz.set(cid, q);
+        }
       }
-      for (const r of rows || []) attempts.push(r);
     }
 
-    const challengeIds = Array.from(new Set(attempts.map((a) => String(a.challenge_id)).filter(Boolean)));
+    const challengeIds = Array.from(challengeSet);
     const quizzesMeta = new Map();
     if (challengeIds.length) {
       let chRows = [];
@@ -207,128 +258,50 @@ export default async function handler(req, res) {
           is_leader: u.is_leader,
           completedQuizzes: 0,
           avgScorePct: null,
-          byChas: {},
+          byChas: { C: { completedQuizzes: 0, avgScorePct: null }, H: { completedQuizzes: 0, avgScorePct: null }, A: { completedQuizzes: 0, avgScorePct: null }, S: { completedQuizzes: 0, avgScorePct: null } },
         })),
       });
     }
 
-    // 3) Contar perguntas por quiz (para calcular % de acerto)
-    const questionCounts = new Map(); // challenge_id -> totalQuestions
-    for (const ids of chunk(quizIds, 500)) {
-      const { data: qRows, error } = await admin.from('quiz_questions').select('challenge_id').in('challenge_id', ids).limit(20000);
-      if (error) break;
-      for (const r of qRows || []) {
-        const cid = String(r.challenge_id || '');
-        if (!cid) continue;
-        questionCounts.set(cid, (questionCounts.get(cid) || 0) + 1);
-      }
-    }
-
-    // 4) Contar respostas/certos por usuário+quiz (independente do answered_at, pois o corte do período é pela submitted_at)
-    const answerStats = new Map(); // `${user_id}:${challenge_id}` -> { answeredCount, correctCount }
-    const attemptUserIds = Array.from(new Set(attempts.map((a) => String(a.user_id)).filter(Boolean)));
-    for (const ids of chunk(attemptUserIds, 300)) {
-      const { data: aRows, error } = await admin
-        .from('user_quiz_answers')
-        .select('user_id, challenge_id, is_correct')
-        .in('user_id', ids)
-        .in('challenge_id', quizIds)
-        .limit(50000);
-      if (error) break;
-      for (const a of aRows || []) {
-        const uid = String(a.user_id || '');
-        const cid = String(a.challenge_id || '');
-        if (!uid || !cid) continue;
-        const key = `${uid}:${cid}`;
-        const row = answerStats.get(key) || { answeredCount: 0, correctCount: 0 };
-        row.answeredCount += 1;
-        if (a.is_correct) row.correctCount += 1;
-        answerStats.set(key, row);
-      }
-    }
-
-    // 5) Agregar por quiz / por tema / por usuário
-    const byQuiz = new Map(); // challenge_id -> aggregate
-    const byChas = new Map(); // chas -> aggregate
-    const byUser = new Map(); // user_id -> aggregate
-
-    for (const a of attempts) {
-      const uid = String(a.user_id || '');
-      const cid = String(a.challenge_id || '');
-      if (!uid || !cid) continue;
-      const meta = quizzesMeta.get(cid);
+    // 3) Agregar por tema (CHAS) e por usuário com base no score/max_score.
+    const byChas = new Map(); // chas -> { quizzes:Set, participants:Set, scoreSum, maxSum }
+    const byUser = new Map(); // user_id -> { completedQuizzes, scoreSum, maxSum, byChas: {chas:{completedQuizzes,scoreSum,maxSum}} }
+    for (const [k, stat] of attemptStats.entries()) {
+      const [uid, cid] = String(k).split(':');
+      const meta = quizzesMeta.get(String(cid));
       if (!meta) continue;
-
       const chas = normalizeChas(meta.chas_dimension);
-      const totalQuestions = questionCounts.get(cid) || 0;
-      const key = `${uid}:${cid}`;
-      const stat = answerStats.get(key) || { answeredCount: 0, correctCount: 0 };
-      const correctCount = stat.correctCount;
 
-      // per quiz
-      const q = byQuiz.get(cid) || {
-        challenge_id: cid,
-        title: meta.title,
-        chas_dimension: chas,
-        quiz_specialties: meta.quiz_specialties,
-        participants: new Set(),
-        attempts: 0,
-        correctSum: 0,
-        totalQuestionsSum: 0,
-      };
-      q.participants.add(uid);
-      q.attempts += 1;
-      q.correctSum += correctCount;
-      q.totalQuestionsSum += totalQuestions;
-      byQuiz.set(cid, q);
-
-      // per chas
-      const t = byChas.get(chas) || {
-        chas,
-        label: CHAS_LABEL[chas] || chas,
-        quizzes: new Set(),
-        participants: new Set(),
-        attempts: 0,
-        correctSum: 0,
-        totalQuestionsSum: 0,
-      };
-      t.quizzes.add(cid);
-      t.participants.add(uid);
-      t.attempts += 1;
-      t.correctSum += correctCount;
-      t.totalQuestionsSum += totalQuestions;
+      const t = byChas.get(chas) || { chas, label: CHAS_LABEL[chas] || chas, quizzes: new Set(), participants: new Set(), scoreSum: 0, maxSum: 0 };
+      t.quizzes.add(String(cid));
+      t.participants.add(String(uid));
+      t.scoreSum += Number(stat.score) || 0;
+      t.maxSum += Number(stat.max) || 0;
       byChas.set(chas, t);
 
-      // per user
-      const u = byUser.get(uid) || {
-        user_id: uid,
-        completedQuizzes: 0,
-        correctSum: 0,
-        totalQuestionsSum: 0,
-        byChas: {},
-      };
+      const u = byUser.get(String(uid)) || { user_id: String(uid), completedQuizzes: 0, scoreSum: 0, maxSum: 0, byChas: {} };
       u.completedQuizzes += 1;
-      u.correctSum += correctCount;
-      u.totalQuestionsSum += totalQuestions;
-      u.byChas[chas] = u.byChas[chas] || { completedQuizzes: 0, correctSum: 0, totalQuestionsSum: 0 };
+      u.scoreSum += Number(stat.score) || 0;
+      u.maxSum += Number(stat.max) || 0;
+      u.byChas[chas] = u.byChas[chas] || { completedQuizzes: 0, scoreSum: 0, maxSum: 0 };
       u.byChas[chas].completedQuizzes += 1;
-      u.byChas[chas].correctSum += correctCount;
-      u.byChas[chas].totalQuestionsSum += totalQuestions;
-      byUser.set(uid, u);
+      u.byChas[chas].scoreSum += Number(stat.score) || 0;
+      u.byChas[chas].maxSum += Number(stat.max) || 0;
+      byUser.set(String(uid), u);
     }
 
-    const quizzes = Array.from(byQuiz.values())
-      .map((q) => {
-        const participants = q.participants.size;
-        const avgScorePct =
-          q.totalQuestionsSum > 0 ? Math.round((q.correctSum / q.totalQuestionsSum) * 1000) / 10 : null;
+    const quizzes = quizIds
+      .map((cid) => {
+        const meta = quizzesMeta.get(cid);
+        const agg = byQuiz.get(cid) || { attempts: 0, scoreSum: 0, maxSum: 0 };
+        const avgScorePct = agg.maxSum > 0 ? Math.round(((agg.scoreSum / agg.maxSum) * 100) * 10) / 10 : null;
         return {
-          challenge_id: q.challenge_id,
-          title: q.title,
-          chas_dimension: q.chas_dimension,
-          quiz_specialties: q.quiz_specialties,
-          participants,
-          attempts: q.attempts,
+          challenge_id: cid,
+          title: meta.title,
+          chas_dimension: normalizeChas(meta.chas_dimension),
+          quiz_specialties: meta.quiz_specialties,
+          participants: agg.attempts,
+          attempts: agg.attempts,
           avgScorePct,
         };
       })
@@ -337,8 +310,7 @@ export default async function handler(req, res) {
     const themes = Array.from(byChas.values())
       .map((t) => {
         const participants = t.participants.size;
-        const avgScorePct =
-          t.totalQuestionsSum > 0 ? Math.round((t.correctSum / t.totalQuestionsSum) * 1000) / 10 : null;
+        const avgScorePct = t.maxSum > 0 ? Math.round(((t.scoreSum / t.maxSum) * 100) * 10) / 10 : null;
         const participationRate = userIds.length > 0 ? Math.round((participants / userIds.length) * 1000) / 10 : 0;
         return {
           chas: t.chas,
@@ -353,16 +325,14 @@ export default async function handler(req, res) {
 
     const users = eligibleProfiles
       .map((p) => {
-        const u = byUser.get(p.id) || { completedQuizzes: 0, correctSum: 0, totalQuestionsSum: 0, byChas: {} };
-        const avgScorePct =
-          u.totalQuestionsSum > 0 ? Math.round((u.correctSum / u.totalQuestionsSum) * 1000) / 10 : null;
+        const u = byUser.get(p.id) || { completedQuizzes: 0, scoreSum: 0, maxSum: 0, byChas: {} };
+        const avgScorePct = u.maxSum > 0 ? Math.round(((u.scoreSum / u.maxSum) * 100) * 10) / 10 : null;
         const byChasOut = {};
         for (const k of Object.keys(CHAS_LABEL)) {
-          const stat = u.byChas?.[k] || { completedQuizzes: 0, correctSum: 0, totalQuestionsSum: 0 };
+          const stat = u.byChas?.[k] || { completedQuizzes: 0, scoreSum: 0, maxSum: 0 };
           byChasOut[k] = {
             completedQuizzes: stat.completedQuizzes,
-            avgScorePct:
-              stat.totalQuestionsSum > 0 ? Math.round((stat.correctSum / stat.totalQuestionsSum) * 1000) / 10 : null,
+            avgScorePct: stat.maxSum > 0 ? Math.round(((stat.scoreSum / stat.maxSum) * 100) * 10) / 10 : null,
           };
         }
         return {
@@ -376,8 +346,6 @@ export default async function handler(req, res) {
         };
       })
       .sort((a, b) => (b.completedQuizzes || 0) - (a.completedQuizzes || 0) || String(a.name).localeCompare(String(b.name)));
-
-    const participantsSet = new Set(attemptUserIds);
 
     const eligibleUsers = userIds.length;
     const participants = participantsSet.size;

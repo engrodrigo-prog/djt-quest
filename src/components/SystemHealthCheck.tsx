@@ -88,19 +88,19 @@ export const SystemHealthCheck = () => {
       // Buscar profiles
       const { data: profiles } = await supabase
         .from('profiles')
-        .select('email, is_leader, studio_access, tier')
+        .select('id, email, is_leader, studio_access, tier')
         .in('email', testEmails);
 
-      // Buscar roles
-      const { data: roles } = await supabase
-        .from('user_roles')
-        .select('user_id, role, profiles!inner(email)')
-        .in('profiles.email', testEmails);
+      // Buscar roles (sem join via PostgREST, pois pode falhar sem FK/relationship)
+      const profileIds = (profiles || []).map((p: any) => p?.id).filter(Boolean);
+      const { data: roles } = profileIds.length
+        ? await supabase.from('user_roles').select('user_id, role').in('user_id', profileIds)
+        : { data: [] as any[] };
 
       // Consolidar resultados
       const results: HealthCheckResult[] = testEmails.map(email => {
-        const profile = profiles?.find(p => p.email === email);
-        const roleData = roles?.find(r => (r.profiles as any)?.email === email);
+        const profile = profiles?.find((p: any) => p.email === email);
+        const roleData = roles?.find((r: any) => r.user_id === profile?.id);
 
         return {
           email,
