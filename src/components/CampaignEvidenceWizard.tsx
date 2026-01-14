@@ -82,8 +82,6 @@ const IMAGE_EXTENSIONS = new Set([
   "heif",
 ]);
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
 const isImageAttachment = (url: string) => {
   const ext = String(url || "").split(".").pop()?.toLowerCase();
   return Boolean(ext && IMAGE_EXTENSIONS.has(ext));
@@ -622,9 +620,6 @@ export function CampaignEvidenceWizard({
     setSubmitting(true);
     try {
       const cleanSap = String(sapNote || "").trim();
-      const rawChallengeId = String(campaign?.evidence_challenge_id || "").trim();
-      const challengeIdCandidate = rawChallengeId && UUID_RE.test(rawChallengeId) ? rawChallengeId : null;
-      let usedChallengeFallback = !challengeIdCandidate;
       const parts = isGuest ? [currentUserId] : Array.from(new Set([currentUserId, ...(participants || [])]));
 
       // Remove guests from participants (unless the author is guest).
@@ -662,72 +657,29 @@ export function CampaignEvidenceWizard({
       const locationLabel = gpsFirst ? (gpsFirst.source === "exif" ? "GPS da foto" : "Local atual") : null;
 
       const attachments = [...attachmentUrls, ...(audioUrl ? [audioUrl] : [])];
-      const payload: any = {
-        source: "campaign_evidence",
-        campaign_id: campaign.id,
-        description: contentForSepbook,
-        transcript: audioTranscript || null,
-        tags,
-        gps_meta: gpsItems,
-        location_label: locationLabel,
-        location_lat: gpsFirst ? gpsFirst.lat : null,
-        location_lng: gpsFirst ? gpsFirst.lng : null,
-        publish_sepbook: false,
-        attachments,
-      };
-
-      const insertEvent = async (opts: { challengeId: string | null; includeSap: boolean }) => {
-        const row: any = {
-          user_id: currentUserId,
-          challenge_id: opts.challengeId,
-          status: "submitted",
-          evidence_urls: attachments,
-          payload,
-        };
-        if (opts.includeSap) row.sap_service_note = cleanSap || null;
-        return await supabase.from("events").insert(row).select("id").single();
-      };
-
-      let insertResp = await insertEvent({ challengeId: challengeIdCandidate, includeSap: true });
-      if (insertResp.error) {
-        const msg = [insertResp.error.message, insertResp.error.details, insertResp.error.hint].filter(Boolean).join(" • ");
-        const msgLower = msg.toLowerCase();
-        const code = String(insertResp.error.code || "");
-        let nextChallengeId = challengeIdCandidate;
-        let includeSap = true;
-        let retry = false;
-
-        if (includeSap && (code === "42703" || msgLower.includes("sap_service_note"))) {
-          includeSap = false;
-          retry = true;
-        }
-        if (nextChallengeId && ((code === "23503" && msgLower.includes("challenge")) || msgLower.includes("challenge_id") || msgLower.includes("events_challenge_id_fkey"))) {
-          nextChallengeId = null;
-          usedChallengeFallback = true;
-          retry = true;
-        }
-        if (retry) {
-          insertResp = await insertEvent({ challengeId: nextChallengeId, includeSap });
-        }
-      }
-
-      if (insertResp.error) {
-        const details = [insertResp.error.message, insertResp.error.details, insertResp.error.hint].filter(Boolean).join(" • ");
-        throw new Error(details || "Falha ao registrar evidência");
-      }
-
-      const eventId = String((insertResp.data as any)?.id || "");
+      const resp = await apiFetch("/api/campaign-evidence-submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          campaign_id: campaign.id,
+          content_md: contentForSepbook,
+          transcript: audioTranscript || null,
+          tags,
+          attachments,
+          gps_meta: gpsItems,
+          location_label: locationLabel,
+          location_lat: gpsFirst ? gpsFirst.lat : null,
+          location_lng: gpsFirst ? gpsFirst.lng : null,
+          sap_service_note: cleanSap || null,
+          participant_ids: participantIds.filter((id) => id !== currentUserId),
+        }),
+      });
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(json?.error || "Falha ao registrar evidência");
+      const eventId = String(json?.event_id || "");
       if (!eventId) throw new Error("Falha ao registrar evidência");
 
-      const rows = Array.from(new Set(participantIds))
-        .filter(Boolean)
-        .map((uid) => ({ event_id: eventId, user_id: uid }));
-      await supabase.from("event_participants").upsert(rows as any, { onConflict: "event_id,user_id" } as any);
-
-      const successDescription = usedChallengeFallback
-        ? "Registramos, mas o vínculo do desafio precisa ser revisado. Avise um admin."
-        : "Enviada para avaliação. Obrigado!";
-      toast({ title: "Evidência registrada", description: successDescription });
+      toast({ title: "Evidência registrada", description: "Enviada para avaliação. Obrigado!" });
       onSubmitted?.({ eventId, sepbookPostId: null });
       setPublishPayload({
         eventId,

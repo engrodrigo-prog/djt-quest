@@ -313,77 +313,33 @@ const ChallengeDetail = () => {
     setSubmitting(true);
 
     try {
-      if (retryEventId) {
-        // Update existing retry event
-        const { error } = await supabase
-          .from('events')
-          .update({
-            payload: {
-              description,
-              ...(evidenceUrls.length > 0 ? { evidence_urls: evidenceUrls } : {}),
-              action_date: actionDate || null,
-              action_location: actionLocation || null,
-              sap_service_note: sapNote || null,
-            },
-            evidence_urls: evidenceUrls.length > 0 ? evidenceUrls : [],
-            action_date: actionDate || null,
-            action_location: actionLocation || null,
-            sap_service_note: sapNote || null,
-            status: 'submitted'
-          })
-          .eq('id', retryEventId);
+      const resp = await apiFetch('/api/challenge-action-submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          challenge_id: challenge.id,
+          retry_event_id: retryEventId || null,
+          description,
+          evidence_urls: evidenceUrls,
+          action_date: actionDate || null,
+          action_location: actionLocation || null,
+          sap_service_note: sapNote || null,
+          participant_ids: selectedParticipants,
+        }),
+      });
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        throw new Error(json?.error || 'Não foi possível submeter a ação');
+      }
 
-        if (error) throw error;
-
-        // Upsert participants
-        const parts = new Set(selectedParticipants);
-        parts.add(user.id);
-        const rows = Array.from(parts).map(uid => ({ event_id: retryEventId, user_id: uid }));
-        await supabase.from('event_participants').upsert(rows as any, { onConflict: 'event_id,user_id' } as any);
-
-        toast({
-          title: 'Sucesso!',
-          description: 'Refação submetida! Aguardando nova avaliação.'
-        });
-      } else {
-        // Create new event
-        const { data: newEvent, error } = await supabase
-          .from('events')
-          .insert([{
-            user_id: user.id,
-            challenge_id: challenge.id,
-            payload: {
-              description,
-              ...(evidenceUrls.length > 0 ? { evidence_urls: evidenceUrls } : {}),
-              action_date: actionDate || null,
-              action_location: actionLocation || null,
-              sap_service_note: sapNote || null,
-            },
-            evidence_urls: evidenceUrls.length > 0 ? evidenceUrls : [],
-            action_date: actionDate || null,
-            action_location: actionLocation || null,
-            sap_service_note: sapNote || null,
-            status: challenge.require_two_leader_eval ? 'submitted' : 'evaluated'
-          }])
-          .select('id')
-          .single();
-
-        if (error) throw error;
-
-        // Upsert participants (include me)
-        const newEventId = newEvent?.id as string;
-        const parts = new Set(selectedParticipants);
-        parts.add(user.id);
-        const rows = Array.from(parts).map(uid => ({ event_id: newEventId, user_id: uid }));
-        await supabase.from('event_participants').upsert(rows as any, { onConflict: 'event_id,user_id' } as any);
-
-        toast({
-          title: 'Sucesso!',
-          description: challenge.require_two_leader_eval 
+      toast({
+        title: 'Sucesso!',
+        description: retryEventId
+          ? 'Refação submetida! Aguardando nova avaliação.'
+          : challenge.require_two_leader_eval 
             ? 'Ação submetida! Aguardando avaliação de 2 líderes.' 
             : 'Desafio concluído!'
-        });
-      }
+      });
 
       navigate('/profile');
     } catch (error) {
