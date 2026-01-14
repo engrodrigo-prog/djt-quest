@@ -82,6 +82,8 @@ const IMAGE_EXTENSIONS = new Set([
   "heif",
 ]);
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 const isImageAttachment = (url: string) => {
   const ext = String(url || "").split(".").pop()?.toLowerCase();
   return Boolean(ext && IMAGE_EXTENSIONS.has(ext));
@@ -605,14 +607,6 @@ export function CampaignEvidenceWizard({
 
   const submitEvidence = async () => {
     if (!currentUserId) return;
-    if (!campaign?.evidence_challenge_id) {
-      toast({ title: "Campanha sem fluxo de evidência", description: "Peça ao admin para aplicar a migração de evidência.", variant: "destructive" });
-      return;
-    }
-    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(campaign.evidence_challenge_id))) {
-      toast({ title: "Desafio inválido", description: "O desafio de evidência desta campanha está inválido. Avise o admin.", variant: "destructive" });
-      return;
-    }
     if (!hasEvidence) {
       toast({
         title: "Envie uma evidência",
@@ -628,6 +622,9 @@ export function CampaignEvidenceWizard({
     setSubmitting(true);
     try {
       const cleanSap = String(sapNote || "").trim();
+      const rawChallengeId = String(campaign?.evidence_challenge_id || "").trim();
+      const challengeIdCandidate = rawChallengeId && UUID_RE.test(rawChallengeId) ? rawChallengeId : null;
+      let usedChallengeFallback = !challengeIdCandidate;
       const parts = isGuest ? [currentUserId] : Array.from(new Set([currentUserId, ...(participants || [])]));
 
       // Remove guests from participants (unless the author is guest).
@@ -679,23 +676,47 @@ export function CampaignEvidenceWizard({
         attachments,
       };
 
-      const { data: ev, error } = await supabase
-        .from("events")
-        .insert({
+      const insertEvent = async (opts: { challengeId: string | null; includeSap: boolean }) => {
+        const row: any = {
           user_id: currentUserId,
-          challenge_id: campaign.evidence_challenge_id,
+          challenge_id: opts.challengeId,
           status: "submitted",
           evidence_urls: attachments,
-          sap_service_note: cleanSap || null,
           payload,
-        } as any)
-        .select("id")
-        .single();
-      if (error) {
-        const details = [error.message, error.details, error.hint].filter(Boolean).join(" • ");
+        };
+        if (opts.includeSap) row.sap_service_note = cleanSap || null;
+        return await supabase.from("events").insert(row).select("id").single();
+      };
+
+      let insertResp = await insertEvent({ challengeId: challengeIdCandidate, includeSap: true });
+      if (insertResp.error) {
+        const msg = [insertResp.error.message, insertResp.error.details, insertResp.error.hint].filter(Boolean).join(" • ");
+        const msgLower = msg.toLowerCase();
+        const code = String(insertResp.error.code || "");
+        let nextChallengeId = challengeIdCandidate;
+        let includeSap = true;
+        let retry = false;
+
+        if (includeSap && (code === "42703" || msgLower.includes("sap_service_note"))) {
+          includeSap = false;
+          retry = true;
+        }
+        if (nextChallengeId && ((code === "23503" && msgLower.includes("challenge")) || msgLower.includes("challenge_id") || msgLower.includes("events_challenge_id_fkey"))) {
+          nextChallengeId = null;
+          usedChallengeFallback = true;
+          retry = true;
+        }
+        if (retry) {
+          insertResp = await insertEvent({ challengeId: nextChallengeId, includeSap });
+        }
+      }
+
+      if (insertResp.error) {
+        const details = [insertResp.error.message, insertResp.error.details, insertResp.error.hint].filter(Boolean).join(" • ");
         throw new Error(details || "Falha ao registrar evidência");
       }
-      const eventId = String((ev as any)?.id || "");
+
+      const eventId = String((insertResp.data as any)?.id || "");
       if (!eventId) throw new Error("Falha ao registrar evidência");
 
       const rows = Array.from(new Set(participantIds))
@@ -703,7 +724,10 @@ export function CampaignEvidenceWizard({
         .map((uid) => ({ event_id: eventId, user_id: uid }));
       await supabase.from("event_participants").upsert(rows as any, { onConflict: "event_id,user_id" } as any);
 
-      toast({ title: "Evidência registrada", description: "Enviada para avaliação. Obrigado!" });
+      const successDescription = usedChallengeFallback
+        ? "Registramos, mas o vínculo do desafio precisa ser revisado. Avise um admin."
+        : "Enviada para avaliação. Obrigado!";
+      toast({ title: "Evidência registrada", description: successDescription });
       onSubmitted?.({ eventId, sepbookPostId: null });
       setPublishPayload({
         eventId,
