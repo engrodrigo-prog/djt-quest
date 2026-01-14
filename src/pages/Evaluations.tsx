@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -14,6 +15,7 @@ import { getActiveLocale } from '@/lib/i18n/activeLocale';
 import { localeToOpenAiLanguageTag } from '@/lib/i18n/language';
 import { UserProfilePopover } from '@/components/UserProfilePopover';
 import { apiFetch } from '@/lib/api';
+import { AttachmentViewer } from '@/components/AttachmentViewer';
 
 interface PendingEvent {
   id: string;
@@ -25,11 +27,13 @@ interface PendingEvent {
   sla_status: 'green' | 'yellow' | 'red';
   days_remaining: number;
   evidenceUrls?: string[];
+  sepbookPostId?: string | null;
 }
 
 const Evaluations = () => {
   const { user, userRole, studioAccess, orgScope } = useAuth();
   const { toast } = useToast();
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [pendingEvents, setPendingEvents] = useState<PendingEvent[]>([]);
   const [selectedEvent, setSelectedEvent] = useState<PendingEvent | null>(null);
@@ -55,7 +59,7 @@ const Evaluations = () => {
         .select(`
           event_id,
           events!inner(
-            id, created_at, payload, user_id,
+            id, created_at, payload, user_id, evidence_urls,
             challenges(title, description),
             profiles:profiles!events_user_id_fkey(name)
           )
@@ -70,6 +74,9 @@ const Evaluations = () => {
         const event = row.events;
         const daysOld = Math.floor((Date.now() - new Date(event?.created_at).getTime()) / (1000 * 60 * 60 * 24));
         const payload = event?.payload || {};
+        const payloadEvidence = Array.isArray(payload.evidence_urls) ? payload.evidence_urls : [];
+        const columnEvidence = Array.isArray(event?.evidence_urls) ? event.evidence_urls : [];
+        const evidenceMerged = Array.from(new Set([...(payloadEvidence as any), ...(columnEvidence as any)].filter(Boolean)));
         return {
           id: event?.id,
           title: event?.challenges?.title || 'Sem título',
@@ -79,7 +86,8 @@ const Evaluations = () => {
           user_name: event?.profiles?.name || 'Desconhecido',
           days_remaining: 5 - daysOld,
           sla_status: daysOld < 3 ? 'green' : daysOld < 5 ? 'yellow' : 'red',
-          evidenceUrls: Array.isArray(payload.evidence_urls) ? payload.evidence_urls : [],
+          evidenceUrls: evidenceMerged as any,
+          sepbookPostId: payload?.sepbook_post_id ? String(payload.sepbook_post_id) : null,
         };
       });
 
@@ -277,18 +285,30 @@ const Evaluations = () => {
                   <p className="text-sm text-muted-foreground">{selectedEvent.description}</p>
                 </div>
 
-                {selectedEvent.evidenceUrls && selectedEvent.evidenceUrls.length > 0 && (
-                  <div>
-                    <h3 className="font-semibold mb-2">Evidências</h3>
-                    <div className="grid grid-cols-3 gap-2">
-                      {selectedEvent.evidenceUrls.slice(0,6).map((url, idx) => (
-                        <a href={url} target="_blank" rel="noreferrer" key={idx} className="block group">
-                          <img src={url} alt={`evidência ${idx+1}`} className="w-full h-24 object-cover rounded-md border group-hover:opacity-90" />
-                        </a>
-                      ))}
+                {(selectedEvent.evidenceUrls && selectedEvent.evidenceUrls.length > 0) || selectedEvent.sepbookPostId ? (
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <h3 className="font-semibold">Evidências</h3>
+                      {selectedEvent.sepbookPostId ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => navigate(`/sepbook#post-${encodeURIComponent(String(selectedEvent.sepbookPostId))}`)}
+                        >
+                          Abrir no SEPBook
+                        </Button>
+                      ) : null}
                     </div>
+                    {selectedEvent.evidenceUrls && selectedEvent.evidenceUrls.length > 0 ? (
+                      <AttachmentViewer urls={selectedEvent.evidenceUrls} mediaLayout="carousel" />
+                    ) : (
+                      <p className="text-xs text-muted-foreground">
+                        Sem anexos neste envio (evidência apenas em texto/feedback).
+                      </p>
+                    )}
                   </div>
-                )}
+                ) : null}
 
                 <div className="space-y-4">
                   <h3 className="font-semibold">Critérios de Avaliação (1.0 - 5.0)</h3>

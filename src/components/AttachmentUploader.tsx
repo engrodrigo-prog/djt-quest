@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -95,6 +95,25 @@ export const AttachmentUploader = ({
   const inputId = useMemo(() => `file-upload-${Math.random().toString(36).slice(2)}`, []);
   const cameraInputId = useMemo(() => `camera-upload-${Math.random().toString(36).slice(2)}`, []);
   const cameraEnabled = Boolean(capture);
+  const onAttachmentsChangeRef = useRef(onAttachmentsChange);
+  const onAttachmentItemsChangeRef = useRef(onAttachmentItemsChange);
+  const onUploadingChangeRef = useRef(onUploadingChange);
+  const lastUrlsKeyRef = useRef<string>("");
+  const lastItemsKeyRef = useRef<string>("");
+  const lastUploadingRef = useRef<boolean | null>(null);
+
+  useEffect(() => {
+    onAttachmentsChangeRef.current = onAttachmentsChange;
+  }, [onAttachmentsChange]);
+
+  useEffect(() => {
+    onAttachmentItemsChangeRef.current = onAttachmentItemsChange;
+  }, [onAttachmentItemsChange]);
+
+  useEffect(() => {
+    onUploadingChangeRef.current = onUploadingChange;
+  }, [onUploadingChange]);
+
   const cameraCaptureValue = useMemo(() => {
     if (!cameraEnabled) return undefined;
     if (typeof capture === 'string') return capture;
@@ -373,26 +392,51 @@ export const AttachmentUploader = ({
     const uploadedUrls = attachments
       .filter(a => a.uploaded && a.url)
       .map(a => a.url!);
-    onAttachmentsChange(uploadedUrls);
-  }, [attachments, onAttachmentsChange]);
+    const key = uploadedUrls.join("\n");
+    if (key === lastUrlsKeyRef.current) return;
+    lastUrlsKeyRef.current = key;
+    try {
+      onAttachmentsChangeRef.current(uploadedUrls);
+    } catch {
+      /* ignore */
+    }
+  }, [attachments]);
 
   useEffect(() => {
-    if (!onAttachmentItemsChange) return;
+    const cb = onAttachmentItemsChangeRef.current;
+    if (!cb) return;
     const items = attachments
       .filter((a) => a.uploaded && a.url)
       .map((a) => ({ url: a.url as string, meta: a.meta }));
-    onAttachmentItemsChange(items);
-  }, [attachments, onAttachmentItemsChange]);
+    const key = items
+      .map((i) => {
+        const lat = i?.meta?.exifGps?.lat;
+        const lng = i?.meta?.exifGps?.lng;
+        return `${i.url}|${lat ?? ""}|${lng ?? ""}`;
+      })
+      .join("\n");
+    if (key === lastItemsKeyRef.current) return;
+    lastItemsKeyRef.current = key;
+    try {
+      cb(items);
+    } catch {
+      /* ignore */
+    }
+  }, [attachments]);
 
   // Avisar se há uploads em andamento (para bloquear publicação, por exemplo)
   useEffect(() => {
-    if (!attachments || attachments.length === 0) {
-      onUploadingChange?.(false);
-      return;
+    const cb = onUploadingChangeRef.current;
+    if (!cb) return;
+    const anyUploading = Boolean(attachments && attachments.length > 0 && attachments.some(a => a.uploading && !a.uploaded));
+    if (lastUploadingRef.current === anyUploading) return;
+    lastUploadingRef.current = anyUploading;
+    try {
+      cb(anyUploading);
+    } catch {
+      /* ignore */
     }
-    const anyUploading = attachments.some(a => a.uploading && !a.uploaded);
-    onUploadingChange?.(anyUploading);
-  }, [attachments, onUploadingChange]);
+  }, [attachments]);
 
   const removeAttachment = (id: string) => {
     setAttachments(prev => prev.filter(a => a.id !== id));

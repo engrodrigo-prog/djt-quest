@@ -462,12 +462,18 @@ export function CampaignEvidenceWizard({
     return { exif, dev, none, total: items.length };
   }, [gpsByUrl]);
 
+  const evidenceText = useMemo(() => String(text || "").trim(), [text]);
+  const evidenceTextOk = useMemo(() => evidenceText.length >= 50, [evidenceText]);
+  const audioTranscriptTextOk = useMemo(() => String(audioTranscript || "").trim().length >= 50, [audioTranscript]);
+  const evidenceMediaOk = useMemo(() => attachmentUrls.length >= 1 || Boolean(audioUrl), [attachmentUrls.length, audioUrl]);
+  const hasEvidence = useMemo(() => evidenceMediaOk || evidenceTextOk || audioTranscriptTextOk, [audioTranscriptTextOk, evidenceMediaOk, evidenceTextOk]);
+
   const canNextFromStep = (s: number) => {
     if (s === 1) return true;
-    if (s === 2) return attachmentUrls.length >= 1 && !imagesUploading && !audioUploading && !audioTranscribing;
+    if (s === 2) return !imagesUploading && !audioUploading && !audioTranscribing;
     if (s === 3) return true;
     if (s === 4) return sapNote.trim().length <= 60;
-    if (s === 5) return attachmentUrls.length >= 1 && !imagesUploading && !audioUploading && !audioTranscribing && !submitting;
+    if (s === 5) return hasEvidence && !imagesUploading && !audioUploading && !audioTranscribing && !submitting;
     return true;
   };
 
@@ -494,8 +500,12 @@ export function CampaignEvidenceWizard({
       toast({ title: "Campanha sem fluxo de evidência", description: "Peça ao admin para aplicar a migração de evidência.", variant: "destructive" });
       return;
     }
-    if (attachmentUrls.length < 1) {
-      toast({ title: "Envie ao menos 1 evidência", description: "Anexe uma imagem ou arquivo para continuar.", variant: "destructive" });
+    if (!hasEvidence) {
+      toast({
+        title: "Envie uma evidência",
+        description: "Adicione ao menos 1 anexo (foto/vídeo/arquivo) ou escreva um texto detalhado (mín. 50 caracteres).",
+        variant: "destructive",
+      });
       return;
     }
     if (audioTranscribing) {
@@ -645,7 +655,7 @@ export function CampaignEvidenceWizard({
               </Badge>
             </DialogTitle>
             <DialogDescription>
-              Registrar evidência com imagens (mín. 1, máx. 5). {isGuest ? "Convidado não marca outros usuários." : "Marque quem participou."}
+              Registrar evidência com fotos, vídeos, arquivos e/ou texto. {isGuest ? "Convidado não marca outros usuários." : "Marque quem participou."}
             </DialogDescription>
           </DialogHeader>
 
@@ -677,7 +687,7 @@ export function CampaignEvidenceWizard({
             <div className="space-y-5">
           <div className="space-y-2">
             <div className="flex items-center justify-between gap-2">
-              <Label>Anexos (mín. 1, máx. 5)</Label>
+              <Label>Anexos (opcional, máx. 5)</Label>
               <span className="text-xs text-muted-foreground">{Math.min(5, attachmentUrls.length)}/5</span>
             </div>
             <AttachmentUploader
@@ -688,7 +698,8 @@ export function CampaignEvidenceWizard({
                 )
               }
               maxFiles={5}
-              maxVideos={0}
+              maxImages={3}
+              maxVideos={2}
               maxSizeMB={50}
               bucket="evidence"
               pathPrefix={`campaign-evidence/${campaign.id}`}
@@ -700,6 +711,9 @@ export function CampaignEvidenceWizard({
                 "image/heic",
                 "image/heif",
                 "image/avif",
+                "video/mp4",
+                "video/webm",
+                "video/quicktime",
                 "application/pdf",
                 "application/msword",
                 "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -708,14 +722,16 @@ export function CampaignEvidenceWizard({
                 "text/plain",
               ]}
               capture="environment"
+              maxVideoSeconds={60}
+              maxVideoDimension={1920}
               maxImageDimension={3840}
               imageQuality={0.82}
               onUploadingChange={setImagesUploading}
               includeImageGpsMeta
             />
-            {attachmentUrls.length < 1 && (
-              <p className="text-xs text-amber-200/90">
-                Você precisa anexar ao menos 1 evidência (imagem ou arquivo) para continuar.
+            {attachmentUrls.length < 1 && !evidenceTextOk && !audioTranscriptTextOk && !audioUrl && (
+              <p className="text-xs text-muted-foreground">
+                Sem anexos ainda. Você pode continuar e registrar a evidência com texto e/ou áudio.
               </p>
             )}
             {documentUrls.length > 0 && (

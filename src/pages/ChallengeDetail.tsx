@@ -8,13 +8,14 @@ import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { ArrowLeft, Upload, Shield, BarChart3 } from 'lucide-react';
+import { ArrowLeft, Shield, BarChart3 } from 'lucide-react';
 import { QuizAnalytics } from '@/components/QuizAnalytics';
 import { ThemedBackground, domainFromType } from '@/components/ThemedBackground';
 import { useToast } from '@/hooks/use-toast';
 import { QuizPlayer } from '@/components/QuizPlayer';
 import { HelpInfo } from '@/components/HelpInfo';
 import { VoiceRecorderButton } from '@/components/VoiceRecorderButton';
+import { AttachmentUploader } from '@/components/AttachmentUploader';
 import { buildAbsoluteAppUrl, openWhatsAppShare } from '@/lib/whatsappShare';
 import { getActiveLocale } from '@/lib/i18n/activeLocale';
 import { localeToOpenAiLanguageTag, localeToSpeechLanguage } from '@/lib/i18n/language';
@@ -47,7 +48,7 @@ const ChallengeDetail = () => {
   const [submitting, setSubmitting] = useState(false);
   const [description, setDescription] = useState('');
   const [evidenceUrls, setEvidenceUrls] = useState<string[]>([]);
-  const [imageUploads, setImageUploads] = useState<File[]>([]);
+  const [evidenceUploading, setEvidenceUploading] = useState(false);
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [audioPreviewUrl, setAudioPreviewUrl] = useState<string | null>(null);
   const [transcribing, setTranscribing] = useState(false);
@@ -317,7 +318,14 @@ const ChallengeDetail = () => {
         const { error } = await supabase
           .from('events')
           .update({
-            payload: { description, ...(evidenceUrls.length > 0 ? { evidence_urls: evidenceUrls } : {}), action_date: actionDate || null, action_location: actionLocation || null, sap_service_note: sapNote || null },
+            payload: {
+              description,
+              ...(evidenceUrls.length > 0 ? { evidence_urls: evidenceUrls } : {}),
+              action_date: actionDate || null,
+              action_location: actionLocation || null,
+              sap_service_note: sapNote || null,
+            },
+            evidence_urls: evidenceUrls.length > 0 ? evidenceUrls : [],
             status: 'submitted'
           })
           .eq('id', retryEventId);
@@ -341,7 +349,14 @@ const ChallengeDetail = () => {
           .insert([{
             user_id: user.id,
             challenge_id: challenge.id,
-            payload: { description, ...(evidenceUrls.length > 0 ? { evidence_urls: evidenceUrls } : {}), action_date: actionDate || null, action_location: actionLocation || null, sap_service_note: sapNote || null },
+            payload: {
+              description,
+              ...(evidenceUrls.length > 0 ? { evidence_urls: evidenceUrls } : {}),
+              action_date: actionDate || null,
+              action_location: actionLocation || null,
+              sap_service_note: sapNote || null,
+            },
+            evidence_urls: evidenceUrls.length > 0 ? evidenceUrls : [],
             status: challenge.require_two_leader_eval ? 'submitted' : 'evaluated'
           }])
           .select('id')
@@ -739,43 +754,47 @@ const ChallengeDetail = () => {
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <Label>Evidências (imagens — mínimo 1, máximo 5)</Label>
-                <Input type="file" accept="image/*" multiple capture="environment" onChange={(e) => {
-                  const files = Array.from(e.target.files || []).slice(0,5);
-                  setImageUploads(files);
-                }} />
-                <div className="text-xs text-muted-foreground">
-                  {imageUploads.length} selecionada(s). Limite 5.
-                </div>
-                <Button type="button" variant="outline" onClick={async () => {
-                  if (!user) return;
-                  if (!imageUploads.length) {
-                    return toast({ title: 'Selecione ao menos 1 imagem', variant: 'destructive' })
-                  }
-                  try {
-                    const uploaded: string[] = [];
-                    for (const f of imageUploads.slice(0,5)) {
-                      const path = `${user.id}/${Date.now()}-${Math.random().toString(36).slice(2)}-${f.name}`;
-                      const { error: upErr } = await supabase.storage.from('evidence').upload(path, f, { upsert: true, contentType: f.type });
-                      if (upErr) throw upErr;
-                      const { data } = supabase.storage.from('evidence').getPublicUrl(path);
-                      uploaded.push(data.publicUrl);
-                    }
-                    setEvidenceUrls(uploaded);
-                    toast({ title: 'Imagens enviadas', description: `${uploaded.length} arquivo(s) enviado(s)` })
-                  } catch (e: any) {
-                    toast({ title: 'Falha no upload', description: e?.message || 'Tente novamente', variant: 'destructive' })
-                  }
-                }}>Enviar imagens</Button>
-              </div>
+	              <div className="space-y-2">
+	                <Label>Evidências (fotos/vídeos/arquivos — opcional, máximo 5)</Label>
+	                <AttachmentUploader
+	                  onAttachmentsChange={setEvidenceUrls}
+	                  maxFiles={5}
+	                  maxImages={3}
+	                  maxVideos={2}
+	                  maxSizeMB={50}
+	                  bucket="evidence"
+	                  pathPrefix={`challenge-evidence/${challenge.id}`}
+	                  acceptMimeTypes={[
+	                    "image/jpeg",
+	                    "image/png",
+	                    "image/webp",
+	                    "image/gif",
+	                    "image/heic",
+	                    "image/heif",
+	                    "image/avif",
+	                    "video/mp4",
+	                    "video/webm",
+	                    "video/quicktime",
+	                    "application/pdf",
+	                  ]}
+	                  capture="environment"
+	                  maxVideoSeconds={60}
+	                  maxVideoDimension={1920}
+	                  maxImageDimension={3840}
+	                  imageQuality={0.82}
+	                  onUploadingChange={setEvidenceUploading}
+	                />
+	                <p className="text-[11px] text-muted-foreground">
+	                  Se este desafio exigir evidência, anexe ao menos 1 item. Limite padrão: 3 fotos + 2 vídeos.
+	                </p>
+	              </div>
 
 
-              <Button 
-                onClick={handleSubmit} 
-                disabled={submitting || description.length < 50 || (challenge.evidence_required && evidenceUrls.length < 1) || evidenceUrls.length > 5}
-                className="w-full"
-              >
+	              <Button 
+	                onClick={handleSubmit} 
+	                disabled={submitting || evidenceUploading || description.length < 50 || (challenge.evidence_required && evidenceUrls.length < 1) || evidenceUrls.length > 5}
+	                className="w-full"
+	              >
                 {submitting ? 'Submetendo...' : retryEventId ? 'Submeter Refação' : 'Submeter Ação'}
               </Button>
             </CardContent>
