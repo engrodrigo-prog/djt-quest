@@ -43,6 +43,13 @@ const toNumberOrNull = (value: any) => {
   return Number.isFinite(n) ? n : null;
 };
 
+const isMissingColumnError = (error: any, column: string) => {
+  const code = String(error?.code || "");
+  const msg = String(error?.message || "").toLowerCase();
+  const col = String(column || "").toLowerCase();
+  return code === "42703" || (msg.includes(col) && msg.includes("column"));
+};
+
 const clampLocation = (lat: number | null, lng: number | null) => {
   if (lat == null || lng == null) return null;
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
@@ -138,18 +145,29 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       attachments,
     };
 
-    const { data: ev, error: evErr } = await writer
-      .from("events")
-      .insert({
-        user_id: uid,
-        challenge_id,
-        status: "submitted",
-        evidence_urls: attachments,
-        sap_service_note,
-        payload,
-      } as any)
-      .select("id")
-      .single();
+    const insertRow = async (row: any) =>
+      await writer
+        .from("events")
+        .insert(row as any)
+        .select("id")
+        .single();
+
+    const baseRow: any = {
+      user_id: uid,
+      challenge_id,
+      status: "submitted",
+      evidence_urls: attachments,
+      sap_service_note,
+      payload,
+    };
+
+    let evResp = await insertRow(baseRow);
+    if (evResp.error && isMissingColumnError(evResp.error, "evidence_urls")) {
+      const { evidence_urls, ...rowWithoutEvidence } = baseRow;
+      evResp = await insertRow(rowWithoutEvidence);
+    }
+    const ev = evResp.data;
+    const evErr = evResp.error;
 
     if (evErr) {
       const msg = [evErr.message, (evErr as any)?.details, (evErr as any)?.hint].filter(Boolean).join(" • ");
@@ -218,4 +236,3 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(500).json({ error: e?.message || "Internal error" });
   }
 }
-

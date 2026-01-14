@@ -33,6 +33,13 @@ const toStringArray = (value: any, max = 200) =>
 const toUuidArray = (value: any, max = 200) =>
   Array.from(new Set(toStringArray(value, max).filter((v) => UUID_RE.test(v))));
 
+const isMissingColumnError = (error: any, column: string) => {
+  const code = String(error?.code || "");
+  const msg = String(error?.message || "").toLowerCase();
+  const col = String(column || "").toLowerCase();
+  return code === "42703" || (msg.includes(col) && msg.includes("column"));
+};
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === "OPTIONS") return res.status(204).send("");
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
@@ -108,38 +115,60 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const event_id = retry_event_id || null;
 
     if (event_id) {
-      const { error: upErr } = await writer
+      const updateRow: any = {
+        payload,
+        evidence_urls: evidence_urls.length > 0 ? evidence_urls : [],
+        action_date,
+        action_location,
+        sap_service_note,
+        status: finalStatus,
+      };
+
+      let upResp = await writer
         .from("events")
-        .update({
-          payload,
-          evidence_urls: evidence_urls.length > 0 ? evidence_urls : [],
-          action_date,
-          action_location,
-          sap_service_note,
-          status: finalStatus,
-        } as any)
+        .update(updateRow as any)
         .eq("id", event_id)
         .eq("user_id", uid);
 
-      if (upErr) {
-        const msg = [upErr.message, (upErr as any)?.details, (upErr as any)?.hint].filter(Boolean).join(" • ");
-        return res.status(400).json({ error: msg || "Não foi possível atualizar a ação", meta: { code: (upErr as any)?.code || null } });
+      if (upResp.error && isMissingColumnError(upResp.error, "evidence_urls")) {
+        const { evidence_urls, ...rowWithoutEvidence } = updateRow;
+        upResp = await writer
+          .from("events")
+          .update(rowWithoutEvidence as any)
+          .eq("id", event_id)
+          .eq("user_id", uid);
+      }
+
+      if (upResp.error) {
+        const msg = [upResp.error.message, (upResp.error as any)?.details, (upResp.error as any)?.hint].filter(Boolean).join(" • ");
+        return res.status(400).json({ error: msg || "Não foi possível atualizar a ação", meta: { code: (upResp.error as any)?.code || null } });
       }
     } else {
-      const { data: newEvent, error: insErr } = await writer
-        .from("events")
-        .insert({
-          user_id: uid,
-          challenge_id,
-          payload,
-          evidence_urls: evidence_urls.length > 0 ? evidence_urls : [],
-          action_date,
-          action_location,
-          sap_service_note,
-          status: finalStatus,
-        } as any)
-        .select("id")
-        .single();
+      const baseRow: any = {
+        user_id: uid,
+        challenge_id,
+        payload,
+        evidence_urls: evidence_urls.length > 0 ? evidence_urls : [],
+        action_date,
+        action_location,
+        sap_service_note,
+        status: finalStatus,
+      };
+
+      const insertRow = async (row: any) =>
+        await writer
+          .from("events")
+          .insert(row as any)
+          .select("id")
+          .single();
+
+      let insResp = await insertRow(baseRow);
+      if (insResp.error && isMissingColumnError(insResp.error, "evidence_urls")) {
+        const { evidence_urls, ...rowWithoutEvidence } = baseRow;
+        insResp = await insertRow(rowWithoutEvidence);
+      }
+      const newEvent = insResp.data;
+      const insErr = insResp.error;
 
       if (insErr) {
         const msg = [insErr.message, (insErr as any)?.details, (insErr as any)?.hint].filter(Boolean).join(" • ");
@@ -177,4 +206,3 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(500).json({ error: e?.message || "Internal error" });
   }
 }
-
