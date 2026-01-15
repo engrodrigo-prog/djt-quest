@@ -46,7 +46,7 @@ interface Challenge {
 }
 
 const Dashboard = () => {
-  const { user, signOut, isLeader, userRole, profile: authProfile } = useAuth() as any;
+  const { user, signOut, isLeader, studioAccess, userRole, profile: authProfile } = useAuth() as any;
   const navigate = useNavigate();
   const { locale, t: tr } = useI18n();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
@@ -365,6 +365,7 @@ const Dashboard = () => {
   );
 
   const evalTotal = pendingCounts.evaluations + pendingCounts.leadershipAssignments;
+  const showEvaluations = Boolean(studioAccess || evalTotal > 0);
   const notificationItems = [
     {
       key: "forumMentions",
@@ -393,7 +394,7 @@ const Dashboard = () => {
       count: evalTotal,
       icon: ClipboardList,
       action: () => navigate("/evaluations"),
-      hidden: !isLeader,
+      hidden: !showEvaluations,
     },
     {
       key: "campaigns",

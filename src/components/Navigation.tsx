@@ -43,6 +43,7 @@ const Navigation = () => {
   const notifTotalRef = useRef<number | null>(null);
   const [navHidden, setNavHidden] = useState(false);
   const [navExpanded, setNavExpanded] = useState(false);
+  const showEvaluations = Boolean(studioAccess || evalBadge > 0);
 
   useEffect(() => {
     playSfxRef.current = playSfx;
@@ -53,10 +54,10 @@ const Navigation = () => {
     // Home, Forums, SEPBook, Study, Profile, Rankings, Logout
     // Optional: Evaluations (leader), Studio (studioAccess)
     let count = 7;
-    if (isLeader) count += 1;
+    if (showEvaluations) count += 1;
     if (studioAccess) count += 1;
     return count;
-  }, [isLeader, studioAccess]);
+  }, [showEvaluations, studioAccess]);
 
   useEffect(() => {
     const calc = () => {
@@ -133,9 +134,9 @@ const Navigation = () => {
 	          sepMentions = 0;
 	        }
 
-		        if (!active) return;
-		        setStudioBadge(studioAccess ? approvals + passwordResets + registrations + evaluations : 0);
-		        setEvalBadge(isLeader ? evalTotal : 0);
+	        if (!active) return;
+		        setStudioBadge(studioAccess ? approvals + passwordResets + registrations : 0);
+		        setEvalBadge(evalTotal);
 		        setForumBadge(forumMentions);
           setNotifBadge(notifications);
           setHomeBadge(nextHomeBadge);
@@ -144,8 +145,8 @@ const Navigation = () => {
 		        setSepbookMentions(sepMentions);
 
           const nextTotal =
-            (studioAccess ? approvals + passwordResets + registrations + evaluations : 0) +
-            (isLeader ? evalTotal : 0) +
+            (studioAccess ? approvals + passwordResets + registrations : 0) +
+            evalTotal +
             forumMentions +
             notifications +
             nextHomeBadge +
@@ -214,7 +215,7 @@ const Navigation = () => {
       window.removeEventListener('offline', onOffline);
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, [studioAccess, isLeader]);
+  }, [studioAccess]);
 
   // Ouvir eventos globais de leitura de menções para limpar badges imediatamente
   useEffect(() => {
@@ -406,12 +407,12 @@ const Navigation = () => {
           <span className={labelClass(isActive('/study'))} title={t("nav.study")}>{t("nav.study")}</span>
         </Button>
         
-        {isLeader && (
-          <Button
-            variant={isActive('/evaluations') ? 'default' : 'ghost'}
-            size="sm"
-            onClick={() => navigate('/evaluations')}
-            className={cn(baseButtonClass, 'relative')}
+	        {showEvaluations && (
+	          <Button
+	            variant={isActive('/evaluations') ? 'default' : 'ghost'}
+	            size="sm"
+	            onClick={() => navigate('/evaluations')}
+	            className={cn(baseButtonClass, 'relative')}
             aria-label={t("nav.evaluations")}
             aria-current={isActive('/evaluations') ? 'page' : undefined}
           >
@@ -503,15 +504,15 @@ const Navigation = () => {
         <Button
           variant={'ghost'}
           size="sm"
-          onClick={async () => {
-            try {
-              // limpar possíveis caches extras
-              try { localStorage.clear(); } catch {}
-              await signOut();
-            } finally {
-              window.location.href = '/';
-            }
-          }}
+	          onClick={async () => {
+	            try {
+	              // limpar possíveis caches extras
+	              try { localStorage.clear(); } catch { /* ignore */ }
+	              await signOut();
+	            } finally {
+	              window.location.href = '/';
+	            }
+	          }}
           className={baseButtonClass}
           aria-label={t("nav.logout")}
         >
