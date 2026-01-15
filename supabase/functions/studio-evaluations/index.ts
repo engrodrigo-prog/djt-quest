@@ -230,12 +230,19 @@ Deno.serve(async (req) => {
               first_evaluation_rating: ratingNumber,
               awaiting_second_evaluation: true,
               updated_at: new Date().toISOString()
-            })
+          })
             .eq('id', eventId)
             .neq('status', 'approved');
 
           // Garantir 2º avaliador (idempotente; baseado na função do banco)
-          await supabase.rpc('assign_evaluators_for_event', { _event_id: eventId }).catch(() => {});
+          try {
+            const { error: assignError } = await supabase.rpc('assign_evaluators_for_event', { _event_id: eventId });
+            if (assignError) {
+              console.warn('assign_evaluators_for_event falhou (best-effort):', assignError.message || assignError);
+            }
+          } catch (err) {
+            console.warn('assign_evaluators_for_event falhou (best-effort):', err);
+          }
 
           // Notificar colaborador
           await supabase.rpc('create_notification', {

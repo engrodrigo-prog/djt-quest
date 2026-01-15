@@ -300,13 +300,25 @@ const Dashboard = () => {
 
     const fetchCounts = async () => {
       if (!active) return;
+      let directEvalCount: number | null = null;
+      try {
+        const { count, error } = await supabase
+          .from('evaluation_queue')
+          .select('id', { count: 'exact', head: true })
+          .eq('assigned_to', user.id)
+          .is('completed_at', null);
+        if (!error) directEvalCount = count || 0;
+      } catch {
+        directEvalCount = null;
+      }
+
       try {
         const resp = await apiFetch('/api/admin?handler=studio-pending-counts');
         const json = await resp.json().catch(() => ({}));
         if (resp.ok) {
           setPendingCounts({
             forumMentions: Number(json?.forumMentions || 0),
-            evaluations: Number(json?.evaluations || 0),
+            evaluations: directEvalCount ?? Number(json?.evaluations || 0),
             leadershipAssignments: Number(json?.leadershipAssignments || 0),
             campaigns: Number(json?.campaigns || 0),
             challengesActive: Number(json?.challengesActive || 0),
@@ -316,7 +328,7 @@ const Dashboard = () => {
       } catch {
         setPendingCounts({
           forumMentions: 0,
-          evaluations: 0,
+          evaluations: directEvalCount ?? 0,
           leadershipAssignments: 0,
           campaigns: 0,
           challengesActive: 0,

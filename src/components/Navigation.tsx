@@ -16,6 +16,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { apiFetch } from '@/lib/api';
+import { supabase } from '@/integrations/supabase/client';
 import { ChangePasswordCard } from '@/components/profile/ChangePasswordCard';
 import bgMenu from '@/assets/backgrounds/BG Menu.webp';
 import { useI18n } from '@/contexts/I18nContext';
@@ -25,7 +26,7 @@ import { Menu, X } from 'lucide-react';
 const Navigation = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { studioAccess, isLeader, signOut } = useAuth();
+  const { user, studioAccess, isLeader, signOut } = useAuth();
   const { t } = useI18n();
   const { play: playSfx } = useSfx();
   const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
@@ -117,7 +118,20 @@ const Navigation = () => {
         const quizzesPending = json?.quizzesPending || 0;
         const nextHomeBadge = Math.max(0, Number(campaigns) + Number(challengesActive));
         const nextStudyBadge = Math.max(0, Number(quizzesPending));
-	        const evalTotal = evaluations + leadershipAssignments;
+          let evalCount = Number(evaluations) || 0;
+          try {
+            if (user?.id) {
+              const { count, error } = await supabase
+                .from('evaluation_queue')
+                .select('id', { count: 'exact', head: true })
+                .eq('assigned_to', user.id)
+                .is('completed_at', null);
+              if (!error) evalCount = count || 0;
+            }
+          } catch {
+            // ignore; fallback to server count
+          }
+	        const evalTotal = evalCount + leadershipAssignments;
           let sepNew = 0;
           let sepMentions = 0;
 
@@ -160,8 +174,21 @@ const Navigation = () => {
           }
       } catch {
         if (!active) return;
+        let evalCount = 0;
+        try {
+          if (user?.id) {
+            const { count, error } = await supabase
+              .from('evaluation_queue')
+              .select('id', { count: 'exact', head: true })
+              .eq('assigned_to', user.id)
+              .is('completed_at', null);
+            if (!error) evalCount = count || 0;
+          }
+        } catch {
+          evalCount = 0;
+        }
         setStudioBadge(0);
-        setEvalBadge(0);
+        setEvalBadge(evalCount);
 	        setForumBadge(0);
 	        setNotifBadge(0);
 	        setHomeBadge(0);
