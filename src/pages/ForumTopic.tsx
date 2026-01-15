@@ -109,6 +109,9 @@ export default function ForumTopic() {
   const pendingCursorRef = useRef<number | null>(null)
   const didScrollToHashRef = useRef(false)
   const translatingRef = useRef(false)
+  const mentionReadDoneRef = useRef<Set<string>>(new Set())
+  const mentionReadInFlightRef = useRef<Set<string>>(new Set())
+  const mentionBadgeRefreshTimerRef = useRef<number | null>(null)
 
   const [hashtagDialogOpen, setHashtagDialogOpen] = useState(false)
   const [hashtagDialogTags, setHashtagDialogTags] = useState<string[]>([])
@@ -263,6 +266,116 @@ export default function ForumTopic() {
   }, [id, user?.id])
 
   useEffect(() => { load() }, [load])
+
+  // Mark unread @mentions as read when the mentioned post becomes visible.
+  // This keeps badges consistent with the "read post => clear mention notification" rule.
+  useEffect(() => {
+    const uid = user?.id ? String(user.id) : ''
+    if (!uid || !id) return
+    if (!posts.length) return
+
+    let cancelled = false
+    let observer: IntersectionObserver | null = null
+
+    const scheduleBadgeRefresh = () => {
+      if (mentionBadgeRefreshTimerRef.current) window.clearTimeout(mentionBadgeRefreshTimerRef.current)
+      mentionBadgeRefreshTimerRef.current = window.setTimeout(() => {
+        window.dispatchEvent(new CustomEvent('djt-refresh-badges'))
+      }, 450)
+    }
+
+    const markPostMentionRead = async (postId: string) => {
+      const pid = String(postId || '').trim()
+      if (!pid) return
+      if (mentionReadDoneRef.current.has(pid)) return
+      if (mentionReadInFlightRef.current.has(pid)) return
+      mentionReadInFlightRef.current.add(pid)
+      try {
+        await supabase
+          .from('forum_mentions')
+          .update({ is_read: true } as any)
+          .eq('mentioned_user_id', uid)
+          .eq('post_id', pid)
+          .eq('is_read', false)
+        try {
+          const now = new Date().toISOString()
+          await supabase
+            .from('notifications')
+            .update({ read: true, read_at: now } as any)
+            .eq('user_id', uid)
+            .eq('type', 'forum_mention')
+            .contains('metadata', { post_id: pid } as any)
+            .eq('read', false)
+        } catch {
+          // ignore (best-effort)
+        }
+        mentionReadDoneRef.current.add(pid)
+        scheduleBadgeRefresh()
+      } finally {
+        mentionReadInFlightRef.current.delete(pid)
+      }
+    }
+
+    const run = async () => {
+      const postIds = posts.map((p) => String(p.id || '').trim()).filter(Boolean)
+      if (!postIds.length) return
+
+      const unreadMentionPostIds = new Set<string>()
+      const chunkSize = 50
+      for (let i = 0; i < postIds.length; i += chunkSize) {
+        if (cancelled) return
+        const chunk = postIds.slice(i, i + chunkSize)
+        const { data, error } = await supabase
+          .from('forum_mentions')
+          .select('post_id')
+          .eq('mentioned_user_id', uid)
+          .eq('is_read', false)
+          .in('post_id', chunk)
+        if (!error) {
+          ;(data || []).forEach((r: any) => r?.post_id && unreadMentionPostIds.add(String(r.post_id)))
+        }
+      }
+
+      if (cancelled) return
+      if (!unreadMentionPostIds.size) return
+
+      if (typeof IntersectionObserver === 'undefined') {
+        await Promise.all(Array.from(unreadMentionPostIds).map((pid) => markPostMentionRead(pid)))
+        return
+      }
+
+      observer = new IntersectionObserver(
+        (entries) => {
+          entries.forEach((entry) => {
+            if (!entry.isIntersecting) return
+            const el = entry.target as HTMLElement
+            const rawId = String(el?.id || '')
+            const m = /^post-(.+)$/.exec(rawId)
+            const pid = m?.[1] ? String(m[1]) : ''
+            if (!pid) return
+            if (!unreadMentionPostIds.has(pid)) return
+            void markPostMentionRead(pid)
+          })
+        },
+        { root: null, threshold: 0.35 },
+      )
+
+      unreadMentionPostIds.forEach((pid) => {
+        const el = document.getElementById(`post-${pid}`)
+        if (el) observer?.observe(el)
+      })
+    }
+
+    void run()
+
+    return () => {
+      cancelled = true
+      if (observer) observer.disconnect()
+      observer = null
+      if (mentionBadgeRefreshTimerRef.current) window.clearTimeout(mentionBadgeRefreshTimerRef.current)
+      mentionBadgeRefreshTimerRef.current = null
+    }
+  }, [id, posts, user?.id])
 
   const togglePostLike = async (post: Post) => {
     if (!user) {

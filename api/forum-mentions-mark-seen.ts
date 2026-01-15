@@ -40,10 +40,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const uid = userData?.user?.id;
     if (!uid) return res.status(401).json({ error: "Unauthorized" });
 
+    const now = new Date().toISOString();
+
     await admin
       .from("forum_mentions")
       .update({ is_read: true } as any)
-      .eq("mentioned_user_id", uid);
+      .eq("mentioned_user_id", uid)
+      .eq("is_read", false);
+
+    // Keep notifications table consistent (avoid "stuck" badge after reading mentions)
+    try {
+      await admin
+        .from("notifications")
+        .update({ read: true, read_at: now } as any)
+        .eq("user_id", uid)
+        .eq("type", "forum_mention")
+        .eq("read", false);
+    } catch {
+      // ignore (best-effort)
+    }
 
     return res.status(200).json({ success: true });
   } catch (e: any) {

@@ -77,9 +77,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       admin.from("sepbook_mentions").eq("mentioned_user_id", uid).eq("is_read", false)
     );
 
+    const commentMentions = await safeCount(
+      admin.from("sepbook_comment_mentions").eq("mentioned_user_id", uid).eq("is_read", false)
+    );
+
     return res.status(200).json({
       new_posts: newPosts,
-      mentions,
+      mentions: Number(mentions || 0) + Number(commentMentions || 0),
     });
   } catch {
     // Qualquer outra falha inesperada: retorna zeros em vez de 500

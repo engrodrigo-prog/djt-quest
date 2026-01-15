@@ -21,6 +21,36 @@ export function ForumMentions() {
   const [loading, setLoading] = useState(true)
   const navigate = useNavigate()
 
+  const markMentionRead = async (mention: MentionRow) => {
+    if (mention.is_read) return
+    try {
+      const { data: session } = await supabase.auth.getSession()
+      const userId = session.session?.user?.id
+      if (!userId) return
+      await supabase
+        .from('forum_mentions')
+        .update({ is_read: true } as any)
+        .eq('id', mention.id)
+        .eq('mentioned_user_id', userId)
+      try {
+        const now = new Date().toISOString()
+        await supabase
+          .from('notifications')
+          .update({ read: true, read_at: now } as any)
+          .eq('user_id', userId)
+          .eq('type', 'forum_mention')
+          .contains('metadata', { post_id: mention.post_id } as any)
+          .eq('read', false)
+      } catch {
+        // ignore
+      }
+      setRows((prev) => prev.map((r) => (r.id === mention.id ? { ...r, is_read: true } : r)))
+      window.dispatchEvent(new CustomEvent('djt-refresh-badges'))
+    } catch {
+      // ignore
+    }
+  }
+
   useEffect(() => {
     let mounted = true
     ;(async () => {
@@ -79,12 +109,11 @@ export function ForumMentions() {
                   key={m.id}
                   type="button"
                   className="w-full flex items-center justify-between p-3 border rounded-lg hover:bg-accent/10 text-left"
-                  onClick={() => {
+                  onClick={async () => {
                     const topicId = (m.post as any)?.topic_id
                     if (topicId) {
-                      navigate(`/forum/${topicId}`)
-                      // Considerar a menção como reconhecida ao navegar para o tópico
-                      window.dispatchEvent(new CustomEvent('forum-mentions-seen'))
+                      await markMentionRead(m)
+                      navigate(`/forum/${topicId}#post-${encodeURIComponent(m.post_id)}`)
                     }
                   }}
                 >

@@ -796,6 +796,9 @@ export default function SEPBookIG() {
   const deepLinkCommentTargetRef = useRef<{ commentId: string; postId: string } | null>(null);
   const deepLinkCommentHandledRef = useRef<string | null>(null);
   const deepLinkPostHandledRef = useRef<string | null>(null);
+  const sepbookPostMentionReadDoneRef = useRef<Set<string>>(new Set());
+  const sepbookPostMentionReadInFlightRef = useRef<Set<string>>(new Set());
+  const sepbookBadgeRefreshTimerRef = useRef<number | null>(null);
 
   const activePost = useMemo(() => posts.find((p) => p.id === commentsOpenFor) || null, [commentsOpenFor, posts]);
   const editingPost = useMemo(() => posts.find((p) => p.id === editingPostId) || null, [editingPostId, posts]);
@@ -1040,6 +1043,13 @@ export default function SEPBookIG() {
     if (!id) return;
     setMapOpen(false);
     setAuthorPickerOpen(false);
+    void apiFetch("/api/sepbook-mentions-mark-seen", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ post_id: id }),
+    })
+      .then(() => window.dispatchEvent(new CustomEvent("djt-refresh-badges")))
+      .catch(() => {});
     window.setTimeout(() => {
       const el = document.getElementById(`post-${id}`);
       if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1053,6 +1063,13 @@ export default function SEPBookIG() {
       if (!pid || !cid) return;
       setMapOpen(false);
       setAuthorPickerOpen(false);
+      void apiFetch("/api/sepbook-mentions-mark-seen", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ post_id: pid, comment_id: cid }),
+      })
+        .then(() => window.dispatchEvent(new CustomEvent("djt-refresh-badges")))
+        .catch(() => {});
       navigate(`/sepbook?comment=${encodeURIComponent(cid)}#post-${encodeURIComponent(pid)}`);
     },
     [navigate],
@@ -1454,6 +1471,13 @@ export default function SEPBookIG() {
       setEditingCommentText("");
       commentMedia.forEach((m) => m.previewUrl && URL.revokeObjectURL(m.previewUrl));
       setCommentMedia([]);
+      void apiFetch("/api/sepbook-mentions-mark-seen", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ post_id: id, include_comments: true }),
+      })
+        .then(() => window.dispatchEvent(new CustomEvent("djt-refresh-badges")))
+        .catch(() => {});
       if (!commentsByPost[id]) await loadComments(id);
       window.setTimeout(() => {
         commentInputRef.current?.focus();
@@ -2352,17 +2376,7 @@ export default function SEPBookIG() {
 
   useEffect(() => {
     if (!mentionsOpen) return;
-    (async () => {
-      try {
-        const items = await loadMentionsInbox();
-        if (items.length) {
-          await apiFetch("/api/sepbook-mentions-mark-seen", { method: "POST", headers: { "Content-Type": "application/json" } });
-          window.dispatchEvent(new CustomEvent("sepbook-mentions-seen"));
-        }
-      } catch {
-        // ignore
-      }
-    })();
+    void loadMentionsInbox();
   }, [loadMentionsInbox, mentionsOpen]);
 
   // Mark last seen on entry (best-effort) and clear only "new posts" badge
@@ -2380,6 +2394,105 @@ export default function SEPBookIG() {
   useEffect(() => {
     void loadFeed();
   }, [loadFeed]);
+
+  // Mark unread @mentions as read when the mentioned post becomes visible in the feed.
+  // (Comment-mentions are cleared when the user opens the comments drawer.)
+  useEffect(() => {
+    const uid = String(user?.id || "").trim();
+    if (!uid) return;
+    if (!posts.length) return;
+
+    let cancelled = false;
+    let observer: IntersectionObserver | null = null;
+
+    const scheduleBadgeRefresh = () => {
+      if (sepbookBadgeRefreshTimerRef.current) window.clearTimeout(sepbookBadgeRefreshTimerRef.current);
+      sepbookBadgeRefreshTimerRef.current = window.setTimeout(() => {
+        window.dispatchEvent(new CustomEvent("djt-refresh-badges"));
+      }, 450);
+    };
+
+    const markPostMentionRead = async (postId: string) => {
+      const pid = String(postId || "").trim();
+      if (!pid) return;
+      if (sepbookPostMentionReadDoneRef.current.has(pid)) return;
+      if (sepbookPostMentionReadInFlightRef.current.has(pid)) return;
+      sepbookPostMentionReadInFlightRef.current.add(pid);
+      try {
+        await apiFetch("/api/sepbook-mentions-mark-seen", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ post_id: pid }),
+        });
+        sepbookPostMentionReadDoneRef.current.add(pid);
+        scheduleBadgeRefresh();
+      } catch {
+        // ignore
+      } finally {
+        sepbookPostMentionReadInFlightRef.current.delete(pid);
+      }
+    };
+
+    const run = async () => {
+      const postIds = posts.map((p) => String(p?.id || "").trim()).filter(Boolean);
+      if (!postIds.length) return;
+
+      const unreadMentionPostIds = new Set<string>();
+      const chunkSize = 50;
+      for (let i = 0; i < postIds.length; i += chunkSize) {
+        if (cancelled) return;
+        const chunk = postIds.slice(i, i + chunkSize);
+        const { data, error } = await supabase
+          .from("sepbook_mentions")
+          .select("post_id")
+          .eq("mentioned_user_id", uid)
+          .eq("is_read", false)
+          .in("post_id", chunk);
+        if (!error) {
+          (data || []).forEach((r: any) => r?.post_id && unreadMentionPostIds.add(String(r.post_id)));
+        }
+      }
+
+      if (cancelled) return;
+      if (!unreadMentionPostIds.size) return;
+
+      if (typeof IntersectionObserver === "undefined") {
+        await Promise.all(Array.from(unreadMentionPostIds).map((pid) => markPostMentionRead(pid)));
+        return;
+      }
+
+      observer = new IntersectionObserver(
+        (entries) => {
+          entries.forEach((entry) => {
+            if (!entry.isIntersecting) return;
+            const el = entry.target as HTMLElement;
+            const rawId = String(el?.id || "");
+            const m = /^post-(.+)$/.exec(rawId);
+            const pid = m?.[1] ? String(m[1]) : "";
+            if (!pid) return;
+            if (!unreadMentionPostIds.has(pid)) return;
+            void markPostMentionRead(pid);
+          });
+        },
+        { root: null, threshold: 0.35 },
+      );
+
+      unreadMentionPostIds.forEach((pid) => {
+        const el = document.getElementById(`post-${pid}`);
+        if (el) observer?.observe(el);
+      });
+    };
+
+    void run();
+
+    return () => {
+      cancelled = true;
+      if (observer) observer.disconnect();
+      observer = null;
+      if (sepbookBadgeRefreshTimerRef.current) window.clearTimeout(sepbookBadgeRefreshTimerRef.current);
+      sepbookBadgeRefreshTimerRef.current = null;
+    };
+  }, [posts, user?.id]);
 
   useEffect(() => {
     const hashId = (routerLocation.hash || "").replace(/^#/, "").trim();
@@ -3387,7 +3500,7 @@ export default function SEPBookIG() {
                       setMentionsOpen(false);
                       if (!postId) return;
                       if (kind === "comment" && commentId) {
-                        navigate(`/sepbook?comment=${encodeURIComponent(commentId)}#post-${encodeURIComponent(postId)}`);
+                        openCommentById(postId, commentId);
                         return;
                       }
                       openPostById(postId);

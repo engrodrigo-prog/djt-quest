@@ -29,20 +29,113 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const uid = userData?.user?.id;
     if (!uid) return res.status(401).json({ error: "Unauthorized" });
 
-    await authed
-      .from("sepbook_mentions")
-      .update({ is_read: true } as any)
-      .eq("mentioned_user_id", uid)
-      .eq("is_read", false);
+    const body = req.body && typeof req.body === "object" ? (req.body as any) : {};
+    const postId = body?.post_id ? String(body.post_id || "").trim() : "";
+    const commentId = body?.comment_id ? String(body.comment_id || "").trim() : "";
+    const includeComments = Boolean(body?.include_comments);
+    const markAll = !postId && !commentId;
+    const now = new Date().toISOString();
 
-    try {
+    if (markAll) {
       await authed
-        .from("sepbook_comment_mentions")
+        .from("sepbook_mentions")
         .update({ is_read: true } as any)
         .eq("mentioned_user_id", uid)
         .eq("is_read", false);
-    } catch {
-      // table may not exist yet
+
+      try {
+        await authed
+          .from("sepbook_comment_mentions")
+          .update({ is_read: true } as any)
+          .eq("mentioned_user_id", uid)
+          .eq("is_read", false);
+      } catch {
+        // table may not exist yet
+      }
+
+      // Keep notifications table consistent (mentions should clear when read)
+      try {
+        await authed
+          .from("notifications")
+          .update({ read: true, read_at: now } as any)
+          .eq("user_id", uid)
+          .in("type", ["sepbook_mention", "sepbook_comment_mention"])
+          .eq("read", false);
+      } catch {
+        // ignore (best-effort)
+      }
+    } else {
+      // Post mention
+      if (postId) {
+        await authed
+          .from("sepbook_mentions")
+          .update({ is_read: true } as any)
+          .eq("mentioned_user_id", uid)
+          .eq("post_id", postId)
+          .eq("is_read", false);
+
+        try {
+          await authed
+            .from("notifications")
+            .update({ read: true, read_at: now } as any)
+            .eq("user_id", uid)
+            .eq("type", "sepbook_mention")
+            .contains("metadata", { post_id: postId } as any)
+            .eq("read", false);
+        } catch {
+          // ignore
+        }
+      }
+
+      // Comment mention (by comment id)
+      if (commentId) {
+        try {
+          await authed
+            .from("sepbook_comment_mentions")
+            .update({ is_read: true } as any)
+            .eq("mentioned_user_id", uid)
+            .eq("comment_id", commentId)
+            .eq("is_read", false);
+        } catch {
+          // ignore (table may not exist yet)
+        }
+
+        try {
+          await authed
+            .from("notifications")
+            .update({ read: true, read_at: now } as any)
+            .eq("user_id", uid)
+            .eq("type", "sepbook_comment_mention")
+            .contains("metadata", { comment_id: commentId } as any)
+            .eq("read", false);
+        } catch {
+          // ignore
+        }
+      } else if (includeComments && postId) {
+        // Mark all comment-mentions for this post as read (use when user opens the comments drawer)
+        try {
+          await authed
+            .from("sepbook_comment_mentions")
+            .update({ is_read: true } as any)
+            .eq("mentioned_user_id", uid)
+            .eq("post_id", postId)
+            .eq("is_read", false);
+        } catch {
+          // ignore
+        }
+
+        try {
+          await authed
+            .from("notifications")
+            .update({ read: true, read_at: now } as any)
+            .eq("user_id", uid)
+            .eq("type", "sepbook_comment_mention")
+            .contains("metadata", { post_id: postId } as any)
+            .eq("read", false);
+        } catch {
+          // ignore
+        }
+      }
     }
 
     return res.status(200).json({ success: true });

@@ -59,13 +59,25 @@ export function ForumMentionsInbox() {
     load()
   }, [])
 
-  const markOneRead = async (mentionId: string) => {
+  const markOneRead = async (mentionId: string, postId: string) => {
     try {
       const { data: session } = await supabase.auth.getSession()
       const userId = session.session?.user?.id
       if (!userId) return
       await supabase.from('forum_mentions').update({ is_read: true } as any).eq('id', mentionId).eq('mentioned_user_id', userId)
-      window.dispatchEvent(new CustomEvent('forum-mentions-seen'))
+      try {
+        const now = new Date().toISOString()
+        await supabase
+          .from('notifications')
+          .update({ read: true, read_at: now } as any)
+          .eq('user_id', userId)
+          .eq('type', 'forum_mention')
+          .contains('metadata', { post_id: postId } as any)
+          .eq('read', false)
+      } catch {
+        // ignore
+      }
+      window.dispatchEvent(new CustomEvent('djt-refresh-badges'))
       setRows((prev) => prev.map((r) => (r.id === mentionId ? { ...r, is_read: true } : r)))
     } catch {
       // ignore
@@ -79,7 +91,7 @@ export function ForumMentionsInbox() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       })
-      window.dispatchEvent(new CustomEvent('forum-mentions-seen'))
+      window.dispatchEvent(new CustomEvent('djt-refresh-badges'))
       setRows((prev) => prev.map((r) => ({ ...r, is_read: true })))
     } finally {
       setMarking(false)
@@ -127,7 +139,7 @@ export function ForumMentionsInbox() {
                   type="button"
                   className="w-full flex items-center justify-between gap-3 p-3 rounded-lg border border-white/20 bg-black/20 hover:bg-white/10 text-left"
                   onClick={async () => {
-                    if (isUnread) await markOneRead(m.id)
+                    if (isUnread) await markOneRead(m.id, m.post_id)
                     if (topicId) nav(`/forum/${topicId}#post-${m.post_id}`)
                   }}
                 >
@@ -147,4 +159,3 @@ export function ForumMentionsInbox() {
     </Card>
   )
 }
-

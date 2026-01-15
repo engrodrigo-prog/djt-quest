@@ -229,9 +229,14 @@ const Navigation = () => {
         stopPolling();
       }
     };
+    const onManualRefresh = () => {
+      fetchCounts();
+      startPolling();
+    };
     window.addEventListener('focus', onFocus);
     window.addEventListener('online', onOnline);
     window.addEventListener('offline', onOffline);
+    window.addEventListener('djt-refresh-badges', onManualRefresh as any);
     document.addEventListener('visibilitychange', onVisibility);
 
     return () => {
@@ -240,6 +245,7 @@ const Navigation = () => {
       window.removeEventListener('focus', onFocus);
       window.removeEventListener('online', onOnline);
       window.removeEventListener('offline', onOffline);
+      window.removeEventListener('djt-refresh-badges', onManualRefresh as any);
       document.removeEventListener('visibilitychange', onVisibility);
     };
   }, [studioAccess]);
