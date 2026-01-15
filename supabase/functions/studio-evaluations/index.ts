@@ -29,6 +29,16 @@ const clampInt = (n: number, min: number, max: number) => {
 
 const FEEDBACK_MIN_CHARS = 10;
 
+const scoreToRating10 = (scoresRaw: unknown) => {
+  if (!scoresRaw || typeof scoresRaw !== 'object') return null;
+  const values = Object.values(scoresRaw as Record<string, unknown>)
+    .map((v) => Number(v))
+    .filter((n) => Number.isFinite(n));
+  if (!values.length) return null;
+  const avg = values.reduce((a, b) => a + b, 0) / values.length;
+  return Math.max(0, Math.min(10, Math.round(avg * 2 * 10) / 10));
+};
+
 const findImmediateLeaderId = async (supabase: any, params: { submitterId: string; teamId?: string | null }) => {
   const { submitterId, teamId } = params;
   if (!teamId) return null;
@@ -87,16 +97,35 @@ Deno.serve(async (req) => {
     // Verificar que o usuário é líder
     const { data: reviewer, error: reviewerError } = await supabase
       .from('profiles')
-      .select('is_leader, coord_id, name')
+      .select('is_leader, studio_access, coord_id, name')
       .eq('id', user.id)
       .single();
 
-    if (reviewerError || !reviewer?.is_leader) {
+    const { data: rolesData } = await supabase.from('user_roles').select('role').eq('user_id', user.id);
+    const roleSet = new Set((rolesData || []).map((r: any) => String(r?.role || '')));
+    const isStaff =
+      roleSet.has('admin') ||
+      roleSet.has('gerente_djt') ||
+      roleSet.has('gerente_divisao_djtx') ||
+      roleSet.has('coordenador_djtx');
+    const reviewerLevel = roleSet.has('coordenador_djtx') ? 'coordenacao' : 'divisao';
+
+    if (reviewerError || (!reviewer?.is_leader && !reviewer?.studio_access && !isStaff)) {
       throw new Error('Apenas líderes podem avaliar');
     }
 
     const body = await req.json();
-    const { eventId, action, rating, scores, feedbackPositivo, feedbackConstrutivo } = body;
+    const { eventId, scores, feedbackPositivo, feedbackConstrutivo } = body;
+    let action = (body?.action ?? '').toString().trim().toLowerCase();
+    let rating = body?.rating;
+
+    // Backwards compatibility: older clients may omit action/rating and only send scores.
+    if (!action && scores) action = 'approve';
+    if ((rating === null || rating === undefined || !Number.isFinite(Number(rating))) && action === 'approve') {
+      const computed = scoreToRating10(scores);
+      if (computed !== null) rating = computed;
+    }
+
     if (!eventId) {
       throw new Error('eventId obrigatório');
     }
@@ -116,7 +145,16 @@ Deno.serve(async (req) => {
       throw new Error('Evento não encontrado');
     }
 
-    const challenge = event.challenge;
+    const challenge = event.challenge ?? {
+      id: null,
+      title: 'Evidência de campanha',
+      xp_reward: 0,
+      reward_mode: null,
+      reward_tier_steps: null,
+      require_two_leader_eval: true,
+      type: 'campaign_evidence',
+    };
+    const challengeTitle = String((challenge as any)?.title || 'Evidência de campanha');
     const collaborator = event.user;
     const immediateLeaderId = await findImmediateLeaderId(supabase, {
       submitterId: String(event.user_id),
@@ -165,7 +203,8 @@ Deno.serve(async (req) => {
 
     // **APROVAR AÇÃO**
     if (action === 'approve') {
-      if (rating === null || rating === undefined || rating < 0 || rating > 10) {
+      const ratingNumber = rating === null || rating === undefined ? Number.NaN : Number(rating);
+      if (!Number.isFinite(ratingNumber) || ratingNumber < 0 || ratingNumber > 10) {
         throw new Error('Nota deve estar entre 0 e 10');
       }
 
@@ -213,9 +252,9 @@ Deno.serve(async (req) => {
             .insert({
               event_id: eventId,
               reviewer_id: user.id,
-              reviewer_level: 'coordenador_djtx',
+              reviewer_level: reviewerLevel,
               evaluation_number: 1,
-              rating: rating,
+              rating: ratingNumber,
               scores: scores || {},
               feedback_positivo: feedbackPositivo,
               feedback_construtivo: feedbackConstrutivo || ''
@@ -226,7 +265,7 @@ Deno.serve(async (req) => {
             .update({
               status: 'awaiting_second_evaluation',
               first_evaluator_id: user.id,
-              first_evaluation_rating: rating,
+              first_evaluation_rating: ratingNumber,
               awaiting_second_evaluation: true,
               updated_at: new Date().toISOString()
             })
@@ -240,24 +279,24 @@ Deno.serve(async (req) => {
             _user_id: collaborator.id,
             _type: 'evaluation_partial',
             _title: '1ª Avaliação Concluída',
-            _message: `Sua ação "${challenge.title}" recebeu a 1ª avaliação: ${rating}/10. Aguardando 2ª avaliação...`,
+            _message: `Sua ação "${challengeTitle}" recebeu a 1ª avaliação: ${ratingNumber}/10. Aguardando 2ª avaliação...`,
             _metadata: { 
               event_id: eventId, 
-              rating: rating,
+              rating: ratingNumber,
               reviewer_name: reviewer.name
             }
           });
 
           await markEvaluationDone();
 
-          console.log('First evaluation completed:', { eventId, rating });
+          console.log('First evaluation completed:', { eventId, rating: ratingNumber });
 
           return new Response(
             JSON.stringify({
               success: true,
               message: '1ª avaliação registrada com sucesso. Aguardando 2ª avaliação.',
               evaluation_number: 1,
-              rating: rating
+              rating: ratingNumber
             }),
             { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
           );
@@ -281,7 +320,7 @@ Deno.serve(async (req) => {
           }
 
           // Calcular média e XP final
-          const avgRating = (firstEval.rating + rating) / 2;
+          const avgRating = (firstEval.rating + ratingNumber) / 2;
           const qualityScore = avgRating / 10;
 
           // Aplicar penalidade de retry
@@ -310,9 +349,9 @@ Deno.serve(async (req) => {
             .insert({
               event_id: eventId,
               reviewer_id: user.id,
-              reviewer_level: 'coordenador_djtx',
+              reviewer_level: reviewerLevel,
               evaluation_number: 2,
-              rating: rating,
+              rating: ratingNumber,
               final_rating: avgRating,
               scores: scores || {},
               feedback_positivo: feedbackPositivo,
@@ -325,7 +364,7 @@ Deno.serve(async (req) => {
             .update({
               status: 'approved',
               second_evaluator_id: user.id,
-              second_evaluation_rating: rating,
+              second_evaluation_rating: ratingNumber,
               quality_score: qualityScore,
               final_points: finalXP,
               awaiting_second_evaluation: false,
@@ -344,11 +383,11 @@ Deno.serve(async (req) => {
             _user_id: collaborator.id,
             _type: 'evaluation_complete',
             _title: '✅ Ação Aprovada!',
-            _message: `Sua ação "${challenge.title}" foi aprovada!\n\n📊 Avaliações:\n1ª: ${firstEval.rating}/10\n2ª: ${rating}/10\n\n⭐ Média Final: ${avgRating.toFixed(1)}/10\n\n🎯 Você ganhou ${finalXP} XP!`,
+            _message: `Sua ação "${challengeTitle}" foi aprovada!\n\n📊 Avaliações:\n1ª: ${firstEval.rating}/10\n2ª: ${ratingNumber}/10\n\n⭐ Média Final: ${avgRating.toFixed(1)}/10\n\n🎯 Você ganhou ${finalXP} XP!`,
             _metadata: {
               event_id: eventId,
               first_rating: firstEval.rating,
-              second_rating: rating,
+              second_rating: ratingNumber,
               average_rating: avgRating,
               xp_earned: finalXP,
               retry_penalty: retryPenalty
@@ -357,7 +396,7 @@ Deno.serve(async (req) => {
 
           await markEvaluationDone();
 
-          console.log('Second evaluation completed:', { eventId, avgRating, finalXP });
+          console.log('Second evaluation completed:', { eventId, avgRating, finalXP, rating: ratingNumber });
 
           return new Response(
             JSON.stringify({
@@ -365,7 +404,7 @@ Deno.serve(async (req) => {
               message: 'Avaliação completa!',
               evaluation_number: 2,
               first_rating: firstEval.rating,
-              second_rating: rating,
+              second_rating: ratingNumber,
               average_rating: avgRating,
               final_xp: finalXP
             }),
@@ -378,7 +417,7 @@ Deno.serve(async (req) => {
 
       } else {
         // ✅ AVALIAÇÃO SIMPLES (não requer dupla)
-        const qualityScore = rating / 10;
+        const qualityScore = ratingNumber / 10;
         const retryPenalty = event.retry_count === 0 ? 1.0 :
                              event.retry_count === 1 ? 0.8 :
                              event.retry_count === 2 ? 0.6 : 0.4;
@@ -402,10 +441,10 @@ Deno.serve(async (req) => {
           .insert({
             event_id: eventId,
             reviewer_id: user.id,
-            reviewer_level: 'coordenador_djtx',
+            reviewer_level: reviewerLevel,
             evaluation_number: 1,
-            rating: rating,
-            final_rating: rating,
+            rating: ratingNumber,
+            final_rating: ratingNumber,
             scores: scores || {},
             feedback_positivo: feedbackPositivo,
             feedback_construtivo: feedbackConstrutivo || ''
@@ -416,7 +455,7 @@ Deno.serve(async (req) => {
           .update({
             status: 'approved',
             first_evaluator_id: user.id,
-            first_evaluation_rating: rating,
+            first_evaluation_rating: ratingNumber,
             quality_score: qualityScore,
             final_points: finalXP,
             updated_at: new Date().toISOString()
@@ -432,27 +471,27 @@ Deno.serve(async (req) => {
           _user_id: collaborator.id,
           _type: 'evaluation_complete',
           _title: '✅ Ação Aprovada!',
-          _message: `Sua ação "${challenge.title}" foi aprovada!\n\n⭐ Nota: ${rating}/10\n🎯 Você ganhou ${finalXP} XP!`,
+          _message: `Sua ação "${challengeTitle}" foi aprovada!\n\n⭐ Nota: ${ratingNumber}/10\n🎯 Você ganhou ${finalXP} XP!`,
           _metadata: {
             event_id: eventId,
-            rating: rating,
+            rating: ratingNumber,
             xp_earned: finalXP
           }
         });
 
         await markEvaluationDone();
 
-        console.log('Simple evaluation completed:', { eventId, rating, finalXP });
+        console.log('Simple evaluation completed:', { eventId, rating: ratingNumber, finalXP });
 
         return new Response(
-          JSON.stringify({
-            success: true,
-            message: 'Ação aprovada com sucesso!',
-            rating: rating,
-            final_xp: finalXP
-          }),
-          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
+            JSON.stringify({
+              success: true,
+              message: 'Ação aprovada com sucesso!',
+              rating: ratingNumber,
+              final_xp: finalXP
+            }),
+            { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
       }
     }
 
@@ -474,7 +513,7 @@ Deno.serve(async (req) => {
         _user_id: collaborator.id,
         _type: 'evaluation_rejected',
         _title: '❌ Ação Rejeitada',
-        _message: `Sua ação "${challenge.title}" foi rejeitada. Veja o feedback para mais detalhes.`,
+        _message: `Sua ação "${challengeTitle}" foi rejeitada. Veja o feedback para mais detalhes.`,
         _metadata: {
           event_id: eventId,
           feedback: feedbackConstrutivo
@@ -512,7 +551,7 @@ Deno.serve(async (req) => {
         _user_id: collaborator.id,
         _type: 'evaluation_retry',
         _title: '🔄 Retry Solicitado',
-        _message: `Sua ação "${challenge.title}" precisa de ajustes. Veja o feedback e tente novamente.`,
+        _message: `Sua ação "${challengeTitle}" precisa de ajustes. Veja o feedback e tente novamente.`,
         _metadata: {
           event_id: eventId,
           feedback: feedbackConstrutivo

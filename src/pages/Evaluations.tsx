@@ -141,16 +141,32 @@ const Evaluations = () => {
     setEvaluating(true);
 
     try {
+      const avg =
+        Object.values(scores).reduce((sum, value) => sum + (Number(value) || 0), 0) / EVALUATION_CRITERIA.length;
+      const rating = Math.max(0, Math.min(10, Math.round(avg * 2 * 10) / 10));
+
       const { data, error } = await supabase.functions.invoke('studio-evaluations', {
         body: {
           eventId: selectedEvent.id,
+          action: 'approve',
+          rating,
           scores,
           feedbackPositivo,
           feedbackConstrutivo,
         }
       });
 
-      if (error) throw error;
+      if (error) {
+        let message = error.message || 'Não foi possível enviar a avaliação';
+        try {
+          const ctx = (error as any)?.context as Response | undefined;
+          const payload = ctx ? await ctx.json().catch(() => null) : null;
+          if (payload?.error) message = String(payload.error);
+        } catch {
+          /* ignore */
+        }
+        throw new Error(message);
+      }
 
       toast({
         title: 'Avaliação Enviada!',
