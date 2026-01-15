@@ -39,25 +39,6 @@ const scoreToRating10 = (scoresRaw: unknown) => {
   return Math.max(0, Math.min(10, Math.round(avg * 2 * 10) / 10));
 };
 
-const findImmediateLeaderId = async (supabase: any, params: { submitterId: string; teamId?: string | null }) => {
-  const { submitterId, teamId } = params;
-  if (!teamId) return null;
-  try {
-    const { data } = await supabase
-      .from('profiles')
-      .select('id')
-      .eq('is_leader', true)
-      .eq('team_id', teamId)
-      .neq('id', submitterId)
-      .order('id', { ascending: true })
-      .limit(1)
-      .maybeSingle();
-    return data?.id ? String(data.id) : null;
-  } catch {
-    return null;
-  }
-};
-
 const xpNeededToAdvanceTierSteps = (params: { currentXp: number; currentTier: unknown; steps: number }) => {
   const { currentXp, currentTier, steps } = params;
   const parsed = parseTier(currentTier);
@@ -156,10 +137,6 @@ Deno.serve(async (req) => {
     };
     const challengeTitle = String((challenge as any)?.title || 'Evidência de campanha');
     const collaborator = event.user;
-    const immediateLeaderId = await findImmediateLeaderId(supabase, {
-      submitterId: String(event.user_id),
-      teamId: collaborator?.team_id ?? null,
-    });
 
     // Garantir que o líder está atribuído na fila (regra de negócio: líder imediato + líder randômico)
     const { data: queueRow } = await supabase
@@ -231,21 +208,6 @@ Deno.serve(async (req) => {
         const evalCount = existingEvals?.length || 0;
 
         if (evalCount === 0) {
-          if (immediateLeaderId && String(immediateLeaderId) !== String(user.id)) {
-            try {
-              const { data: immediateQueue } = await supabase
-                .from('evaluation_queue')
-                .select('id, completed_at')
-                .eq('event_id', eventId)
-                .eq('assigned_to', immediateLeaderId)
-                .maybeSingle();
-              if (immediateQueue?.id && !immediateQueue.completed_at) {
-                throw new Error('A 1ª avaliação deve ser feita pelo líder imediato da equipe.');
-              }
-            } catch (err) {
-              if (err instanceof Error) throw err;
-            }
-          }
           // ✅ PRIMEIRA AVALIAÇÃO
           await supabase
             .from('action_evaluations')
@@ -269,7 +231,8 @@ Deno.serve(async (req) => {
               awaiting_second_evaluation: true,
               updated_at: new Date().toISOString()
             })
-            .eq('id', eventId);
+            .eq('id', eventId)
+            .neq('status', 'approved');
 
           // Garantir 2º avaliador (idempotente; baseado na função do banco)
           await supabase.rpc('assign_evaluators_for_event', { _event_id: eventId }).catch(() => {});
@@ -363,6 +326,8 @@ Deno.serve(async (req) => {
             .from('events')
             .update({
               status: 'approved',
+              first_evaluator_id: firstEval.reviewer_id,
+              first_evaluation_rating: firstEval.rating,
               second_evaluator_id: user.id,
               second_evaluation_rating: ratingNumber,
               quality_score: qualityScore,
