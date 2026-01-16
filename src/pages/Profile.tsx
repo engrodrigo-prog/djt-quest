@@ -399,6 +399,16 @@ function ProfileContent() {
     }
   };
 
+  const canUseFinance = useMemo(() => {
+    const list: string[] = Array.isArray(roles) ? roles : [];
+    const p = authProfile || {};
+    const isGuest =
+      list.includes('invited') ||
+      String(p?.sigla_area || '').trim().toUpperCase() === 'CONVIDADOS' ||
+      String(p?.operational_base || '').trim().toUpperCase() === 'CONVIDADOS';
+    return Boolean(user?.id) && !isGuest;
+  }, [authProfile, roles, user?.id]);
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -429,16 +439,6 @@ function ProfileContent() {
   }
 
   const activeAvatarUrl = profile.avatar_url || profile.avatar_thumbnail_url || undefined;
-
-  const canUseFinance = useMemo(() => {
-    const list: string[] = Array.isArray(roles) ? roles : [];
-    const p = authProfile || {};
-    const isGuest =
-      list.includes('invited') ||
-      String(p?.sigla_area || '').trim().toUpperCase() === 'CONVIDADOS' ||
-      String(p?.operational_base || '').trim().toUpperCase() === 'CONVIDADOS';
-    return Boolean(user?.id) && !isGuest;
-  }, [authProfile, roles, user?.id]);
 
   const tierInfo = getTierInfo(profile.tier);
   const nextLevel = getNextTierLevel(profile.tier, profile.xp);
