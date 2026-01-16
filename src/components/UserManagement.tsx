@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
@@ -589,15 +589,12 @@ export const UserManagement = () => {
       </Card>
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent
-          className="sm:max-w-lg"
-          aria-describedby="create-user-description"
-        >
+        <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Novo Usuário</DialogTitle>
-            <p id="create-user-description" className="sr-only">
+            <DialogDescription className="sr-only">
               Crie um novo usuário definindo equipe, acesso ao Studio e papel.
-            </p>
+            </DialogDescription>
           </DialogHeader>
           <UserCreationForm />
         </DialogContent>
@@ -758,15 +755,12 @@ export const UserManagement = () => {
 
       {/* Editor Dialog */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent
-          className="sm:max-w-lg"
-          aria-describedby="edit-user-description"
-        >
+        <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Editar Usuário</DialogTitle>
-            <p id="edit-user-description" className="sr-only">
+            <DialogDescription className="sr-only">
               Edite os dados do usuário selecionado e salve as alterações.
-            </p>
+            </DialogDescription>
           </DialogHeader>
           <div className="grid grid-cols-1 gap-3">
             <div className="grid gap-1">

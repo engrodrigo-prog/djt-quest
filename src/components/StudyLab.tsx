@@ -292,7 +292,22 @@ export const StudyLab = () => {
   useEffect(() => {
     const el = chatViewportRef.current;
     if (!el) return;
-    el.scrollTop = el.scrollHeight;
+    let raf = 0;
+    raf = window.requestAnimationFrame(() => {
+      try {
+        const maxScrollTop = Math.max(0, el.scrollHeight - el.clientHeight);
+        const distanceFromBottom = maxScrollTop - el.scrollTop;
+        // Only auto-scroll if the user is already near the bottom (keeps UX stable on mobile).
+        if (distanceFromBottom < 64) {
+          el.scrollTop = el.scrollHeight;
+        }
+      } catch {
+        /* ignore */
+      }
+    });
+    return () => {
+      if (raf) window.cancelAnimationFrame(raf);
+    };
   }, [chatMessages.length, chatLoading]);
 
   const isFixedSource = (s: StudySource) => s.id === FIXED_RULES_ID;
