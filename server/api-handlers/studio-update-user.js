@@ -114,7 +114,13 @@ export default async function handler(req, res) {
 
             // Leaders can only assign invited/content_curator/lider_equipe/colaborador.
             // Admin (or management) can assign higher roles, but only Admin can grant admin.
-            const allowedForLeader = new Set([ROLE.COLLAB, ROLE.INVITED, ROLE.TEAM_LEADER, ROLE.CONTENT_CURATOR]);
+            const allowedForLeader = new Set([
+                ROLE.COLLAB,
+                ROLE.INVITED,
+                ROLE.TEAM_LEADER,
+                ROLE.CONTENT_CURATOR,
+                ROLE.FINANCE_ANALYST,
+            ]);
             const requested = new Set(
                 [
                     legacyRole,
@@ -157,6 +163,7 @@ export default async function handler(req, res) {
                     ROLE.INVITED,
                     ROLE.TEAM_LEADER,
                     ROLE.CONTENT_CURATOR,
+                    ROLE.FINANCE_ANALYST,
                     ROLE.COORD,
                     ROLE.DIV_MANAGER,
                     ROLE.MANAGER,

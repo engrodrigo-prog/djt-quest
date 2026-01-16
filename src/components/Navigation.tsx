@@ -74,7 +74,7 @@ const Navigation = () => {
       // Compute size per item, clamp to sensible range
       const raw = Math.floor(available / Math.max(1, visibleCount));
       const clamped = Math.max(48, Math.min(84, raw));
-      setItemSize(clamped);
+      setItemSize((prev) => (prev === clamped ? prev : clamped));
     };
     const schedule = () => {
       if (raf) cancelAnimationFrame(raf);

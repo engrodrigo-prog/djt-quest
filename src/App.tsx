@@ -51,6 +51,8 @@ const LEADER_ALLOWED_ROLES = [
   'gerente',
   'lider_equipe',
 ];
+// Finance analysts must not access curation hubs via direct URL.
+const STUDIO_CURATION_ALLOWED_ROLES = STUDIO_ALLOWED_ROLES.filter((r) => r !== 'analista_financeiro');
 
 const ProfileCheckWrapper = ({ children }: { children: React.ReactNode }) => {
   const { profile, loading } = useAuth();
@@ -122,7 +124,7 @@ const App = () => (
                     </ProtectedRoute>
                   } />
                   <Route path="/studio/curadoria" element={
-                    <ProtectedRoute requireStudio allowedRoles={STUDIO_ALLOWED_ROLES}>
+                    <ProtectedRoute requireStudio allowedRoles={STUDIO_CURATION_ALLOWED_ROLES}>
                       <StudioCuration />
                     </ProtectedRoute>
                   } />

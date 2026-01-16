@@ -165,7 +165,7 @@ Deno.serve(async (req) => {
 
       const callerRoleSet = new Set((roles || []).map((r: any) => String(r?.role || '')))
       const isAdmin = callerRoleSet.has('admin')
-      const replaceable = new Set(['colaborador','invited','lider_equipe','content_curator','coordenador_djtx','gerente_divisao_djtx','gerente_djt','admin'])
+      const replaceable = new Set(['colaborador','invited','lider_equipe','content_curator','analista_financeiro','coordenador_djtx','gerente_divisao_djtx','gerente_djt','admin'])
 
       const { data: beforeRoles } = await supabaseAdmin.from('user_roles').select('role').eq('user_id', userId)
       let desired = new Set((beforeRoles || []).map((r: any) => String(r?.role || '')))
