@@ -1,8 +1,9 @@
 import { createClient } from "@supabase/supabase-js";
+import { jsonrepair } from "jsonrepair";
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const MODEL = process.env.OPENAI_MODEL_PREMIUM || process.env.OPENAI_MODEL_OVERRIDE || process.env.OPENAI_MODEL_FAST || "gpt-5-2025-08-07";
+const MODEL = process.env.OPENAI_MODEL_QUIZ_BURINI || process.env.OPENAI_MODEL_PREMIUM || process.env.OPENAI_MODEL_OVERRIDE || process.env.OPENAI_MODEL_FAST || "gpt-5-2025-08-07";
 const BANNED_TERMS_RE = /smart\s*line|smartline|smarline/i;
 const MONITORS = {
   subestacoes: { key: "subestacoes", name: "Monitor Subesta\xE7\xF5es" },
@@ -23,6 +24,29 @@ const pickTwo = (arr) => {
   const copy = [...arr];
   copy.sort(() => Math.random() - 0.5);
   return copy.slice(0, 2);
+};
+const parseModelJson = (content) => {
+  const s = String(content || "").trim();
+  if (!s) return null;
+  try {
+    return JSON.parse(s);
+  } catch {
+  }
+  try {
+    return JSON.parse(jsonrepair(s));
+  } catch {
+  }
+  const m = s.match(/\{[\s\S]*\}/);
+  if (!m) return null;
+  try {
+    return JSON.parse(m[0]);
+  } catch {
+  }
+  try {
+    return JSON.parse(jsonrepair(m[0]));
+  } catch {
+  }
+  return null;
 };
 async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(204).send("");
@@ -121,7 +145,8 @@ Retorne JSON estrito:
 
 ${safety}` },
         { role: "user", content: user }
-      ]
+      ],
+      response_format: { type: "json_object" }
     };
     if (/^gpt-5/i.test(String(MODEL))) body.max_completion_tokens = 900;
     else body.max_tokens = 900;
@@ -135,32 +160,45 @@ ${safety}` },
     });
     if (!resp.ok) {
       const txt = await resp.text().catch(() => "");
-      return res.status(400).json({ error: "OpenAI error", detail: txt || resp.statusText });
+      return res.status(200).json({
+        success: true,
+        help: {
+          analysis: "N\xE3o foi poss\xEDvel consultar o especialista agora. Tente novamente em instantes.",
+          hint: "",
+          monitor,
+          eliminate_option_ids,
+          fallback: true,
+          openai_error: txt || resp.statusText
+        }
+      });
     }
     const data = await resp.json().catch(() => null);
     const content = data?.choices?.[0]?.message?.content || "";
-    let json = null;
-    try {
-      json = JSON.parse(content);
-    } catch {
-      const m = content.match(/\{[\s\S]*\}/);
-      if (m) {
-        json = JSON.parse(m[0]);
-      }
-    }
-    if (!json || typeof json.analysis !== "string") {
-      return res.status(400).json({ error: "Resposta da IA em formato inesperado", raw: content });
-    }
-    const rawOut = JSON.stringify(json);
+    const json = parseModelJson(content);
+    const help = json && typeof json.analysis === "string" ? json : {
+      analysis: "N\xE3o foi poss\xEDvel gerar a resposta do especialista agora. As alternativas eliminadas continuam v\xE1lidas.",
+      hint: ""
+    };
+    const rawOut = JSON.stringify(help);
     if (BANNED_TERMS_RE.test(rawOut)) {
-      return res.status(400).json({ error: 'Conte\xFAdo fora do escopo detectado ("SmartLine").' });
+      return res.status(200).json({
+        success: true,
+        help: {
+          analysis: "N\xE3o foi poss\xEDvel gerar a resposta do especialista agora. Tente novamente em instantes.",
+          hint: "",
+          monitor,
+          eliminate_option_ids,
+          fallback: true
+        }
+      });
     }
     return res.status(200).json({
       success: true,
       help: {
-        ...json,
+        ...help,
         monitor,
-        eliminate_option_ids
+        eliminate_option_ids,
+        ...(json && typeof json.analysis !== "string" ? { fallback: true, raw: String(content || "").slice(0, 2e3) } : null)
       }
     });
   } catch (err) {
