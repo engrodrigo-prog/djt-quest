@@ -25,6 +25,7 @@ export function FinanceRequestsManagement() {
   const { toast } = useToast();
   const [items, setItems] = useState<RequestRow[]>([]);
   const [loading, setLoading] = useState(false);
+  const [exporting, setExporting] = useState<"csv" | "xlsx" | null>(null);
 
   const [company, setCompany] = useState<string>("all");
   const [coordination, setCoordination] = useState<string>("all");
@@ -97,9 +98,35 @@ export function FinanceRequestsManagement() {
     }
   }, [toast]);
 
-  const download = (fmt: "csv" | "xlsx") => {
-    const url = `/api/finance-requests-admin?${buildParams({ export: fmt }).toString()}`;
-    window.open(url, "_blank", "noopener,noreferrer");
+  const download = async (fmt: "csv" | "xlsx") => {
+    if (exporting) return;
+    setExporting(fmt);
+    try {
+      const url = `/api/finance-requests-admin?${buildParams({ export: fmt }).toString()}`;
+      const resp = await apiFetch(url, { method: "GET" });
+      if (!resp.ok) {
+        const json = await resp.json().catch(() => ({}));
+        throw new Error(json?.error || "Falha ao baixar relatório");
+      }
+      const blob = await resp.blob();
+      const cd = resp.headers.get("content-disposition") || "";
+      const m = /filename=\"?([^\";]+)\"?/i.exec(cd);
+      const filename = (m?.[1] || `finance-requests.${fmt}`).trim();
+
+      const href = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = href;
+      a.download = filename;
+      a.rel = "noopener";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(href);
+    } catch (e: any) {
+      toast({ title: "Erro", description: e?.message || "Falha ao baixar relatório", variant: "destructive" });
+    } finally {
+      setExporting(null);
+    }
   };
 
   const applyStatus = async () => {
@@ -204,13 +231,13 @@ export function FinanceRequestsManagement() {
               <RefreshCw className="h-4 w-4 mr-2" />
               {loading ? "Atualizando..." : "Aplicar"}
             </Button>
-            <Button size="sm" variant="outline" className="h-9" onClick={() => download("csv")}>
+            <Button size="sm" variant="outline" className="h-9" onClick={() => void download("csv")} disabled={!!exporting}>
               <Download className="h-4 w-4 mr-2" />
-              CSV
+              {exporting === "csv" ? "Baixando..." : "CSV"}
             </Button>
-            <Button size="sm" variant="outline" className="h-9" onClick={() => download("xlsx")}>
+            <Button size="sm" variant="outline" className="h-9" onClick={() => void download("xlsx")} disabled={!!exporting}>
               <Download className="h-4 w-4 mr-2" />
-              XLSX
+              {exporting === "xlsx" ? "Baixando..." : "XLSX"}
             </Button>
           </div>
         </div>
@@ -365,4 +392,3 @@ export function FinanceRequestsManagement() {
     </Card>
   );
 }
-

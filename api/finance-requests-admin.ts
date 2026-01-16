@@ -68,6 +68,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'GET' && req.method !== 'PATCH') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
+    // This endpoint is used for near-real-time dashboards and exports; never cache it.
+    res.setHeader('Cache-Control', 'no-store, max-age=0');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Surrogate-Control', 'no-store');
+
     assertDjtQuestServerEnv({ requireSupabaseUrl: false });
     if (!SUPABASE_URL || !ANON_KEY) return res.status(500).json({ error: 'Missing Supabase config' });
     if (!SERVICE_ROLE_KEY) return res.status(503).json({ error: 'Admin finance endpoint requires SUPABASE_SERVICE_ROLE_KEY' });
@@ -141,8 +146,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const request_kind = safeText(pickQueryParam(req.query, 'request_kind'), 40);
     const status = safeText(pickQueryParam(req.query, 'status'), 40);
     const q = safeText(pickQueryParam(req.query, 'q'), 200);
-    const dateFrom = safeText(pickQueryParam(req.query, 'date_start_from'), 30);
-    const dateTo = safeText(pickQueryParam(req.query, 'date_start_to'), 30);
+    const dateFromRaw = safeText(pickQueryParam(req.query, 'date_start_from'), 30);
+    const dateToRaw = safeText(pickQueryParam(req.query, 'date_start_to'), 30);
+    const isIsoDate = (s?: string | null) => Boolean(s && /^\d{4}-\d{2}-\d{2}$/.test(String(s)));
+    const dateFrom = isIsoDate(dateFromRaw) ? String(dateFromRaw) : '';
+    const dateTo = isIsoDate(dateToRaw) ? String(dateToRaw) : '';
+    if (dateFromRaw && !dateFrom) return res.status(400).json({ error: 'date_start_from inválido (use AAAA-MM-DD)' });
+    if (dateToRaw && !dateTo) return res.status(400).json({ error: 'date_start_to inválido (use AAAA-MM-DD)' });
+    if (dateFrom && dateTo && dateTo < dateFrom) {
+      return res.status(400).json({ error: 'date_start_to deve ser >= date_start_from' });
+    }
 
     let query = admin
       .from('finance_requests')
