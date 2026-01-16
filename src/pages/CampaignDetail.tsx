@@ -18,6 +18,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from "@/contexts/AuthContext";
 import { MapContainer, Marker, Popup, TileLayer } from "react-leaflet";
 import { useMap } from "react-leaflet";
@@ -78,7 +79,25 @@ type EvidenceItem = {
   author_avatar: string | null;
   author_base?: string | null;
   created_at: string;
+  status?: string | null;
   final_points: number | null;
+  avg_rating?: number | null;
+  evaluations?: Array<{
+    id: string | null;
+    event_id: string;
+    reviewer_id: string | null;
+    reviewer_name: string;
+    reviewer_avatar: string | null;
+    reviewer_team: string | null;
+    reviewer_base: string | null;
+    reviewer_level: string | null;
+    evaluation_number: number | null;
+    rating: number | string | null;
+    final_rating: number | string | null;
+    feedback_positivo: string | null;
+    feedback_construtivo: string | null;
+    created_at: string | null;
+  }>;
   evidence_urls: string[];
   sepbook_post_id: string | null;
   location_label: string | null;
@@ -159,6 +178,21 @@ export default function CampaignDetail() {
   const [topics, setTopics] = useState<ForumTopicRow[]>([]);
   const [posts, setPosts] = useState<SepPostRow[]>([]);
   const [evidence, setEvidence] = useState<EvidenceItem[]>([]);
+  const [evidenceLoading, setEvidenceLoading] = useState(false);
+  const [evidencePermissions, setEvidencePermissions] = useState<{
+    can_view_all: boolean;
+    is_guest: boolean;
+    user_team_id: string | null;
+  } | null>(null);
+  const [evidenceTotals, setEvidenceTotals] = useState<{ items: number; total_xp: number } | null>(null);
+
+  const [evScope, setEvScope] = useState<"mine" | "team" | "all">("mine");
+  const [evUserId, setEvUserId] = useState<string>("");
+  const [evDateStart, setEvDateStart] = useState<string>("");
+  const [evDateEnd, setEvDateEnd] = useState<string>("");
+  const [evSearch, setEvSearch] = useState<string>("");
+  const [evShowLimit, setEvShowLimit] = useState<number>(25);
+
   const [mapOpen, setMapOpen] = useState(false);
   const [evidenceWizardOpen, setEvidenceWizardOpen] = useState(false);
   const [campaignEditOpen, setCampaignEditOpen] = useState(false);
@@ -172,6 +206,13 @@ export default function CampaignDetail() {
     is_active: true,
   });
   const mapInstanceRef = useRef<L.Map | null>(null);
+  const evScopeInitRef = useRef(false);
+  const evScopeInitAppliedRef = useRef(false);
+
+  useEffect(() => {
+    evScopeInitRef.current = false;
+    evScopeInitAppliedRef.current = false;
+  }, [campaignId]);
 
   const computeHashTag = (c: Campaign) => {
     if (c?.narrative_tag && String(c.narrative_tag).trim().length > 0) {
@@ -187,16 +228,35 @@ export default function CampaignDetail() {
     return `#camp_${slug || "djt"}`;
   };
 
-  const reloadEvidence = useCallback(async (campId: string) => {
+  const reloadEvidence = useCallback(async (campId: string, override?: { scope?: string; user_id?: string; date_start?: string; date_end?: string }) => {
     try {
-      const resp = await apiFetch(`/api/campaign-evidence?campaign_id=${encodeURIComponent(String(campId))}&limit=200`);
+      setEvidenceLoading(true);
+      const params = new URLSearchParams();
+      params.set("campaign_id", String(campId));
+      params.set("limit", "250");
+      const scope = String(override?.scope ?? evScope ?? "").trim();
+      const user_id = String(override?.user_id ?? evUserId ?? "").trim();
+      const date_start = String(override?.date_start ?? evDateStart ?? "").trim();
+      const date_end = String(override?.date_end ?? evDateEnd ?? "").trim();
+      if (scope) params.set("scope", scope);
+      if (user_id) params.set("user_id", user_id);
+      if (date_start) params.set("date_start", date_start);
+      if (date_end) params.set("date_end", date_end);
+      const resp = await apiFetch(`/api/campaign-evidence?${params.toString()}`);
       const json = await resp.json().catch(() => ({}));
       if (!resp.ok) throw new Error(json?.error || "Falha ao carregar evidências");
       setEvidence(Array.isArray(json.items) ? (json.items as any) : []);
+      setEvidencePermissions(json?.permissions || null);
+      setEvidenceTotals(json?.totals || null);
+      setEvShowLimit(25);
     } catch {
       setEvidence([]);
+      setEvidencePermissions(null);
+      setEvidenceTotals(null);
+    } finally {
+      setEvidenceLoading(false);
     }
-  }, []);
+  }, [evDateEnd, evDateStart, evScope, evUserId]);
 
   const reloadPosts = useCallback(async (camp: Campaign) => {
     const hashTag = computeHashTag(camp);
@@ -289,7 +349,7 @@ export default function CampaignDetail() {
         setTopics(((topicRows as any)?.data || []) as any);
         setPosts(((postRows as any)?.data || []) as any);
 
-        // Evidence: only approved items (appears after evaluation)
+        // Evidence history (approved) for this campaign
         await reloadEvidence(campRow.id);
       } catch (e: any) {
         console.error("Erro ao carregar campanha", e);
@@ -335,6 +395,31 @@ export default function CampaignDetail() {
     if (campaign.created_by && String(campaign.created_by) === currentUserId) return true;
     return false;
   }, [campaign, currentUserId, isStaff]);
+
+  const canViewAllEvidence = useMemo(() => {
+    if (isStaff) return true;
+    const set = new Set(roleList.map((r) => String(r || "").trim()));
+    if (set.has("lider_equipe")) return true;
+    if (set.has("coordenador") || set.has("coordenador_djtx")) return true;
+    if (set.has("lider_divisao") || set.has("gerente_divisao_djtx")) return true;
+    return false;
+  }, [isStaff, roleList]);
+
+  useEffect(() => {
+    if (evScopeInitRef.current) return;
+    if (!currentUserId) return;
+    const next = canViewAllEvidence ? "all" : "mine";
+    setEvScope(next);
+    evScopeInitRef.current = true;
+  }, [campaign?.id, canViewAllEvidence, currentUserId, reloadEvidence]);
+
+  useEffect(() => {
+    if (!evScopeInitRef.current) return;
+    if (evScopeInitAppliedRef.current) return;
+    if (!campaign?.id) return;
+    evScopeInitAppliedRef.current = true;
+    reloadEvidence(campaign.id);
+  }, [campaign?.id, evScope, reloadEvidence]);
 
   const openCampaignEditor = () => {
     if (!campaign) return;
@@ -408,14 +493,68 @@ export default function CampaignDetail() {
   };
 
   const mapEvidence = useMemo(() => {
-    return (evidence || [])
+    const list = (evidence || [])
+      .filter((e) => {
+        const q = String(evSearch || "").trim().toLowerCase();
+        if (!q) return true;
+        const hay = [
+          e.author_name,
+          e.author_team,
+          e.author_base,
+          e.location_label,
+          Array.isArray((e as any)?.tags) ? (e as any).tags.join(" ") : "",
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        return hay.includes(q);
+      });
+
+    return list
       .map((e) => {
         const imageUrl = (Array.isArray(e.evidence_urls) ? e.evidence_urls : []).find((u) => isImageUrl(u)) || null;
         const hasGps = typeof e.location_lat === "number" && typeof e.location_lng === "number";
         return { e, imageUrl, hasGps };
       })
       .filter((x) => x.hasGps && Boolean(x.imageUrl));
+  }, [evidence, evSearch]);
+
+  const filteredEvidence = useMemo(() => {
+    const q = String(evSearch || "").trim().toLowerCase();
+    if (!q) return evidence || [];
+    return (evidence || []).filter((e) => {
+      const hay = [
+        e.author_name,
+        e.author_team,
+        e.author_base,
+        e.location_label,
+        Array.isArray((e as any)?.tags) ? (e as any).tags.join(" ") : "",
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return hay.includes(q);
+    });
+  }, [evidence, evSearch]);
+
+  const userOptions = useMemo(() => {
+    const map = new Map<string, { id: string; name: string }>();
+    (evidence || []).forEach((e) => {
+      const id = String(e.user_id || "");
+      if (!id) return;
+      const name = String(e.author_name || "Colaborador");
+      if (!map.has(id)) map.set(id, { id, name });
+    });
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
   }, [evidence]);
+
+  const filteredTotals = useMemo(() => {
+    const total_xp = (filteredEvidence || [])
+      .map((it) => Number(it?.final_points))
+      .filter((n) => Number.isFinite(n))
+      .reduce((a, b) => a + b, 0);
+    return { items: (filteredEvidence || []).length, total_xp };
+  }, [filteredEvidence]);
 
   const mapCenter = useMemo<[number, number]>(() => {
     if (!mapEvidence.length) return [-23.55052, -46.633308];
@@ -557,11 +696,106 @@ export default function CampaignDetail() {
             </div>
           </CardHeader>
           <CardContent className="space-y-2">
-            {evidence.length === 0 ? (
-              <p className="text-xs text-muted-foreground">Ainda não há evidências aprovadas para esta campanha.</p>
+            <div className="flex flex-col gap-2 rounded-lg border p-2 bg-background/40">
+              <div className="flex flex-col md:flex-row md:items-end gap-2 md:gap-3">
+                {evidencePermissions?.can_view_all ? (
+                  <div className="w-full md:w-48">
+                    <Label className="text-[11px] text-muted-foreground">Escopo</Label>
+                    <div className="mt-1">
+                      <Select value={evScope} onValueChange={(v) => setEvScope(v as any)}>
+                        <SelectTrigger className="h-9">
+                          <SelectValue placeholder="Escopo" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">Todos</SelectItem>
+                          <SelectItem value="team">Minha equipe</SelectItem>
+                          <SelectItem value="mine">Apenas eu</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                ) : null}
+
+                {evidencePermissions?.can_view_all ? (
+                  <div className="w-full md:w-72">
+                    <Label className="text-[11px] text-muted-foreground">Colaborador</Label>
+                    <div className="mt-1">
+                      <Select value={evUserId || "all"} onValueChange={(v) => setEvUserId(v === "all" ? "" : v)}>
+                        <SelectTrigger className="h-9">
+                          <SelectValue placeholder="Todos" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">Todos</SelectItem>
+                          {userOptions.map((u) => (
+                            <SelectItem key={u.id} value={u.id}>
+                              {u.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                ) : null}
+
+                <div className="w-full md:w-44">
+                  <Label className="text-[11px] text-muted-foreground">Data inicial</Label>
+                  <Input className="h-9 mt-1" type="date" value={evDateStart} onChange={(e) => setEvDateStart(e.target.value)} />
+                </div>
+                <div className="w-full md:w-44">
+                  <Label className="text-[11px] text-muted-foreground">Data final</Label>
+                  <Input className="h-9 mt-1" type="date" value={evDateEnd} onChange={(e) => setEvDateEnd(e.target.value)} />
+                </div>
+                <div className="w-full md:flex-1">
+                  <Label className="text-[11px] text-muted-foreground">Busca</Label>
+                  <Input className="h-9 mt-1" value={evSearch} onChange={(e) => setEvSearch(e.target.value)} placeholder="Nome, equipe, base, local..." />
+                </div>
+                <Button
+                  size="sm"
+                  className="h-9"
+                  variant="secondary"
+                  disabled={!campaign || evidenceLoading}
+                  onClick={() => {
+                    if (!campaign) return;
+                    reloadEvidence(campaign.id);
+                  }}
+                >
+                  {evidenceLoading ? "Carregando..." : "Aplicar"}
+                </Button>
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                <span>
+                  Mostrando {filteredTotals.items} evidência(s) • XP somado: {Math.round(filteredTotals.total_xp || 0)}
+                  {evidenceTotals?.items != null ? ` • Total (sem busca): ${evidenceTotals.items}` : ""}
+                </span>
+                {evDateStart || evDateEnd || evUserId || (evidencePermissions?.can_view_all && evScope !== "all") ? (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 px-2 text-[11px]"
+                    onClick={() => {
+                      setEvUserId("");
+                      setEvDateStart("");
+                      setEvDateEnd("");
+                      setEvSearch("");
+                      setEvShowLimit(25);
+                      if (!campaign) return;
+                      const defaultScope = evidencePermissions?.can_view_all ? "all" : "mine";
+                      setEvScope(defaultScope);
+                      reloadEvidence(campaign.id, { scope: defaultScope, user_id: "", date_start: "", date_end: "" });
+                    }}
+                  >
+                    Limpar filtros
+                  </Button>
+                ) : null}
+              </div>
+            </div>
+
+            {filteredEvidence.length === 0 ? (
+              <p className="text-xs text-muted-foreground">Ainda não há evidências aprovadas para esta campanha (nesse filtro).</p>
             ) : (
-              evidence.slice(0, 25).map((ev) => {
+              filteredEvidence.slice(0, evShowLimit).map((ev) => {
                 const firstImg = (Array.isArray(ev.evidence_urls) ? ev.evidence_urls : []).find((u) => isImageUrl(u)) || null;
+                const evaluations = Array.isArray(ev.evaluations) ? ev.evaluations : [];
                 return (
                   <div key={ev.id} className="flex items-start gap-3 rounded-lg border p-2">
                     {firstImg ? (
@@ -580,6 +814,23 @@ export default function CampaignDetail() {
                       </div>
                       <div className="text-[12px] text-muted-foreground truncate">
                         {(ev.author_team || "DJT") + (ev.author_base ? ` • ${ev.author_base}` : "")}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-1 mt-1">
+                        {typeof ev.final_points === "number" ? (
+                          <Badge className="text-[10px] bg-primary/10 text-primary border-primary/20">+{Math.round(ev.final_points)} XP</Badge>
+                        ) : null}
+                        {typeof ev.avg_rating === "number" ? (
+                          <Badge variant="outline" className="text-[10px]">
+                            Média: {Number(ev.avg_rating).toFixed(1)}
+                          </Badge>
+                        ) : null}
+                        {evaluations.slice(0, 2).map((a) => (
+                          <Badge key={a.id || `${ev.id}-${a.reviewer_id}-${a.evaluation_number || "x"}`} variant="secondary" className="text-[10px]">
+                            {a.evaluation_number ? `${a.evaluation_number}ª` : "Aval."}{" "}
+                            {a.reviewer_name ? `• ${a.reviewer_name}` : ""}{" "}
+                            {a.rating != null ? `• Nota ${a.rating}` : ""}
+                          </Badge>
+                        ))}
                       </div>
                       <div className="flex items-center gap-2 mt-1">
                         {typeof ev.location_lat === "number" && typeof ev.location_lng === "number" ? (
@@ -603,6 +854,11 @@ export default function CampaignDetail() {
                 );
               })
             )}
+            {filteredEvidence.length > evShowLimit ? (
+              <Button size="sm" variant="outline" onClick={() => setEvShowLimit((n) => n + 25)}>
+                Carregar mais
+              </Button>
+            ) : null}
           </CardContent>
         </Card>
 

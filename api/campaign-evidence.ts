@@ -14,13 +14,54 @@ const isGuestTeamId = (raw: any) => normalizeTeamId(raw) === "CONVIDADOS";
 const isGuestProfile = (p: any) =>
   isGuestTeamId(p?.team_id) || isGuestTeamId(p?.sigla_area) || isGuestTeamId(p?.operational_base);
 
-const STAFF_ROLES = new Set(["admin", "gerente_djt", "gerente_divisao_djtx", "coordenador_djtx"]);
+const STAFF_ROLES = new Set([
+  "admin",
+  "gerente",
+  "gerente_djt",
+  "gerente_divisao_djtx",
+  "lider_divisao",
+  "coordenador",
+  "coordenador_djtx",
+]);
 const LEADER_ROLES = new Set(["lider_equipe"]);
 
 const clampLimit = (v: any, def = 60, max = 250) => {
   const n = Number(v);
   if (!Number.isFinite(n) || n <= 0) return def;
   return Math.max(1, Math.min(max, Math.floor(n)));
+};
+
+const pickQueryParam = (q: any, key: string) => {
+  const raw = q?.[key];
+  if (typeof raw === "string") return raw;
+  if (Array.isArray(raw)) return raw[0];
+  return "";
+};
+
+const toIsoDayStart = (raw: any) => {
+  const s = String(raw || "").trim();
+  if (!s) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return `${s}T00:00:00.000Z`;
+  try {
+    const d = new Date(s);
+    if (Number.isNaN(d.getTime())) return null;
+    return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, 0, 0)).toISOString();
+  } catch {
+    return null;
+  }
+};
+
+const toIsoDayEnd = (raw: any) => {
+  const s = String(raw || "").trim();
+  if (!s) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return `${s}T23:59:59.999Z`;
+  try {
+    const d = new Date(s);
+    if (Number.isNaN(d.getTime())) return null;
+    return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 23, 59, 59, 999)).toISOString();
+  } catch {
+    return null;
+  }
 };
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -58,19 +99,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 	    if (!campaign_id) return res.status(400).json({ error: "campaign_id obrigatório" });
 
 	    const limit = clampLimit((req.query as any)?.limit, 80, 250);
-	    const scopeRaw =
-	      (typeof (req.query as any)?.scope === "string"
-	        ? (req.query as any).scope
-	        : Array.isArray((req.query as any)?.scope)
-	          ? (req.query as any).scope[0]
-	          : "") || "";
+	    const scopeRaw = pickQueryParam(req.query, "scope");
 	    const modeRaw =
-	      (typeof (req.query as any)?.mode === "string"
-	        ? (req.query as any).mode
-	        : Array.isArray((req.query as any)?.mode)
-	          ? (req.query as any).mode[0]
-	          : "") || "";
-	    const requestedScope = String(scopeRaw || "").trim().toLowerCase() === "team" ? "team" : "all";
+	      pickQueryParam(req.query, "mode");
+	    const userIdRaw = pickQueryParam(req.query, "user_id");
+	    const dateStartRaw = pickQueryParam(req.query, "date_start");
+	    const dateEndRaw = pickQueryParam(req.query, "date_end");
+
+	    const requestedScope = (() => {
+	      const s = String(scopeRaw || "").trim().toLowerCase();
+	      if (s === "team") return "team";
+	      if (s === "all") return "all";
+	      return "mine";
+	    })();
 	    const requestedMode = String(modeRaw || "").trim().toLowerCase() === "recent" ? "recent" : "approved";
 
 	    const reader = SERVICE_ROLE_KEY ? admin : authed;
@@ -103,10 +144,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 	    const userTeamId = userProfile?.team_id ? String(userProfile.team_id) : null;
 
 	    // Enforce scope based on permissions:
-	    // - Guests: only self for non-approved views.
-	    // - Non-leaders: "all" only shows approved + own (recent mode).
-	    const scope = requestedScope === "all" && (canViewAll || requestedMode === "approved") ? "all" : requestedScope;
+	    // - Guests: always self.
+	    // - Non-leaders: only self (even approved mode), per product requirement.
+	    const scope = (() => {
+	      if (isGuest) return "mine";
+	      if (!canViewAll) return "mine";
+	      return requestedScope;
+	    })();
 	    const mode = requestedMode;
+
+	    const requestedUserId = String(userIdRaw || "").trim();
+	    const user_id_filter = requestedUserId && (canViewAll || requestedUserId === uid) ? requestedUserId : "";
+
+	    const date_start = toIsoDayStart(dateStartRaw);
+	    const date_end = toIsoDayEnd(dateEndRaw);
 
 	    let campaign: any = null;
 	    try {
@@ -140,12 +191,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 	        q = q.eq("status", "approved");
 	      } else {
 	        q = q.in("status", ["submitted", "approved", "rejected", "evaluated"]);
-	        if (isGuest) {
-	          q = q.eq("user_id", uid);
-	        } else if (scope === "all" && !canViewAll) {
-	          q = q.or(`status.eq.approved,user_id.eq.${uid}`);
-	        }
+	        if (scope === "mine") q = q.eq("user_id", uid);
 	      }
+	      if (scope === "mine") q = q.eq("user_id", uid);
+	      if (user_id_filter) q = q.eq("user_id", user_id_filter);
+	      if (date_start) q = q.gte("created_at", date_start);
+	      if (date_end) q = q.lte("created_at", date_end);
 	      const { data } = await q;
 	      events = Array.isArray(data) ? data : [];
 	    } catch {
@@ -168,6 +219,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
 	    const filteredEvents = (() => {
 	      if (mode === "approved") {
+	        if (scope === "mine") {
+	          return events.filter((e) => String(e.user_id) === String(uid));
+	        }
 	        if (scope === "team" && userTeamId) {
 	          return events.filter((e) => String(profileMap.get(String(e.user_id))?.team_id || "") === userTeamId);
 	        }
@@ -175,19 +229,84 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 	      }
 
 	      // recent mode
-	      if (isGuest) return events.filter((e) => String(e.user_id) === String(uid));
+	      if (scope === "mine") return events.filter((e) => String(e.user_id) === String(uid));
 	      if (scope === "team" && userTeamId) {
 	        return events.filter((e) => String(profileMap.get(String(e.user_id))?.team_id || "") === userTeamId);
-	      }
-	      if (scope === "all" && !canViewAll) {
-	        return events.filter((e) => String(e.status || "") === "approved" || String(e.user_id) === String(uid));
 	      }
 	      return events;
 	    })().slice(0, limit);
 
+	    const eventIds = filteredEvents.map((e) => String(e.id)).filter(Boolean);
+	    let evalRows: any[] = [];
+	    try {
+	      if (eventIds.length) {
+	        const { data } = await reader
+	          .from("action_evaluations")
+	          .select("id,event_id,reviewer_id,reviewer_level,rating,final_rating,feedback_positivo,feedback_construtivo,created_at,evaluation_number")
+	          .in("event_id", eventIds);
+	        evalRows = Array.isArray(data) ? data : [];
+	      } else {
+	        evalRows = [];
+	      }
+	    } catch {
+	      evalRows = [];
+	    }
+
+	    const reviewerIds = Array.from(new Set(evalRows.map((r) => r?.reviewer_id).filter(Boolean)));
+	    let reviewerProfiles: any[] = [];
+	    try {
+	      const { data } = await reader
+	        .from("profiles")
+	        .select("id,name,avatar_url,sigla_area,team_id,operational_base")
+	        .in("id", reviewerIds.length ? reviewerIds : ["00000000-0000-0000-0000-000000000000"]);
+	      reviewerProfiles = Array.isArray(data) ? data : [];
+	    } catch {
+	      reviewerProfiles = [];
+	    }
+	    const reviewerMap = new Map<string, any>();
+	    reviewerProfiles.forEach((p) => reviewerMap.set(String(p.id), p));
+
+	    const evalMap = new Map<string, any[]>();
+	    evalRows.forEach((r) => {
+	      const eid = String(r?.event_id || "");
+	      if (!eid) return;
+	      const rp = reviewerMap.get(String(r?.reviewer_id || "")) || {};
+	      const row = {
+	        id: r?.id || null,
+	        event_id: eid,
+	        reviewer_id: r?.reviewer_id || null,
+	        reviewer_name: rp?.name || "Avaliador",
+	        reviewer_avatar: rp?.avatar_url || null,
+	        reviewer_team: rp?.sigla_area || null,
+	        reviewer_base: rp?.operational_base || null,
+	        reviewer_level: r?.reviewer_level || null,
+	        evaluation_number: r?.evaluation_number ?? null,
+	        rating: typeof r?.rating === "number" ? r.rating : r?.rating ?? null,
+	        final_rating: typeof r?.final_rating === "number" ? r.final_rating : r?.final_rating ?? null,
+	        feedback_positivo: r?.feedback_positivo ?? null,
+	        feedback_construtivo: r?.feedback_construtivo ?? null,
+	        created_at: r?.created_at || null,
+	      };
+	      const arr = evalMap.get(eid) || [];
+	      arr.push(row);
+	      evalMap.set(eid, arr);
+	    });
+	    evalMap.forEach((arr, key) => {
+	      arr.sort((a, b) => {
+	        const an = typeof a?.evaluation_number === "number" ? a.evaluation_number : 99;
+	        const bn = typeof b?.evaluation_number === "number" ? b.evaluation_number : 99;
+	        if (an !== bn) return an - bn;
+	        return String(a?.created_at || "").localeCompare(String(b?.created_at || ""));
+	      });
+	      evalMap.set(key, arr);
+	    });
+
 	    const items = filteredEvents.map((e) => {
 	      const p = e?.payload && typeof e.payload === "object" ? e.payload : {};
 	      const prof = profileMap.get(String(e.user_id)) || {};
+	      const evaluations = evalMap.get(String(e.id)) || [];
+	      const ratings = evaluations.map((x) => Number(x?.rating)).filter((n) => Number.isFinite(n));
+	      const avg_rating = ratings.length ? ratings.reduce((a, b) => a + b, 0) / ratings.length : null;
 	      return {
 	        id: e.id,
 	        user_id: e.user_id,
@@ -198,6 +317,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 	        created_at: e.created_at,
 	        status: e.status || null,
 	        final_points: e.final_points ?? null,
+	        avg_rating,
+	        evaluations,
 	        evidence_urls: Array.isArray(e.evidence_urls) ? e.evidence_urls : [],
 	        sepbook_post_id: p?.sepbook_post_id || null,
 	        location_label: p?.location_label || null,
@@ -207,6 +328,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 	        tags: Array.isArray(p?.tags) ? p.tags : [],
 	      };
 	    });
+
+	    const total_xp = items
+	      .map((it: any) => Number(it?.final_points))
+	      .filter((n) => Number.isFinite(n))
+	      .reduce((a, b) => a + b, 0);
 
 	    return res.status(200).json({
 	      campaign: campaign
@@ -222,7 +348,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 	        is_guest: isGuest,
 	        user_team_id: userTeamId,
 	      },
-	      query: { scope, mode },
+	      query: { scope, mode, user_id: user_id_filter || null, date_start: date_start || null, date_end: date_end || null },
+	      totals: { items: items.length, total_xp },
 	      items,
 	    });
   } catch (e: any) {
