@@ -29,6 +29,7 @@ const STUDYLAB_INLINE_IMAGE_BYTES = Math.max(
 );
 const OPENAI_MODEL_STUDYLAB_CHAT = normalizeChatModel(process.env.OPENAI_MODEL_STUDYLAB_CHAT || "", STUDYLAB_DEFAULT_CHAT_MODEL);
 const OPENAI_MODEL_STUDYLAB_INGEST = normalizeChatModel(process.env.OPENAI_MODEL_STUDYLAB_INGEST || "", "gpt-4.1-mini");
+const OPENAI_MODEL_STUDYLAB_EMBEDDINGS = process.env.OPENAI_MODEL_STUDYLAB_EMBEDDINGS || "text-embedding-3-small";
 function chooseModel(preferPremium = false) {
   const premium = process.env.OPENAI_MODEL_PREMIUM;
   const fast = process.env.OPENAI_MODEL_FAST;
@@ -100,6 +101,100 @@ const isAbortError = (err) => {
   if (String(err?.name || "") === "AbortError") return true;
   const msg = String(err?.message || err || "").toLowerCase();
   return msg.includes("aborted") || msg.includes("abort");
+};
+const stripStudyMetaSection = (raw) => {
+  const text = String(raw || "").replace(/\r\n/g, "\n");
+  const parts = text.split(/\n\s*###\s*Metadados\s*\n/i);
+  const base = String(parts[0] || "").trim();
+  return base || text.trim();
+};
+const chunkTextForEmbeddings = (raw) => {
+  const text = String(raw || "").replace(/\r\n/g, "\n").trim();
+  if (!text) return [];
+  const isTabular = /^\s*Planilha:\s*/i.test(text) || text.includes("	") || /\n[^\n]{0,60}\t[^\n]{0,60}\t/.test(text);
+  const out = [];
+  if (isTabular) {
+    const lines = text.split("\n").map((l) => l.replace(/\s+$/g, ""));
+    const windowLines = 70;
+    const overlapLines = 12;
+    const step = Math.max(10, windowLines - overlapLines);
+    for (let i = 0; i < lines.length && out.length < 12; i += step) {
+      const block = lines.slice(i, i + windowLines).join("\n").trim();
+      if (!block) continue;
+      out.push(block.length > 4e3 ? `${block.slice(0, 3900)}…` : block);
+    }
+    return out;
+  }
+  const maxChars = 1400;
+  const overlapChars = 220;
+  let cursor = 0;
+  while (cursor < text.length && out.length < 12) {
+    const sliceEnd = Math.min(text.length, cursor + maxChars);
+    let chunk = text.slice(cursor, sliceEnd);
+    if (sliceEnd < text.length) {
+      const breakIdx = chunk.lastIndexOf("\n\n");
+      if (breakIdx >= 500) chunk = chunk.slice(0, breakIdx);
+    }
+    chunk = chunk.trim();
+    if (chunk) out.push(chunk);
+    if (sliceEnd >= text.length) break;
+    cursor = Math.max(0, cursor + Math.max(1, chunk.length - overlapChars));
+  }
+  return out;
+};
+const embedTexts = async (texts, opts = {}) => {
+  const input = (texts || []).map((t) => String(t || "").trim()).filter(Boolean).slice(0, 24);
+  if (!input.length) return [];
+  const timeoutMs = Math.max(2500, Math.min(2e4, Number(opts.timeoutMs || 9e3)));
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const resp = await fetch("https://api.openai.com/v1/embeddings", {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${OPENAI_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: OPENAI_MODEL_STUDYLAB_EMBEDDINGS,
+        input
+      })
+    });
+    if (!resp.ok) {
+      const txt = await resp.text().catch(() => `HTTP ${resp.status}`);
+      throw new Error(`OpenAI embeddings error: ${txt}`.slice(0, 900));
+    }
+    const data = await resp.json().catch(() => null);
+    const rows = Array.isArray(data?.data) ? data.data : [];
+    return rows.map((r) => r?.embedding).filter((e) => Array.isArray(e) && e.length > 0);
+  } finally {
+    clearTimeout(timer);
+  }
+};
+const refreshStudySourceEmbeddings = async (admin, sourceId, rawText, opts = {}) => {
+  if (!admin || !sourceId) return;
+  const base = stripStudyMetaSection(rawText);
+  if (base.length < 160) return;
+  const chunks = chunkTextForEmbeddings(base);
+  if (!chunks.length) return;
+  try {
+    await admin.from("study_source_chunks").delete().eq("source_id", sourceId);
+  } catch {
+  }
+  try {
+    const embeddings = await embedTexts(chunks, { timeoutMs: opts.timeoutMs });
+    if (!embeddings.length) return;
+    const rows = chunks.map((content, idx) => ({
+      source_id: sourceId,
+      chunk_index: idx,
+      content,
+      embedding: embeddings[idx]
+    })).filter((row) => Array.isArray(row.embedding) && row.embedding.length > 0);
+    if (!rows.length) return;
+    await admin.from("study_source_chunks").insert(rows);
+  } catch {
+  }
 };
 const normalizeResponseRole = (raw) => {
   const role = String(raw || "").trim().toLowerCase();
@@ -1159,6 +1254,15 @@ ${metaParts.join("\n\n")}` : ""}`;
             } catch {
             }
           }
+          try {
+            const left = timeLeftMs();
+            if (left > 3500) {
+              await refreshStudySourceEmbeddings(admin, source_id, trimmed, {
+                timeoutMs: Math.min(9e3, Math.max(2500, left - 500))
+              });
+            }
+          } catch {
+          }
           return res.status(200).json({
             success: true,
             ingested: true,
@@ -1211,8 +1315,7 @@ Rules:
 - Do NOT ask questions. If a detail is missing, state assumptions and how to verify in the field.
 - Be practical and instructive: steps, checks, safety notes when relevant.
 - Do NOT fabricate manufacturer specs, model numbers, or procedures not present in the base/web summary. If you can't find it, say so.
-- If “Automated web search (summary)” exists, use it and cite sources (links) at the end.
-- When using the internal base, cite the source title and include the link when available (Title — URL). If a link requires login, say so and still provide it.
+- If the internal base contains tables/spreadsheets, treat them as data: interpret headers, compute totals/deltas, and make assumptions explicit.
 ${qualityHint}
 ${imageHint}
 ${focusHint}
@@ -1220,8 +1323,8 @@ ${focusHint}
 Output format (plain text, no JSON):
 1) Direct answer (short)
 2) Steps / checklist
-3) Safety / attention points (if applicable)
-4) Sources (if any)
+3) Calculations / insights (if applicable)
+4) Safety / attention points (if applicable)
 
 Answer in ${language}.` : `Você é o Catálogo de Conhecimento do DJT Quest e atua como monitor de treinamento.
 Você ajuda colaboradores a encontrar respostas usando a base interna (catálogo publicado da organização + materiais do usuário + compêndio aprovado). Quando a base for insuficiente, use o resumo de pesquisa web (quando existir).
@@ -1230,8 +1333,7 @@ Regras:
 - NÃO faça perguntas. Se faltar um detalhe, declare suposições e diga como validar em campo.
 - Seja prático e instrutivo: passo a passo, checagens, pontos de segurança quando fizer sentido.
 - NÃO invente especificações, dados de fabricantes/modelos ou procedimentos que não estejam na base/resumo web. Se não encontrar, diga que não encontrou.
-- Se houver “Pesquisa web automatica (resumo)”, use-a e cite fontes (links) no fim.
-- Quando usar a base interna, cite o título e inclua o link quando existir (Título — URL). Se o link exigir login, diga isso e ainda assim forneça o link.
+- Se a base interna tiver tabelas/planilhas, trate como dados: interprete cabeçalhos, faça cálculos (somas/deltas) e deixe as suposições explícitas.
 ${qualityHint}
 ${imageHint}
 ${focusHint}
@@ -1239,8 +1341,8 @@ ${focusHint}
 Formato da resposta (texto livre, sem JSON):
 1) Resposta direta (curta)
 2) Passo a passo / checklist
-3) Pontos de atenção / segurança (se aplicável)
-4) Fontes (se houver)
+3) Cálculos / insights (se aplicável)
+4) Pontos de atenção / segurança (se aplicável)
 
 Responda em ${language}.` : langIsEn ? `You are a technical training tutor (Brazilian power sector context).
 Use the selected material (when provided) and the uploaded attachments as primary evidence.
@@ -1250,6 +1352,7 @@ Rules:
 - Explain step-by-step, clear but technically accurate.
 - When you rely on a specific material, say so explicitly (e.g., “Based on the selected document…”).
 - Do NOT invent details that are not in the material/attachments.
+- If the material contains tables/spreadsheets, treat them as data and compute the requested analysis.
 ${qualityHint}
 ${imageHint}
 ${focusHint}
@@ -1262,6 +1365,7 @@ Regras:
 - Explique passo a passo, com clareza e precisão técnica.
 - Quando estiver usando um material específico, deixe explícito (ex.: “Com base no documento selecionado…”).
 - NÃO invente detalhes que não estejam no material/anexos.
+- Se o material tiver tabelas/planilhas, trate como dados e faça a análise solicitada.
 ${qualityHint}
 ${imageHint}
 ${focusHint}
@@ -1349,6 +1453,47 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
 	        addKeyword(match[0]);
 	      }
 	      const keywords = Array.from(keywordSet).slice(0, 12);
+        let semanticSources = [];
+        let bestSemanticSim = 0;
+        try {
+          const left = timeLeftMs();
+          if (left > 3500) {
+            const embeddings = await embedTexts([text], { timeoutMs: Math.min(9e3, Math.max(2500, left - 500)) });
+            const queryEmbedding = embeddings?.[0];
+            if (Array.isArray(queryEmbedding) && queryEmbedding.length) {
+              const { data: semData, error: semErr } = await admin.rpc("match_study_source_chunks", {
+                query_embedding: queryEmbedding,
+                match_count: 12,
+                match_threshold: 0.32
+              });
+              if (!semErr && Array.isArray(semData) && semData.length) {
+                const byId = /* @__PURE__ */ new Map();
+                for (const row of semData) {
+                  const sid = String(row?.source_id || "").trim();
+                  if (!sid) continue;
+                  const entry = byId.get(sid) || {
+                    source_id: sid,
+                    title: String(row?.source_title || "").trim(),
+                    summary: String(row?.source_summary || "").trim(),
+                    url: String(row?.source_url || "").trim(),
+                    best: 0,
+                    chunks: []
+                  };
+                  const sim = Number(row?.similarity || 0);
+                  if (Number.isFinite(sim) && sim > entry.best) entry.best = sim;
+                  const chunkText = String(row?.chunk_content || "").trim();
+                  if (chunkText && entry.chunks.length < 2) entry.chunks.push(chunkText);
+                  byId.set(sid, entry);
+                }
+                semanticSources = Array.from(byId.values()).filter((x) => x?.chunks?.length).sort((a, b) => (b.best || 0) - (a.best || 0)).slice(0, 3);
+                bestSemanticSim = Number(semanticSources[0]?.best || 0) || 0;
+              }
+            }
+          }
+        } catch {
+          semanticSources = [];
+          bestSemanticSim = 0;
+        }
 	      let sourcesForOracle = [];
 	      try {
 	        const selectV2 = "id, user_id, title, summary, url, storage_path, topic, category, scope, published, metadata, created_at";
@@ -1440,7 +1585,7 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
         const id = String(s?.id || "").trim();
         return id ? { ...s, full_text: fullTextById.get(id) || "" } : s;
       });
-      usedOracleSourcesCount = rankedSources.length;
+      usedOracleSourcesCount = semanticSources.length || rankedSources.length;
       let compendium = [];
       if (incidentLikely) {
         try {
@@ -1491,7 +1636,8 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
         return { row, text: text2, score: keywords.length ? scoreText(hay, keywords) : 0 };
 	      }).filter((x) => keywords.length ? x.score > 0 : true).sort((a, b) => b.score - a.score).slice(0, 6);
 	      const bestForumScore = rankedForumKb[0]?.score || 0;
-	      oracleBestScore = Math.max(bestSourceScore, bestCompendiumScore, bestForumScore);
+	      const bestSemanticScore = semanticSources.length ? 2 : 0;
+	      oracleBestScore = Math.max(bestSemanticScore, bestSourceScore, bestCompendiumScore, bestForumScore);
 	      const formatTags = (rawTags) => {
 	        const out = [];
 	        for (const raw of rawTags || []) {
@@ -1500,8 +1646,8 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
 	        }
 	        return out.join(" ");
 	      };
-	      const buildKeywordExcerpt = (rawText, kws, maxLen = 900) => {
-	        const raw = String(rawText || "").replace(/\s+/g, " ").trim();
+	      const buildKeywordExcerpt = (rawText, kws, maxLen = 1400) => {
+	        const raw = String(rawText || "").replace(/\r\n/g, "\n").trim();
 	        if (!raw) return "";
 	        const lower = raw.toLowerCase();
 	        let bestIdx = -1;
@@ -1512,7 +1658,7 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
 	          if (idx >= 0 && (bestIdx === -1 || idx < bestIdx)) bestIdx = idx;
 	        }
 	        if (bestIdx === -1) return raw.slice(0, maxLen);
-	        const start = Math.max(0, bestIdx - 220);
+	        const start = Math.max(0, bestIdx - 380);
 	        const end = Math.min(raw.length, start + maxLen);
 	        const snippet = raw.slice(start, end);
 	        return `${start > 0 ? "\u2026" : ""}${snippet}${end < raw.length ? "\u2026" : ""}`;
@@ -1522,7 +1668,19 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
 	        contextParts.push(`### Anexos enviados
 	${attachmentContext}`);
 	      }
-	      if (rankedSources.length) {
+	      if (semanticSources.length) {
+	        contextParts.push(
+	          "### Cat\xE1logo de Estudos (conte\xFAdo do cat\xE1logo)\n" + semanticSources.map((s, idx) => {
+	            const title = String(s.title || `Fonte ${idx + 1}`).trim();
+	            const summary = String(s.summary || "").trim();
+	            const chunks = Array.isArray(s.chunks) ? s.chunks.slice(0, 2) : [];
+	            const chunkText = chunks.map((c, i) => `  Trecho ${i + 1}:\n\`\`\`text\n${String(c || "").trim()}\n\`\`\`\n`).join("");
+	            return `- ${title}
+` + (summary ? `  Resumo: ${summary}
+` : "") + (chunkText ? chunkText : "");
+	          }).join("\n")
+	        );
+	      } else if (rankedSources.length) {
 	        contextParts.push(
 	          "### Cat\xE1logo de Estudos (trechos)\n" + rankedSources.map((s, idx) => {
 	            const title = String(s.title || `Fonte ${idx + 1}`);
@@ -1532,14 +1690,13 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
 	            const tags = pickSourceTags(meta);
 	            const tagLine = tags.length ? formatTags(tags.slice(0, 14)) : "";
 	            const text2 = String(s.full_text || "").trim();
-	            const excerpt = text2 ? buildKeywordExcerpt(text2, keywords, 900) : "";
+	            const excerpt = text2 ? buildKeywordExcerpt(text2, keywords, 1400) : "";
 	            return `- ${title}
-	` + (subtitle ? `  Subt\xEDtulo: ${subtitle}
-	` : "") + (summary ? `  Resumo: ${summary}
-	` : "") + (tagLine ? `  Tags: ${tagLine}
-	` : "") + (excerpt ? `  Trecho: ${excerpt}
-	` : "") + (s.url ? `  Link: ${s.url}
-	` : "");
+` + (subtitle ? `  Subt\xEDtulo: ${subtitle}
+` : "") + (summary ? `  Resumo: ${summary}
+` : "") + (tagLine ? `  Tags: ${tagLine}
+` : "") + (excerpt ? `  Trecho: ${excerpt}
+` : "");
 	          }).join("\n")
 	        );
 	      }
