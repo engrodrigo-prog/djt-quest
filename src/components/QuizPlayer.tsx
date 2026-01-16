@@ -13,6 +13,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import buriniImg from "@/assets/backgrounds/burini.webp";
+import oliveiraImg from "@/assets/backgrounds/Oliveira.png";
 import { useSfx } from "@/lib/sfx";
 import { useTts } from "@/lib/tts";
 
@@ -69,13 +70,14 @@ const MILHAO_LEVELS = [
   { level: 10, xp: 10000, faixa: "Sênior", titulo: "Pergunta Máxima" },
 ] as const;
 
-type MonitorKey = "subestacoes" | "linhas" | "protecao" | "automacao" | "telecom";
+type MonitorKey = "subestacoes" | "linhas" | "protecao" | "automacao" | "telecom" | "seguranca";
 const MONITORS: Record<MonitorKey, { key: MonitorKey; name: string }> = {
   subestacoes: { key: "subestacoes", name: "Monitor Subestações" },
   linhas: { key: "linhas", name: "Monitor Linhas" },
   protecao: { key: "protecao", name: "Monitor Proteção" },
   automacao: { key: "automacao", name: "Monitor Automação" },
   telecom: { key: "telecom", name: "Monitor Telecom" },
+  seguranca: { key: "seguranca", name: "Monitor Segurança (Oliveira)" },
 };
 
 const inferDomain = (questionText: string, challengeTitle: string, quizSpecialties: string[] | null): MonitorKey => {
@@ -83,6 +85,18 @@ const inferDomain = (questionText: string, challengeTitle: string, quizSpecialti
   const specs = (quizSpecialties || []).map((s) => String(s || "").toLowerCase());
 
   const has = (needle: string) => t.includes(needle);
+  if (
+    specs.some((s) => s.includes("seguran")) ||
+    has("segurança") ||
+    has("seguranca") ||
+    has("epi") ||
+    has("cipa") ||
+    has("acidente") ||
+    has("quase acidente") ||
+    /\bnr\s*\d+\b/i.test(t)
+  ) {
+    return "seguranca";
+  }
   if (specs.some((s) => s.includes("telecom")) || has("telecom") || has("fibra") || has("rádio") || has("radio")) return "telecom";
   if (specs.some((s) => s.includes("autom")) || has("automação") || has("automacao") || has("scada") || has("rtu")) return "automacao";
   if (specs.some((s) => s.includes("prote")) || has("proteção") || has("protecao") || has("relé") || has("rele") || has("ansi")) return "protecao";
@@ -297,13 +311,14 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
 
     (async () => {
       try {
+        const domain = inferDomain(q.question_text, challengeTitle, challengeSpecialties);
         const payload = {
           mode: "post_wrong",
           question_id: q.id,
           question: q.question_text,
           options,
           nivel: currentQuestionIndex + 1,
-          domain: "subestacoes",
+          domain,
           selected_label: selectedLabel,
           correct_label: correctLabel,
         };
@@ -323,7 +338,7 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
         setPostWrongHelp((prev) => (prev ? { ...prev, loading: false } : prev));
       }
     })();
-  }, [answerResult, currentQuestionIndex, isMilhao, options, questions, selectedOption]);
+  }, [answerResult, challengeSpecialties, challengeTitle, currentQuestionIndex, isMilhao, options, questions, selectedOption]);
 
   const handleSubmitAnswer = async () => {
     if (!selectedOption) {
@@ -486,6 +501,7 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
   const currentMilhaoMeta = isMilhao ? MILHAO_LEVELS[currentQuestionIndex] : null;
   const domain = inferDomain(currentQuestion.question_text, challengeTitle, challengeSpecialties);
   const monitor = MONITORS[domain];
+  const monitorAvatar = domain === "seguranca" ? oliveiraImg : buriniImg;
   const selectedOptionObj = options.find((o) => o.id === selectedOption) || null;
   const selectedOptionIndex = selectedOptionObj ? options.findIndex((o) => o.id === selectedOptionObj.id) : -1;
   const selectedOptionLabel = selectedOptionIndex >= 0 ? String.fromCharCode(65 + selectedOptionIndex) : null;
@@ -808,8 +824,8 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
             <div className="rounded-lg border bg-background/40 p-4">
               <div className="flex items-start gap-3">
                 <img
-                  src={buriniImg}
-                  alt="Monitor de Subestações"
+                  src={monitorAvatar}
+                  alt={monitor.name}
                   className="h-24 w-24 rounded-2xl object-cover border border-border shadow-sm"
                 />
                 <div className="relative flex-1 rounded-xl border bg-background p-4 shadow-sm">
@@ -821,7 +837,7 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
                     aria-hidden
                     className="absolute -left-[11px] top-10 h-0 w-0 border-y-[11px] border-y-transparent border-r-[11px] border-r-background"
                   />
-                  <p className="text-xs text-muted-foreground mb-1">Monitor de Subestações • Revisão</p>
+                  <p className="text-xs text-muted-foreground mb-1">{monitor.name} • Revisão</p>
                   <p className="whitespace-pre-line text-sm text-foreground">{monitorReviewText}</p>
                   <div className="mt-3 flex flex-wrap items-center gap-2">
                     <Button
@@ -874,7 +890,7 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
                   }`}
                 >
                   <img
-                    src={buriniImg}
+                    src={monitorAvatar}
                     alt={monitorHelp?.monitor?.name || monitor.name}
                     className="h-full w-full object-cover"
                   />

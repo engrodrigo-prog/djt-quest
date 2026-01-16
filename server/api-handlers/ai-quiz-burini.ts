@@ -15,7 +15,7 @@ const MODEL =
 
 const BANNED_TERMS_RE = /smart\s*line|smartline|smarline/i;
 
-type MonitorKey = 'subestacoes' | 'linhas' | 'protecao' | 'automacao' | 'telecom';
+type MonitorKey = 'subestacoes' | 'linhas' | 'protecao' | 'automacao' | 'telecom' | 'seguranca';
 
 const MONITORS: Record<MonitorKey, { key: MonitorKey; name: string }> = {
   subestacoes: { key: 'subestacoes', name: 'Monitor Subestações' },
@@ -23,10 +23,12 @@ const MONITORS: Record<MonitorKey, { key: MonitorKey; name: string }> = {
   protecao: { key: 'protecao', name: 'Monitor Proteção' },
   automacao: { key: 'automacao', name: 'Monitor Automação' },
   telecom: { key: 'telecom', name: 'Monitor Telecom' },
+  seguranca: { key: 'seguranca', name: 'Monitor Segurança (Oliveira)' },
 };
 
 const normalizeDomain = (raw: any): MonitorKey => {
   const s = String(raw || '').toLowerCase().trim();
+  if (s.includes('seguran') || s.includes('epi') || s.includes('nr')) return 'seguranca';
   if (s.includes('linha')) return 'linhas';
   if (s.includes('prote')) return 'protecao';
   if (s.includes('auto')) return 'automacao';

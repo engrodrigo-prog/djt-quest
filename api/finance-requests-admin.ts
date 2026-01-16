@@ -11,7 +11,6 @@ const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY as string | undef
 const ANON_KEY = (process.env.SUPABASE_ANON_KEY ||
   process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
   process.env.VITE_SUPABASE_ANON_KEY) as string;
-const SERVICE_KEY = ((SERVICE_ROLE_KEY || ANON_KEY) as string) || '';
 
 const toCsv = (rows: any[]) => {
   const header = [
@@ -70,30 +69,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     assertDjtQuestServerEnv({ requireSupabaseUrl: false });
-    if (!SUPABASE_URL || !SERVICE_KEY) return res.status(500).json({ error: 'Missing Supabase config' });
+    if (!SUPABASE_URL || !ANON_KEY) return res.status(500).json({ error: 'Missing Supabase config' });
+    if (!SERVICE_ROLE_KEY) return res.status(503).json({ error: 'Admin finance endpoint requires SUPABASE_SERVICE_ROLE_KEY' });
 
     const authHeader = req.headers['authorization'] as string | undefined;
     if (!authHeader?.startsWith('Bearer ')) return res.status(401).json({ error: 'Unauthorized' });
     const token = authHeader.slice(7);
 
-    const admin = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { autoRefreshToken: false, persistSession: false } });
-    const authed = ANON_KEY
-      ? createClient(SUPABASE_URL, ANON_KEY, {
-          auth: { autoRefreshToken: false, persistSession: false },
-          global: { headers: { Authorization: `Bearer ${token}` } },
-        })
-      : admin;
+    const authed = createClient(SUPABASE_URL, ANON_KEY, {
+      auth: { autoRefreshToken: false, persistSession: false },
+      global: { headers: { Authorization: `Bearer ${token}` } },
+    });
+    const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { autoRefreshToken: false, persistSession: false } });
 
     const { data: userData, error: authErr } = await authed.auth.getUser();
     if (authErr) return res.status(401).json({ error: 'Unauthorized' });
     const uid = userData?.user?.id;
     if (!uid) return res.status(401).json({ error: 'Unauthorized' });
 
-    const reader = SERVICE_ROLE_KEY ? admin : authed;
-
     const [{ data: rolesRows }, { data: profile }] = await Promise.all([
       admin.from('user_roles').select('role').eq('user_id', uid),
-      reader
+      admin
         .from('profiles')
         .select('id,name,email,matricula,team_id,sigla_area,operational_base,is_leader')
         .eq('id', uid)
@@ -110,7 +106,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (!parsed.success) return res.status(400).json({ error: 'Dados inválidos', details: parsed.error.flatten() });
       const { id, status, observation } = parsed.data;
 
-      const { data: reqRow } = await reader
+      const { data: reqRow } = await admin
         .from('finance_requests')
         .select('id,status')
         .eq('id', id)
@@ -148,7 +144,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const dateFrom = safeText(pickQueryParam(req.query, 'date_start_from'), 30);
     const dateTo = safeText(pickQueryParam(req.query, 'date_start_to'), 30);
 
-    let query = reader
+    let query = admin
       .from('finance_requests')
       .select(
         'id,protocol,created_at,updated_at,created_by,created_by_name,created_by_email,created_by_matricula,company,training_operational,request_kind,expense_type,coordination,date_start,date_end,amount_cents,currency,status,last_observation',
@@ -212,4 +208,3 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 }
 
 export const config = { api: { bodyParser: true } };
-

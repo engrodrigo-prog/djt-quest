@@ -10,7 +10,6 @@ const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY as string | undef
 const ANON_KEY = (process.env.SUPABASE_ANON_KEY ||
   process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
   process.env.VITE_SUPABASE_ANON_KEY) as string;
-const SERVICE_KEY = ((SERVICE_ROLE_KEY || ANON_KEY) as string) || '';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === 'OPTIONS') return res.status(204).send('');
@@ -18,30 +17,29 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     assertDjtQuestServerEnv({ requireSupabaseUrl: false });
-    if (!SUPABASE_URL || !SERVICE_KEY) return res.status(500).json({ error: 'Missing Supabase config' });
+    if (!SUPABASE_URL || !ANON_KEY) return res.status(500).json({ error: 'Missing Supabase config' });
 
     const authHeader = req.headers['authorization'] as string | undefined;
     if (!authHeader?.startsWith('Bearer ')) return res.status(401).json({ error: 'Unauthorized' });
     const token = authHeader.slice(7);
 
-    const admin = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { autoRefreshToken: false, persistSession: false } });
-    const authed = ANON_KEY
-      ? createClient(SUPABASE_URL, ANON_KEY, {
-          auth: { autoRefreshToken: false, persistSession: false },
-          global: { headers: { Authorization: `Bearer ${token}` } },
-        })
-      : admin;
+    const authed = createClient(SUPABASE_URL, ANON_KEY, {
+      auth: { autoRefreshToken: false, persistSession: false },
+      global: { headers: { Authorization: `Bearer ${token}` } },
+    });
+    const serviceAdmin = SERVICE_ROLE_KEY
+      ? createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { autoRefreshToken: false, persistSession: false } })
+      : null;
+    const db = serviceAdmin || authed;
 
     const { data: userData, error: authErr } = await authed.auth.getUser();
     if (authErr) return res.status(401).json({ error: 'Unauthorized' });
     const uid = userData?.user?.id;
     if (!uid) return res.status(401).json({ error: 'Unauthorized' });
 
-    const reader = SERVICE_ROLE_KEY ? admin : authed;
-
     const [{ data: rolesRows }, { data: profile }] = await Promise.all([
-      admin.from('user_roles').select('role').eq('user_id', uid),
-      reader
+      db.from('user_roles').select('role').eq('user_id', uid),
+      db
         .from('profiles')
         .select('id,name,email,matricula,team_id,sigla_area,operational_base,is_leader')
         .eq('id', uid)
@@ -57,7 +55,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       (req.body && typeof req.body.id === 'string' ? req.body.id : '');
     if (!id) return res.status(400).json({ error: 'id obrigatório' });
 
-    const { data: reqRow } = await reader
+    const { data: reqRow } = await db
       .from('finance_requests')
       .select('*')
       .eq('id', id)
@@ -70,12 +68,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (req.method === 'GET') {
       const [atts, hist] = await Promise.all([
-        reader
+        db
           .from('finance_request_attachments')
           .select('*')
           .eq('request_id', id)
           .order('created_at', { ascending: true }),
-        reader
+        db
           .from('finance_request_status_history')
           .select('*')
           .eq('request_id', id)
@@ -95,13 +93,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!isOwner) return res.status(403).json({ error: 'Somente o solicitante pode cancelar.' });
     if (String(reqRow.status) !== 'Enviado') return res.status(400).json({ error: 'Só é possível cancelar quando status = Enviado.' });
 
-    const { error: updErr } = await admin
+    const { error: updErr } = await db
       .from('finance_requests')
       .update({ status: 'Cancelado', last_observation: 'Cancelado pelo usuário' })
       .eq('id', id);
     if (updErr) return res.status(400).json({ error: updErr.message });
 
-    await admin.from('finance_request_status_history').insert({
+    await db.from('finance_request_status_history').insert({
       request_id: id,
       changed_by: uid,
       from_status: 'Enviado',
@@ -116,4 +114,3 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 }
 
 export const config = { api: { bodyParser: true } };
-

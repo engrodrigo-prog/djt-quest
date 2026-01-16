@@ -224,6 +224,19 @@ export default function FinanceRequests() {
       }
       toast({ title: "Solicitação enviada", description: `Protocolo: ${json?.request?.protocol || "—"}` });
       setNewOpen(false);
+      try {
+        const reqId = String(json?.request?.id || "").trim();
+        if (reqId && form.requestKind === "Reembolso") {
+          // Best-effort: extrai tabela do anexo e gera um CSV no Storage (não bloqueia o envio).
+          void apiFetch("/api/finance-request-extract", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-AI-UI": "silent" },
+            body: JSON.stringify({ id: reqId }),
+          }).catch(() => undefined);
+        }
+      } catch {
+        // ignore
+      }
       resetForm();
       void load();
     } catch (e: any) {
@@ -489,7 +502,7 @@ export default function FinanceRequests() {
                   maxSizeMB={25}
                   capture="environment"
                   includeImageGpsMeta
-                  bucket="forum-attachments"
+                  bucket="evidence"
                   pathPrefix="finance-requests"
                   acceptMimeTypes={["application/pdf", "image/jpeg", "image/png", "image/webp"]}
                 />

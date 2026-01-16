@@ -10,10 +10,12 @@ const MONITORS = {
   linhas: { key: "linhas", name: "Monitor Linhas" },
   protecao: { key: "protecao", name: "Monitor Prote\xE7\xE3o" },
   automacao: { key: "automacao", name: "Monitor Automa\xE7\xE3o" },
-  telecom: { key: "telecom", name: "Monitor Telecom" }
+  telecom: { key: "telecom", name: "Monitor Telecom" },
+  seguranca: { key: "seguranca", name: "Monitor Seguran\xE7a (Oliveira)" }
 };
 const normalizeDomain = (raw) => {
   const s = String(raw || "").toLowerCase().trim();
+  if (s.includes("seguran") || s.includes("epi") || s.includes("nr")) return "seguranca";
   if (s.includes("linha")) return "linhas";
   if (s.includes("prote")) return "protecao";
   if (s.includes("auto")) return "automacao";
