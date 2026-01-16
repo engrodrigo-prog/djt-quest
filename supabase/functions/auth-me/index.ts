@@ -54,10 +54,40 @@ Deno.serve(async (req) => {
         });
 
     // Fetch ALL user roles
-    const { data: rolesData } = await supabase
+    let { data: rolesData } = await supabase
       .from('user_roles')
       .select('role')
       .eq('user_id', user.id);
+
+    // Fallback: when SUPABASE_SERVICE_ROLE_KEY isn't available (or RLS blocks), rolesData may be empty.
+    // Use SECURITY DEFINER RPC `has_role` to infer roles safely for the current user.
+    if ((!rolesData || rolesData.length === 0) && !supabaseServiceRoleKey) {
+      const candidates = [
+        'admin',
+        'gerente_djt',
+        'gerente',
+        'gerente_divisao_djtx',
+        'lider_divisao',
+        'coordenador_djtx',
+        'coordenador',
+        'lider_equipe',
+        'analista_financeiro',
+        'content_curator',
+        'colaborador',
+        'invited',
+      ];
+
+      const inferred: Array<{ role: string }> = [];
+      for (const r of candidates) {
+        try {
+          const { data: ok, error } = await supabaseAuth.rpc('has_role', { _user_id: user.id, _role: r as any });
+          if (!error && ok) inferred.push({ role: r });
+        } catch {
+          // ignore role values not present in enum / transient RPC issues
+        }
+      }
+      rolesData = inferred;
+    }
 
     // Fetch complete profile with organizational data
     const { data: profile } = await supabase

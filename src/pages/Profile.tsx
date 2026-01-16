@@ -536,7 +536,7 @@ function ProfileContent() {
   }
 
   return (
-    <div className="relative min-h-screen bg-background p-4 pb-40 overflow-hidden">
+    <div className="relative min-h-screen bg-background p-4 pb-40 overflow-x-hidden">
       <ThemedBackground theme="atitude" />
       <div className="container relative max-w-4xl mx-auto py-8 space-y-6">
         {/* Profile Header */}
@@ -544,7 +544,7 @@ function ProfileContent() {
           <CardHeader>
         <div className="grid grid-cols-3 items-start">
           <div className="flex flex-col gap-3 col-span-3">
-            <div className="flex items-center gap-4">
+            <div className="flex flex-col md:flex-row md:items-center gap-4">
               <div className="flex flex-col items-center md:items-start gap-3">
                 <AvatarDisplay 
                   avatarUrl={activeAvatarUrl}
@@ -566,18 +566,27 @@ function ProfileContent() {
                 {profile.team && (
                   <Badge variant="outline" className="mt-2">{profile.team.name}</Badge>
                 )}
+                {canUseFinance ? (
+                  <div className="mt-3 md:hidden">
+                    <Button variant="secondary" size="sm" className="w-full" onClick={() => navigate('/finance')}>
+                      Solicitar Reembolso/Adiantamento
+                    </Button>
+                  </div>
+                ) : null}
               </div>
-              <div className="text-right space-y-2">
+              <div className="w-full md:w-auto md:min-w-[220px] text-left md:text-right space-y-2">
                 <div className="flex items-center gap-2 justify-end mb-1">
                   <Star className="h-5 w-5 text-accent" />
                   <span className="text-2xl font-bold">{tierInfo?.name || profile.tier}</span>
                 </div>
                 <p className="text-sm text-muted-foreground">{profile.xp} XP Total</p>
                 <div>
-                  <Button variant="outline" size="sm" onClick={() => navigate('/')}>Voltar à Página Inicial</Button>
+                  <Button variant="outline" size="sm" className="w-full md:w-auto" onClick={() => navigate('/')}>
+                    Voltar à Página Inicial
+                  </Button>
                 </div>
                 {canUseFinance ? (
-                  <div>
+                  <div className="hidden md:block">
                     <Button variant="secondary" size="sm" onClick={() => navigate('/finance')}>
                       Solicitar Reembolso/Adiantamento
                     </Button>
