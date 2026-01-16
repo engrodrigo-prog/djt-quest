@@ -63,7 +63,9 @@ const Navigation = () => {
   }, [showEvaluations, studioAccess]);
 
   useEffect(() => {
+    let raf = 0;
     const calc = () => {
+      raf = 0;
       const el = barRef.current;
       if (!el) return;
       const width = el.clientWidth; // available width for items
@@ -74,9 +76,31 @@ const Navigation = () => {
       const clamped = Math.max(48, Math.min(84, raw));
       setItemSize(clamped);
     };
-    calc();
-    window.addEventListener('resize', calc);
-    return () => window.removeEventListener('resize', calc);
+    const schedule = () => {
+      if (raf) cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(calc);
+    };
+
+    schedule();
+
+    const el = barRef.current;
+    let ro: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined' && el) {
+      ro = new ResizeObserver(() => schedule());
+      try {
+        ro.observe(el);
+      } catch {
+        // ignore
+      }
+    } else {
+      window.addEventListener('resize', schedule);
+    }
+
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+      if (ro) ro.disconnect();
+      window.removeEventListener('resize', schedule);
+    };
   }, [visibleCount]);
 
   useEffect(() => {

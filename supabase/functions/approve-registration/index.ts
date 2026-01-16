@@ -1,4 +1,3 @@
-/// <reference lib="deno.ns" />
 // @ts-expect-error Deno resolves remote modules at runtime.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.90.1';
 

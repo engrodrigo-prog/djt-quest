@@ -36,9 +36,12 @@ interface UserProfile {
 export const UserManagement = () => {
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [filteredUsers, setFilteredUsers] = useState<UserProfile[]>([]);
+  const [rolesByUserId, setRolesByUserId] = useState<Record<string, string[]>>({});
+  const [primaryRoleByUserId, setPrimaryRoleByUserId] = useState<Record<string, string>>({});
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [searchTerm, setSearchTerm] = useState('');
   const [teamFilter, setTeamFilter] = useState<string>('all');
+  const [roleFilter, setRoleFilter] = useState<string>('all');
   const [sortKey, setSortKey] = useState<'created_desc' | 'created_asc' | 'name_asc' | 'name_desc'>('created_desc');
   const [loading, setLoading] = useState(true);
   const [cleanupLoading, setCleanupLoading] = useState(false);
@@ -50,6 +53,7 @@ export const UserManagement = () => {
   const [primaryRoleForUser, setPrimaryRoleForUser] = useState<string>('');
   const [initialRolesForUser, setInitialRolesForUser] = useState<string[]>([]);
   const [isContentCuratorRole, setIsContentCuratorRole] = useState(false);
+  const [isFinanceAnalystRole, setIsFinanceAnalystRole] = useState(false);
   const [dateOfBirth, setDateOfBirth] = useState<string>('');
   const [form, setForm] = useState({
     name: '',
@@ -64,6 +68,49 @@ export const UserManagement = () => {
   });
   const { toast } = useToast();
   const [createOpen, setCreateOpen] = useState(false);
+
+  const normalizeRoleLocal = (raw: any) => {
+    const r = String(raw || '').trim();
+    if (!r) return '';
+    if (r === 'gerente') return 'gerente_djt';
+    if (r === 'lider_divisao') return 'gerente_divisao_djtx';
+    if (r === 'coordenador') return 'coordenador_djtx';
+    return r;
+  };
+
+  const roleHierarchy = [
+    'admin',
+    'gerente_djt',
+    'gerente_divisao_djtx',
+    'coordenador_djtx',
+    'lider_equipe',
+    'analista_financeiro',
+    'content_curator',
+    'invited',
+    'colaborador',
+  ];
+
+  const primaryRoleFromList = (roles: string[]) => {
+    const set = new Set((roles || []).map(normalizeRoleLocal).filter(Boolean));
+    for (const r of roleHierarchy) {
+      if (set.has(r)) return r;
+    }
+    return '';
+  };
+
+  const roleLabel = (r: string) => {
+    const v = normalizeRoleLocal(r);
+    if (v === 'admin') return 'ADMIN';
+    if (v === 'gerente_djt') return 'GERENTE';
+    if (v === 'gerente_divisao_djtx') return 'GERENTE DIV.';
+    if (v === 'coordenador_djtx') return 'COORD.';
+    if (v === 'lider_equipe') return 'LÍDER';
+    if (v === 'analista_financeiro') return 'ANALISTA';
+    if (v === 'content_curator') return 'CURADOR';
+    if (v === 'invited') return 'CONVIDADO';
+    if (v === 'colaborador') return 'COLAB.';
+    return v ? v.toUpperCase() : '—';
+  };
 
   const loadUsers = useCallback(async () => {
     try {
@@ -90,6 +137,39 @@ export const UserManagement = () => {
       if (error) throw error;
 
       setUsers(data || []);
+
+      // Mapear roles (para filtro por perfil e visualização). Best-effort: pode falhar dependendo de RLS.
+      try {
+        const ids = (data || []).map((u) => String((u as any)?.id || '')).filter(Boolean);
+        const rolesRows: any[] = [];
+        for (let i = 0; i < ids.length; i += 500) {
+          const chunk = ids.slice(i, i + 500);
+          const { data: rows } = await supabase.from('user_roles').select('user_id, role').in('user_id', chunk);
+          (rows || []).forEach((r: any) => rolesRows.push(r));
+        }
+        const byUser: Record<string, string[]> = {};
+        for (const r of rolesRows) {
+          const uid = String((r as any)?.user_id || '').trim();
+          const role = normalizeRoleLocal((r as any)?.role);
+          if (!uid || !role) continue;
+          if (!byUser[uid]) byUser[uid] = [];
+          byUser[uid].push(role);
+        }
+        for (const k of Object.keys(byUser)) {
+          byUser[k] = Array.from(new Set(byUser[k].map(normalizeRoleLocal).filter(Boolean)));
+        }
+        const primaryBy: Record<string, string> = {};
+        for (const u of data || []) {
+          const uid = String((u as any)?.id || '').trim();
+          if (!uid) continue;
+          primaryBy[uid] = primaryRoleFromList(byUser[uid] || []);
+        }
+        setRolesByUserId(byUser);
+        setPrimaryRoleByUserId(primaryBy);
+      } catch {
+        setRolesByUserId({});
+        setPrimaryRoleByUserId({});
+      }
       
       // Detectar usuários de teste
       const testUsersList = (data || []).filter(u => 
@@ -147,6 +227,8 @@ export const UserManagement = () => {
           ? 'coordenador_djtx'
           : has('lider_equipe')
           ? 'lider_equipe'
+          : has('analista_financeiro')
+          ? 'analista_financeiro'
           : has('invited')
           ? 'invited'
           : has('colaborador')
@@ -154,10 +236,12 @@ export const UserManagement = () => {
           : '';
       setPrimaryRoleForUser(primary);
       setIsContentCuratorRole(has('content_curator'));
+      setIsFinanceAnalystRole(has('analista_financeiro'));
     } catch {
       setInitialRolesForUser([]);
       setPrimaryRoleForUser('');
       setIsContentCuratorRole(false);
+      setIsFinanceAnalystRole(false);
     }
 
     setEditOpen(true);
@@ -176,16 +260,26 @@ export const UserManagement = () => {
         sigla_area: form.sigla_area || null,
         operational_base: form.sigla_area || null,
         is_leader: form.is_leader,
-        // Curador de conteúdo precisa entrar no Studio (hub de curadoria)
-        studio_access: Boolean(form.studio_access || isContentCuratorRole),
+        // Curador de conteúdo e analista financeiro precisam entrar no Studio (módulos restritos).
+        studio_access: Boolean(form.studio_access || isContentCuratorRole || isFinanceAnalystRole),
       };
       if (dateOfBirth) payload.date_of_birth = dateOfBirth;
       if (primaryRoleForUser) payload.role = primaryRoleForUser;
 
       // Differential role updates (avoid destructive role replacement)
+      const addRoles: string[] = [];
+      const removeRoles: string[] = [];
+
       const hadCurator = initialRolesForUser.includes('content_curator');
-      if (!hadCurator && isContentCuratorRole) payload.add_roles = ['content_curator'];
-      if (hadCurator && !isContentCuratorRole) payload.remove_roles = ['content_curator'];
+      if (!hadCurator && isContentCuratorRole) addRoles.push('content_curator');
+      if (hadCurator && !isContentCuratorRole) removeRoles.push('content_curator');
+
+      const hadAnalyst = initialRolesForUser.includes('analista_financeiro');
+      if (!hadAnalyst && isFinanceAnalystRole) addRoles.push('analista_financeiro');
+      if (hadAnalyst && !isFinanceAnalystRole) removeRoles.push('analista_financeiro');
+
+      if (addRoles.length) payload.add_roles = addRoles;
+      if (removeRoles.length) payload.remove_roles = removeRoles;
 
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData.session?.access_token;
@@ -227,13 +321,18 @@ export const UserManagement = () => {
 
     let next = (users || []).filter((user) => {
       if (!term) return true;
+      const uid = String(user.id || '');
+      const roles = rolesByUserId[uid] || [];
+      const primary = primaryRoleByUserId[uid] || '';
+      const roleText = [primary, ...roles].filter(Boolean).join(' ').toLowerCase();
       return (
         user.email?.toLowerCase().includes(term) ||
         user.name?.toLowerCase().includes(term) ||
         user.phone?.toLowerCase().includes(term) ||
         user.operational_base?.toLowerCase().includes(term) ||
         user.sigla_area?.toLowerCase().includes(term) ||
-        user.team_id?.toLowerCase().includes(term)
+        user.team_id?.toLowerCase().includes(term) ||
+        roleText.includes(term)
       );
     });
 
@@ -243,6 +342,20 @@ export const UserManagement = () => {
       } else {
         next = next.filter((u) => teamKeyOf(u) === selectedTeam);
       }
+    }
+
+    if (roleFilter !== 'all') {
+      next = next.filter((u) => {
+        const uid = String(u.id || '');
+        const roles = rolesByUserId[uid] || [];
+        const primary = primaryRoleByUserId[uid] || '';
+        if (roleFilter === 'none') return roles.length === 0;
+        if (roleFilter === 'lider') {
+          const leaderish = new Set(['lider_equipe', 'coordenador_djtx', 'gerente_divisao_djtx', 'gerente_djt', 'admin']);
+          return Boolean((u as any)?.is_leader) || leaderish.has(primary);
+        }
+        return roles.includes(roleFilter) || primary === roleFilter;
+      });
     }
 
     const compareByName = (a: UserProfile, b: UserProfile) =>
@@ -257,7 +370,7 @@ export const UserManagement = () => {
     });
 
     setFilteredUsers(next);
-  }, [searchTerm, sortKey, teamFilter, users]);
+  }, [primaryRoleByUserId, roleFilter, rolesByUserId, searchTerm, sortKey, teamFilter, users]);
 
   const teamOptions = useMemo(() => {
     const set = new Set<string>();
@@ -499,7 +612,7 @@ export const UserManagement = () => {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
             <div className="space-y-1">
               <Label className="text-xs text-muted-foreground">Filtrar por equipe</Label>
               <Select value={teamFilter} onValueChange={setTeamFilter}>
@@ -514,6 +627,27 @@ export const UserManagement = () => {
                       {team}
                     </SelectItem>
                   ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Filtrar por perfil</Label>
+              <Select value={roleFilter} onValueChange={setRoleFilter}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Todos" />
+                </SelectTrigger>
+                <SelectContent position="item-aligned">
+                  <SelectItem value="all">Todos</SelectItem>
+                  <SelectItem value="admin">ADMIN</SelectItem>
+                  <SelectItem value="gerente_djt">GERENTE</SelectItem>
+                  <SelectItem value="gerente_divisao_djtx">GERENTE DIV.</SelectItem>
+                  <SelectItem value="coordenador_djtx">COORD.</SelectItem>
+                  <SelectItem value="lider">LÍDER</SelectItem>
+                  <SelectItem value="analista_financeiro">ANALISTA (Financeiro)</SelectItem>
+                  <SelectItem value="content_curator">CURADOR</SelectItem>
+                  <SelectItem value="invited">CONVIDADO</SelectItem>
+                  <SelectItem value="colaborador">COLAB.</SelectItem>
+                  <SelectItem value="none">Sem role</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -570,6 +704,9 @@ export const UserManagement = () => {
                       <div className="space-y-1 min-w-0 flex-1">
                         <div className="flex items-center gap-2">
                         <p className="font-medium text-foreground truncate">{user.name}</p>
+                          <Badge variant={primaryRoleByUserId[String(user.id || '')] ? "secondary" : "outline"} className="text-[10px]">
+                            {primaryRoleByUserId[String(user.id || '')] ? roleLabel(primaryRoleByUserId[String(user.id || '')]) : "Sem role"}
+                          </Badge>
                           {isTestUser && (
                             <Badge variant="outline" className="bg-orange-500/10 text-orange-600 border-orange-500/20">
                               Teste
@@ -686,6 +823,7 @@ export const UserManagement = () => {
                 <option value="colaborador">Colaborador</option>
                 <option value="invited">Convidado (INVITED)</option>
                 <option value="lider_equipe">Líder de Equipe</option>
+                <option value="analista_financeiro">Analista Financeiro</option>
                 <option value="coordenador_djtx">Coordenador DJTX</option>
                 <option value="gerente_divisao_djtx">Gerente Divisão DJTX</option>
                 <option value="gerente_djt">Gerente DJT</option>
@@ -697,6 +835,13 @@ export const UserManagement = () => {
                   <p className="text-xs text-muted-foreground">Acesso apenas ao HUB de curadoria no Studio.</p>
                 </div>
                 <Switch checked={isContentCuratorRole} onCheckedChange={(v) => setIsContentCuratorRole(Boolean(v))} />
+              </div>
+              <div className="flex items-center justify-between border rounded-md p-2 mt-2">
+                <div>
+                  <Label>Analista Financeiro</Label>
+                  <p className="text-xs text-muted-foreground">Acesso ao Studio apenas para Reembolso &amp; Adiantamento.</p>
+                </div>
+                <Switch checked={isFinanceAnalystRole} onCheckedChange={(v) => setIsFinanceAnalystRole(Boolean(v))} />
               </div>
             </div>
           </div>
