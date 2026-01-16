@@ -289,9 +289,9 @@ insert into public.user_roles(user_id, role)
 select p.id, 'analista_financeiro'
 from public.profiles p
 where (
-  unaccent(lower(coalesce(p.name,''))) like '%cintia%veiga%'
-  or unaccent(lower(coalesce(p.name,''))) like '%roseli%'
-  or unaccent(lower(coalesce(p.name,''))) like '%michelle%'
-  or unaccent(lower(coalesce(p.name,''))) like '%italo%'
+  lower(extensions.unaccent(coalesce(p.name,''))) like '%cintia%veiga%'
+  or lower(extensions.unaccent(coalesce(p.name,''))) like '%roseli%'
+  or lower(extensions.unaccent(coalesce(p.name,''))) like '%michelle%'
+  or lower(extensions.unaccent(coalesce(p.name,''))) like '%italo%'
 )
 on conflict do nothing;
