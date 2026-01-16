@@ -77,9 +77,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const input = parsed.data;
 
     const request_kind = String(input.requestKind);
-    const expense_type = request_kind === 'Adiantamento' ? 'Adiantamento' : String(input.expenseType || '').trim();
-    const amount_cents =
-      request_kind === 'Adiantamento' ? null : parseBrlToCents(input.amountBrl) ?? null;
+    const rawExpenseType = String(input.expenseType || '').trim();
+    const expense_type = request_kind === 'Adiantamento' ? 'Adiantamento' : rawExpenseType;
+    if (request_kind === 'Reembolso' && !expense_type) {
+      return res.status(400).json({ error: 'Tipo obrigatório. Selecione o tipo do reembolso.' });
+    }
+
+    const attachments = Array.isArray(input.attachments) ? input.attachments : [];
+    if (request_kind === 'Reembolso' && attachments.length < 1) {
+      return res.status(400).json({ error: 'Envie pelo menos 1 anexo.' });
+    }
+    if (attachments.length > 12) {
+      return res.status(400).json({ error: 'Máximo de 12 anexos por solicitação.' });
+    }
+
+    const amount_cents = request_kind === 'Adiantamento' ? null : parseBrlToCents(input.amountBrl) ?? null;
     if (request_kind === 'Reembolso' && (!amount_cents || amount_cents <= 0)) {
       return res.status(400).json({ error: 'Valor inválido. Use um valor em R$ (ex.: 123,45 ou 1.234,56).' });
     }
@@ -112,14 +124,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const requestId = String(created?.id || '');
     if (!requestId) return res.status(500).json({ error: 'Falha ao criar solicitação' });
 
-    const attachments = Array.isArray(input.attachments) ? input.attachments : [];
-    if (request_kind === 'Reembolso' && attachments.length < 1) {
-      return res.status(400).json({ error: 'Envie pelo menos 1 anexo.' });
-    }
-    if (attachments.length > 12) {
-      return res.status(400).json({ error: 'Máximo de 12 anexos por solicitação.' });
-    }
-
     if (attachments.length) {
       const toInsert = attachments.map((a) => {
         const url = String(a?.url || '').trim();
@@ -139,17 +143,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         };
       });
       const { error: attErr } = await db.from('finance_request_attachments').insert(toInsert);
-      if (attErr) return res.status(400).json({ error: attErr.message });
+      if (attErr) {
+        try {
+          await db.from('finance_requests').delete().eq('id', requestId);
+        } catch {
+          // ignore cleanup failure
+        }
+        return res.status(400).json({ error: attErr.message });
+      }
     }
 
     // initial history
-    await db.from('finance_request_status_history').insert({
+    const { error: histErr } = await db.from('finance_request_status_history').insert({
       request_id: requestId,
       changed_by: uid,
       from_status: null,
       to_status: 'Enviado',
       observation: null,
     });
+    // If history insert fails due to missing policy/service role, don't fail the request creation.
+    if (histErr) {
+      // best-effort: keep request as created; history can be reconstructed by staff if needed.
+    }
 
     return res.status(200).json({ success: true, request: created });
   } catch (e: any) {

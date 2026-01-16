@@ -595,10 +595,23 @@ export default function FinanceRequests() {
                 {(detail.attachments || []).length ? (
                   <div className="mt-2 space-y-1">
                     {(detail.attachments || []).map((a: any) => (
-                      <a key={a.id} href={a.url} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-[12px] hover:underline">
-                        <FileText className="h-4 w-4" />
-                        <span className="truncate">{a.filename || a.url}</span>
-                      </a>
+                      <div key={a.id} className="flex items-center justify-between gap-3">
+                        <a href={a.url} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-[12px] hover:underline min-w-0">
+                          <FileText className="h-4 w-4 flex-shrink-0" />
+                          <span className="truncate">{a.filename || a.url}</span>
+                        </a>
+                        {a?.metadata?.table_csv?.url ? (
+                          <a
+                            href={a.metadata.table_csv.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-[11px] text-muted-foreground hover:underline flex-shrink-0"
+                            title="Tabela extraída (CSV)"
+                          >
+                            CSV
+                          </a>
+                        ) : null}
+                      </div>
                     ))}
                   </div>
                 ) : (
