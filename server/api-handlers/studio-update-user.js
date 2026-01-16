@@ -7,6 +7,15 @@ const normalizeSigla = (value) => {
     const cleaned = value.trim().toUpperCase();
     return cleaned || null;
 };
+
+const normalizeOperationalBase = (value) => {
+    if (value === null)
+        return null;
+    if (typeof value !== 'string')
+        return null;
+    const cleaned = value.trim();
+    return cleaned || null;
+};
 export default async function handler(req, res) {
     if (req.method === 'OPTIONS') {
         return res.status(204).send('');
@@ -74,12 +83,10 @@ export default async function handler(req, res) {
         if (hasSigla) {
             const sigla = normalizeSigla(body.sigla_area);
             updates.sigla_area = sigla;
-            updates.operational_base = sigla;
         }
-        else if (hasBase) {
-            const sigla = normalizeSigla(body.operational_base);
-            updates.sigla_area = sigla;
-            updates.operational_base = sigla;
+        if (hasBase) {
+            // Base operacional é cidade/base e não deve alterar a equipe (sigla_area).
+            updates.operational_base = normalizeOperationalBase(body.operational_base);
         }
         if (typeof body.is_leader !== 'undefined')
             updates.is_leader = !!body.is_leader;

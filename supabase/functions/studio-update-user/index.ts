@@ -16,6 +16,13 @@ const normalizeSigla = (value?: string | null) => {
   return cleaned || null
 }
 
+const normalizeOperationalBase = (value?: string | null) => {
+  if (value === null) return null
+  if (typeof value !== 'string') return null
+  const cleaned = value.trim()
+  return cleaned || null
+}
+
 const deriveOrg = (sigla?: string | null) => {
   const normalized = normalizeSigla(sigla)
   if (!normalized) return null
@@ -109,23 +116,16 @@ Deno.serve(async (req) => {
     if (hasSigla) {
       const sigla = normalizeSigla(body.sigla_area)
       updates.sigla_area = sigla
-      updates.operational_base = sigla
       const org = deriveOrg(sigla)
       if (org) {
         updates.division_id = org.divisionId
         updates.coord_id = org.coordinationId
         updates.team_id = org.teamId
       }
-    } else if (hasBase) {
-      const siglaFromBase = normalizeSigla(body.operational_base)
-      updates.operational_base = siglaFromBase
-      const org = deriveOrg(siglaFromBase)
-      if (org) {
-        updates.sigla_area = siglaFromBase
-        updates.division_id = org.divisionId
-        updates.coord_id = org.coordinationId
-        updates.team_id = org.teamId
-      }
+    }
+    if (hasBase) {
+      // Base operacional é "cidade/base" e não deve influenciar sigla/equipe nem org units.
+      updates.operational_base = normalizeOperationalBase(body.operational_base)
     }
     if (typeof body.is_leader !== 'undefined') updates.is_leader = body.is_leader
     if (typeof body.studio_access !== 'undefined') updates.studio_access = body.studio_access

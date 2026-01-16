@@ -6,7 +6,6 @@ import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
-import { getOperationalBaseOptions } from "@/lib/operationalBase";
 import { normalizePhone } from "@/lib/phone";
 
 export function ProfileEditor() {
@@ -15,16 +14,12 @@ export function ProfileEditor() {
   const [formData, setFormData] = useState({
     email: (profile as any)?.email || "",
     phone: (profile as any)?.phone || (profile as any)?.telefone || "",
-    operational_base: (profile as any)?.operational_base || "",
-    sigla_area: (profile as any)?.sigla_area || "",
   });
 
   useEffect(() => {
     setFormData({
       email: (profile as any)?.email || "",
       phone: (profile as any)?.phone || (profile as any)?.telefone || "",
-      operational_base: (profile as any)?.operational_base || "",
-      sigla_area: (profile as any)?.sigla_area || "",
     });
   }, [profile]);
 
@@ -33,19 +28,7 @@ export function ProfileEditor() {
     setLoading(true);
 
     try {
-      const normalizeSigla = (value?: string | null) => {
-        if (typeof value !== 'string') return '';
-        return value
-          .trim()
-          .toUpperCase()
-          .replace(/[^A-Z0-9-]/g, '-')
-          .replace(/-+/g, '-')
-          .replace(/^-|-$/g, '');
-      };
-
       const trim = (value?: string | null) => (value ?? '').trim();
-      const normalizedSigla = normalizeSigla(formData.sigla_area);
-      const normalizedBase = trim(formData.operational_base);
       const normalizedEmail = trim(formData.email).toLowerCase();
       const normalizedPhone = normalizePhone(trim(formData.phone)) || trim(formData.phone);
 
@@ -59,8 +42,6 @@ export function ProfileEditor() {
 
       compare('email', normalizedEmail);
       compare('phone', normalizedPhone);
-      compare('operational_base', normalizedBase);
-      compare('sigla_area', normalizedSigla);
 
       if (changes.length === 0) {
         toast.info('Nenhuma alteração detectada');
@@ -126,6 +107,26 @@ export function ProfileEditor() {
               </p>
             </div>
           </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-1">
+              <Label className="text-xs uppercase tracking-wider text-muted-foreground">Equipe</Label>
+              <p className="text-base font-medium">
+                {(profile as any)?.sigla_area ?? "—"}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Gerenciado por líderes/admin no Studio.
+              </p>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs uppercase tracking-wider text-muted-foreground">Base operacional (cidade)</Label>
+              <p className="text-base font-medium">
+                {(profile as any)?.operational_base ?? "—"}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Gerenciado por líderes/admin no Studio.
+              </p>
+            </div>
+          </div>
           <div className="space-y-1">
             <Label className="text-xs uppercase tracking-wider text-muted-foreground">Data de nascimento</Label>
             <p className="text-base font-medium">
@@ -160,46 +161,6 @@ export function ProfileEditor() {
                 placeholder="seu.email@empresa.com"
               />
             </div>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="operational_base">Base Operacional</Label>
-            {(() => {
-              const options = getOperationalBaseOptions(formData.sigla_area);
-              if (options.length === 0) {
-                return (
-                  <Input
-                    id="operational_base"
-                    value={formData.operational_base}
-                    onChange={(e) => setFormData({ ...formData, operational_base: e.target.value })}
-                    placeholder="Ex: Cubatão, Santos, Votorantim..."
-                  />
-                );
-              }
-              return (
-                <select
-                  id="operational_base"
-                  className="border rounded-md h-9 px-2 bg-background"
-                  value={formData.operational_base}
-                  onChange={(e) => setFormData({ ...formData, operational_base: e.target.value })}
-                >
-                  <option value="">Selecione</option>
-                  {options.map((b) => (
-                    <option key={b} value={b}>{b}</option>
-                  ))}
-                </select>
-              );
-            })()}
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="sigla_area">Sigla da Área / Equipe</Label>
-            <Input
-              id="sigla_area"
-              value={formData.sigla_area}
-              onChange={(e) => setFormData({ ...formData, sigla_area: e.target.value.toUpperCase() })}
-              placeholder="Ex: DJTB-CUB"
-            />
           </div>
 
           <Button type="submit" disabled={loading} className="w-full">

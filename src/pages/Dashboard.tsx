@@ -91,11 +91,12 @@ const Dashboard = () => {
       }
       loadedForUserRef.current = user.id;
 
-      // Safety timeout - force end loading after 5s
+      const isDev = typeof import.meta !== 'undefined' && Boolean((import.meta as any)?.env?.DEV);
+      // Safety timeout - avoid infinite loading on flaky networks.
       const timeoutId = setTimeout(() => {
-        console.error('⏱️ Dashboard: timeout reached - forcing loading to false');
+        if (isDev) console.warn('⏱️ Dashboard: timeout reached - forcing loading to false');
         setLoading(false);
-      }, 5000);
+      }, 15000);
 
       try {
         // Parallelize all queries for faster loading

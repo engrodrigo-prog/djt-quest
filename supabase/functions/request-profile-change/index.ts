@@ -48,7 +48,9 @@ Deno.serve(async (req) => {
       throw new Error('Missing changes');
     }
 
-    const allowedFields = new Set(['name', 'email', 'operational_base', 'sigla_area', 'date_of_birth', 'phone', 'telefone', 'matricula']);
+    // Campos que o próprio usuário pode solicitar alteração via perfil.
+    // Importante: "sigla_area" (equipe) e "operational_base" (cidade/base) são geridos apenas por líderes/admin no Studio.
+    const allowedFields = new Set(['name', 'email', 'date_of_birth', 'phone', 'telefone', 'matricula']);
     const normalizeSigla = (value: string) =>
       value
         .trim()
@@ -58,16 +60,14 @@ Deno.serve(async (req) => {
         .replace(/^-|-$/g, '');
     const sanitizeChange = (field: string, value: any) => {
       if (!allowedFields.has(field)) {
-        throw new Error(`Campo não suportado: ${field}`);
+        // Compat: versões antigas do client podem enviar campos hoje bloqueados (ex.: sigla_area/operational_base).
+        // Apenas ignoramos sem falhar para evitar 400 no app.
+        return null;
       }
       if (typeof value !== 'string') {
         throw new Error(`Valor inválido para ${field}`);
       }
       switch (field) {
-        case 'sigla_area':
-          return normalizeSigla(value);
-        case 'operational_base':
-          return value.trim();
         case 'name':
           return value.trim();
         case 'email':
@@ -87,10 +87,20 @@ Deno.serve(async (req) => {
           return value;
       }
     };
-    changes = changes.map((change) => ({
-      field_name: change.field_name,
-      new_value: sanitizeChange(change.field_name, change.new_value),
-    }));
+    changes = changes
+      .map((change) => {
+        const sanitized = sanitizeChange(change.field_name, change.new_value);
+        if (sanitized === null) return null;
+        return { field_name: change.field_name, new_value: sanitized };
+      })
+      .filter(Boolean) as ChangeItem[];
+
+    if (changes.length === 0) {
+      return new Response(
+        JSON.stringify({ success: true, message: 'Nenhuma alteração permitida detectada' }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
 
     let { data: currentProfile } = await supabaseClient
       .from('profiles')
@@ -161,24 +171,7 @@ Deno.serve(async (req) => {
       const updates: Record<string, any> = {};
 
       inserts.forEach((change) => {
-        if (change.field_name === 'sigla_area') {
-          updates.sigla_area = change.new_value;
-          const org = deriveOrgUnits(change.new_value);
-          if (org) {
-            updates.division_id = org.divisionId;
-            updates.coord_id = org.coordinationId;
-            updates.team_id = org.teamId;
-            updates.operational_base = change.new_value;
-          }
-        } else if (change.field_name === 'operational_base') {
-          updates.operational_base = change.new_value;
-          const org = deriveOrgUnits(currentProfile.sigla_area || change.new_value);
-          if (org) {
-            updates.division_id = org.divisionId;
-            updates.coord_id = org.coordinationId;
-            updates.team_id = org.teamId;
-          }
-        } else if (change.field_name === 'telefone') {
+        if (change.field_name === 'telefone') {
           updates.phone = change.new_value;
           updates.telefone = change.new_value;
         } else if (change.field_name === 'phone') {

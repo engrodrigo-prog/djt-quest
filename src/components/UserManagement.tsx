@@ -200,8 +200,8 @@ export const UserManagement = () => {
       email: user.email || '',
       matricula: user.matricula || '',
       phone: user.phone || user.telefone || '',
-      sigla_area: user.sigla_area || user.operational_base || '',
-      operational_base: user.sigla_area || user.operational_base || '',
+      sigla_area: user.sigla_area || '',
+      operational_base: user.operational_base || '',
       team_id: '',
       is_leader: Boolean(user.is_leader),
       studio_access: Boolean(user.studio_access),
@@ -258,7 +258,7 @@ export const UserManagement = () => {
         matricula: form.matricula || null,
         phone: form.phone?.trim() || null,
         sigla_area: form.sigla_area || null,
-        operational_base: form.sigla_area || null,
+        operational_base: form.operational_base || null,
         is_leader: form.is_leader,
         // Curador de conteúdo e analista financeiro precisam entrar no Studio (módulos restritos).
         studio_access: Boolean(form.studio_access || isContentCuratorRole || isFinanceAnalystRole),
@@ -317,7 +317,7 @@ export const UserManagement = () => {
     const selectedTeam = normalizeTeamId(teamFilter);
 
     const teamKeyOf = (u: UserProfile) =>
-      normalizeTeamId(u.team_id || u.sigla_area || u.operational_base);
+      normalizeTeamId(u.team_id || u.sigla_area);
 
     let next = (users || []).filter((user) => {
       if (!term) return true;
@@ -375,7 +375,7 @@ export const UserManagement = () => {
   const teamOptions = useMemo(() => {
     const set = new Set<string>();
     for (const u of users || []) {
-      const key = normalizeTeamId(u.team_id || u.sigla_area || u.operational_base);
+      const key = normalizeTeamId(u.team_id || u.sigla_area);
       if (key) set.add(key);
     }
     return Array.from(set).sort((a, b) => a.localeCompare(b, 'pt-BR'));
@@ -483,8 +483,8 @@ export const UserManagement = () => {
     total: users.length,
     testUsers: testUsers.length,
     realUsers: users.length - testUsers.length,
-    withTeam: users.filter(u => normalizeTeamId(u.team_id || u.sigla_area || u.operational_base)).length,
-    withoutTeam: users.filter(u => !normalizeTeamId(u.team_id || u.sigla_area || u.operational_base)).length,
+    withTeam: users.filter(u => normalizeTeamId(u.team_id || u.sigla_area)).length,
+    withoutTeam: users.filter(u => !normalizeTeamId(u.team_id || u.sigla_area)).length,
   };
 
   if (loading) {
@@ -715,9 +715,9 @@ export const UserManagement = () => {
                           <p className="text-xs text-muted-foreground truncate">WhatsApp: {user.phone || user.telefone}</p>
                         ) : null}
                         <div className="flex flex-wrap items-center gap-2 text-xs">
-                          {normalizeTeamId(user.team_id || user.sigla_area || user.operational_base) ? (
+                          {normalizeTeamId(user.team_id || user.sigla_area) ? (
                             <span className="font-semibold text-primary">
-                              {normalizeTeamId(user.team_id || user.sigla_area || user.operational_base)}
+                              {normalizeTeamId(user.team_id || user.sigla_area)}
                             </span>
                           ) : (
                             <span className="text-muted-foreground">Sem equipe</span>
@@ -790,7 +790,16 @@ export const UserManagement = () => {
             <div className="grid gap-1">
               <Label>Equipe / Sigla</Label>
               <Input value={form.sigla_area} onChange={(e) => handleSiglaChange(e.target.value)} placeholder="Ex: DJTB-CUB" />
-              <p className="text-xs text-muted-foreground">A base operacional pode ser ajustada depois via pedido de alteração de perfil.</p>
+              <p className="text-xs text-muted-foreground">Equipe/sigla é usada para escopo e relatórios internos.</p>
+            </div>
+            <div className="grid gap-1">
+              <Label>Base operacional (cidade)</Label>
+              <Input
+                value={form.operational_base}
+                onChange={(e) => updateForm('operational_base', e.target.value)}
+                placeholder="Ex: Piraju, Cubatão, Santos..."
+              />
+              <p className="text-xs text-muted-foreground">Campo não editável pelo usuário; ajustado por líderes/admin.</p>
             </div>
             <div className="grid grid-cols-2 gap-3 items-center">
               <div className="flex items-center justify-between border rounded-md p-2">
