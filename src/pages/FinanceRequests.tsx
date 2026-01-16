@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { AttachmentUploader } from "@/components/AttachmentUploader";
 import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft, FileText, Plus, XCircle } from "lucide-react";
@@ -57,9 +58,34 @@ const EMPTY_FORM = {
   amountBrl: "",
 } as const;
 
+const PREFILL_ENABLED_KEY = "finance_prefill_enabled";
+const LAST_COMPANY_KEY = "finance_last_company";
+const LAST_COORDINATION_KEY = "finance_last_coordination";
+
 const isGuestTeamId = (raw: any) => String(raw || "").trim().toUpperCase() === "CONVIDADOS";
 const isGuestProfile = (p: any, roles: string[] = []) =>
   roles.includes("invited") || isGuestTeamId(p?.sigla_area) || isGuestTeamId(p?.operational_base);
+
+const normalizeLoose = (raw: any) =>
+  String(raw || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+
+const matchFromList = (raw: any, list: readonly string[]) => {
+  const key = normalizeLoose(raw);
+  if (!key) return "";
+  for (const item of list) {
+    if (normalizeLoose(item) === key) return item;
+  }
+  for (const item of list) {
+    const k = normalizeLoose(item);
+    if (k && (k.includes(key) || key.includes(k))) return item;
+  }
+  return "";
+};
 
 const formatBrl = (cents: number | null | undefined) => {
   const n = typeof cents === "number" ? cents / 100 : 0;
@@ -68,7 +94,7 @@ const formatBrl = (cents: number | null | undefined) => {
 };
 
 export default function FinanceRequests() {
-  const { user, profile, roles } = useAuth() as any;
+  const { user, profile, roles, orgScope } = useAuth() as any;
   const { toast } = useToast();
   const [items, setItems] = useState<RequestRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -85,6 +111,56 @@ export default function FinanceRequests() {
   const [attachmentsUploading, setAttachmentsUploading] = useState(false);
   const [attachmentItems, setAttachmentItems] = useState<AttachmentItem[]>([]);
   const [form, setForm] = useState({ ...EMPTY_FORM });
+  const [prefillEnabled, setPrefillEnabled] = useState<boolean>(() => {
+    try {
+      if (typeof window === "undefined") return true;
+      const v = window.localStorage.getItem(PREFILL_ENABLED_KEY);
+      if (v == null) return true;
+      return v === "1";
+    } catch {
+      return true;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      if (typeof window === "undefined") return;
+      window.localStorage.setItem(PREFILL_ENABLED_KEY, prefillEnabled ? "1" : "0");
+    } catch {
+      // ignore
+    }
+  }, [prefillEnabled]);
+
+  const applyPrefill = useCallback(() => {
+    let lastCompany = "";
+    let lastCoord = "";
+    try {
+      if (typeof window !== "undefined") {
+        lastCompany = matchFromList(window.localStorage.getItem(LAST_COMPANY_KEY), FINANCE_COMPANIES);
+        lastCoord = matchFromList(window.localStorage.getItem(LAST_COORDINATION_KEY), FINANCE_COORDINATIONS);
+      }
+    } catch {
+      // ignore
+    }
+
+    const suggestedCoord =
+      matchFromList(orgScope?.coordName, FINANCE_COORDINATIONS) ||
+      matchFromList(profile?.operational_base, FINANCE_COORDINATIONS) ||
+      lastCoord ||
+      "";
+
+    setForm((p) => ({
+      ...p,
+      company: p.company || lastCompany || "",
+      coordination: p.coordination || suggestedCoord || "",
+    }));
+  }, [orgScope?.coordName, profile?.operational_base]);
+
+  useEffect(() => {
+    if (!newOpen) return;
+    if (!prefillEnabled) return;
+    applyPrefill();
+  }, [applyPrefill, newOpen, prefillEnabled]);
 
   const canUse = useMemo(() => {
     const roleList = Array.isArray(roles) ? roles : [];
@@ -223,6 +299,14 @@ export default function FinanceRequests() {
         throw new Error(firstFieldError ? `${message}: ${String(firstFieldError)}` : message);
       }
       toast({ title: "Solicitação enviada", description: `Protocolo: ${json?.request?.protocol || "—"}` });
+      try {
+        if (typeof window !== "undefined") {
+          if (form.company) window.localStorage.setItem(LAST_COMPANY_KEY, String(form.company));
+          if (form.coordination) window.localStorage.setItem(LAST_COORDINATION_KEY, String(form.coordination));
+        }
+      } catch {
+        // ignore
+      }
       setNewOpen(false);
       try {
         const reqId = String(json?.request?.id || "").trim();
@@ -386,72 +470,93 @@ export default function FinanceRequests() {
           </div>
           <div className="flex-1 overflow-y-auto px-6 pb-4">
             <div className="grid gap-3 pt-3">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <Label>Empresa</Label>
-                <Select value={form.company} onValueChange={(v) => setForm((p) => ({ ...p, company: v as any }))}>
-                  <SelectTrigger className="mt-1"><SelectValue placeholder="Selecione" /></SelectTrigger>
-                  <SelectContent>
-                    {FINANCE_COMPANIES.map((c) => (<SelectItem key={c} value={c}>{c}</SelectItem>))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label>Treinamento Operacional</Label>
-                <Select value={form.trainingOperational} onValueChange={(v) => setForm((p) => ({ ...p, trainingOperational: v }))}>
-                  <SelectTrigger className="mt-1"><SelectValue placeholder="Selecione" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Não">Não</SelectItem>
-                    <SelectItem value="Sim">Sim</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <Label>Tipo Solicitação</Label>
-                <Select
-                  value={form.requestKind}
-                  onValueChange={(v) => {
-                    setForm((p) => ({
-                      ...p,
-                      requestKind: v as any,
-                      expenseType: v === "Adiantamento" ? "Adiantamento" : "",
-                      amountBrl: v === "Adiantamento" ? "" : p.amountBrl,
-                    }));
-                    if (v === "Adiantamento") setAttachmentItems([]);
-                  }}
-                >
-                  <SelectTrigger className="mt-1"><SelectValue placeholder="Selecione" /></SelectTrigger>
-                  <SelectContent>
-                    {FINANCE_REQUEST_KINDS.map((k) => (<SelectItem key={k} value={k}>{k}</SelectItem>))}
-                  </SelectContent>
-                </Select>
+              <div className="rounded-md border p-3 bg-muted/10">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-[12px] font-medium">Pré-preencher com meus dados</div>
+                    <div className="text-[11px] text-muted-foreground">
+                      Usa informações do seu cadastro (ex.: coordenação/base) e sua última escolha. Você pode alterar antes de enviar.
+                    </div>
+                    <div className="text-[11px] text-muted-foreground mt-1 truncate">
+                      {profile?.sigla_area ? `Área: ${profile.sigla_area} • ` : ""}
+                      {profile?.operational_base ? `Base: ${profile.operational_base}` : ""}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <Button type="button" variant="outline" size="sm" onClick={applyPrefill}>
+                      Preencher agora
+                    </Button>
+                    <Switch checked={prefillEnabled} onCheckedChange={(v) => setPrefillEnabled(Boolean(v))} />
+                  </div>
+                </div>
               </div>
 
-              {form.requestKind === "Reembolso" ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <Label>Tipo</Label>
-                  <Select value={form.expenseType} onValueChange={(v) => setForm((p) => ({ ...p, expenseType: v as any }))}>
+                  <Label>Empresa</Label>
+                  <Select value={form.company} onValueChange={(v) => setForm((p) => ({ ...p, company: v as any }))}>
                     <SelectTrigger className="mt-1"><SelectValue placeholder="Selecione" /></SelectTrigger>
                     <SelectContent>
-                      {FINANCE_EXPENSE_TYPES.map((t) => (<SelectItem key={t} value={t}>{t}</SelectItem>))}
+                      {FINANCE_COMPANIES.map((c) => (<SelectItem key={c} value={c}>{c}</SelectItem>))}
                     </SelectContent>
                   </Select>
                 </div>
-              ) : form.requestKind === "Adiantamento" ? (
-                <div className="rounded-md border p-3 bg-muted/20">
-                  <div className="text-[12px] font-medium">Adiantamento</div>
-                  <div className="text-[11px] text-muted-foreground">Valor e anexo não são necessários.</div>
+                <div>
+                  <Label>Treinamento Operacional</Label>
+                  <Select value={form.trainingOperational} onValueChange={(v) => setForm((p) => ({ ...p, trainingOperational: v }))}>
+                    <SelectTrigger className="mt-1"><SelectValue placeholder="Selecione" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Não">Não</SelectItem>
+                      <SelectItem value="Sim">Sim</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
-              ) : (
-                <div className="rounded-md border p-3 bg-muted/10">
-                  <div className="text-[12px] font-medium">Selecione o tipo</div>
-                  <div className="text-[11px] text-muted-foreground">Escolha “Reembolso” ou “Adiantamento” para continuar.</div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <Label>Tipo Solicitação</Label>
+                  <Select
+                    value={form.requestKind}
+                    onValueChange={(v) => {
+                      setForm((p) => ({
+                        ...p,
+                        requestKind: v as any,
+                        expenseType: v === "Adiantamento" ? "Adiantamento" : "",
+                        amountBrl: v === "Adiantamento" ? "" : p.amountBrl,
+                      }));
+                      if (v === "Adiantamento") setAttachmentItems([]);
+                    }}
+                  >
+                    <SelectTrigger className="mt-1"><SelectValue placeholder="Selecione" /></SelectTrigger>
+                    <SelectContent>
+                      {FINANCE_REQUEST_KINDS.map((k) => (<SelectItem key={k} value={k}>{k}</SelectItem>))}
+                    </SelectContent>
+                  </Select>
                 </div>
-              )}
-            </div>
+
+                {form.requestKind === "Reembolso" ? (
+                  <div>
+                    <Label>Tipo</Label>
+                    <Select value={form.expenseType} onValueChange={(v) => setForm((p) => ({ ...p, expenseType: v as any }))}>
+                      <SelectTrigger className="mt-1"><SelectValue placeholder="Selecione" /></SelectTrigger>
+                      <SelectContent>
+                        {FINANCE_EXPENSE_TYPES.map((t) => (<SelectItem key={t} value={t}>{t}</SelectItem>))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ) : form.requestKind === "Adiantamento" ? (
+                  <div className="rounded-md border p-3 bg-muted/20">
+                    <div className="text-[12px] font-medium">Adiantamento</div>
+                    <div className="text-[11px] text-muted-foreground">Valor e anexo não são necessários.</div>
+                  </div>
+                ) : (
+                  <div className="rounded-md border p-3 bg-muted/10">
+                    <div className="text-[12px] font-medium">Selecione o tipo</div>
+                    <div className="text-[11px] text-muted-foreground">Escolha “Reembolso” ou “Adiantamento” para continuar.</div>
+                  </div>
+                )}
+              </div>
 
             <div>
               <Label>Coordenação</Label>
