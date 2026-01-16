@@ -153,6 +153,26 @@ export const gameTips: Record<string, GameTip> = {
       'Use os filtros de data para fechar o mês (dia 1 → dia atual) ou comparar períodos.'
     ].join('\n'),
   },
+  'studio-finance': {
+    title: 'Reembolso & Adiantamento (Studio)',
+    body: [
+      'Este módulo centraliza as solicitações financeiras dos colaboradores e dá visibilidade do fluxo ponta a ponta.',
+      '',
+      'O que dá para fazer:',
+      '• Ver todas as solicitações (com filtros por período, empresa, coordenação, status e pessoa).',
+      '• Abrir detalhes (descrição, anexos e histórico).',
+      '• Atualizar status e registrar observações (ex.: pendências ou aprovação).',
+      '• Exportar relatório (CSV) com os filtros atuais.',
+      '',
+      'Como funciona para o usuário:',
+      '• Reembolso: precisa anexar pelo menos 1 comprovante (PDF/JPG/PNG).',
+      '• Adiantamento: não exige valor nem anexo; é um pedido de adiantamento para análise.',
+      '',
+      'Boas práticas:',
+      '• Use “Observação” para orientar o colaborador sobre o que falta (ex.: comprovante ilegível, data divergente).',
+      '• Mantenha o status atualizado (Enviado → Em análise → Aprovado/Reprovado → Pago/Cancelado) para evitar retrabalho.'
+    ].join('\n'),
+  },
   'studylab-oracle': {
     title: 'StudyLab (Catálogo)',
     body: [

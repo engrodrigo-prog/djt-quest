@@ -345,12 +345,15 @@ export default function FinanceRequests() {
       </div>
 
       <Dialog open={newOpen} onOpenChange={(o) => { setNewOpen(o); if (!o) resetForm(); }}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Nova solicitação</DialogTitle>
-            <DialogDescription>Preencha os dados e envie sua solicitação.</DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-3">
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-hidden flex flex-col p-0">
+          <div className="px-6 pt-6">
+            <DialogHeader>
+              <DialogTitle>Nova solicitação</DialogTitle>
+              <DialogDescription>Preencha os dados e envie sua solicitação.</DialogDescription>
+            </DialogHeader>
+          </div>
+          <div className="flex-1 overflow-y-auto px-6 pb-4">
+            <div className="grid gap-3 pt-3">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <Label>Empresa</Label>
@@ -471,14 +474,28 @@ export default function FinanceRequests() {
                 </p>
               </div>
             ) : null}
+            </div>
+          </div>
 
-            <div className="flex justify-end gap-2 pt-2">
-              <Button type="button" variant="outline" onClick={() => setNewOpen(false)}>
-                Cancelar
-              </Button>
-              <Button type="button" onClick={submitNew} disabled={submitting || !canUse}>
-                {submitting ? "Enviando..." : "Enviar"}
-              </Button>
+          <div className="px-6 py-4 border-t bg-background">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div className="text-[11px] text-muted-foreground">
+                {form.requestKind === "Reembolso"
+                  ? `Anexos: ${attachmentItems.length} arquivo(s)${attachmentsUploading ? " (enviando...)" : ""}`
+                  : "Adiantamento: sem valor e sem anexo."}
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button type="button" variant="outline" onClick={() => setNewOpen(false)}>
+                  Cancelar
+                </Button>
+                <Button
+                  type="button"
+                  onClick={submitNew}
+                  disabled={submitting || attachmentsUploading || !canUse}
+                >
+                  {submitting ? "Enviando..." : "Enviar"}
+                </Button>
+              </div>
             </div>
           </div>
         </DialogContent>
@@ -593,4 +610,3 @@ export default function FinanceRequests() {
     </div>
   );
 }
-
