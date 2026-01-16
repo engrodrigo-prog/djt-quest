@@ -25,6 +25,7 @@ import { ChallengeManagement } from '@/components/ChallengeManagement';
 import { StudyLab } from '@/components/StudyLab';
 import { StudioMaintenance } from '@/components/StudioMaintenance';
 import { ReportsHub } from '@/components/ReportsHub';
+import { FinanceRequestsManagement } from '@/components/FinanceRequestsManagement';
 import { useI18n } from '@/contexts/I18nContext';
 
 const Studio = () => {
@@ -50,7 +51,9 @@ const Studio = () => {
     const moduleParam = (params.get('module') || '').trim();
     if (!moduleParam) return;
 
-    const allowed = new Set([
+    const allowed = userRole === 'analista_financeiro'
+      ? new Set(['finance'])
+      : new Set([
       'content',
       'campaigns',
       'campaigns-manage',
@@ -68,6 +71,7 @@ const Studio = () => {
       'forums',
       'forums-manage',
       'reports',
+      'finance',
       'system',
       'admin',
     ]);
@@ -145,6 +149,8 @@ const Studio = () => {
         return <ForumManagement />;
       case 'reports':
         return <ReportsHub />;
+      case 'finance':
+        return <FinanceRequestsManagement />;
       case 'system':
         return <SystemHealthCheck />;
       case 'admin':

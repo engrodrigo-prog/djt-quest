@@ -45,3 +45,31 @@ Fluxo local (opcional):
 - `npm run build` (build produção)
 - `npm run preview` (preview)
 - Scripts utilitários em `scripts/`
+
+## Feature: Reembolso / Adiantamento
+
+- UI (usuário): Perfil → botão `Solicitar Reembolso/Adiantamento` (rota ` /finance`)
+- UI (analista/líder/admin): Studio → módulo `Reembolso & Adiantamento`
+- API:
+  - `GET/POST /api/finance-requests` (listar/criar próprias)
+  - `GET/PATCH /api/finance-request` (detalhes/cancelar)
+  - `GET/PATCH /api/finance-requests-admin` (listar/export/status)
+- Storage: anexos sobem no bucket `forum-attachments` (prefixo `finance-requests/`)
+
+### Variáveis de ambiente (essenciais)
+
+- `SUPABASE_URL`
+- `SUPABASE_ANON_KEY` (ou `VITE_SUPABASE_ANON_KEY` / `VITE_SUPABASE_PUBLISHABLE_KEY`)
+- `SUPABASE_SERVICE_ROLE_KEY` (necessário para APIs server-side e scripts)
+
+### Seed (opcional)
+
+```sh
+SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node scripts/seed-finance-requests.mjs --email user@empresa.com
+```
+
+### Testes (mínimos)
+
+```sh
+npm test
+```

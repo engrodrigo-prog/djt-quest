@@ -9,6 +9,7 @@ import {
   ClipboardCheck,
   AlertCircle,
   Trash2,
+  Banknote,
 } from "lucide-react";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -150,6 +151,14 @@ export const StudioDashboard = ({ onSelectModule, userRole }: StudioDashboardPro
       gradientTo: 'to-sky-900',
     },
     {
+      id: 'finance',
+      title: 'Reembolso & Adiantamento',
+      description: 'Gerenciar solicitações e exportar relatórios',
+      icon: Banknote,
+      gradientFrom: 'from-emerald-600',
+      gradientTo: 'to-slate-900',
+    },
+    {
       id: 'system',
       title: 'Sistema',
       description: 'Diagnóstico e status do sistema',
@@ -179,7 +188,12 @@ export const StudioDashboard = ({ onSelectModule, userRole }: StudioDashboardPro
   const visibleModules = modules.filter(
     (module) => !module.requiredRole || module.requiredRole === userRole || userRole === 'admin'
   );
-  const finalModules = userRole === 'content_curator' ? visibleModules.filter((m) => m.id === 'curation') : visibleModules;
+  const finalModules =
+    userRole === 'content_curator'
+      ? visibleModules.filter((m) => m.id === 'curation')
+      : userRole === 'analista_financeiro'
+      ? visibleModules.filter((m) => m.id === 'finance')
+      : visibleModules;
 
   return (
     <div className="min-h-screen bg-background text-foreground p-4 md:p-8">

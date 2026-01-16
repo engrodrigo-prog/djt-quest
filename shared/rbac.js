@@ -12,6 +12,7 @@ export const ROLE = Object.freeze({
   DIV_MANAGER: 'gerente_divisao_djtx',
   COORD: 'coordenador_djtx',
   TEAM_LEADER: 'lider_equipe',
+  FINANCE_ANALYST: 'analista_financeiro',
   COLLAB: 'colaborador',
   INVITED: 'invited',
   CONTENT_CURATOR: 'content_curator',
@@ -33,6 +34,7 @@ export const STUDIO_ALLOWED_ROLES = Object.freeze([
   'gerente',
   ROLE.TEAM_LEADER,
   ROLE.CONTENT_CURATOR,
+  ROLE.FINANCE_ANALYST,
 ]);
 
 export function normalizeRole(raw) {

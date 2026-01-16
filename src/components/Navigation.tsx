@@ -44,7 +44,7 @@ const Navigation = () => {
   const notifTotalRef = useRef<number | null>(null);
   const [navHidden, setNavHidden] = useState(false);
   const [navExpanded, setNavExpanded] = useState(false);
-  const showEvaluations = Boolean(studioAccess || evalBadge > 0);
+  const showEvaluations = Boolean(isLeader || evalBadge > 0);
 
   useEffect(() => {
     playSfxRef.current = playSfx;

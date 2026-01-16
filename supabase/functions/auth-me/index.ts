@@ -111,6 +111,7 @@ Deno.serve(async (req) => {
       'coordenador_djtx',
       'coordenador',
       'lider_equipe',
+      'analista_financeiro',
       'content_curator',
       'colaborador',
       'invited',
@@ -150,8 +151,9 @@ Deno.serve(async (req) => {
     // Guests can be granted "curation-only" Studio access via profile flag.
     const invitedCurator = Boolean(profile?.studio_access) && userRoles.includes('invited');
     const hasContentCurator = userRoles.includes('content_curator') || invitedCurator;
+    const hasFinanceAnalyst = userRoles.includes('analista_financeiro');
     const isLeader = Boolean(profile?.is_leader) || privilegedRoles.has(role);
-    const studioAccess = Boolean(profile?.studio_access) || privilegedRoles.has(role) || hasContentCurator;
+    const studioAccess = Boolean(profile?.studio_access) || privilegedRoles.has(role) || hasContentCurator || hasFinanceAnalyst;
 
     // If this is an invited curator (no explicit role), treat primary role as content_curator
     // to keep the UX consistent (Studio redirects straight to /studio/curadoria).

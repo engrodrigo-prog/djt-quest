@@ -93,7 +93,7 @@ interface UserBadge {
 }
 
 function ProfileContent() {
-  const { user, refreshUserSession, profile: authProfile, isLeader } = useAuth();
+  const { user, refreshUserSession, profile: authProfile, isLeader, roles } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -430,6 +430,16 @@ function ProfileContent() {
 
   const activeAvatarUrl = profile.avatar_url || profile.avatar_thumbnail_url || undefined;
 
+  const canUseFinance = useMemo(() => {
+    const list: string[] = Array.isArray(roles) ? roles : [];
+    const p = authProfile || {};
+    const isGuest =
+      list.includes('invited') ||
+      String(p?.sigla_area || '').trim().toUpperCase() === 'CONVIDADOS' ||
+      String(p?.operational_base || '').trim().toUpperCase() === 'CONVIDADOS';
+    return Boolean(user?.id) && !isGuest;
+  }, [authProfile, roles, user?.id]);
+
   const tierInfo = getTierInfo(profile.tier);
   const nextLevel = getNextTierLevel(profile.tier, profile.xp);
   const xpProgress = tierInfo ? ((profile.xp - tierInfo.xpMin) / (tierInfo.xpMax - tierInfo.xpMin)) * 100 : 0;
@@ -565,6 +575,13 @@ function ProfileContent() {
                 <div>
                   <Button variant="outline" size="sm" onClick={() => navigate('/')}>Voltar à Página Inicial</Button>
                 </div>
+                {canUseFinance ? (
+                  <div>
+                    <Button variant="secondary" size="sm" onClick={() => navigate('/finance')}>
+                      Solicitar Reembolso/Adiantamento
+                    </Button>
+                  </div>
+                ) : null}
               </div>
             </div>
             <div className="space-y-2">

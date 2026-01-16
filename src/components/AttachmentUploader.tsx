@@ -9,6 +9,8 @@ import { cn } from "@/lib/utils";
 interface Attachment {
   id: string;
   file: File;
+  filePath?: string;
+  bucket?: string;
   preview?: string;
   uploading: boolean;
   uploaded: boolean;
@@ -17,13 +19,22 @@ interface Attachment {
   error?: string;
   meta?: {
     exifGps?: { lat: number; lng: number } | null;
+    exifCapturedAt?: string | null;
   };
 }
 
 interface AttachmentUploaderProps {
   onAttachmentsChange: (urls: string[]) => void;
   /** Optional: emit URL+meta (e.g. EXIF GPS) for uploaded items */
-  onAttachmentItemsChange?: (items: Array<{ url: string; meta?: Attachment["meta"] }>) => void;
+  onAttachmentItemsChange?: (items: Array<{
+    url: string;
+    storageBucket?: string;
+    storagePath?: string;
+    filename?: string;
+    contentType?: string;
+    sizeBytes?: number;
+    meta?: Attachment["meta"];
+  }>) => void;
   maxFiles?: number;
   /** Optional: max number of image files (by MIME) */
   maxImages?: number;
@@ -201,6 +212,28 @@ export const AttachmentUploader = ({
     }
   };
 
+  const extractCapturedAtFromImage = async (file: File): Promise<string | null> => {
+    try {
+      const t = String(file?.type || "");
+      if (!t.startsWith("image/")) return null;
+      const mod: any = await import("exifr");
+      const exifr: any = mod?.default || mod;
+      if (!exifr?.parse) return null;
+      const exif = await exifr.parse(file, { gps: false, exif: true }).catch(() => null);
+      const dt = exif?.DateTimeOriginal || exif?.CreateDate || exif?.ModifyDate || null;
+      if (!dt) return null;
+      try {
+        const d = new Date(dt);
+        if (Number.isNaN(d.getTime())) return null;
+        return d.toISOString();
+      } catch {
+        return null;
+      }
+    } catch {
+      return null;
+    }
+  };
+
   const maybeDownscaleImage = async (file: File): Promise<File> => {
     if (typeof document === 'undefined') return file;
     if (!file.type.startsWith('image/')) return file;
@@ -300,7 +333,7 @@ export const AttachmentUploader = ({
       .from(bucket)
       .getPublicUrl(filePath);
 
-    return { publicUrl, filePath };
+    return { publicUrl, filePath, bucket };
   };
 
   const handleFiles = useCallback(async (files: FileList | null) => {
@@ -344,6 +377,7 @@ export const AttachmentUploader = ({
 
       const preview = await createPreview(file);
       const exifGps = includeImageGpsMeta ? await extractGpsFromImage(file) : null;
+      const exifCapturedAt = includeImageGpsMeta ? await extractCapturedAtFromImage(file) : null;
       
       newAttachments.push({
         id: Math.random().toString(36),
@@ -352,7 +386,7 @@ export const AttachmentUploader = ({
         uploading: false,
         uploaded: false,
         progress: 0,
-        meta: includeImageGpsMeta ? { exifGps } : undefined,
+        meta: includeImageGpsMeta ? { exifGps, exifCapturedAt } : undefined,
       });
 
       if (file.type.startsWith('image/')) imagesCount += 1;
@@ -368,11 +402,11 @@ export const AttachmentUploader = ({
       ));
 
       try {
-        const { publicUrl } = await uploadFile(attachment);
+        const { publicUrl, filePath, bucket: storageBucket } = await uploadFile(attachment);
         
         setAttachments(prev => prev.map(a => 
           a.id === attachment.id 
-            ? { ...a, uploading: false, uploaded: true, progress: 100, url: publicUrl }
+            ? { ...a, uploading: false, uploaded: true, progress: 100, url: publicUrl, filePath, bucket: storageBucket }
             : a
         ));
       } catch (error) {
@@ -385,7 +419,7 @@ export const AttachmentUploader = ({
         toast.error(`Erro ao fazer upload de ${attachment.file.name}`);
       }
     }
-  }, [attachments, ensureVideoDurationOk, extractGpsFromImage, includeImageGpsMeta, maxFiles, maxImages, maxVideos, validateFile]);
+  }, [attachments, ensureVideoDurationOk, extractCapturedAtFromImage, extractGpsFromImage, includeImageGpsMeta, maxFiles, maxImages, maxVideos, validateFile]);
 
   // Atualizar callback quando anexos mudarem
   useEffect(() => {
@@ -407,12 +441,21 @@ export const AttachmentUploader = ({
     if (!cb) return;
     const items = attachments
       .filter((a) => a.uploaded && a.url)
-      .map((a) => ({ url: a.url as string, meta: a.meta }));
+      .map((a) => ({
+        url: a.url as string,
+        storageBucket: a.bucket,
+        storagePath: a.filePath,
+        filename: a.file?.name,
+        contentType: a.file?.type,
+        sizeBytes: a.file?.size,
+        meta: a.meta,
+      }));
     const key = items
       .map((i) => {
         const lat = i?.meta?.exifGps?.lat;
         const lng = i?.meta?.exifGps?.lng;
-        return `${i.url}|${lat ?? ""}|${lng ?? ""}`;
+        const dt = i?.meta?.exifCapturedAt || "";
+        return `${i.url}|${lat ?? ""}|${lng ?? ""}|${dt}`;
       })
       .join("\n");
     if (key === lastItemsKeyRef.current) return;

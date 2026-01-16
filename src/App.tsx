@@ -37,6 +37,7 @@ const SEPBook = lazy(() => import("./pages/SEPBookIG"));
 const SEPBookLegacy = lazy(() => import("./pages/SEPBook"));
 const CampaignDetail = lazy(() => import("./pages/CampaignDetail"));
 const Study = lazy(() => import("./pages/Study"));
+const FinanceRequests = lazy(() => import("./pages/FinanceRequests"));
 
 const queryClient = new QueryClient();
 // Compat: inclui roles legados (gerente/coordenador/lider_divisao) além dos atuais.
@@ -163,6 +164,11 @@ const App = () => (
                   <Route path="/study" element={
                     <ProtectedRoute>
                       <Study />
+                    </ProtectedRoute>
+                  } />
+                  <Route path="/finance" element={
+                    <ProtectedRoute>
+                      <FinanceRequests />
                     </ProtectedRoute>
                   } />
                   <Route path="/forum/:topicId" element={
