@@ -6,6 +6,7 @@ import {
   FINANCE_REQUEST_KINDS,
   FINANCE_STATUSES,
 } from './constants.js';
+import { parseBrlToCents } from './utils.js';
 
 const isoDate = z
   .string()
@@ -37,7 +38,7 @@ export const financeRequestCreateSchema = z
       .trim()
       .optional()
       .nullable()
-      .refine((v) => v == null || v === '' || /^[0-9]+([,.][0-9]{1,2})?$/.test(v), 'Valor inválido'),
+      .refine((v) => v == null || v === '' || parseBrlToCents(v) != null, 'Valor inválido'),
     attachments: z.array(attachmentItem).optional().nullable(),
   })
   .superRefine((data, ctx) => {
@@ -81,4 +82,3 @@ export const financeRequestAdminUpdateSchema = z.object({
   status: z.enum(FINANCE_STATUSES),
   observation: z.string().trim().max(2000).optional().nullable(),
 });
-

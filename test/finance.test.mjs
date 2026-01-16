@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import { financeRequestCreateSchema } from '../server/finance/schema.js';
 import { canManageFinanceRequests, isFinanceAnalyst } from '../server/finance/permissions.js';
+import { parseBrlToCents } from '../server/finance/utils.js';
 
 test('finance schema: reembolso requires amount and attachment', () => {
   const base = {
@@ -46,3 +47,10 @@ test('finance perms: analyst role can manage; collaborator cannot', () => {
   assert.equal(canManageFinanceRequests(['colaborador'], { name: 'X' }), false);
 });
 
+test('finance utils: parseBrlToCents accepts common formats', () => {
+  assert.equal(parseBrlToCents('123,45'), 12345);
+  assert.equal(parseBrlToCents('123.45'), 12345);
+  assert.equal(parseBrlToCents('1.234,56'), 123456);
+  assert.equal(parseBrlToCents('1,234.56'), 123456);
+  assert.equal(parseBrlToCents('1.234'), 123400);
+});

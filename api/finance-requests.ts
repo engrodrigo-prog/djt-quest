@@ -82,6 +82,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const expense_type = request_kind === 'Adiantamento' ? 'Adiantamento' : String(input.expenseType || '').trim();
     const amount_cents =
       request_kind === 'Adiantamento' ? null : parseBrlToCents(input.amountBrl) ?? null;
+    if (request_kind === 'Reembolso' && (!amount_cents || amount_cents <= 0)) {
+      return res.status(400).json({ error: 'Valor inválido. Use um valor em R$ (ex.: 123,45 ou 1.234,56).' });
+    }
 
     const insertPayload: any = {
       created_by: uid,
@@ -157,4 +160,3 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 }
 
 export const config = { api: { bodyParser: true } };
-

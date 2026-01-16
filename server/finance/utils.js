@@ -1,10 +1,49 @@
 export const parseBrlToCents = (raw) => {
-  const s = String(raw ?? '').trim();
+  const s0 = String(raw ?? '').trim();
+  if (!s0) return null;
+
+  // Keep only digits and separators ("," "."); reject negatives.
+  const s = s0.replace(/[^\d.,-]/g, '').trim();
   if (!s) return null;
-  const normalized = s.replace(/\./g, '').replace(',', '.');
-  const n = Number(normalized);
-  if (!Number.isFinite(n)) return null;
-  const cents = Math.round(n * 100);
+  if (s.includes('-')) return null;
+
+  const lastComma = s.lastIndexOf(',');
+  const lastDot = s.lastIndexOf('.');
+  const hasComma = lastComma >= 0;
+  const hasDot = lastDot >= 0;
+
+  // Decide decimal separator:
+  // - If both are present: last one is decimal.
+  // - If only one is present: it's decimal only if it has 1-2 digits after it.
+  let decimalSep = null;
+  if (hasComma && hasDot) {
+    decimalSep = lastComma > lastDot ? ',' : '.';
+  } else if (hasComma) {
+    const digitsAfter = s.length - lastComma - 1;
+    if (digitsAfter === 1 || digitsAfter === 2) decimalSep = ',';
+  } else if (hasDot) {
+    const digitsAfter = s.length - lastDot - 1;
+    if (digitsAfter === 1 || digitsAfter === 2) decimalSep = '.';
+  }
+
+  let integerPart = s;
+  let fracPart = '';
+  if (decimalSep) {
+    const idx = s.lastIndexOf(decimalSep);
+    integerPart = s.slice(0, idx);
+    fracPart = s.slice(idx + 1);
+  }
+
+  const integerDigits = integerPart.replace(/\D/g, '');
+  const fracDigits = fracPart.replace(/\D/g, '');
+  if (fracDigits.length > 2) return null;
+
+  const whole = Number(integerDigits || '0');
+  if (!Number.isFinite(whole)) return null;
+  const frac = Number((fracDigits || '').padEnd(2, '0') || '0');
+  if (!Number.isFinite(frac)) return null;
+
+  const cents = whole * 100 + frac;
   if (!Number.isFinite(cents)) return null;
   return cents;
 };
@@ -43,4 +82,3 @@ export const tryParseStorageFromPublicUrl = (params) => {
   const path = rest.slice(idx + 1);
   return { bucket: bucket || null, path: path || null };
 };
-

@@ -45,6 +45,18 @@ type AttachmentItem = {
   meta?: any;
 };
 
+const EMPTY_FORM = {
+  company: "",
+  trainingOperational: "",
+  requestKind: "",
+  expenseType: "",
+  coordination: "",
+  dateStart: "",
+  dateEnd: "",
+  description: "",
+  amountBrl: "",
+} as const;
+
 const isGuestTeamId = (raw: any) => String(raw || "").trim().toUpperCase() === "CONVIDADOS";
 const isGuestProfile = (p: any, roles: string[] = []) =>
   roles.includes("invited") || isGuestTeamId(p?.sigla_area) || isGuestTeamId(p?.operational_base);
@@ -72,17 +84,7 @@ export default function FinanceRequests() {
   const [submitting, setSubmitting] = useState(false);
   const [attachmentsUploading, setAttachmentsUploading] = useState(false);
   const [attachmentItems, setAttachmentItems] = useState<AttachmentItem[]>([]);
-  const [form, setForm] = useState({
-    company: FINANCE_COMPANIES[0],
-    trainingOperational: "Não",
-    requestKind: FINANCE_REQUEST_KINDS[0],
-    expenseType: FINANCE_EXPENSE_TYPES[0],
-    coordination: FINANCE_COORDINATIONS[0],
-    dateStart: "",
-    dateEnd: "",
-    description: "",
-    amountBrl: "",
-  });
+  const [form, setForm] = useState({ ...EMPTY_FORM });
 
   const canUse = useMemo(() => {
     const roleList = Array.isArray(roles) ? roles : [];
@@ -133,17 +135,7 @@ export default function FinanceRequests() {
   }, [toast]);
 
   const resetForm = () => {
-    setForm({
-      company: FINANCE_COMPANIES[0],
-      trainingOperational: "Não",
-      requestKind: FINANCE_REQUEST_KINDS[0],
-      expenseType: FINANCE_EXPENSE_TYPES[0],
-      coordination: FINANCE_COORDINATIONS[0],
-      dateStart: "",
-      dateEnd: "",
-      description: "",
-      amountBrl: "",
-    });
+    setForm({ ...EMPTY_FORM });
     setAttachmentItems([]);
     setAttachmentsUploading(false);
   };
@@ -151,6 +143,22 @@ export default function FinanceRequests() {
   const submitNew = async () => {
     if (!canUse) return;
     if (submitting) return;
+    if (!form.company) {
+      toast({ title: "Empresa obrigatória", variant: "destructive" });
+      return;
+    }
+    if (!form.trainingOperational) {
+      toast({ title: "Treinamento Operacional obrigatório", variant: "destructive" });
+      return;
+    }
+    if (!form.requestKind) {
+      toast({ title: "Tipo Solicitação obrigatório", variant: "destructive" });
+      return;
+    }
+    if (!form.coordination) {
+      toast({ title: "Coordenação obrigatória", variant: "destructive" });
+      return;
+    }
     if (!form.dateStart) {
       toast({ title: "Data Início obrigatória", variant: "destructive" });
       return;
@@ -164,6 +172,10 @@ export default function FinanceRequests() {
       return;
     }
     if (form.requestKind === "Reembolso") {
+      if (!form.expenseType) {
+        toast({ title: "Tipo obrigatório", description: "Selecione o tipo do reembolso.", variant: "destructive" });
+        return;
+      }
       if (!form.amountBrl.trim()) {
         toast({ title: "Valor obrigatório", variant: "destructive" });
         return;
@@ -202,7 +214,14 @@ export default function FinanceRequests() {
         body: JSON.stringify(payload),
       });
       const json = await resp.json().catch(() => ({}));
-      if (!resp.ok) throw new Error(json?.error || "Falha ao enviar solicitação");
+      if (!resp.ok) {
+        const fieldErrors = json?.details?.fieldErrors;
+        const firstFieldError = fieldErrors && typeof fieldErrors === "object"
+          ? Object.values(fieldErrors).flat()?.[0]
+          : null;
+        const message = json?.error || "Falha ao enviar solicitação";
+        throw new Error(firstFieldError ? `${message}: ${String(firstFieldError)}` : message);
+      }
       toast({ title: "Solicitação enviada", description: `Protocolo: ${json?.request?.protocol || "—"}` });
       setNewOpen(false);
       resetForm();
@@ -358,7 +377,7 @@ export default function FinanceRequests() {
               <div>
                 <Label>Empresa</Label>
                 <Select value={form.company} onValueChange={(v) => setForm((p) => ({ ...p, company: v as any }))}>
-                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="mt-1"><SelectValue placeholder="Selecione" /></SelectTrigger>
                   <SelectContent>
                     {FINANCE_COMPANIES.map((c) => (<SelectItem key={c} value={c}>{c}</SelectItem>))}
                   </SelectContent>
@@ -367,7 +386,7 @@ export default function FinanceRequests() {
               <div>
                 <Label>Treinamento Operacional</Label>
                 <Select value={form.trainingOperational} onValueChange={(v) => setForm((p) => ({ ...p, trainingOperational: v }))}>
-                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="mt-1"><SelectValue placeholder="Selecione" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="Não">Não</SelectItem>
                     <SelectItem value="Sim">Sim</SelectItem>
@@ -385,13 +404,13 @@ export default function FinanceRequests() {
                     setForm((p) => ({
                       ...p,
                       requestKind: v as any,
-                      expenseType: v === "Adiantamento" ? "Adiantamento" : FINANCE_EXPENSE_TYPES[0],
+                      expenseType: v === "Adiantamento" ? "Adiantamento" : "",
                       amountBrl: v === "Adiantamento" ? "" : p.amountBrl,
                     }));
                     if (v === "Adiantamento") setAttachmentItems([]);
                   }}
                 >
-                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="mt-1"><SelectValue placeholder="Selecione" /></SelectTrigger>
                   <SelectContent>
                     {FINANCE_REQUEST_KINDS.map((k) => (<SelectItem key={k} value={k}>{k}</SelectItem>))}
                   </SelectContent>
@@ -402,16 +421,21 @@ export default function FinanceRequests() {
                 <div>
                   <Label>Tipo</Label>
                   <Select value={form.expenseType} onValueChange={(v) => setForm((p) => ({ ...p, expenseType: v as any }))}>
-                    <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                    <SelectTrigger className="mt-1"><SelectValue placeholder="Selecione" /></SelectTrigger>
                     <SelectContent>
                       {FINANCE_EXPENSE_TYPES.map((t) => (<SelectItem key={t} value={t}>{t}</SelectItem>))}
                     </SelectContent>
                   </Select>
                 </div>
-              ) : (
+              ) : form.requestKind === "Adiantamento" ? (
                 <div className="rounded-md border p-3 bg-muted/20">
                   <div className="text-[12px] font-medium">Adiantamento</div>
                   <div className="text-[11px] text-muted-foreground">Valor e anexo não são necessários.</div>
+                </div>
+              ) : (
+                <div className="rounded-md border p-3 bg-muted/10">
+                  <div className="text-[12px] font-medium">Selecione o tipo</div>
+                  <div className="text-[11px] text-muted-foreground">Escolha “Reembolso” ou “Adiantamento” para continuar.</div>
                 </div>
               )}
             </div>
@@ -419,7 +443,7 @@ export default function FinanceRequests() {
             <div>
               <Label>Coordenação</Label>
               <Select value={form.coordination} onValueChange={(v) => setForm((p) => ({ ...p, coordination: v as any }))}>
-                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="mt-1"><SelectValue placeholder="Selecione" /></SelectTrigger>
                 <SelectContent>
                   {FINANCE_COORDINATIONS.map((c) => (<SelectItem key={c} value={c}>{c}</SelectItem>))}
                 </SelectContent>
@@ -482,7 +506,9 @@ export default function FinanceRequests() {
               <div className="text-[11px] text-muted-foreground">
                 {form.requestKind === "Reembolso"
                   ? `Anexos: ${attachmentItems.length} arquivo(s)${attachmentsUploading ? " (enviando...)" : ""}`
-                  : "Adiantamento: sem valor e sem anexo."}
+                  : form.requestKind === "Adiantamento"
+                  ? "Adiantamento: sem valor e sem anexo."
+                  : "Preencha os campos para habilitar o envio."}
               </div>
               <div className="flex justify-end gap-2">
                 <Button type="button" variant="outline" onClick={() => setNewOpen(false)}>
