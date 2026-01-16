@@ -336,6 +336,26 @@ const isVideoUrl = (url: string) => {
   return /\.(mp4|webm|mov)(\?|#|$)/i.test(u);
 };
 
+const normalizeAttachmentUrls = (raw: any): string[] => {
+  if (Array.isArray(raw)) {
+    return raw.map((x) => String(x || "").trim()).filter(Boolean);
+  }
+  if (typeof raw === "string") {
+    const v = raw.trim();
+    if (!v) return [];
+    if (v.startsWith("[")) {
+      try {
+        const parsed = JSON.parse(v);
+        if (Array.isArray(parsed)) return parsed.map((x) => String(x || "").trim()).filter(Boolean);
+      } catch {
+        // ignore
+      }
+    }
+    return [v];
+  }
+  return [];
+};
+
 const clampLatLng = (lat: number, lng: number) => {
   const la = Number(lat);
   const ln = Number(lng);
@@ -668,6 +688,10 @@ export default function SEPBookIG() {
   const { user, isLeader, studioAccess, userRole, roles } = useAuth() as any;
   const { locale, t: tr } = useI18n();
   const isAdmin = (Array.isArray(roles) && roles.includes("admin")) || (typeof userRole === "string" && userRole.includes("admin"));
+  const isMod =
+    isAdmin ||
+    (Array.isArray(roles) &&
+      roles.some((r) => ["admin", "gerente_djt", "gerente_divisao_djtx", "coordenador_djtx"].includes(String(r || ""))));
   const canGiveFeedback = Boolean(isLeader || studioAccess || isAdmin);
   const [myProfile, setMyProfile] = useState<MapProfile | null>(null);
 
@@ -1622,7 +1646,7 @@ export default function SEPBookIG() {
       setEditingPostId(post.id);
       setEditingPostText(String(post.content_md || ""));
       setEditingPostUploading(false);
-      const urls = Array.isArray(post.attachments) ? post.attachments : [];
+      const urls = normalizeAttachmentUrls((post as any).attachments);
       setEditingPostMedia(
         urls
           .map((u) => String(u || "").trim())
@@ -2932,17 +2956,19 @@ export default function SEPBookIG() {
                         >
                           {tr("sepbook.copyLink")}
                         </DropdownMenuItem>
-                        {p.user_id === user?.id ? (
+                        {p.user_id === user?.id || isMod ? (
                           <>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem onClick={() => startEditPost(p)}>
                               <Pencil className="h-4 w-4 mr-2" />
                               {tr("sepbook.edit")}
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => void deletePost(p)}>
-                              <Trash2 className="h-4 w-4 mr-2" />
-                              Excluir publicação
-                            </DropdownMenuItem>
+                            {p.user_id === user?.id ? (
+                              <DropdownMenuItem onClick={() => void deletePost(p)}>
+                                <Trash2 className="h-4 w-4 mr-2" />
+                                Excluir publicação
+                              </DropdownMenuItem>
+                            ) : null}
                           </>
                         ) : null}
                         {canGiveFeedback && p.user_id !== user?.id && (

@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -92,6 +92,44 @@ interface UserBadge {
   };
 }
 
+const TIER_OFFSETS = (() => {
+  let acc = 0;
+  const map = new Map<string, number>();
+  TIER_CONFIG.tiers.forEach((tier) => {
+    map.set(tier.slug, acc);
+    // Soma até o maior xpMax finito; se não houver, usa o maior xpMin como fallback
+    const finiteMax = tier.levels.reduce((max, lvl) => {
+      return Number.isFinite(lvl.xpMax) ? Math.max(max, lvl.xpMax as number) : max;
+    }, 0);
+    const fallbackMax = tier.levels.reduce((max, lvl) => Math.max(max, lvl.xpMin), 0);
+    const spanBase = finiteMax > 0 ? finiteMax + 1 : fallbackMax;
+    acc += spanBase;
+  });
+  return map;
+})();
+
+const calcXpByCategory = (events: any[]) => {
+  const buckets: Record<string, number> = {};
+  (events || []).forEach((e) => {
+    const points = Number((e as any)?.final_points ?? e.points_calculated ?? 0);
+    if (!points || isNaN(points)) return;
+    const type = (e.challenge?.type || '').toLowerCase();
+    let key = 'outros';
+    if (type.includes('forum')) key = 'fórum';
+    else if (type.includes('quiz')) key = 'quiz';
+    else if (type.includes('desafio') || type.includes('challenge')) key = 'desafio';
+    else if (type.includes('campanha') || type.includes('campaign')) key = 'campanha';
+    else if (type.includes('sepbook')) key = 'sepbook';
+    buckets[key] = (buckets[key] || 0) + points;
+  });
+  const entries = Object.entries(buckets)
+    .sort((a, b) => b[1] - a[1])
+    .map(([label, value]) => ({ label, value }));
+  const total = entries.reduce((acc, cur) => acc + cur.value, 0);
+  const max = entries.reduce((acc, cur) => Math.max(acc, cur.value), 0) || 1;
+  return { entries, total, max };
+};
+
 function ProfileContent() {
   const { user, refreshUserSession, profile: authProfile, isLeader, roles } = useAuth();
   const { toast } = useToast();
@@ -143,44 +181,6 @@ function ProfileContent() {
       cancelled = true;
     };
   }, []);
-
-  const tierOffsets = useMemo(() => {
-    let acc = 0;
-    const map = new Map<string, number>();
-    TIER_CONFIG.tiers.forEach((tier) => {
-      map.set(tier.slug, acc);
-      // Soma até o maior xpMax finito; se não houver, usa o maior xpMin como fallback
-      const finiteMax = tier.levels.reduce((max, lvl) => {
-        return Number.isFinite(lvl.xpMax) ? Math.max(max, lvl.xpMax as number) : max;
-      }, 0);
-      const fallbackMax = tier.levels.reduce((max, lvl) => Math.max(max, lvl.xpMin), 0);
-      const spanBase = finiteMax > 0 ? finiteMax + 1 : fallbackMax;
-      acc += spanBase;
-    });
-    return map;
-  }, []);
-
-  const xpByCategory = useMemo(() => {
-    const buckets: Record<string, number> = {};
-    events.forEach((e) => {
-      const points = Number((e as any)?.final_points ?? e.points_calculated ?? 0);
-      if (!points || isNaN(points)) return;
-      const type = (e.challenge?.type || '').toLowerCase();
-      let key = 'outros';
-      if (type.includes('forum')) key = 'fórum';
-      else if (type.includes('quiz')) key = 'quiz';
-      else if (type.includes('desafio') || type.includes('challenge')) key = 'desafio';
-      else if (type.includes('campanha') || type.includes('campaign')) key = 'campanha';
-      else if (type.includes('sepbook')) key = 'sepbook';
-      buckets[key] = (buckets[key] || 0) + points;
-    });
-    const entries = Object.entries(buckets)
-      .sort((a, b) => b[1] - a[1])
-      .map(([label, value]) => ({ label, value }));
-    const total = entries.reduce((acc, cur) => acc + cur.value, 0);
-    const max = entries.reduce((acc, cur) => Math.max(acc, cur.value), 0) || 1;
-    return { entries, total, max };
-  }, [events]);
 
   // Loader we can reuse (initial + manual retry)
   const loadProfile = useCallback(async () => {
@@ -399,7 +399,7 @@ function ProfileContent() {
     }
   };
 
-  const canUseFinance = useMemo(() => {
+  const canUseFinance = (() => {
     const list: string[] = Array.isArray(roles) ? roles : [];
     const p = authProfile || {};
     const isGuest =
@@ -407,7 +407,7 @@ function ProfileContent() {
       String(p?.sigla_area || '').trim().toUpperCase() === 'CONVIDADOS' ||
       String(p?.operational_base || '').trim().toUpperCase() === 'CONVIDADOS';
     return Boolean(user?.id) && !isGuest;
-  }, [authProfile, roles, user?.id]);
+  })();
 
   if (loading) {
     return (
@@ -445,6 +445,7 @@ function ProfileContent() {
   const xpProgress = tierInfo ? ((profile.xp - tierInfo.xpMin) / (tierInfo.xpMax - tierInfo.xpMin)) * 100 : 0;
   const completedEvents = events.filter(e => e.status === 'approved').length;
   const pendingEvents = events.filter(e => e.status === 'submitted').length;
+  const xpByCategory = calcXpByCategory(events);
 
   // Calculate learning stats
   const evaluatedEvents = events.filter(e => e.evaluation && (e.status === 'approved' || e.status === 'rejected'));
@@ -910,7 +911,7 @@ function ProfileContent() {
             </div>
           )}
           {TIER_CONFIG.tiers.map((tier) => {
-            const offset = tierOffsets.get(tier.slug) || 0;
+            const offset = TIER_OFFSETS.get(tier.slug) || 0;
             return (
               <div key={tier.slug} className="space-y-2">
                 <p className="text-sm font-semibold">
