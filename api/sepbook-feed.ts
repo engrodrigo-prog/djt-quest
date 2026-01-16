@@ -65,15 +65,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id) ? id : "";
     })();
 
+    const postKindParam = (() => {
+      const v = (req.query as any)?.post_kind ?? (req.query as any)?.kind;
+      const s = Array.isArray(v) ? v[0] : v;
+      const k = String(s || "").trim().toLowerCase();
+      if (k === "normal" || k === "ocorrencia") return k;
+      return "";
+    })();
+
     let posts: any[] = [];
     try {
       const baseSelect = `
-          id, user_id, content_md, attachments, translations, like_count, comment_count, created_at, location_label, location_lat, location_lng, campaign_id, challenge_id, group_label,
+          id, user_id, post_kind, content_md, attachments, translations, like_count, comment_count, created_at, location_label, location_lat, location_lng, campaign_id, challenge_id, group_label,
           participants:sepbook_post_participants(user_id, profiles(id, name, sigla_area))
         `;
 
       const baseSelectNoTranslations = `
-          id, user_id, content_md, attachments, like_count, comment_count, created_at, location_label, location_lat, location_lng, campaign_id, challenge_id, group_label,
+          id, user_id, post_kind, content_md, attachments, like_count, comment_count, created_at, location_label, location_lat, location_lng, campaign_id, challenge_id, group_label,
           participants:sepbook_post_participants(user_id, profiles(id, name, sigla_area))
         `;
 
@@ -82,7 +90,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           ${baseSelect},
           repost_of,
           repost:sepbook_posts!sepbook_posts_repost_of_fkey(
-            id, user_id, content_md, attachments, translations, like_count, comment_count, created_at, location_label, location_lat, location_lng, campaign_id, challenge_id, group_label
+            id, user_id, post_kind, content_md, attachments, translations, like_count, comment_count, created_at, location_label, location_lat, location_lng, campaign_id, challenge_id, group_label
           )
         `;
 
@@ -90,16 +98,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           ${baseSelectNoTranslations},
           repost_of,
           repost:sepbook_posts!sepbook_posts_repost_of_fkey(
-            id, user_id, content_md, attachments, like_count, comment_count, created_at, location_label, location_lat, location_lng, campaign_id, challenge_id, group_label
+            id, user_id, post_kind, content_md, attachments, like_count, comment_count, created_at, location_label, location_lat, location_lng, campaign_id, challenge_id, group_label
           )
         `;
 
       const minimalSelect = `
-          id, user_id, content_md, attachments, translations, like_count, comment_count, created_at, location_label, location_lat, location_lng, campaign_id, challenge_id, group_label, repost_of
+          id, user_id, post_kind, content_md, attachments, translations, like_count, comment_count, created_at, location_label, location_lat, location_lng, campaign_id, challenge_id, group_label, repost_of
         `;
 
       const minimalSelectNoTranslations = `
-          id, user_id, content_md, attachments, like_count, comment_count, created_at, location_label, location_lat, location_lng, campaign_id, challenge_id, group_label, repost_of
+          id, user_id, post_kind, content_md, attachments, like_count, comment_count, created_at, location_label, location_lat, location_lng, campaign_id, challenge_id, group_label, repost_of
         `;
 
       let data: any[] | null = null;
@@ -108,6 +116,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (postIdParam) {
         attemptQuery = attemptQuery.eq("id", postIdParam).limit(1);
       } else {
+        if (postKindParam) attemptQuery = attemptQuery.eq("post_kind", postKindParam);
         attemptQuery = attemptQuery.order("created_at", { ascending: false }).limit(50);
       }
       const attempt = await attemptQuery;
@@ -118,6 +127,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (postIdParam) {
           retryQuery = retryQuery.eq("id", postIdParam).limit(1);
         } else {
+          if (postKindParam) retryQuery = retryQuery.eq("post_kind", postKindParam);
           retryQuery = retryQuery.order("created_at", { ascending: false }).limit(50);
         }
         const retry = await retryQuery;
@@ -129,6 +139,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (postIdParam) {
           fallbackQuery = fallbackQuery.eq("id", postIdParam).limit(1);
         } else {
+          if (postKindParam) fallbackQuery = fallbackQuery.eq("post_kind", postKindParam);
           fallbackQuery = fallbackQuery.order("created_at", { ascending: false }).limit(50);
         }
         const fallback = await fallbackQuery;
@@ -140,6 +151,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (postIdParam) {
           fallbackQuery = fallbackQuery.eq("id", postIdParam).limit(1);
         } else {
+          if (postKindParam) fallbackQuery = fallbackQuery.eq("post_kind", postKindParam);
           fallbackQuery = fallbackQuery.order("created_at", { ascending: false }).limit(50);
         }
         const fallback = await fallbackQuery;
@@ -154,6 +166,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (postIdParam) {
           fallback2Query = fallback2Query.eq("id", postIdParam).limit(1);
         } else {
+          if (postKindParam) fallback2Query = fallback2Query.eq("post_kind", postKindParam);
           fallback2Query = fallback2Query.order("created_at", { ascending: false }).limit(50);
         }
         const fallback2 = await fallback2Query;
@@ -169,6 +182,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (postIdParam) {
           fallback2Query = fallback2Query.eq("id", postIdParam).limit(1);
         } else {
+          if (postKindParam) fallback2Query = fallback2Query.eq("post_kind", postKindParam);
           fallback2Query = fallback2Query.order("created_at", { ascending: false }).limit(50);
         }
         const fallback2 = await fallback2Query;

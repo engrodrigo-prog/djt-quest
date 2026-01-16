@@ -72,6 +72,7 @@ L.Icon.Default.mergeOptions({
 type SepPost = {
   id: string;
   user_id: string;
+  post_kind?: "normal" | "ocorrencia" | string | null;
   author_name: string;
   author_team: string | null;
   author_avatar: string | null;
@@ -89,6 +90,9 @@ type SepPost = {
   campaign?: { id: string; title: string | null; is_active?: boolean } | null;
   has_liked: boolean;
 };
+
+type SepPostKind = "normal" | "ocorrencia";
+type SepPostKindFilter = "all" | SepPostKind;
 
 type SepComment = {
   id: string;
@@ -748,6 +752,7 @@ export default function SEPBookIG() {
   const [filterMine, setFilterMine] = useState(false);
   const [filterUserId, setFilterUserId] = useState<string | null>(null);
   const [filterCampaignId, setFilterCampaignId] = useState<string | null>(null);
+  const [filterPostKind, setFilterPostKind] = useState<SepPostKindFilter>("all");
   const [authorPickerOpen, setAuthorPickerOpen] = useState(false);
   const [authorQuery, setAuthorQuery] = useState("");
   const [campaignPickerOpen, setCampaignPickerOpen] = useState(false);
@@ -776,6 +781,7 @@ export default function SEPBookIG() {
   const composerCampaigns = useCampaignSuggest(composerCampaignQuery);
   const [composerCampaignId, setComposerCampaignId] = useState<string | null>(null);
   const [composerCampaignLabel, setComposerCampaignLabel] = useState<string | null>(null);
+  const [composerPostKind, setComposerPostKind] = useState<SepPostKind>("normal");
   const [composerMedia, setComposerMedia] = useState<MediaItem[]>([]);
   const [composerUploading, setComposerUploading] = useState(false);
   const [composerSubmitting, setComposerSubmitting] = useState(false);
@@ -788,6 +794,7 @@ export default function SEPBookIG() {
   const [editingPostMentionQuery, setEditingPostMentionQuery] = useState("");
   const editingPostMentions = useMentionSuggest(editingPostMentionQuery);
   const [editingPostSaving, setEditingPostSaving] = useState(false);
+  const [editingPostKind, setEditingPostKind] = useState<SepPostKind>("normal");
   const [editingPostMedia, setEditingPostMedia] = useState<MediaItem[]>([]);
   const [editingPostUploading, setEditingPostUploading] = useState(false);
   const editingPostCameraRef = useRef<HTMLInputElement | null>(null);
@@ -902,6 +909,11 @@ export default function SEPBookIG() {
     };
   }, [campaignPickerOpen, campaignQuery]);
 
+  const normalizePostKind = useCallback((raw: any): SepPostKind => {
+    const k = String(raw || "").trim().toLowerCase();
+    return k === "ocorrencia" ? "ocorrencia" : "normal";
+  }, []);
+
   const visiblePosts = useMemo(() => {
     const uid = user?.id || null;
     let items = posts.slice();
@@ -912,6 +924,9 @@ export default function SEPBookIG() {
     }
     if (filterCampaignId) {
       items = items.filter((p) => String((p as any)?.campaign_id || "") === String(filterCampaignId));
+    }
+    if (filterPostKind !== "all") {
+      items = items.filter((p) => normalizePostKind((p as any)?.post_kind) === filterPostKind);
     }
 
     if (sortMode === "oldest") {
@@ -928,7 +943,7 @@ export default function SEPBookIG() {
       items.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
     }
     return items;
-  }, [filterCampaignId, filterMine, filterUserId, posts, sortMode, user?.id]);
+  }, [filterCampaignId, filterMine, filterPostKind, filterUserId, normalizePostKind, posts, sortMode, user?.id]);
 
   const visiblePostIdsKey = useMemo(() => visiblePosts.map((p) => p.id).slice(0, 80).join(","), [visiblePosts]);
 
@@ -1624,6 +1639,7 @@ export default function SEPBookIG() {
       setEditingPostId(null);
       setEditingPostText("");
       setEditingPostMentionQuery("");
+      setEditingPostKind("normal");
       setEditingPostMedia([]);
       setEditingPostUploading(false);
 
@@ -1646,6 +1662,7 @@ export default function SEPBookIG() {
     (post: SepPost) => {
       setEditingPostId(post.id);
       setEditingPostText(String(post.content_md || ""));
+      setEditingPostKind(normalizePostKind((post as any)?.post_kind));
       setEditingPostUploading(false);
       const urls = normalizeAttachmentUrls((post as any).attachments);
       setEditingPostMedia(
@@ -1662,7 +1679,7 @@ export default function SEPBookIG() {
           })),
       );
     },
-    [setEditingPostMedia],
+    [normalizePostKind, setEditingPostMedia],
   );
 
   const cancelEditPost = useCallback(() => {
@@ -1695,6 +1712,7 @@ export default function SEPBookIG() {
           post_id: editingPostId,
           content_md: text,
           attachments,
+          post_kind: editingPostKind,
         }),
       });
       const json = await resp.json().catch(() => ({}));
@@ -1707,6 +1725,7 @@ export default function SEPBookIG() {
                 ...p,
                 content_md: text,
                 attachments,
+                post_kind: editingPostKind,
                 translations: { ...(p.translations || {}), "pt-BR": text },
               }
             : p,
@@ -1720,7 +1739,7 @@ export default function SEPBookIG() {
     } finally {
       setEditingPostSaving(false);
     }
-  }, [closeEditPost, editingPost, editingPostId, editingPostMedia, editingPostText, editingPostUploading, toast]);
+  }, [closeEditPost, editingPost, editingPostId, editingPostKind, editingPostMedia, editingPostText, editingPostUploading, toast]);
 
   const clearEditingPostMedia = useCallback(() => {
     const toRemove = (editingPostMedia || [])
@@ -2449,6 +2468,7 @@ export default function SEPBookIG() {
         body: JSON.stringify({
           content_md: text,
           attachments: orderedAttachments,
+          post_kind: composerPostKind,
           campaign_id: composerCampaignId || null,
           ...(locationFields || {}),
         }),
@@ -2463,6 +2483,7 @@ export default function SEPBookIG() {
       setComposerCampaignQuery("");
       setComposerCampaignId(null);
       setComposerCampaignLabel(null);
+      setComposerPostKind("normal");
       composerMedia.forEach((m) => m.previewUrl && URL.revokeObjectURL(m.previewUrl));
       setComposerMedia([]);
       toast({ title: "Publicado", description: "Sua postagem foi publicada no SEPBook." });
@@ -2474,6 +2495,7 @@ export default function SEPBookIG() {
   }, [
     composerCampaignId,
     composerMedia,
+    composerPostKind,
     composerText,
     composerUploading,
     orderUrlsWithGpsFirst,
@@ -2909,12 +2931,20 @@ export default function SEPBookIG() {
                 </DropdownMenuCheckboxItem>
                 <DropdownMenuItem onClick={() => setAuthorPickerOpen(true)}>{tr("sepbook.filterByAuthor")}</DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setCampaignPickerOpen(true)}>{tr("sepbook.filterByCampaign")}</DropdownMenuItem>
-                {(filterUserId || filterMine || filterCampaignId) && (
+                <DropdownMenuSeparator />
+                <DropdownMenuLabel>{tr("sepbook.postKindLabel")}</DropdownMenuLabel>
+                <DropdownMenuRadioGroup value={filterPostKind} onValueChange={(v) => setFilterPostKind(v as any)}>
+                  <DropdownMenuRadioItem value="all">{tr("sepbook.postKindAll")}</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="normal">{tr("sepbook.postKindNormal")}</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="ocorrencia">{tr("sepbook.postKindOccurrence")}</DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
+                {(filterUserId || filterMine || filterCampaignId || filterPostKind !== "all") && (
                   <DropdownMenuItem
                     onClick={() => {
                       setFilterMine(false);
                       setFilterUserId(null);
                       setFilterCampaignId(null);
+                      setFilterPostKind("all");
                     }}
                   >
                     {tr("sepbook.clearFilters")}
@@ -2922,7 +2952,16 @@ export default function SEPBookIG() {
                 )}
               </DropdownMenuContent>
             </DropdownMenu>
-            <Button type="button" size="icon" variant="ghost" onClick={() => setComposerOpen(true)} aria-label={tr("sepbook.newPost")}>
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              onClick={() => {
+                setComposerPostKind("normal");
+                setComposerOpen(true);
+              }}
+              aria-label={tr("sepbook.newPost")}
+            >
               <Plus className="h-5 w-5" />
             </Button>
           </div>
@@ -2944,6 +2983,7 @@ export default function SEPBookIG() {
             {visiblePosts.map((p) => {
               const createdLabel = new Date(p.created_at).toLocaleString();
               const caption = String(getPostDisplayText(p) || "").trim();
+              const kind = normalizePostKind((p as any)?.post_kind);
               const safeLocationLabel = sanitizeLocationLabel(p.location_label);
               const hasGps = Number.isFinite(Number(p.location_lat)) && Number.isFinite(Number(p.location_lng));
               const coords = hasGps ? clampLatLng(Number(p.location_lat), Number(p.location_lng)) : null;
@@ -3147,7 +3187,10 @@ export default function SEPBookIG() {
                       </button>
                     )}
 
-                    <div className="text-[11px] text-muted-foreground">{createdLabel}</div>
+                    <div className="text-[11px] text-muted-foreground">
+                      {createdLabel}
+                      {kind === "ocorrencia" ? ` • ${tr("sepbook.postKindOccurrence")}` : ""}
+                    </div>
                   </div>
                 </article>
               );
@@ -3168,6 +3211,7 @@ export default function SEPBookIG() {
             setComposerCampaignQuery("");
             setComposerCampaignId(null);
             setComposerCampaignLabel(null);
+            setComposerPostKind("normal");
             composerMedia.forEach((m) => m.previewUrl && URL.revokeObjectURL(m.previewUrl));
             setComposerMedia([]);
             setComposerUploading(false);
@@ -3186,6 +3230,28 @@ export default function SEPBookIG() {
           <div className="flex flex-col h-full">
             <ScrollArea className="flex-1 px-3 pb-3">
               <div className="space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border bg-muted/20 px-3 py-2">
+                  <div className="text-[12px] text-muted-foreground">{tr("sepbook.postKindLabel")}</div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={composerPostKind === "normal" ? "default" : "outline"}
+                      onClick={() => setComposerPostKind("normal")}
+                    >
+                      {tr("sepbook.postKindNormal")}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={composerPostKind === "ocorrencia" ? "default" : "outline"}
+                      onClick={() => setComposerPostKind("ocorrencia")}
+                    >
+                      {tr("sepbook.postKindOccurrence")}
+                    </Button>
+                  </div>
+                </div>
+
                 {renderMediaThumbs(composerMedia, (m) => removeMediaItem(m, setComposerMedia))}
 
                 <Textarea
@@ -3346,7 +3412,7 @@ export default function SEPBookIG() {
           if (!open) cancelEditPost();
         }}
       >
-        <DrawerContent className="max-h-[92vh]">
+      <DrawerContent className="max-h-[92vh]">
           <DrawerHeader>
             <DrawerTitle>{tr("sepbook.edit")} </DrawerTitle>
             <DrawerDescription className="sr-only">Editar texto, mídia e menções da publicação</DrawerDescription>
@@ -3355,6 +3421,30 @@ export default function SEPBookIG() {
           <div className="flex flex-col h-full">
             <ScrollArea className="flex-1 px-3 pb-3">
               <div className="space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border bg-muted/20 px-3 py-2">
+                  <div className="text-[12px] text-muted-foreground">{tr("sepbook.postKindLabel")}</div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={editingPostKind === "normal" ? "default" : "outline"}
+                      onClick={() => setEditingPostKind("normal")}
+                      disabled={editingPostSaving}
+                    >
+                      {tr("sepbook.postKindNormal")}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={editingPostKind === "ocorrencia" ? "default" : "outline"}
+                      onClick={() => setEditingPostKind("ocorrencia")}
+                      disabled={editingPostSaving}
+                    >
+                      {tr("sepbook.postKindOccurrence")}
+                    </Button>
+                  </div>
+                </div>
+
                 <Textarea
                   value={editingPostText}
                   onChange={(e) => setEditingPostText(e.target.value)}

@@ -152,15 +152,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       isMod = roles.some((r) => MOD_ROLES.has(r));
     }
 
-    const { post_id, content_md, attachments } = req.body || {};
+    const { post_id, content_md, attachments, post_kind } = req.body || {};
     const targetLocales = normalizeRequestedLocales(req.body?.locales);
     const postId = String(post_id || "").trim();
     const text = String(content_md || "").trim();
     const atts = Array.isArray(attachments) ? attachments : [];
+    const kindRaw = String(post_kind || "").trim();
+    const kind = kindRaw ? kindRaw.toLowerCase() : "";
 
     if (!postId) return res.status(400).json({ error: "post_id required" });
     if (!text && atts.length === 0)
       return res.status(400).json({ error: "Conteúdo ou mídia obrigatórios" });
+    if (kind && kind !== "normal" && kind !== "ocorrencia") return res.status(400).json({ error: "post_kind inválido" });
 
     const { data: post, error: postErr } = await authed
       .from("sepbook_posts")
@@ -192,6 +195,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       updated_at: new Date().toISOString(),
       translations,
     };
+    if (kind) updatePayload.post_kind = kind;
 
     let data: any = null;
     let error: any = null;

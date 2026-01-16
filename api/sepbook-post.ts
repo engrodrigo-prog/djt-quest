@@ -241,6 +241,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
 	    const {
 	      content_md,
+        post_kind,
 	      attachments = [],
 	      location_lat,
 	      location_lng,
@@ -257,9 +258,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 	      gps_meta,
 	    } = req.body || {};
     const text = String(content_md || "").trim();
+    const kind = String(post_kind || "").trim().toLowerCase() || "normal";
     const atts = Array.isArray(attachments) ? attachments : [];
     const repostOf = repost_of != null ? String(repost_of).trim() : "";
     if (!text && atts.length === 0 && !repostOf) return res.status(400).json({ error: "Conteúdo, mídia ou repost obrigatórios" });
+    if (kind !== "normal" && kind !== "ocorrencia") return res.status(400).json({ error: "post_kind inválido" });
 
     // Campaign linking via &"Nome da Campanha" (one campaign per post)
     const extractedCampaignTitles = extractCampaignTitles(text);
@@ -369,6 +372,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       content_md: text,
       attachments: atts,
       has_media: atts.length > 0,
+      post_kind: kind,
       repost_of: repostOf || null,
       location_label: computedLocationLabel,
       location_lat: maybeCoords ? maybeCoords.lat : null,
