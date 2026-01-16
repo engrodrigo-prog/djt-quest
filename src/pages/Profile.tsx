@@ -163,7 +163,7 @@ function ProfileContent() {
   const xpByCategory = useMemo(() => {
     const buckets: Record<string, number> = {};
     events.forEach((e) => {
-      const points = Number(e.points_calculated || 0);
+      const points = Number((e as any)?.final_points ?? e.points_calculated ?? 0);
       if (!points || isNaN(points)) return;
       const type = (e.challenge?.type || '').toLowerCase();
       let key = 'outros';

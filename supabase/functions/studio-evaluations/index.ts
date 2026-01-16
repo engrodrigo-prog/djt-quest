@@ -39,6 +39,13 @@ const scoreToRating10 = (scoresRaw: unknown) => {
   return Math.max(0, Math.min(10, Math.round(avg * 2 * 10) / 10));
 };
 
+const ensureOk = (result: { error?: any }, message: string) => {
+  if (result?.error) {
+    const detail = result.error?.message || String(result.error);
+    throw new Error(`${message}: ${detail}`);
+  }
+};
+
 const xpNeededToAdvanceTierSteps = (params: { currentXp: number; currentTier: unknown; steps: number }) => {
   const { currentXp, currentTier, steps } = params;
   const parsed = parseTier(currentTier);
@@ -193,7 +200,7 @@ Deno.serve(async (req) => {
       }
 
       // Verificar se requer dupla avaliação
-      if (challenge.require_two_leader_eval) {
+    if (challenge.require_two_leader_eval) {
         // Contar avaliações existentes
         const { data: existingEvals, error: evalsError } = await supabase
           .from('action_evaluations')
@@ -201,15 +208,13 @@ Deno.serve(async (req) => {
           .eq('event_id', eventId)
           .order('created_at');
 
-        if (evalsError) {
-          throw new Error('Erro ao buscar avaliações existentes');
-        }
+        ensureOk({ error: evalsError }, 'Erro ao buscar avaliações existentes');
 
         const evalCount = existingEvals?.length || 0;
 
         if (evalCount === 0) {
           // ✅ PRIMEIRA AVALIAÇÃO
-          await supabase
+          const insertEval = await supabase
             .from('action_evaluations')
             .insert({
               event_id: eventId,
@@ -221,8 +226,9 @@ Deno.serve(async (req) => {
               feedback_positivo: feedbackPositivo,
               feedback_construtivo: feedbackConstrutivo || ''
             });
+          ensureOk(insertEval, 'Falha ao registrar 1ª avaliação');
 
-          await supabase
+          const updateEvent = await supabase
             .from('events')
             .update({
               status: 'awaiting_second_evaluation',
@@ -233,6 +239,7 @@ Deno.serve(async (req) => {
           })
             .eq('id', eventId)
             .neq('status', 'approved');
+          ensureOk(updateEvent, 'Falha ao atualizar evento para 2ª avaliação');
 
           // Garantir 2º avaliador (idempotente; baseado na função do banco)
           try {
@@ -314,7 +321,7 @@ Deno.serve(async (req) => {
           );
 
           // Inserir 2ª avaliação
-          await supabase
+          const insertEval2 = await supabase
             .from('action_evaluations')
             .insert({
               event_id: eventId,
@@ -327,9 +334,10 @@ Deno.serve(async (req) => {
               feedback_positivo: feedbackPositivo,
               feedback_construtivo: feedbackConstrutivo || ''
             });
+          ensureOk(insertEval2, 'Falha ao registrar 2ª avaliação');
 
           // Atualizar evento com status approved
-          await supabase
+          const updateEvent2 = await supabase
             .from('events')
             .update({
               status: 'approved',
@@ -339,32 +347,39 @@ Deno.serve(async (req) => {
               second_evaluation_rating: ratingNumber,
               quality_score: qualityScore,
               final_points: finalXP,
+              points_calculated: finalXP,
               awaiting_second_evaluation: false,
               updated_at: new Date().toISOString()
             })
             .eq('id', eventId);
+          ensureOk(updateEvent2, 'Falha ao concluir avaliação (evento)');
 
           // Incrementar XP do usuário via RPC
-          await supabase.rpc('increment_user_xp', {
+          const inc = await supabase.rpc('increment_user_xp', {
             _user_id: collaborator.id,
             _xp_to_add: finalXP
           });
+          ensureOk(inc, 'Falha ao aplicar XP');
 
           // Notificar colaborador com resultado completo
-          await supabase.rpc('create_notification', {
-            _user_id: collaborator.id,
-            _type: 'evaluation_complete',
-            _title: '✅ Ação Aprovada!',
-            _message: `Sua ação "${challengeTitle}" foi aprovada!\n\n📊 Avaliações:\n1ª: ${firstEval.rating}/10\n2ª: ${ratingNumber}/10\n\n⭐ Média Final: ${avgRating.toFixed(1)}/10\n\n🎯 Você ganhou ${finalXP} XP!`,
-            _metadata: {
-              event_id: eventId,
-              first_rating: firstEval.rating,
-              second_rating: ratingNumber,
-              average_rating: avgRating,
-              xp_earned: finalXP,
-              retry_penalty: retryPenalty
-            }
-          });
+          try {
+            await supabase.rpc('create_notification', {
+              _user_id: collaborator.id,
+              _type: 'evaluation_complete',
+              _title: '✅ Ação Aprovada!',
+              _message: `Sua ação "${challengeTitle}" foi aprovada!\n\n📊 Avaliações:\n1ª: ${firstEval.rating}/10\n2ª: ${ratingNumber}/10\n\n⭐ Média Final: ${avgRating.toFixed(1)}/10\n\n🎯 Você ganhou ${finalXP} XP!`,
+              _metadata: {
+                event_id: eventId,
+                first_rating: firstEval.rating,
+                second_rating: ratingNumber,
+                average_rating: avgRating,
+                xp_earned: finalXP,
+                retry_penalty: retryPenalty
+              }
+            });
+          } catch {
+            // best-effort
+          }
 
           await markEvaluationDone();
 
@@ -408,7 +423,7 @@ Deno.serve(async (req) => {
           baseRewardXp * qualityScore * retryPenalty * teamModifier
         );
 
-        await supabase
+        const ins1 = await supabase
           .from('action_evaluations')
           .insert({
             event_id: eventId,
@@ -421,8 +436,9 @@ Deno.serve(async (req) => {
             feedback_positivo: feedbackPositivo,
             feedback_construtivo: feedbackConstrutivo || ''
           });
+        ensureOk(ins1, 'Falha ao registrar avaliação');
 
-        await supabase
+        const upd = await supabase
           .from('events')
           .update({
             status: 'approved',
@@ -430,26 +446,33 @@ Deno.serve(async (req) => {
             first_evaluation_rating: ratingNumber,
             quality_score: qualityScore,
             final_points: finalXP,
+            points_calculated: finalXP,
             updated_at: new Date().toISOString()
           })
           .eq('id', eventId);
+        ensureOk(upd, 'Falha ao aprovar evento');
 
-        await supabase.rpc('increment_user_xp', {
+        const inc2 = await supabase.rpc('increment_user_xp', {
           _user_id: collaborator.id,
           _xp_to_add: finalXP
         });
+        ensureOk(inc2, 'Falha ao aplicar XP');
 
-        await supabase.rpc('create_notification', {
-          _user_id: collaborator.id,
-          _type: 'evaluation_complete',
-          _title: '✅ Ação Aprovada!',
-          _message: `Sua ação "${challengeTitle}" foi aprovada!\n\n⭐ Nota: ${ratingNumber}/10\n🎯 Você ganhou ${finalXP} XP!`,
-          _metadata: {
-            event_id: eventId,
-            rating: ratingNumber,
-            xp_earned: finalXP
-          }
-        });
+        try {
+          await supabase.rpc('create_notification', {
+            _user_id: collaborator.id,
+            _type: 'evaluation_complete',
+            _title: '✅ Ação Aprovada!',
+            _message: `Sua ação "${challengeTitle}" foi aprovada!\n\n⭐ Nota: ${ratingNumber}/10\n🎯 Você ganhou ${finalXP} XP!`,
+            _metadata: {
+              event_id: eventId,
+              rating: ratingNumber,
+              xp_earned: finalXP
+            }
+          });
+        } catch {
+          // best-effort
+        }
 
         await markEvaluationDone();
 
