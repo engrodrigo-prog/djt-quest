@@ -45,6 +45,8 @@ const Navigation = () => {
   const [navHidden, setNavHidden] = useState(false);
   const [navExpanded, setNavExpanded] = useState(false);
   const showEvaluations = Boolean(isLeader || evalBadge > 0);
+  const badgeFetchInFlightRef = useRef(false);
+  const badgeFetchAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     playSfxRef.current = playSfx;
@@ -101,52 +103,80 @@ const Navigation = () => {
 	    const fetchCounts = async () => {
         if (!active) return;
         if (typeof navigator !== 'undefined' && 'onLine' in navigator && !navigator.onLine) return;
-	      try {
-	        const resp = await apiFetch('/api/admin?handler=studio-pending-counts');
-	        const json = await resp.json().catch(() => ({}));
-	        if (!resp.ok) throw new Error(json?.error || 'Falha nas contagens');
+        if (badgeFetchInFlightRef.current) return;
+        badgeFetchInFlightRef.current = true;
+        // Abort any previous in-flight request to avoid piling up on slow networks.
+        try {
+          badgeFetchAbortRef.current?.abort();
+        } catch {
+          // ignore
+        }
+        const thisController = new AbortController();
+        badgeFetchAbortRef.current = thisController;
 
-        const approvals = json?.approvals || 0;
-        const passwordResets = json?.passwordResets || 0;
-        const registrations = json?.registrations || 0;
-        const evaluations = json?.evaluations || 0;
-        const leadershipAssignments = json?.leadershipAssignments || 0;
-        const forumMentions = json?.forumMentions || 0;
-        const notifications = json?.notifications || 0;
-        const campaigns = json?.campaigns || 0;
-        const challengesActive = json?.challengesActive || 0;
-        const quizzesPending = json?.quizzesPending || 0;
+        const fetchWithTimeout = async (url: string, timeoutMs: number) => {
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), timeoutMs);
+          const onAbort = () => controller.abort();
+          try {
+            thisController.signal.addEventListener('abort', onAbort);
+            const resp = await apiFetch(url, { signal: controller.signal });
+            const json = await resp.json().catch(() => ({}));
+            return { resp, json };
+          } finally {
+            clearTimeout(timeout);
+            try {
+              thisController.signal.removeEventListener('abort', onAbort);
+            } catch {
+              // ignore
+            }
+          }
+        };
+
+	      try {
+          const [adminRes, sepRes] = await Promise.allSettled([
+            fetchWithTimeout('/api/admin?handler=studio-pending-counts', 9000),
+            fetchWithTimeout('/api/sepbook-summary', 9000),
+          ]);
+
+          const adminPayload =
+            adminRes.status === 'fulfilled' && adminRes.value?.resp?.ok ? adminRes.value.json : null;
+          const sepPayload =
+            sepRes.status === 'fulfilled' && sepRes.value?.resp?.ok ? sepRes.value.json : null;
+	        if (!adminPayload) throw new Error('Falha nas contagens');
+
+        const approvals = adminPayload?.approvals || 0;
+        const passwordResets = adminPayload?.passwordResets || 0;
+        const registrations = adminPayload?.registrations || 0;
+        const evaluations = adminPayload?.evaluations || 0;
+        const leadershipAssignments = adminPayload?.leadershipAssignments || 0;
+        const forumMentions = adminPayload?.forumMentions || 0;
+        const notifications = adminPayload?.notifications || 0;
+        const campaigns = adminPayload?.campaigns || 0;
+        const challengesActive = adminPayload?.challengesActive || 0;
+        const quizzesPending = adminPayload?.quizzesPending || 0;
         const nextHomeBadge = Math.max(0, Number(campaigns) + Number(challengesActive));
         const nextStudyBadge = Math.max(0, Number(quizzesPending));
           let evalCount = Number(evaluations) || 0;
           try {
             if (user?.id) {
-              const { count, error } = await supabase
-                .from('evaluation_queue')
-                .select('id', { count: 'exact', head: true })
-                .eq('assigned_to', user.id)
-                .is('completed_at', null);
+              const result = await Promise.race([
+                supabase
+                  .from('evaluation_queue')
+                  .select('id', { count: 'exact', head: true })
+                  .eq('assigned_to', user.id)
+                  .is('completed_at', null),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000)),
+              ]);
+              const { count, error } = result as any;
               if (!error) evalCount = count || 0;
             }
           } catch {
             // ignore; fallback to server count
           }
 	        const evalTotal = evalCount + leadershipAssignments;
-          let sepNew = 0;
-          let sepMentions = 0;
-
-	        // SEPBook summary continua vindo da API dedicada
-	      try {
-	        const resp2 = await apiFetch('/api/sepbook-summary');
-	        const json2 = await resp2.json();
-	          if (resp2.ok) {
-	            sepNew = json2.new_posts || 0;
-	            sepMentions = json2.mentions || 0;
-	          }
-	        } catch {
-	          sepNew = 0;
-	          sepMentions = 0;
-	        }
+          const sepNew = sepPayload?.new_posts || 0;
+          const sepMentions = sepPayload?.mentions || 0;
 
 	        if (!active) return;
 		        setStudioBadge(studioAccess ? approvals + passwordResets + registrations : 0);
@@ -177,11 +207,15 @@ const Navigation = () => {
         let evalCount = 0;
         try {
           if (user?.id) {
-            const { count, error } = await supabase
-              .from('evaluation_queue')
-              .select('id', { count: 'exact', head: true })
-              .eq('assigned_to', user.id)
-              .is('completed_at', null);
+            const result = await Promise.race([
+              supabase
+                .from('evaluation_queue')
+                .select('id', { count: 'exact', head: true })
+                .eq('assigned_to', user.id)
+                .is('completed_at', null),
+              new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000)),
+            ]);
+            const { count, error } = result as any;
             if (!error) evalCount = count || 0;
           }
         } catch {
@@ -196,6 +230,12 @@ const Navigation = () => {
 	        setSepbookNew(0);
 	        setSepbookMentions(0);
 	      }
+        finally {
+          if (badgeFetchAbortRef.current === thisController) {
+            badgeFetchAbortRef.current = null;
+          }
+          badgeFetchInFlightRef.current = false;
+        }
 	    };
 
     const stopPolling = () => {
@@ -242,13 +282,18 @@ const Navigation = () => {
     return () => {
       active = false;
       stopPolling();
+      try {
+        badgeFetchAbortRef.current?.abort();
+      } catch {
+        // ignore
+      }
       window.removeEventListener('focus', onFocus);
       window.removeEventListener('online', onOnline);
       window.removeEventListener('offline', onOffline);
       window.removeEventListener('djt-refresh-badges', onManualRefresh as any);
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, [studioAccess]);
+  }, [studioAccess, user?.id]);
 
   // Ouvir eventos globais de leitura de menções para limpar badges imediatamente
   useEffect(() => {

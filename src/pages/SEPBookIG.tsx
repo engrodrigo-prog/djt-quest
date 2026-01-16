@@ -145,7 +145,7 @@ type MentionSuggestion = {
 
 type MediaItem = {
   id: string;
-  file: File;
+  file?: File;
   kind: "image" | "video";
   previewUrl?: string;
   gps?: { lat: number; lng: number } | null;
@@ -329,6 +329,11 @@ const renderRichText = (toast: ReturnType<typeof useToast>["toast"], text: strin
 const isImageUrl = (url: string) => {
   const u = String(url || "").toLowerCase();
   return /\.(png|jpg|jpeg|webp|gif)(\?|#|$)/i.test(u);
+};
+
+const isVideoUrl = (url: string) => {
+  const u = String(url || "").toLowerCase();
+  return /\.(mp4|webm|mov)(\?|#|$)/i.test(u);
 };
 
 const clampLatLng = (lat: number, lng: number) => {
@@ -759,6 +764,10 @@ export default function SEPBookIG() {
   const [editingPostMentionQuery, setEditingPostMentionQuery] = useState("");
   const editingPostMentions = useMentionSuggest(editingPostMentionQuery);
   const [editingPostSaving, setEditingPostSaving] = useState(false);
+  const [editingPostMedia, setEditingPostMedia] = useState<MediaItem[]>([]);
+  const [editingPostUploading, setEditingPostUploading] = useState(false);
+  const editingPostCameraRef = useRef<HTMLInputElement | null>(null);
+  const editingPostGalleryRef = useRef<HTMLInputElement | null>(null);
 
   const [commentsOpenFor, setCommentsOpenFor] = useState<string | null>(null);
   const [commentsByPost, setCommentsByPost] = useState<Record<string, SepComment[]>>({});
@@ -1568,21 +1577,85 @@ export default function SEPBookIG() {
     [toast],
   );
 
-  const startEditPost = useCallback((post: SepPost) => {
-    setEditingPostId(post.id);
-    setEditingPostText(String(post.content_md || ""));
-  }, []);
+  const closeEditPost = useCallback(
+    (opts?: { cleanupUploads?: boolean }) => {
+      const cleanupUploads = opts?.cleanupUploads !== false;
+      const toRemove = cleanupUploads
+        ? editingPostMedia
+            .filter((m) => m.bucket && m.filePath)
+            .map((m) => ({ bucket: m.bucket as string, filePath: m.filePath as string }))
+        : [];
+
+      for (const it of editingPostMedia) {
+        const u = String(it.previewUrl || "");
+        if (!u || !u.startsWith("blob:")) continue;
+        try {
+          URL.revokeObjectURL(u);
+        } catch {
+          /* ignore */
+        }
+      }
+
+      setEditingPostId(null);
+      setEditingPostText("");
+      setEditingPostMentionQuery("");
+      setEditingPostMedia([]);
+      setEditingPostUploading(false);
+
+      if (cleanupUploads && toRemove.length) {
+        void (async () => {
+          for (const item of toRemove) {
+            try {
+              await supabase.storage.from(item.bucket).remove([item.filePath]);
+            } catch {
+              /* ignore */
+            }
+          }
+        })();
+      }
+    },
+    [editingPostMedia],
+  );
+
+  const startEditPost = useCallback(
+    (post: SepPost) => {
+      setEditingPostId(post.id);
+      setEditingPostText(String(post.content_md || ""));
+      setEditingPostUploading(false);
+      const urls = Array.isArray(post.attachments) ? post.attachments : [];
+      setEditingPostMedia(
+        urls
+          .map((u) => String(u || "").trim())
+          .filter(Boolean)
+          .map((url) => ({
+            id: randomId(),
+            kind: isVideoUrl(url) ? "video" : "image",
+            previewUrl: url,
+            uploading: false,
+            progress: 100,
+            url,
+          })),
+      );
+    },
+    [setEditingPostMedia],
+  );
 
   const cancelEditPost = useCallback(() => {
-    setEditingPostId(null);
-    setEditingPostText("");
-    setEditingPostMentionQuery("");
-  }, []);
+    closeEditPost({ cleanupUploads: true });
+  }, [closeEditPost]);
 
   const savePostEdit = useCallback(async () => {
     if (!editingPostId || !editingPost) return;
     const text = String(editingPostText || "").trim();
-    const hasAttachments = Array.isArray(editingPost.attachments) && editingPost.attachments.length > 0;
+    const attachments = (editingPostMedia || [])
+      .map((m) => String(m?.url || "").trim())
+      .filter(Boolean);
+    const hasAttachments = attachments.length > 0;
+    const uploading = Boolean(editingPostUploading || editingPostMedia.some((m) => m.uploading));
+    if (uploading) {
+      toast({ title: "Aguarde", description: "Finalize o upload da mídia antes de salvar.", variant: "destructive" });
+      return;
+    }
     if (!text && !hasAttachments) {
       toast({ title: "Conteúdo obrigatório", description: "Digite um texto ou mantenha uma mídia.", variant: "destructive" });
       return;
@@ -1596,7 +1669,7 @@ export default function SEPBookIG() {
         body: JSON.stringify({
           post_id: editingPostId,
           content_md: text,
-          attachments: editingPost.attachments || [],
+          attachments,
         }),
       });
       const json = await resp.json().catch(() => ({}));
@@ -1605,19 +1678,24 @@ export default function SEPBookIG() {
       setPosts((prev) =>
         prev.map((p) =>
           p.id === editingPostId
-            ? { ...p, content_md: text, translations: { ...(p.translations || {}), "pt-BR": text } }
+            ? {
+                ...p,
+                content_md: text,
+                attachments,
+                translations: { ...(p.translations || {}), "pt-BR": text },
+              }
             : p,
         ),
       );
       setFallbackTranslations((prev) => ({ ...prev, [`post:${editingPostId}`]: text }));
-      cancelEditPost();
+      closeEditPost({ cleanupUploads: false });
       toast({ title: "Publicação atualizada" });
     } catch (e: any) {
       toast({ title: "Erro ao editar", description: e?.message || "Tente novamente", variant: "destructive" });
     } finally {
       setEditingPostSaving(false);
     }
-  }, [cancelEditPost, editingPost, editingPostId, editingPostText, toast]);
+  }, [closeEditPost, editingPost, editingPostId, editingPostMedia, editingPostText, editingPostUploading, toast]);
 
   const toggleCommentLike = useCallback(
     async (postId: string, comment: SepComment) => {
@@ -1937,13 +2015,15 @@ export default function SEPBookIG() {
   const addMediaFiles = useCallback(
     async (opts: {
       files: FileList | null;
-      context: "post" | "comment";
+      context: "post" | "comment" | "edit-post";
       source: "camera" | "gallery";
     }) => {
       const list = opts.files ? Array.from(opts.files) : [];
       if (!list.length) return;
 
-      const isPost = opts.context === "post";
+      const isComposerPost = opts.context === "post";
+      const isEditPost = opts.context === "edit-post";
+      const isPost = isComposerPost || isEditPost;
       const maxFiles = isPost ? 5 : 3;
       const maxImages = isPost ? 3 : 3;
       const maxVideos = isPost ? 2 : 0;
@@ -1961,9 +2041,13 @@ export default function SEPBookIG() {
         ...(isPost ? ["video/mp4", "video/webm", "video/quicktime"] : []),
       ]);
 
-      const setState = isPost ? setComposerMedia : setCommentMedia;
-      const current = isPost ? composerMedia : commentMedia;
-      const setUploading = isPost ? setComposerUploading : setCommentUploading;
+      const setState = isComposerPost ? setComposerMedia : opts.context === "comment" ? setCommentMedia : setEditingPostMedia;
+      const current = isComposerPost ? composerMedia : opts.context === "comment" ? commentMedia : editingPostMedia;
+      const setUploading = isComposerPost
+        ? setComposerUploading
+        : opts.context === "comment"
+          ? setCommentUploading
+          : setEditingPostUploading;
 
       let imagesCount = current.filter((m) => m.kind === "image").length;
       let videosCount = current.filter((m) => m.kind === "video").length;
@@ -2030,15 +2114,18 @@ export default function SEPBookIG() {
         if (opts.context === "post") {
           if (opts.source === "camera" && composerCameraRef.current) composerCameraRef.current.value = "";
           if (opts.source === "gallery" && composerGalleryRef.current) composerGalleryRef.current.value = "";
-        } else {
+        } else if (opts.context === "comment") {
           if (opts.source === "camera" && commentCameraRef.current) commentCameraRef.current.value = "";
           if (opts.source === "gallery" && commentGalleryRef.current) commentGalleryRef.current.value = "";
+        } else {
+          if (opts.source === "camera" && editingPostCameraRef.current) editingPostCameraRef.current.value = "";
+          if (opts.source === "gallery" && editingPostGalleryRef.current) editingPostGalleryRef.current.value = "";
         }
       } catch {
         /* ignore */
       }
     },
-    [commentMedia, composerMedia, toast],
+    [commentMedia, composerMedia, editingPostMedia, toast],
   );
 
   const handleCleanupComposer = useCallback(async () => {
@@ -3170,17 +3257,17 @@ export default function SEPBookIG() {
         <DrawerContent className="max-h-[92vh]">
           <DrawerHeader>
             <DrawerTitle>{tr("sepbook.edit")} </DrawerTitle>
-            <DrawerDescription className="sr-only">Editar texto e menções da publicação</DrawerDescription>
+            <DrawerDescription className="sr-only">Editar texto, mídia e menções da publicação</DrawerDescription>
           </DrawerHeader>
 
           <div className="flex flex-col h-full">
             <ScrollArea className="flex-1 px-3 pb-3">
               <div className="space-y-3">
-                {editingPost?.attachments?.length ? (
+                {editingPostMedia.length ? (
                   <div className="rounded-xl border bg-muted/10 p-2">
                     <AttachmentViewer
-                      urls={editingPost.attachments}
-                      postId={editingPost.id}
+                      urls={editingPostMedia.map((m) => m.url).filter(Boolean) as any}
+                      postId={editingPost?.id}
                       mediaLayout="carousel"
                       className="mt-0 space-y-0"
                       enableLightbox={false}
@@ -3188,6 +3275,48 @@ export default function SEPBookIG() {
                     />
                   </div>
                 ) : null}
+
+                {renderMediaThumbs(editingPostMedia, (m) => removeMediaItem(m, setEditingPostMedia))}
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => editingPostCameraRef.current?.click()}
+                    disabled={editingPostSaving || editingPostUploading}
+                  >
+                    <Camera className="h-4 w-4 mr-1" />
+                    {tr("sepbook.camera")}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => editingPostGalleryRef.current?.click()}
+                    disabled={editingPostSaving || editingPostUploading}
+                  >
+                    <ImageIcon className="h-4 w-4 mr-1" />
+                    {tr("sepbook.gallery")}
+                  </Button>
+
+                  <input
+                    ref={editingPostCameraRef}
+                    type="file"
+                    accept="image/*,video/*"
+                    capture="environment"
+                    className="hidden"
+                    onChange={(e) => void addMediaFiles({ files: e.target.files, context: "edit-post", source: "camera" })}
+                  />
+                  <input
+                    ref={editingPostGalleryRef}
+                    type="file"
+                    accept="image/*,video/*"
+                    multiple
+                    className="hidden"
+                    onChange={(e) => void addMediaFiles({ files: e.target.files, context: "edit-post", source: "gallery" })}
+                  />
+                </div>
 
                 <Textarea
                   value={editingPostText}
@@ -3217,12 +3346,16 @@ export default function SEPBookIG() {
               </div>
             </ScrollArea>
 
-            <div className="border-t bg-background px-3 py-3">
+            <div className="border-t bg-background px-3 py-3 pb-[calc(env(safe-area-inset-bottom)+12px)]">
               <div className="flex items-center justify-end gap-2">
                 <Button type="button" variant="outline" onClick={cancelEditPost} disabled={editingPostSaving}>
                   {tr("sepbook.cancel")}
                 </Button>
-                <Button type="button" onClick={() => void savePostEdit()} disabled={editingPostSaving}>
+                <Button
+                  type="button"
+                  onClick={() => void savePostEdit()}
+                  disabled={editingPostSaving || editingPostUploading || editingPostMedia.some((m) => m.uploading)}
+                >
                   {editingPostSaving ? tr("common.loading") : tr("sepbook.save")}
                 </Button>
               </div>
