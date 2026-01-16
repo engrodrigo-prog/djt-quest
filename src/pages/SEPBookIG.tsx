@@ -1494,6 +1494,13 @@ export default function SEPBookIG() {
     return () => window.clearTimeout(t);
   }, [composerOpen]);
 
+  // Mobile UX: when the composer drawer is open, collapse bottom navigation
+  // so actions (camera/gallery/publish) are never hidden behind the bar.
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent("djt-nav-visibility", { detail: { hidden: Boolean(composerOpen) } }));
+    return () => window.dispatchEvent(new CustomEvent("djt-nav-visibility", { detail: { hidden: false } }));
+  }, [composerOpen]);
+
   const toggleLike = useCallback(
     async (post: SepPost) => {
       const id = String(post?.id || "").trim();
@@ -2991,7 +2998,7 @@ export default function SEPBookIG() {
           }
         }}
       >
-        <DrawerContent className="max-h-[92vh]">
+        <DrawerContent className="max-h-[92vh] max-h-[92dvh]">
           <DrawerHeader>
             <DrawerTitle>{tr("sepbook.newPost")}</DrawerTitle>
             <DrawerDescription className="sr-only">Criar uma nova postagem, com menções e campanha opcional</DrawerDescription>
@@ -3075,6 +3082,11 @@ export default function SEPBookIG() {
             </ScrollArea>
 
             <div className="border-t bg-background px-3 py-3 space-y-2 pb-[calc(env(safe-area-inset-bottom)+12px)]">
+              {composerUploading || composerMedia.some((m) => m.uploading) ? (
+                <div className="text-[12px] text-muted-foreground">
+                  Enviando mídias... aguarde para publicar.
+                </div>
+              ) : null}
               <div className="flex flex-wrap items-center gap-2">
                 <VoiceRecorderButton
                   size="sm"
@@ -3087,7 +3099,7 @@ export default function SEPBookIG() {
                 </Button>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <Button
                   type="button"
                   size="icon"
@@ -3133,6 +3145,7 @@ export default function SEPBookIG() {
                 <Button
                   type="button"
                   onClick={() => void submitPost()}
+                  className="w-full sm:w-auto"
                   disabled={
                     composerSubmitting ||
                     composerUploading ||
@@ -3140,7 +3153,7 @@ export default function SEPBookIG() {
                     (!composerText.trim() && uploadedComposerUrls.length === 0)
                   }
                 >
-                  {tr("sepbook.publish")}
+                  {composerSubmitting ? "Publicando..." : tr("sepbook.publish")}
                 </Button>
               </div>
             </div>

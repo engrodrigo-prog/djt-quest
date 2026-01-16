@@ -21,9 +21,10 @@ interface AttachmentViewerProps {
 }
 
 const getFileType = (url: string): 'image' | 'audio' | 'video' | 'document' => {
-  const ext = url.split('.').pop()?.toLowerCase();
+  const clean = String(url || '').split('?')[0]?.split('#')[0] || '';
+  const ext = clean.split('.').pop()?.toLowerCase();
   if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext || '')) return 'image';
-  if (['mp3', 'wav', 'ogg', 'webm', 'm4a'].includes(ext || '')) return 'audio';
+  if (['mp3', 'wav', 'ogg', 'm4a'].includes(ext || '')) return 'audio';
   if (['mp4', 'webm', 'mov'].includes(ext || '')) return 'video';
   return 'document';
 };

@@ -1,6 +1,6 @@
 import { loadLocalEnvIfNeeded } from '../lib/load-local-env.js';
 import { normalizeChatModel } from '../lib/openai-models.js';
-import { proofreadPtBrStrings } from '../lib/ai-proofread-ptbr.js';
+import { proofreadPtBrStrings, polishPtBrStrings } from '../lib/ai-proofread-ptbr.js';
 loadLocalEnvIfNeeded();
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
 const OPENAI_TEXT_MODEL = normalizeChatModel(process.env.OPENAI_MODEL_FAST ||
@@ -16,10 +16,15 @@ export default async function handler(req, res) {
     let safeTitle = '[sem título]';
     let safeDescription = '';
     let language = 'pt-BR';
+    let mode = 'proofread';
     try {
         const input = (req.body || {});
         const rawTitle = input.title;
         const rawDescription = input.description;
+        mode =
+            typeof input.mode === 'string' && input.mode.trim()
+                ? input.mode.trim().toLowerCase()
+                : 'proofread';
         language =
             typeof input.language === 'string' && input.language.trim()
                 ? input.language
@@ -41,7 +46,8 @@ export default async function handler(req, res) {
                 meta: { usedAI: false, reason: 'missing_api_key' },
             });
         }
-        const { output, usedModel } = await proofreadPtBrStrings({
+        const runner = mode === 'feedback' || mode === 'polish' ? polishPtBrStrings : proofreadPtBrStrings;
+        const { output, usedModel } = await runner({
             openaiKey: OPENAI_API_KEY,
             model: OPENAI_TEXT_MODEL,
             strings: [safeTitle, safeDescription],
@@ -56,6 +62,7 @@ export default async function handler(req, res) {
                 usedAI: Boolean(usedModel),
                 model: usedModel || OPENAI_TEXT_MODEL,
                 language,
+                mode,
             },
         });
     }
@@ -65,7 +72,7 @@ export default async function handler(req, res) {
                 title: safeTitle.trim(),
                 description: safeDescription.trim(),
             },
-            meta: { usedAI: false, reason: (err === null || err === void 0 ? void 0 : err.message) || 'unknown' },
+            meta: { usedAI: false, reason: (err === null || err === void 0 ? void 0 : err.message) || 'unknown', mode },
         });
     }
 }

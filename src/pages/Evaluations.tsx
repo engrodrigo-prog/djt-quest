@@ -377,7 +377,7 @@ const Evaluations = () => {
                           const resp = await apiFetch('/api/ai?handler=cleanup-text', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ title: 'Feedback positivo', description: text, language: localeToOpenAiLanguageTag(getActiveLocale()) }),
+                            body: JSON.stringify({ mode: 'feedback', title: 'Feedback positivo', description: text, language: localeToOpenAiLanguageTag(getActiveLocale()) }),
                           });
                           const j = await resp.json().catch(() => ({}));
                           const usedAI = j?.meta?.usedAI !== false;
@@ -390,16 +390,16 @@ const Evaluations = () => {
                           }
                           const cleaned = String(j.cleaned.description || text).trim();
                           if (cleaned === text) {
-                            toast({ title: 'Nenhuma correção necessária', description: 'Não encontrei ajustes de ortografia/pontuação para fazer.' });
+                            toast({ title: 'Nenhuma correção necessária', description: 'Não encontrei ajustes relevantes para fazer.' });
                             return;
                           }
                           setFeedbackPositivo(cleaned);
-                          toast({ title: 'Feedback positivo revisado', description: 'Ortografia e pontuação ajustadas.' });
+                          toast({ title: 'Feedback positivo revisado', description: 'Ortografia, pontuação e clareza ajustadas.' });
                         } catch (e: any) {
                           toast({ title: 'Não foi possível revisar agora', description: e?.message || 'Tente novamente mais tarde.', variant: 'destructive' });
                         }
                       }}
-                      title="Revisar ortografia e pontuação (sem mudar conteúdo)"
+                      title="Revisar e clarear (sem mudar o sentido)"
                     >
                       <Wand2 className="h-4 w-4" />
                     </Button>
@@ -443,7 +443,7 @@ const Evaluations = () => {
                           const resp = await apiFetch('/api/ai?handler=cleanup-text', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ title: 'Feedback construtivo', description: text, language: localeToOpenAiLanguageTag(getActiveLocale()) }),
+                            body: JSON.stringify({ mode: 'feedback', title: 'Feedback construtivo', description: text, language: localeToOpenAiLanguageTag(getActiveLocale()) }),
                           });
                           const j = await resp.json().catch(() => ({}));
                           const usedAI = j?.meta?.usedAI !== false;
@@ -456,16 +456,16 @@ const Evaluations = () => {
                           }
                           const cleaned = String(j.cleaned.description || text).trim();
                           if (cleaned === text) {
-                            toast({ title: 'Nenhuma correção necessária', description: 'Não encontrei ajustes de ortografia/pontuação para fazer.' });
+                            toast({ title: 'Nenhuma correção necessária', description: 'Não encontrei ajustes relevantes para fazer.' });
                             return;
                           }
                           setFeedbackConstrutivo(cleaned);
-                          toast({ title: 'Feedback construtivo revisado', description: 'Ortografia e pontuação ajustadas.' });
+                          toast({ title: 'Feedback construtivo revisado', description: 'Ortografia, pontuação e clareza ajustadas.' });
                         } catch (e: any) {
                           toast({ title: 'Não foi possível revisar agora', description: e?.message || 'Tente novamente mais tarde.', variant: 'destructive' });
                         }
                       }}
-                      title="Revisar ortografia e pontuação (sem mudar conteúdo)"
+                      title="Revisar e clarear (sem mudar o sentido)"
                     >
                       <Wand2 className="h-4 w-4" />
                     </Button>
