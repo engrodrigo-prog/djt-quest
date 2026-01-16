@@ -23,6 +23,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === "OPTIONS") return res.status(204).send("");
   if (req.method !== "GET") return res.status(405).json({ error: "Method not allowed" });
 
+  // This endpoint is used for real-time-ish badge counts; never cache it.
+  res.setHeader("Cache-Control", "no-store, max-age=0");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Surrogate-Control", "no-store");
+
   try {
     assertDjtQuestServerEnv({ requireSupabaseUrl: false });
   } catch (e: any) {
@@ -61,11 +66,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(200).json({ new_posts: 0, mentions: 0 });
     }
 
-    const safeCount = async (query: any) => {
+    const safeCount = async (query: any, col = "id") => {
       try {
-        const { count, error } = await query.select("id", { count: "exact", head: true });
+        const { count, error } = await query.select(col, { count: "exact", head: true });
         if (error) return 0;
         return count || 0;
+      } catch {
+        return 0;
+      }
+    };
+
+    // Avoid expensive COUNT(*) on large tables; cap the badge count.
+    const safeCountCapped = async (query: any, col: string, cap = 99) => {
+      try {
+        const { data, error } = await query.select(col).limit(cap + 1);
+        if (error) return 0;
+        const n = Array.isArray(data) ? data.length : 0;
+        return Math.min(n, cap);
       } catch {
         return 0;
       }
@@ -85,17 +102,29 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     const newPosts = await withTimeout(
-      safeCount(admin.from("sepbook_posts").gt("created_at", lastSeen).neq("user_id", uid)),
+      safeCountCapped(
+        admin.from("sepbook_posts").gt("created_at", lastSeen).neq("user_id", uid).order("created_at", { ascending: false }),
+        "id",
+        99,
+      ),
       remaining(),
     ).catch(() => 0);
 
     const mentions = await withTimeout(
-      safeCount(admin.from("sepbook_mentions").eq("mentioned_user_id", uid).eq("is_read", false)),
+      safeCountCapped(
+        admin.from("sepbook_mentions").eq("mentioned_user_id", uid).eq("is_read", false),
+        "post_id",
+        99,
+      ),
       remaining(),
     ).catch(() => 0);
 
     const commentMentions = await withTimeout(
-      safeCount(admin.from("sepbook_comment_mentions").eq("mentioned_user_id", uid).eq("is_read", false)),
+      safeCountCapped(
+        admin.from("sepbook_comment_mentions").eq("mentioned_user_id", uid).eq("is_read", false),
+        "comment_id",
+        99,
+      ),
       remaining(),
     ).catch(() => 0);
 

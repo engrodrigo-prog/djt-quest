@@ -47,6 +47,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
+    // This endpoint is used for near-real-time badge counts; never cache it.
+    res.setHeader('Cache-Control', 'no-store, max-age=0')
+    res.setHeader('Pragma', 'no-cache')
+    res.setHeader('Surrogate-Control', 'no-store')
+
     if (!SUPABASE_URL || (!SERVICE_ROLE_KEY && !PUBLIC_KEY)) {
       return res.status(200).json(emptyPayload)
     }
@@ -171,89 +176,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       admin.from('notifications').eq('user_id', userId).eq('read', false),
     )
 
-    // Campanhas ativas (vigentes por data) — filtradas por alvo de time/coord/div se houver
+    // Conteúdos vigentes (campanhas / desafios / quizzes) via RPC (evita scans grandes no JS)
     let campaigns = 0
-    try {
-      const now = new Date().toISOString()
-      const { data: campaignRows } = await admin
-        .from('campaigns')
-        .select('id, is_active, start_date, end_date, target_team_ids, target_coord_ids, target_div_ids')
-
-      const teamId = userProfile?.team_id ? String(userProfile.team_id) : null
-      const coordId = userProfile?.coord_id ? String(userProfile.coord_id) : null
-      const divId = userProfile?.division_id ? String(userProfile.division_id) : null
-
-      campaigns = (campaignRows || []).filter((c: any) => {
-        if (!c?.is_active) return false
-        const startOk = !c.start_date || c.start_date <= now
-        const endOk = !c.end_date || c.end_date >= now
-        if (!startOk || !endOk) return false
-        const targetsTeam = Array.isArray(c.target_team_ids) && c.target_team_ids.length
-        const targetsCoord = Array.isArray(c.target_coord_ids) && c.target_coord_ids.length
-        const targetsDiv = Array.isArray(c.target_div_ids) && c.target_div_ids.length
-        const matchTeam = !targetsTeam || (teamId && c.target_team_ids.map(String).includes(teamId))
-        const matchCoord = !targetsCoord || (coordId && c.target_coord_ids.map(String).includes(coordId))
-        const matchDiv = !targetsDiv || (divId && c.target_div_ids.map(String).includes(divId))
-        return matchTeam && matchCoord && matchDiv
-      }).length
-    } catch {
-      campaigns = 0
-    }
-
-    // Desafios vigentes + quizzes pendentes (alvos do usuário)
-    let quizzesPending = 0
     let challengesActive = 0
+    let quizzesPending = 0
     try {
-      const now = new Date().toISOString()
-      const { data: quizChallenges } = await admin
-        .from('challenges')
-        .select('id, type, status, start_date, end_date, target_team_ids, target_coord_ids, target_div_ids')
-
-      const { data: attempts } = await admin
-        .from('quiz_attempts')
-        .select('challenge_id, submitted_at')
-        .eq('user_id', userId)
-      const completed = new Set(
-        (attempts || [])
-          .filter((a: any) => a.submitted_at)
-          .map((a: any) => String(a.challenge_id))
-      )
-
-      const teamId = userProfile?.team_id ? String(userProfile.team_id) : null
-      const coordId = userProfile?.coord_id ? String(userProfile.coord_id) : null
-      const divId = userProfile?.division_id ? String(userProfile.division_id) : null
-
-      const eligible = (quizChallenges || []).filter((c: any) => {
-        const type = String(c?.type || '').toLowerCase()
-        const status = String(c?.status || 'active').toLowerCase()
-        if (status === 'closed' || status === 'canceled' || status === 'cancelled') return false
-        const startOk = !c.start_date || c.start_date <= now
-        const endOk = !c.end_date || c.end_date >= now
-        if (!startOk || !endOk) return false
-        const targetsTeam = Array.isArray(c.target_team_ids) && c.target_team_ids.length
-        const targetsCoord = Array.isArray(c.target_coord_ids) && c.target_coord_ids.length
-        const targetsDiv = Array.isArray(c.target_div_ids) && c.target_div_ids.length
-        const matchTeam = !targetsTeam || (teamId && c.target_team_ids.map(String).includes(teamId))
-        const matchCoord = !targetsCoord || (coordId && c.target_coord_ids.map(String).includes(coordId))
-        const matchDiv = !targetsDiv || (divId && c.target_div_ids.map(String).includes(divId))
-        if (!matchTeam || !matchCoord || !matchDiv) return false
-        return true
-      })
-
-      challengesActive = eligible.filter((c: any) => {
-        const type = String(c?.type || '').toLowerCase()
-        return !type.includes('quiz')
-      }).length
-
-      quizzesPending = eligible.filter((c: any) => {
-        const type = String(c?.type || '').toLowerCase()
-        if (!type.includes('quiz')) return false
-        return !completed.has(String(c.id || ''))
-      }).length
-    } catch {
-      quizzesPending = 0
-      challengesActive = 0
-    }
+      const { data: dash, error: dashErr } = await admin.rpc('user_dashboard_counts', { u: userId } as any)
+      if (!dashErr && dash) {
+        const row = Array.isArray(dash) ? dash[0] : dash
+        campaigns = Number((row as any)?.campaigns || 0) || 0
+        challengesActive = Number((row as any)?.challenges_active || 0) || 0
+        quizzesPending = Number((row as any)?.quizzes_pending || 0) || 0
+      }
+    } catch {}
 
     return res.status(200).json({
       approvals,

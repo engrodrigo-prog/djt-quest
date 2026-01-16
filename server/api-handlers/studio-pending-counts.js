@@ -45,6 +45,11 @@ export default async function handler(req, res) {
     if (req.method !== 'GET')
         return res.status(405).json({ error: 'Method not allowed' });
 	    try {
+	    // This endpoint is used for near-real-time badge counts; never cache it.
+	    res.setHeader('Cache-Control', 'no-store, max-age=0');
+	    res.setHeader('Pragma', 'no-cache');
+	    res.setHeader('Surrogate-Control', 'no-store');
+
 	    const deadline = Date.now() + TIME_BUDGET_MS;
 	    const remaining = () => Math.max(250, deadline - Date.now());
 	    const emptyPayload = {
@@ -192,100 +197,37 @@ export default async function handler(req, res) {
             admin.from('notifications').eq('user_id', userId).eq('read', false)
         );
         // Feedbacks privados (inbox do perfil)
-        const feedbackMessages = await safeCountTimed(
-            admin.from('user_feedback_messages').eq('recipient_id', userId).is('read_at', null)
-        );
+	        const feedbackMessages = await safeCountTimed(
+	            admin.from('user_feedback_messages').eq('recipient_id', userId).is('read_at', null)
+	        );
 
-        // Campanhas ativas (vigentes por data) — filtradas por alvo de time/coord/div se houver
-        let campaigns = 0;
-        try {
-            const now = new Date().toISOString();
-            const { data: campaignRows } = await withTimeout(admin
-                .from('campaigns')
-                .select('id, is_active, start_date, end_date, target_team_ids, target_coord_ids, target_div_ids'), remaining());
-
-            const teamId = userProfile?.team_id ? String(userProfile.team_id) : null;
-            const coordId = userProfile?.coord_id ? String(userProfile.coord_id) : null;
-            const divId = userProfile?.division_id ? String(userProfile.division_id) : null;
-
-            campaigns = (campaignRows || []).filter((c) => {
-                if (!c?.is_active) return false;
-                const startOk = !c.start_date || c.start_date <= now;
-                const endOk = !c.end_date || c.end_date >= now;
-                if (!startOk || !endOk) return false;
-                const targetsTeam = Array.isArray(c.target_team_ids) && c.target_team_ids.length;
-                const targetsCoord = Array.isArray(c.target_coord_ids) && c.target_coord_ids.length;
-                const targetsDiv = Array.isArray(c.target_div_ids) && c.target_div_ids.length;
-                const matchTeam = !targetsTeam || (teamId && c.target_team_ids.map(String).includes(teamId));
-                const matchCoord = !targetsCoord || (coordId && c.target_coord_ids.map(String).includes(coordId));
-                const matchDiv = !targetsDiv || (divId && c.target_div_ids.map(String).includes(divId));
-                return matchTeam && matchCoord && matchDiv;
-            }).length;
-        }
-        catch { campaigns = 0; }
-
-	        // Desafios vigentes + quizzes pendentes (alvos do usuário)
-	        let quizzesPending = 0;
+	        // Conteúdos vigentes (campanhas / desafios / quizzes) via RPC (evita scans grandes no JS)
+	        let campaigns = 0;
 	        let challengesActive = 0;
+	        let quizzesPending = 0;
 	        try {
-            const now = new Date().toISOString();
-            const { data: quizChallenges } = await withTimeout(admin
-                .from('challenges')
-                .select('id, type, status, start_date, end_date, target_team_ids, target_coord_ids, target_div_ids'), remaining());
-
-            const { data: attempts } = await withTimeout(admin
-                .from('quiz_attempts')
-                .select('challenge_id, submitted_at')
-                .eq('user_id', userId), remaining());
-            const completed = new Set(
-                (attempts || [])
-                    .filter((a) => a.submitted_at)
-                    .map((a) => String(a.challenge_id))
-            );
-
-            const teamId = userProfile?.team_id ? String(userProfile.team_id) : null;
-            const coordId = userProfile?.coord_id ? String(userProfile.coord_id) : null;
-            const divId = userProfile?.division_id ? String(userProfile.division_id) : null;
-
-	            const eligible = (quizChallenges || []).filter((c) => {
-	                const status = String(c?.status || 'active').toLowerCase();
-	                if (status === 'closed' || status === 'canceled' || status === 'cancelled') return false;
-	                const startOk = !c.start_date || c.start_date <= now;
-	                const endOk = !c.end_date || c.end_date >= now;
-	                if (!startOk || !endOk) return false;
-	                const targetsTeam = Array.isArray(c.target_team_ids) && c.target_team_ids.length;
-	                const targetsCoord = Array.isArray(c.target_coord_ids) && c.target_coord_ids.length;
-	                const targetsDiv = Array.isArray(c.target_div_ids) && c.target_div_ids.length;
-	                const matchTeam = !targetsTeam || (teamId && c.target_team_ids.map(String).includes(teamId));
-	                const matchCoord = !targetsCoord || (coordId && c.target_coord_ids.map(String).includes(coordId));
-	                const matchDiv = !targetsDiv || (divId && c.target_div_ids.map(String).includes(divId));
-	                if (!matchTeam || !matchCoord || !matchDiv) return false;
-	                return true;
-	            });
-	            challengesActive = eligible.filter((c) => {
-	                const type = String(c?.type || '').toLowerCase();
-	                return !type.includes('quiz');
-	            }).length;
-	            quizzesPending = eligible.filter((c) => {
-	                const type = String(c?.type || '').toLowerCase();
-	                if (!type.includes('quiz')) return false;
-	                return !completed.has(String(c.id || ''));
-	            }).length;
+	            const { data: dash, error: dashErr } = await withTimeout(admin.rpc('user_dashboard_counts', { u: userId }), remaining());
+	            if (!dashErr && dash) {
+	                const row = Array.isArray(dash) ? dash[0] : dash;
+	                campaigns = Number(row?.campaigns || 0) || 0;
+	                challengesActive = Number(row?.challenges_active || 0) || 0;
+	                quizzesPending = Number(row?.quizzes_pending || 0) || 0;
+	            }
 	        }
-	        catch { quizzesPending = 0; challengesActive = 0; }
+	        catch { }
 
-        return res.status(200).json({
-            approvals,
-            passwordResets,
+	        return res.status(200).json({
+	            approvals,
+	            passwordResets,
             evaluations,
             leadershipAssignments,
             forumMentions,
-	            registrations: pendingRegistrations,
-	            notifications: notifications + feedbackMessages,
-	            campaigns,
-	            challengesActive,
-	            quizzesPending,
-	        });
+		            registrations: pendingRegistrations,
+		            notifications: notifications + feedbackMessages,
+		            campaigns,
+		            challengesActive,
+		            quizzesPending,
+		        });
     }
     catch (err) {
         return res.status(200).json({
