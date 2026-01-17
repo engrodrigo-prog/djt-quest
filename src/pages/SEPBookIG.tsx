@@ -813,6 +813,7 @@ export default function SEPBookIG() {
   const commentCameraRef = useRef<HTMLInputElement | null>(null);
   const commentGalleryRef = useRef<HTMLInputElement | null>(null);
   const commentInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const commentsReturnFocusRef = useRef<HTMLElement | null>(null);
   const [commentLiking, setCommentLiking] = useState<Record<string, boolean>>({});
   const [commentRestoring, setCommentRestoring] = useState<Record<string, boolean>>({});
   const [replyTarget, setReplyTarget] = useState<SepComment | null>(null);
@@ -1512,6 +1513,15 @@ export default function SEPBookIG() {
     async (postId: string) => {
       const id = String(postId || "").trim();
       if (!id) return;
+      try {
+        if (typeof document !== "undefined") {
+          const el = document.activeElement;
+          commentsReturnFocusRef.current = el instanceof HTMLElement ? el : null;
+          commentsReturnFocusRef.current?.blur?.();
+        }
+      } catch {
+        // ignore
+      }
       setCommentsOpenFor(id);
       setCommentText("");
       setCommentMentionQuery("");
@@ -1527,7 +1537,8 @@ export default function SEPBookIG() {
       })
         .then(() => window.dispatchEvent(new CustomEvent("djt-refresh-badges")))
         .catch(() => {});
-      if (!commentsByPost[id]) await loadComments(id);
+      if (!commentsByPost[id]) void loadComments(id);
+      requestAnimationFrame(() => commentInputRef.current?.focus());
       window.setTimeout(() => {
         commentInputRef.current?.focus();
       }, 120);
@@ -3571,6 +3582,9 @@ export default function SEPBookIG() {
             setCommentMedia([]);
             setCommentUploading(false);
             setCommentSubmitting(false);
+            const el = commentsReturnFocusRef.current;
+            commentsReturnFocusRef.current = null;
+            requestAnimationFrame(() => el?.focus?.());
           }
         }}
       >
