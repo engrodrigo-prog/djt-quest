@@ -25,7 +25,7 @@ export function FinanceRequestsManagement() {
   const { toast } = useToast();
   const [items, setItems] = useState<RequestRow[]>([]);
   const [loading, setLoading] = useState(false);
-  const [exporting, setExporting] = useState<"csv" | "xlsx" | null>(null);
+  const [exporting, setExporting] = useState<"xlsx" | null>(null);
 
   const [company, setCompany] = useState<string>("all");
   const [coordination, setCoordination] = useState<string>("all");
@@ -98,7 +98,7 @@ export function FinanceRequestsManagement() {
     }
   }, [toast]);
 
-  const download = async (fmt: "csv" | "xlsx") => {
+  const download = async (fmt: "xlsx") => {
     if (exporting) return;
     setExporting(fmt);
     try {
@@ -231,10 +231,6 @@ export function FinanceRequestsManagement() {
               <RefreshCw className="h-4 w-4 mr-2" />
               {loading ? "Atualizando..." : "Aplicar"}
             </Button>
-            <Button size="sm" variant="outline" className="h-9" onClick={() => void download("csv")} disabled={!!exporting}>
-              <Download className="h-4 w-4 mr-2" />
-              {exporting === "csv" ? "Baixando..." : "CSV"}
-            </Button>
             <Button size="sm" variant="outline" className="h-9" onClick={() => void download("xlsx")} disabled={!!exporting}>
               <Download className="h-4 w-4 mr-2" />
               {exporting === "xlsx" ? "Baixando..." : "XLSX"}
@@ -338,19 +334,45 @@ export function FinanceRequestsManagement() {
                     <div className="text-[12px] font-medium">Anexos</div>
                     <span className="text-[11px] text-muted-foreground">{(detail.attachments || []).length} arquivo(s)</span>
                   </div>
-                  {(detail.attachments || []).length ? (
-                    <div className="mt-2 space-y-1">
-                      {(detail.attachments || []).map((a: any) => (
-                        <a key={a.id} href={a.url} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-[12px] hover:underline">
-                          <FileText className="h-4 w-4" />
-                          <span className="truncate">{a.filename || a.url}</span>
-                        </a>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-[11px] text-muted-foreground mt-2">Sem anexos.</p>
-                  )}
-                </div>
+	                  {(detail.attachments || []).length ? (
+	                    <div className="mt-2 space-y-1">
+	                      {(detail.attachments || []).map((a: any) => (
+	                        <div key={a.id} className="flex items-center justify-between gap-3">
+	                          <a href={a.url} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-[12px] hover:underline min-w-0">
+	                            <FileText className="h-4 w-4 flex-shrink-0" />
+	                            <span className="truncate">{a.filename || a.url}</span>
+	                          </a>
+	                          <div className="flex items-center gap-2 flex-shrink-0">
+	                            {a?.metadata?.ai_extract_json?.url ? (
+	                              <a
+	                                href={a.metadata.ai_extract_json.url}
+	                                target="_blank"
+	                                rel="noreferrer"
+	                                className="text-[11px] text-muted-foreground hover:underline"
+	                                title="Leitura do anexo (IA) em JSON"
+	                              >
+	                                JSON
+	                              </a>
+	                            ) : null}
+	                            {a?.metadata?.table_csv?.url ? (
+	                              <a
+	                                href={a.metadata.table_csv.url}
+	                                target="_blank"
+	                                rel="noreferrer"
+	                                className="text-[11px] text-muted-foreground hover:underline"
+	                                title="Tabela extraída (CSV)"
+	                              >
+	                                CSV
+	                              </a>
+	                            ) : null}
+	                          </div>
+	                        </div>
+	                      ))}
+	                    </div>
+	                  ) : (
+	                    <p className="text-[11px] text-muted-foreground mt-2">Sem anexos.</p>
+	                  )}
+	                </div>
 
                 <div className="rounded-md border p-2">
                   <div className="text-[12px] font-medium">Histórico</div>

@@ -4,7 +4,12 @@ import { createClient } from "@supabase/supabase-js";
 
 import { assertDjtQuestServerEnv } from "../server/env-guard.js";
 import { canManageFinanceRequests, isGuestProfile } from "../server/finance/permissions.js";
-import { extractCsvForFinanceAttachment, parseStorageRefFromUrl, buildFinanceCsvPath } from "../server/finance/attachment-extract.js";
+import {
+  buildFinanceAiJsonPath,
+  buildFinanceCsvPath,
+  extractFinanceArtifactsForAttachment,
+  parseStorageRefFromUrl,
+} from "../server/finance/attachment-extract.js";
 
 const SUPABASE_URL = process.env.SUPABASE_URL as string;
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY as string | undefined;
@@ -82,6 +87,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!list.length) return res.status(200).json({ success: true, processed: 0 });
 
     let processed = 0;
+    let processedCsv = 0;
+    let processedJson = 0;
     let skipped = 0;
     let failed = 0;
 
@@ -89,7 +96,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const attId = String(att?.id || "").trim();
       if (!attId) continue;
       const meta = att?.metadata && typeof att.metadata === "object" ? att.metadata : {};
-      if (meta?.table_csv?.storage_path) {
+      const hasCsv = Boolean(meta?.table_csv?.storage_path);
+      const hasJson = Boolean(meta?.ai_extract_json?.storage_path);
+      if (hasCsv && hasJson) {
         skipped += 1;
         continue;
       }
@@ -118,41 +127,100 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         continue;
       }
 
-      const csv = await extractCsvForFinanceAttachment({
+      const wantCsv = !hasCsv;
+      const wantJson = !hasJson;
+      const artifacts = await extractFinanceArtifactsForAttachment({
         buffer: buf,
         contentType: att?.content_type || "",
         filename: att?.filename || path.split("/").pop() || "",
+        wantCsv,
+        wantJson,
       }).catch(() => null);
-      const csvText = String(csv || "").trim();
-      if (!csvText) {
+
+      if (!artifacts) {
         skipped += 1;
         continue;
       }
 
-      const csvPath = buildFinanceCsvPath(path);
-      if (!csvPath) {
-        failed += 1;
-        continue;
+      let didAny = false;
+      const nextMeta = { ...(meta && typeof meta === "object" ? meta : {}) };
+
+      if (wantCsv && artifacts.csv) {
+        const csvText = String(artifacts.csv || "").trim();
+        if (csvText) {
+          const csvPath = buildFinanceCsvPath(path);
+          if (!csvPath) {
+            failed += 1;
+            continue;
+          }
+
+          const upload = await admin.storage
+            .from(bucket)
+            .upload(csvPath, Buffer.from(csvText, "utf-8"), { contentType: "text/csv; charset=utf-8", upsert: true });
+          if (upload.error) {
+            failed += 1;
+            continue;
+          }
+
+          const { data: pub } = admin.storage.from(bucket).getPublicUrl(csvPath);
+          nextMeta.table_csv = {
+            bucket,
+            storage_path: csvPath,
+            url: pub?.publicUrl || null,
+            created_at: new Date().toISOString(),
+          };
+          didAny = true;
+          processedCsv += 1;
+        }
       }
 
-      const upload = await admin.storage
-        .from(bucket)
-        .upload(csvPath, Buffer.from(csvText, "utf-8"), { contentType: "text/csv; charset=utf-8", upsert: true });
-      if (upload.error) {
-        failed += 1;
-        continue;
-      }
+      if (wantJson && artifacts.doc) {
+        const jsonPath = buildFinanceAiJsonPath(path);
+        if (!jsonPath) {
+          failed += 1;
+          continue;
+        }
 
-      const { data: pub } = admin.storage.from(bucket).getPublicUrl(csvPath);
-      const nextMeta = {
-        ...(meta && typeof meta === "object" ? meta : {}),
-        table_csv: {
+        const payload = {
+          version: 1,
+          request_id: id,
+          attachment_id: attId,
+          source: {
+            bucket,
+            storage_path: path,
+            url: String(att?.url || "") || null,
+            filename: String(att?.filename || "") || null,
+            content_type: String(att?.content_type || "") || null,
+          },
+          extracted_at: new Date().toISOString(),
+          ...artifacts.doc,
+        };
+        const jsonText = JSON.stringify(payload, null, 2);
+
+        const upload = await admin.storage
+          .from(bucket)
+          .upload(jsonPath, Buffer.from(jsonText, "utf-8"), { contentType: "application/json; charset=utf-8", upsert: true });
+        if (upload.error) {
+          failed += 1;
+          continue;
+        }
+
+        const { data: pub } = admin.storage.from(bucket).getPublicUrl(jsonPath);
+        nextMeta.ai_extract_json = {
           bucket,
-          storage_path: csvPath,
+          storage_path: jsonPath,
           url: pub?.publicUrl || null,
           created_at: new Date().toISOString(),
-        },
-      };
+          model: artifacts?.doc?.model || null,
+        };
+        didAny = true;
+        processedJson += 1;
+      }
+
+      if (!didAny) {
+        skipped += 1;
+        continue;
+      }
 
       const { error: updErr } = await admin
         .from("finance_request_attachments")
@@ -166,11 +234,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       processed += 1;
     }
 
-    return res.status(200).json({ success: true, processed, skipped, failed });
+    return res.status(200).json({ success: true, processed, processedCsv, processedJson, skipped, failed });
   } catch (e: any) {
     return res.status(500).json({ error: e?.message || "Unknown error" });
   }
 }
 
 export const config = { api: { bodyParser: { sizeLimit: "2mb" } }, maxDuration: 60 };
-

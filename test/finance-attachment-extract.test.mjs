@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { parseStorageRefFromUrl, buildFinanceCsvPath } from "../server/finance/attachment-extract.js";
+import { parseStorageRefFromUrl, buildFinanceAiJsonPath, buildFinanceCsvPath } from "../server/finance/attachment-extract.js";
 
 test("finance attachment extract: parses storage ref from public url", () => {
   const base = "https://eyuehdefoedxcunxiyvb.supabase.co";
@@ -34,3 +34,13 @@ test("finance attachment extract: builds csv path next to attachment", () => {
   );
 });
 
+test("finance attachment extract: builds ai json path next to attachment", () => {
+  assert.equal(
+    buildFinanceAiJsonPath("finance-requests/u123/file.jpg"),
+    "finance-requests/u123/file.ai.json",
+  );
+  assert.equal(
+    buildFinanceAiJsonPath("finance-requests/u123/file"),
+    "finance-requests/u123/file.ai.json",
+  );
+});

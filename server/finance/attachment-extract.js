@@ -4,6 +4,7 @@ import { extractImageTextWithAi, parseJsonFromAiContent } from "../lib/ai-curati
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const OPENAI_MODEL_FINANCE_TABLE = process.env.OPENAI_MODEL_FINANCE_TABLE || "gpt-4.1-mini";
+const OPENAI_MODEL_FINANCE_DOC = process.env.OPENAI_MODEL_FINANCE_DOC || process.env.OPENAI_MODEL_FINANCE_TABLE || "gpt-4.1-mini";
 
 const inferExt = (name) => {
   const clean = String(name || "").split("?")[0].split("#")[0];
@@ -52,6 +53,13 @@ const buildCsvPath = (storagePath) => {
   if (!base) return null;
   const withoutExt = base.replace(/\.[^.\/\\]+$/, "");
   return `${withoutExt}.table.csv`;
+};
+
+const buildAiJsonPath = (storagePath) => {
+  const base = String(storagePath || "").replace(/\r/g, "").trim();
+  if (!base) return null;
+  const withoutExt = base.replace(/\.[^.\/\\]+$/, "");
+  return `${withoutExt}.ai.json`;
 };
 
 const jsonToCsv = (rows, delimiter = ";") => {
@@ -122,7 +130,62 @@ const extractTableFromTextWithAi = async (rawText) => {
   return csv;
 };
 
-export const extractCsvForFinanceAttachment = async (params) => {
+const extractFinanceDocFromTextWithAi = async (rawText) => {
+  const text = String(rawText || "").trim();
+  if (!text || text.length < 40) return null;
+  if (!OPENAI_API_KEY) return null;
+
+  const prompt =
+    "Você recebe o TEXTO (OCR/PDF) extraído de um comprovante, nota fiscal ou recibo.\n" +
+    "Objetivo: transcrever/estruturar informações para reembolso.\n\n" +
+    "Responda APENAS com JSON válido, com as chaves exatamente abaixo:\n" +
+    "{\n" +
+    '  "document_type": "nota_fiscal" | "recibo" | "comprovante" | "outro",\n' +
+    '  "issuer_name": string|null,\n' +
+    '  "issuer_tax_id": string|null,\n' +
+    '  "recipient_name": string|null,\n' +
+    '  "recipient_tax_id": string|null,\n' +
+    '  "document_number": string|null,\n' +
+    '  "series": string|null,\n' +
+    '  "date": "YYYY-MM-DD"|null,\n' +
+    '  "total_amount": number|null,\n' +
+    '  "currency": string|null,\n' +
+    '  "items": [{"description":string,"quantity":number|null,"unit_price":number|null,"total":number|null}],\n' +
+    '  "notes": string|null\n' +
+    "}\n\n" +
+    "Regras:\n" +
+    "- NÃO invente valores; use null quando não tiver certeza.\n" +
+    "- Se houver valores monetários, use ponto como separador decimal (ex.: 1234.56).\n" +
+    "- Se não houver itens, retorne items: [].\n\n" +
+    "TEXTO:\n" +
+    text.slice(0, 22_000);
+
+  const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${OPENAI_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: OPENAI_MODEL_FINANCE_DOC,
+      messages: [
+        { role: "system", content: "Você extrai dados de comprovantes e retorna JSON estrito." },
+        { role: "user", content: prompt },
+      ],
+      temperature: 0.1,
+      max_tokens: 1000,
+      response_format: { type: "json_object" },
+    }),
+  });
+  if (!resp.ok) return null;
+  const data = await resp.json().catch(() => null);
+  const content = data?.choices?.[0]?.message?.content || "";
+  const parsed = parseJsonFromAiContent(content).parsed;
+  if (!parsed || typeof parsed !== "object") return null;
+  return parsed;
+};
+
+export const extractTextForFinanceAttachment = async (params) => {
   const buffer = params?.buffer;
   if (!buffer || !Buffer.isBuffer(buffer) || buffer.length === 0) return null;
   const filename = String(params?.filename || "").trim();
@@ -132,11 +195,14 @@ export const extractCsvForFinanceAttachment = async (params) => {
   let extractedText = "";
   if (contentType.includes("pdf") || ext === "pdf") {
     extractedText = await extractPdfText(buffer);
-  } else if (contentType.startsWith("image/") || ["png", "jpg", "jpeg", "webp", "gif", "bmp", "tif", "tiff", "avif", "heic", "heif"].includes(ext)) {
+  } else if (
+    contentType.startsWith("image/") ||
+    ["png", "jpg", "jpeg", "webp", "gif", "bmp", "tif", "tiff", "avif", "heic", "heif"].includes(ext)
+  ) {
     const ocr = await extractImageTextWithAi({
       buffer,
       mime: contentType || `image/${ext || "jpeg"}`,
-      hint: "Comprovante/nota fiscal/recibo ou planilha. Extraia texto com foco em itens e valores.",
+      hint: "Comprovante/nota fiscal/recibo. Extraia texto com foco em itens, datas, CNPJ/CPF e valores.",
       openaiKey: OPENAI_API_KEY,
     });
     if (!ocr.ok) return null;
@@ -145,9 +211,53 @@ export const extractCsvForFinanceAttachment = async (params) => {
     extractedText = extractPlainText(buffer);
   }
 
-  if (!extractedText || extractedText.trim().length < 40) return null;
-  const csv = await extractTableFromTextWithAi(extractedText);
+  const text = String(extractedText || "").trim();
+  if (!text || text.length < 40) return null;
+  return text;
+};
+
+export const extractCsvForFinanceAttachment = async (params) => {
+  const text = await extractTextForFinanceAttachment(params);
+  if (!text) return null;
+  const csv = await extractTableFromTextWithAi(text);
   return normalizeCsv(csv || "");
 };
 
 export const buildFinanceCsvPath = buildCsvPath;
+export const buildFinanceAiJsonPath = buildAiJsonPath;
+
+export const extractJsonForFinanceAttachment = async (params) => {
+  const text = await extractTextForFinanceAttachment(params);
+  if (!text) return null;
+  const parsed = await extractFinanceDocFromTextWithAi(text);
+  if (!parsed) return null;
+  return {
+    extracted_text: text.length > 120_000 ? text.slice(0, 120_000) + "\n..." : text,
+    document: parsed,
+    model: OPENAI_MODEL_FINANCE_DOC,
+  };
+};
+
+export const extractFinanceArtifactsForAttachment = async (params) => {
+  const wantCsv = params?.wantCsv !== false;
+  const wantJson = params?.wantJson !== false;
+  const text = await extractTextForFinanceAttachment(params);
+  if (!text) return null;
+
+  const [csv, doc] = await Promise.all([
+    wantCsv ? extractTableFromTextWithAi(text).then((s) => normalizeCsv(s || "")) : Promise.resolve(null),
+    wantJson
+      ? extractFinanceDocFromTextWithAi(text).then((parsed) =>
+          parsed
+            ? {
+                extracted_text: text.length > 120_000 ? text.slice(0, 120_000) + "\n..." : text,
+                document: parsed,
+                model: OPENAI_MODEL_FINANCE_DOC,
+              }
+            : null,
+        )
+      : Promise.resolve(null),
+  ]);
+
+  return { text, csv, doc };
+};

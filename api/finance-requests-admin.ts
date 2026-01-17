@@ -12,57 +12,6 @@ const ANON_KEY = (process.env.SUPABASE_ANON_KEY ||
   process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
   process.env.VITE_SUPABASE_ANON_KEY) as string;
 
-const toCsv = (rows: any[]) => {
-  const header = [
-    'protocol',
-    'created_at',
-    'updated_at',
-    'created_by_name',
-    'created_by_email',
-    'created_by_matricula',
-    'company',
-    'training_operational',
-    'request_kind',
-    'expense_type',
-    'coordination',
-    'date_start',
-    'date_end',
-    'amount_brl',
-    'status',
-    'last_observation',
-  ];
-  const esc = (v: any) => {
-    const s = v == null ? '' : String(v);
-    if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
-    return s;
-  };
-  const lines = [header.join(',')];
-  for (const r of rows) {
-    const amount = typeof r.amount_cents === 'number' ? (r.amount_cents / 100).toFixed(2).replace('.', ',') : '';
-    lines.push(
-      [
-        r.protocol,
-        r.created_at,
-        r.updated_at,
-        r.created_by_name,
-        r.created_by_email,
-        r.created_by_matricula,
-        r.company,
-        r.training_operational ? 'Sim' : 'Não',
-        r.request_kind,
-        r.expense_type,
-        r.coordination,
-        r.date_start,
-        r.date_end,
-        amount,
-        r.status,
-        r.last_observation,
-      ].map(esc).join(','),
-    );
-  }
-  return lines.join('\n');
-};
-
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === 'OPTIONS') return res.status(204).send('');
   if (req.method !== 'GET' && req.method !== 'PATCH') return res.status(405).json({ error: 'Method not allowed' });
@@ -180,6 +129,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const rows = Array.isArray(data) ? data : [];
 
     if (exportFmt === 'xlsx') {
+      const ids = rows.map((r: any) => String(r?.id || '')).filter(Boolean);
+      const attachmentsByRequest = new Map<string, any[]>();
+      if (ids.length) {
+        const { data: atts } = await admin
+          .from('finance_request_attachments')
+          .select('request_id,url,filename,metadata')
+          .in('request_id', ids)
+          .order('created_at', { ascending: true });
+        for (const a of Array.isArray(atts) ? atts : []) {
+          const rid = String((a as any)?.request_id || '');
+          if (!rid) continue;
+          const list = attachmentsByRequest.get(rid) || [];
+          list.push(a);
+          attachmentsByRequest.set(rid, list);
+        }
+      }
+
       const sheetRows = rows.map((r) => ({
         Protocolo: r.protocol,
         CriadoEm: r.created_at,
@@ -197,6 +163,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         Valor: typeof r.amount_cents === 'number' ? r.amount_cents / 100 : null,
         Status: r.status,
         Observacao: r.last_observation,
+        Anexos: (attachmentsByRequest.get(String(r.id)) || [])
+          .map((a: any) => String(a?.url || '').trim())
+          .filter(Boolean)
+          .join('\n') || null,
+        LeituraIA_JSON: (attachmentsByRequest.get(String(r.id)) || [])
+          .map((a: any) => String(a?.metadata?.ai_extract_json?.url || '').trim())
+          .filter(Boolean)
+          .join('\n') || null,
       }));
       const wb = XLSX.utils.book_new();
       const ws = XLSX.utils.json_to_sheet(sheetRows);
@@ -207,11 +181,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(200).send(buf);
     }
 
-    if (exportFmt === 'csv') {
-      const csv = toCsv(rows);
-      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-      res.setHeader('Content-Disposition', 'attachment; filename="finance-requests.csv"');
-      return res.status(200).send(csv);
+    if (exportFmt) {
+      return res.status(400).json({ error: 'Formato de export inválido. Use export=xlsx.' });
     }
 
     return res.status(200).json({ items: rows });

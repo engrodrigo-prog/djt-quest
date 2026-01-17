@@ -699,27 +699,40 @@ export default function FinanceRequests() {
                 </div>
                 {(detail.attachments || []).length ? (
                   <div className="mt-2 space-y-1">
-                    {(detail.attachments || []).map((a: any) => (
-                      <div key={a.id} className="flex items-center justify-between gap-3">
-                        <a href={a.url} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-[12px] hover:underline min-w-0">
-                          <FileText className="h-4 w-4 flex-shrink-0" />
-                          <span className="truncate">{a.filename || a.url}</span>
-                        </a>
-                        {a?.metadata?.table_csv?.url ? (
-                          <a
-                            href={a.metadata.table_csv.url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-[11px] text-muted-foreground hover:underline flex-shrink-0"
-                            title="Tabela extraída (CSV)"
-                          >
-                            CSV
-                          </a>
-                        ) : null}
-                      </div>
-                    ))}
-                  </div>
-                ) : (
+	                    {(detail.attachments || []).map((a: any) => (
+	                      <div key={a.id} className="flex items-center justify-between gap-3">
+	                        <a href={a.url} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-[12px] hover:underline min-w-0">
+	                          <FileText className="h-4 w-4 flex-shrink-0" />
+	                          <span className="truncate">{a.filename || a.url}</span>
+	                        </a>
+	                        <div className="flex items-center gap-2 flex-shrink-0">
+	                          {a?.metadata?.ai_extract_json?.url ? (
+	                            <a
+	                              href={a.metadata.ai_extract_json.url}
+	                              target="_blank"
+	                              rel="noreferrer"
+	                              className="text-[11px] text-muted-foreground hover:underline"
+	                              title="Leitura do anexo (IA) em JSON"
+	                            >
+	                              JSON
+	                            </a>
+	                          ) : null}
+	                          {a?.metadata?.table_csv?.url ? (
+	                            <a
+	                              href={a.metadata.table_csv.url}
+	                              target="_blank"
+	                              rel="noreferrer"
+	                              className="text-[11px] text-muted-foreground hover:underline"
+	                              title="Tabela extraída (CSV)"
+	                            >
+	                              CSV
+	                            </a>
+	                          ) : null}
+	                        </div>
+	                      </div>
+	                    ))}
+	                  </div>
+	                ) : (
                   <p className="text-[11px] text-muted-foreground mt-2">Sem anexos.</p>
                 )}
               </div>
