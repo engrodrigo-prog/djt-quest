@@ -6,8 +6,7 @@ import { assertDjtQuestServerEnv } from "../server/env-guard.js";
 import { canManageFinanceRequests, isGuestProfile } from "../server/finance/permissions.js";
 import {
   buildFinanceAiJsonPath,
-  buildFinanceCsvPath,
-  extractFinanceArtifactsForAttachment,
+  extractJsonForFinanceAttachment,
   parseStorageRefFromUrl,
 } from "../server/finance/attachment-extract.js";
 
@@ -87,7 +86,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!list.length) return res.status(200).json({ success: true, processed: 0 });
 
     let processed = 0;
-    let processedCsv = 0;
     let processedJson = 0;
     let skipped = 0;
     let failed = 0;
@@ -96,9 +94,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const attId = String(att?.id || "").trim();
       if (!attId) continue;
       const meta = att?.metadata && typeof att.metadata === "object" ? att.metadata : {};
-      const hasCsv = Boolean(meta?.table_csv?.storage_path);
-      const hasJson = Boolean(meta?.ai_extract_json?.storage_path);
-      if (hasCsv && hasJson) {
+      const aiMeta = meta?.ai_extract_json && typeof meta.ai_extract_json === "object" ? meta.ai_extract_json : null;
+      const aiStatus = String(aiMeta?.status || "").trim().toLowerCase();
+      const hasJson = Boolean(aiMeta?.storage_path) && aiStatus !== "error" && aiStatus !== "processing";
+
+      // Avoid duplicate work if another process is already running.
+      if (aiStatus === "processing") {
+        skipped += 1;
+        continue;
+      }
+      if (hasJson) {
         skipped += 1;
         continue;
       }
@@ -116,113 +121,162 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         continue;
       }
 
+      const jsonPath = buildFinanceAiJsonPath(path);
+      if (!jsonPath) {
+        failed += 1;
+        continue;
+      }
+
+      // Fast-path: if the JSON already exists in storage, just attach the URL in metadata.
+      // This avoids re-running OCR/IA when the JSON was generated earlier (e.g. during upload).
+      try {
+        const { data: existingJson } = await admin.storage.from(bucket).download(jsonPath);
+        if (existingJson) {
+          const nextMeta = { ...(meta && typeof meta === "object" ? meta : {}) };
+          const { data: pub } = admin.storage.from(bucket).getPublicUrl(jsonPath);
+          nextMeta.ai_extract_json = {
+            bucket,
+            storage_path: jsonPath,
+            url: pub?.publicUrl || null,
+            created_at: String(aiMeta?.created_at || "") || new Date().toISOString(),
+            model: aiMeta?.model || null,
+            status: "done",
+          };
+          const { error: updErr } = await admin
+            .from("finance_request_attachments")
+            .update({ metadata: nextMeta })
+            .eq("id", attId);
+          if (updErr) throw updErr;
+          processed += 1;
+          processedJson += 1;
+          continue;
+        }
+      } catch {
+        // ignore; proceed to IA extraction
+      }
+
+      // Mark as processing early so the UI can show progress and we avoid double-processing.
+      try {
+        const nextMeta = { ...(meta && typeof meta === "object" ? meta : {}) };
+        const attempts = Math.max(0, Number(aiMeta?.attempts || 0)) + 1;
+        nextMeta.ai_extract_json = {
+          ...(aiMeta && typeof aiMeta === "object" ? aiMeta : {}),
+          status: "processing",
+          started_at: new Date().toISOString(),
+          attempts,
+          error: null,
+        };
+        await admin.from("finance_request_attachments").update({ metadata: nextMeta }).eq("id", attId);
+      } catch {
+        // best-effort
+      }
+
       const { data: blob, error: dlErr } = await admin.storage.from(bucket).download(path);
       if (dlErr || !blob) {
         failed += 1;
+        try {
+          const nextMeta = { ...(meta && typeof meta === "object" ? meta : {}) };
+          nextMeta.ai_extract_json = {
+            ...(aiMeta && typeof aiMeta === "object" ? aiMeta : {}),
+            status: "error",
+            error: dlErr?.message || "Falha ao baixar anexo",
+            failed_at: new Date().toISOString(),
+          };
+          await admin.from("finance_request_attachments").update({ metadata: nextMeta }).eq("id", attId);
+        } catch {
+          // ignore
+        }
         continue;
       }
       const buf = await toBuffer(blob);
       if (!buf) {
         failed += 1;
+        try {
+          const nextMeta = { ...(meta && typeof meta === "object" ? meta : {}) };
+          nextMeta.ai_extract_json = {
+            ...(aiMeta && typeof aiMeta === "object" ? aiMeta : {}),
+            status: "error",
+            error: "Falha ao ler anexo",
+            failed_at: new Date().toISOString(),
+          };
+          await admin.from("finance_request_attachments").update({ metadata: nextMeta }).eq("id", attId);
+        } catch {
+          // ignore
+        }
         continue;
       }
 
-      const wantCsv = !hasCsv;
-      const wantJson = !hasJson;
-      const artifacts = await extractFinanceArtifactsForAttachment({
+      const doc = await extractJsonForFinanceAttachment({
         buffer: buf,
         contentType: att?.content_type || "",
         filename: att?.filename || path.split("/").pop() || "",
-        wantCsv,
-        wantJson,
       }).catch(() => null);
 
-      if (!artifacts) {
-        skipped += 1;
-        continue;
-      }
-
-      let didAny = false;
-      const nextMeta = { ...(meta && typeof meta === "object" ? meta : {}) };
-
-      if (wantCsv && artifacts.csv) {
-        const csvText = String(artifacts.csv || "").trim();
-        if (csvText) {
-          const csvPath = buildFinanceCsvPath(path);
-          if (!csvPath) {
-            failed += 1;
-            continue;
-          }
-
-          const upload = await admin.storage
-            .from(bucket)
-            .upload(csvPath, Buffer.from(csvText, "utf-8"), { contentType: "text/csv; charset=utf-8", upsert: true });
-          if (upload.error) {
-            failed += 1;
-            continue;
-          }
-
-          const { data: pub } = admin.storage.from(bucket).getPublicUrl(csvPath);
-          nextMeta.table_csv = {
-            bucket,
-            storage_path: csvPath,
-            url: pub?.publicUrl || null,
-            created_at: new Date().toISOString(),
+      if (!doc) {
+        failed += 1;
+        try {
+          const nextMeta = { ...(meta && typeof meta === "object" ? meta : {}) };
+          nextMeta.ai_extract_json = {
+            ...(aiMeta && typeof aiMeta === "object" ? aiMeta : {}),
+            status: "error",
+            error: "Não foi possível extrair dados do anexo (IA).",
+            failed_at: new Date().toISOString(),
           };
-          didAny = true;
-          processedCsv += 1;
+          await admin.from("finance_request_attachments").update({ metadata: nextMeta }).eq("id", attId);
+        } catch {
+          // ignore
         }
-      }
-
-      if (wantJson && artifacts.doc) {
-        const jsonPath = buildFinanceAiJsonPath(path);
-        if (!jsonPath) {
-          failed += 1;
-          continue;
-        }
-
-        const payload = {
-          version: 1,
-          request_id: id,
-          attachment_id: attId,
-          item_id: att?.item_id || null,
-          item_idx: Number.isFinite(Number(meta?.finance_item_idx)) ? Number(meta.finance_item_idx) : null,
-          source: {
-            bucket,
-            storage_path: path,
-            url: String(att?.url || "") || null,
-            filename: String(att?.filename || "") || null,
-            content_type: String(att?.content_type || "") || null,
-          },
-          extracted_at: new Date().toISOString(),
-          ...artifacts.doc,
-        };
-        const jsonText = JSON.stringify(payload, null, 2);
-
-        const upload = await admin.storage
-          .from(bucket)
-          .upload(jsonPath, Buffer.from(jsonText, "utf-8"), { contentType: "application/json; charset=utf-8", upsert: true });
-        if (upload.error) {
-          failed += 1;
-          continue;
-        }
-
-        const { data: pub } = admin.storage.from(bucket).getPublicUrl(jsonPath);
-        nextMeta.ai_extract_json = {
-          bucket,
-          storage_path: jsonPath,
-          url: pub?.publicUrl || null,
-          created_at: new Date().toISOString(),
-          model: artifacts?.doc?.model || null,
-        };
-        didAny = true;
-        processedJson += 1;
-      }
-
-      if (!didAny) {
-        skipped += 1;
         continue;
       }
+
+      const payload = {
+        version: 1,
+        request_id: id,
+        attachment_id: attId,
+        item_id: att?.item_id || null,
+        item_idx: Number.isFinite(Number(meta?.finance_item_idx)) ? Number(meta.finance_item_idx) : null,
+        source: {
+          bucket,
+          storage_path: path,
+          url: String(att?.url || "") || null,
+          filename: String(att?.filename || "") || null,
+          content_type: String(att?.content_type || "") || null,
+        },
+        extracted_at: new Date().toISOString(),
+        ...doc,
+      };
+      const jsonText = JSON.stringify(payload, null, 2);
+
+      const upload = await admin.storage
+        .from(bucket)
+        .upload(jsonPath, Buffer.from(jsonText, "utf-8"), { contentType: "application/json; charset=utf-8", upsert: true });
+      if (upload.error) {
+        failed += 1;
+        try {
+          const nextMeta = { ...(meta && typeof meta === "object" ? meta : {}) };
+          nextMeta.ai_extract_json = {
+            ...(aiMeta && typeof aiMeta === "object" ? aiMeta : {}),
+            status: "error",
+            error: upload.error.message || "Falha ao salvar JSON",
+            failed_at: new Date().toISOString(),
+          };
+          await admin.from("finance_request_attachments").update({ metadata: nextMeta }).eq("id", attId);
+        } catch {
+          // ignore
+        }
+        continue;
+      }
+
+      const nextMeta = { ...(meta && typeof meta === "object" ? meta : {}) };
+      const { data: pub } = admin.storage.from(bucket).getPublicUrl(jsonPath);
+      nextMeta.ai_extract_json = {
+        bucket,
+        storage_path: jsonPath,
+        url: pub?.publicUrl || null,
+        created_at: new Date().toISOString(),
+        model: doc?.model || null,
+        status: "done",
+      };
 
       const { error: updErr } = await admin
         .from("finance_request_attachments")
@@ -234,9 +288,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
 
       processed += 1;
+      processedJson += 1;
     }
 
-    return res.status(200).json({ success: true, processed, processedCsv, processedJson, skipped, failed });
+    return res.status(200).json({ success: true, processed, processedJson, skipped, failed });
   } catch (e: any) {
     return res.status(500).json({ error: e?.message || "Unknown error" });
   }

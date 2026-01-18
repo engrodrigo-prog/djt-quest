@@ -118,6 +118,7 @@ export default function FinanceRequests() {
   const [submitting, setSubmitting] = useState(false);
   const [draftItems, setDraftItems] = useState<DraftItem[]>([]);
   const [form, setForm] = useState({ ...EMPTY_FORM });
+  const [aiExtractingByPath, setAiExtractingByPath] = useState<Record<string, boolean>>({});
   const [prefillEnabled, setPrefillEnabled] = useState<boolean>(() => {
     try {
       if (typeof window === "undefined") return true;
@@ -182,6 +183,115 @@ export default function FinanceRequests() {
     const roleList = Array.isArray(roles) ? roles : [];
     return Boolean(user?.id) && !isGuestProfile(profile, roleList);
   }, [profile, roles, user?.id]);
+
+  const kickAiExtractForUploadedAttachment = useCallback(async (draftItemId: string, att: AttachmentItem) => {
+    const bucket = String(att?.storageBucket || "").trim();
+    const path = String(att?.storagePath || "").trim();
+    const url = String(att?.url || "").trim();
+    if (!bucket || !path || !url) return;
+
+    const meta = att?.meta && typeof att.meta === "object" ? att.meta : {};
+    const ai = meta?.ai_extract_json && typeof meta.ai_extract_json === "object" ? meta.ai_extract_json : null;
+    const aiStatus = String(ai?.status || "").trim().toLowerCase();
+    if (ai?.url) return;
+    if (aiStatus === "processing") return;
+    if (aiExtractingByPath[path]) return;
+
+    setAiExtractingByPath((p) => ({ ...p, [path]: true }));
+    try {
+      // Mark local state as processing (doesn't block submitting).
+      setDraftItems((prev) =>
+        prev.map((x) => {
+          if (x.id !== draftItemId) return x;
+          return {
+            ...x,
+            attachments: (x.attachments || []).map((a) => {
+              if (String(a?.storagePath || "").trim() !== path) return a;
+              const nextMeta = a?.meta && typeof a.meta === "object" ? { ...a.meta } : {};
+              const prevAi = nextMeta?.ai_extract_json && typeof nextMeta.ai_extract_json === "object" ? nextMeta.ai_extract_json : {};
+              nextMeta.ai_extract_json = {
+                ...prevAi,
+                status: "processing",
+                started_at: new Date().toISOString(),
+                error: null,
+              };
+              return { ...a, meta: nextMeta };
+            }),
+          };
+        }),
+      );
+
+      const resp = await apiFetch("/api/finance-attachment-extract", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-AI-UI": "silent" },
+        body: JSON.stringify({
+          url,
+          storageBucket: bucket,
+          storagePath: path,
+          filename: att?.filename || null,
+          contentType: att?.contentType || null,
+        }),
+      });
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(json?.error || "Falha ao analisar anexo (IA)");
+
+      const aiMeta = json?.ai_extract_json && typeof json.ai_extract_json === "object" ? json.ai_extract_json : null;
+      if (!aiMeta?.storage_path) throw new Error("Resposta inválida do processamento (IA)");
+
+      setDraftItems((prev) =>
+        prev.map((x) => {
+          if (x.id !== draftItemId) return x;
+          return {
+            ...x,
+            attachments: (x.attachments || []).map((a) => {
+              if (String(a?.storagePath || "").trim() !== path) return a;
+              const nextMeta = a?.meta && typeof a.meta === "object" ? { ...a.meta } : {};
+              nextMeta.ai_extract_json = { ...aiMeta, status: "done" };
+              return { ...a, meta: nextMeta };
+            }),
+          };
+        }),
+      );
+    } catch (e: any) {
+      setDraftItems((prev) =>
+        prev.map((x) => {
+          if (x.id !== draftItemId) return x;
+          return {
+            ...x,
+            attachments: (x.attachments || []).map((a) => {
+              if (String(a?.storagePath || "").trim() !== path) return a;
+              const nextMeta = a?.meta && typeof a.meta === "object" ? { ...a.meta } : {};
+              const prevAi = nextMeta?.ai_extract_json && typeof nextMeta.ai_extract_json === "object" ? nextMeta.ai_extract_json : {};
+              nextMeta.ai_extract_json = {
+                ...prevAi,
+                status: "error",
+                error: e?.message || "Falha ao analisar anexo (IA)",
+                failed_at: new Date().toISOString(),
+              };
+              return { ...a, meta: nextMeta };
+            }),
+          };
+        }),
+      );
+    } finally {
+      setAiExtractingByPath((p) => {
+        const next = { ...p };
+        delete next[path];
+        return next;
+      });
+    }
+  }, [aiExtractingByPath, setDraftItems]);
+
+  const handleDraftItemAttachmentsChange = useCallback((draftItemId: string, items: any) => {
+    const list: AttachmentItem[] = Array.isArray(items) ? (items as any) : [];
+    setDraftItems((prev) => prev.map((x) => x.id === draftItemId ? { ...x, attachments: list } : x));
+
+    // As soon as the attachment is uploaded, run AI extraction in background.
+    const first = list[0];
+    if (first?.url && first?.storageBucket && first?.storagePath) {
+      void kickAiExtractForUploadedAttachment(draftItemId, first);
+    }
+  }, [kickAiExtractForUploadedAttachment]);
 
   const load = useCallback(async () => {
     if (!user?.id) return;
@@ -754,12 +864,22 @@ export default function FinanceRequests() {
                           <div className="flex items-center justify-between">
                             <Label className="text-[11px] text-muted-foreground">Comprovante (PDF/JPG/PNG)</Label>
                             <span className="text-[11px] text-muted-foreground">
-                              {(it.attachments || []).length ? "enviado" : it.uploading ? "enviando..." : "pendente"}
+                              {(() => {
+                                if (it.uploading) return "enviando...";
+                                if (!(it.attachments || []).length) return "pendente";
+                                const a0 = it.attachments?.[0];
+                                const ai = a0?.meta?.ai_extract_json;
+                                const st = String(ai?.status || "").trim().toLowerCase();
+                                if (st === "processing") return "enviado • IA lendo...";
+                                if (st === "done") return "enviado • IA pronta";
+                                if (st === "error") return "enviado • IA falhou";
+                                return "enviado";
+                              })()}
                             </span>
                           </div>
                           <AttachmentUploader
                             onAttachmentsChange={() => {}}
-                            onAttachmentItemsChange={(items) => setDraftItems((p) => p.map((x) => x.id === it.id ? { ...x, attachments: (items as any) || [] } : x))}
+                            onAttachmentItemsChange={(items) => handleDraftItemAttachmentsChange(it.id, items)}
                             onUploadingChange={(u) => setDraftItems((p) => p.map((x) => x.id === it.id ? { ...x, uploading: Boolean(u) } : x))}
                             maxFiles={1}
                             maxImages={1}
