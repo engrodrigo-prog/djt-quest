@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { CheckCircle2, XCircle, ArrowRight, Trophy, Volume2 } from "lucide-react";
+import { CheckCircle2, XCircle, ArrowRight, Trophy, Volume2, Pause, Play, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -108,7 +108,7 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
   const navigate = useNavigate();
   const { refreshUserSession } = useAuth();
   const { play: playSfx } = useSfx();
-  const { ttsEnabled, isSpeaking, speak, stop: stopTts } = useTts();
+  const { ttsEnabled, isSpeaking, isPaused, status: ttsStatus, speak, togglePause, stop: stopTts } = useTts();
   const [questions, setQuestions] = useState<Question[]>([]);
   const [challengeTitle, setChallengeTitle] = useState<string>('');
   const [challengeSpecialties, setChallengeSpecialties] = useState<string[] | null>(null);
@@ -515,7 +515,7 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
       .map((o, idx) => {
         const label = String.fromCharCode(65 + idx);
         const text = String(o?.option_text || "").trim();
-        return text ? `${label}. ${text}` : null;
+        return text ? `Alternativa ${label}: ${text}` : null;
       })
       .filter(Boolean)
       .join("\n");
@@ -608,7 +608,7 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
                 size="icon"
                 variant="ghost"
                 className="h-8 w-8"
-                disabled={isSpeaking}
+                disabled={ttsStatus === "loading"}
                 onClick={async () => {
                   try {
                     if (!ttsEnabled) {
@@ -625,6 +625,32 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
               >
                 <Volume2 className="h-4 w-4" />
               </Button>
+              {(isSpeaking || isPaused) && (
+                <>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className="h-8 w-8"
+                    onClick={togglePause}
+                    aria-label={isPaused ? "Retomar áudio" : "Pausar áudio"}
+                    title={isPaused ? "Retomar" : "Pausar"}
+                  >
+                    {isPaused ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className="h-8 w-8"
+                    onClick={stopTts}
+                    aria-label="Cancelar áudio"
+                    title="Cancelar"
+                  >
+                    <Square className="h-4 w-4" />
+                  </Button>
+                </>
+              )}
               <span className="text-sm px-3 py-1 rounded-full bg-primary/10 text-primary border border-primary/20">
                 {isMilhao && currentMilhaoMeta
                   ? `${currentMilhaoMeta.faixa} • Nível ${currentMilhaoMeta.level}`
@@ -855,12 +881,15 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
                           toast.error(e?.message || "Falha ao gerar áudio");
                         }
                       }}
-                      disabled={isSpeaking}
+                      disabled={ttsStatus === "loading"}
                     >
                       Ouvir
                     </Button>
-                    <Button type="button" size="sm" variant="outline" onClick={stopTts} disabled={!isSpeaking}>
-                      Parar
+                    <Button type="button" size="sm" variant="outline" onClick={togglePause} disabled={!(isSpeaking || isPaused)}>
+                      {isPaused ? "Retomar" : "Pausar"}
+                    </Button>
+                    <Button type="button" size="sm" variant="outline" onClick={stopTts} disabled={!(isSpeaking || isPaused)}>
+                      Cancelar
                     </Button>
                     {postWrongHelp?.loading && (
                       <span className="text-xs text-muted-foreground">Analisando com o monitor…</span>

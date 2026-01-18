@@ -7,6 +7,8 @@ import { getSupabaseUrlFromEnv } from "../server/lib/supabase-url.js";
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
 const OPENAI_TTS_MODEL = process.env.OPENAI_TTS_MODEL || "";
+const OPENAI_TTS_VOICE_MALE = process.env.OPENAI_TTS_VOICE_MALE || "";
+const OPENAI_TTS_VOICE_FEMALE = process.env.OPENAI_TTS_VOICE_FEMALE || "";
 
 const SUPABASE_URL = getSupabaseUrlFromEnv(process.env, { expectedHostname: DJT_QUEST_SUPABASE_HOST, allowLocal: true });
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
@@ -32,7 +34,8 @@ const hashFor = (input: string) => crypto.createHash("sha256").update(input).dig
 const pickVoice = (voiceGender: string | undefined) => {
   const g = String(voiceGender || "").toLowerCase();
   // OpenAI voices: alloy, echo, fable, onyx, nova, shimmer
-  return g === "female" ? "shimmer" : "onyx";
+  if (g === "female") return (OPENAI_TTS_VOICE_FEMALE || "nova").trim() || "nova";
+  return (OPENAI_TTS_VOICE_MALE || "alloy").trim() || "alloy";
 };
 
 async function ensureBucket(supabaseAdmin: any) {

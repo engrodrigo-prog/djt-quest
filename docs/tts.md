@@ -14,6 +14,11 @@ Permitir leitura em voz de textos (enunciados, explicações, análises do Monit
   - usa `OPENAI_TTS_MODEL` quando configurado
   - fallback: `gpt-4o-mini-tts` → `tts-1`
   - para testar `gpt-audio-2025-08-28` como leitura em voz, configure `OPENAI_TTS_MODEL="gpt-audio-2025-08-28"` (se o modelo suportar TTS na sua conta)
+- Voz:
+  - defaults: `male=alloy`, `female=nova`
+  - override:
+    - `OPENAI_TTS_VOICE_MALE`
+    - `OPENAI_TTS_VOICE_FEMALE`
 - Entrada:
   - `text` (string)
   - `locale` (`pt-BR` | `en` | `zh-CN`)
@@ -29,6 +34,7 @@ Permitir leitura em voz de textos (enunciados, explicações, análises do Monit
 - Provider/hook:
   - `src/lib/tts/provider.tsx`
   - `useTts().speak(text)` / `useTts().stop()`
+  - long texts: o provider divide em blocos menores e toca em sequência (para evitar limite do backend)
 - Persistência:
   - `localStorage` (`djt_tts_*`)
   - `profiles` (`tts_*`) quando o usuário está logado
