@@ -7,6 +7,8 @@ import { getSupabaseUrlFromEnv } from "../server/lib/supabase-url.js";
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
 const OPENAI_TTS_MODEL = process.env.OPENAI_TTS_MODEL || "";
+const OPENAI_TTS_VOICE_MALE = process.env.OPENAI_TTS_VOICE_MALE || "";
+const OPENAI_TTS_VOICE_FEMALE = process.env.OPENAI_TTS_VOICE_FEMALE || "";
 
 const SUPABASE_URL = getSupabaseUrlFromEnv(process.env, { expectedHostname: DJT_QUEST_SUPABASE_HOST, allowLocal: true });
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
@@ -32,7 +34,11 @@ const hashFor = (input: string) => crypto.createHash("sha256").update(input).dig
 const pickVoice = (voiceGender: string | undefined) => {
   const g = String(voiceGender || "").toLowerCase();
   // OpenAI voices: alloy, echo, fable, onyx, nova, shimmer
-  return g === "female" ? "shimmer" : "onyx";
+  const allowed = new Set(["alloy", "echo", "fable", "onyx", "nova", "shimmer"]);
+  const configured = (g === "female" ? OPENAI_TTS_VOICE_FEMALE : OPENAI_TTS_VOICE_MALE).trim().toLowerCase();
+  if (configured && allowed.has(configured)) return configured;
+  // Default mapping: more natural voices for PT/EN/ZH in practice.
+  return g === "female" ? "nova" : "echo";
 };
 
 async function ensureBucket(supabaseAdmin: any) {
@@ -119,7 +125,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       {
         const { data: signed, error } = await supabaseAdmin.storage.from(BUCKET).createSignedUrl(objectPath, SIGNED_URL_TTL_SECONDS);
         if (!error && signed?.signedUrl) {
-          return res.status(200).json({ url: signed.signedUrl, cache: "hit" });
+          return res.status(200).json({ url: signed.signedUrl, cache: "hit", voice });
         }
       }
     }
@@ -140,7 +146,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (!supabaseAdmin) {
-      return res.status(200).json({ audioBase64: bytes.toString("base64"), mime: "audio/mpeg", cache: "none" });
+      return res.status(200).json({ audioBase64: bytes.toString("base64"), mime: "audio/mpeg", cache: "none", voice });
     }
 
     try {
@@ -152,7 +158,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           .from(BUCKET)
           .createSignedUrl(objectPath, SIGNED_URL_TTL_SECONDS);
         if (!signErr2 && signed2?.signedUrl) {
-          return res.status(200).json({ url: signed2.signedUrl, cache: "miss" });
+          return res.status(200).json({ url: signed2.signedUrl, cache: "miss", voice });
         }
       }
     } catch {
@@ -160,7 +166,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // Fallback if caching/signing fails
-    return res.status(200).json({ audioBase64: bytes.toString("base64"), mime: "audio/mpeg", cache: "none" });
+    return res.status(200).json({ audioBase64: bytes.toString("base64"), mime: "audio/mpeg", cache: "none", voice });
   } catch (e: any) {
     return res.status(500).json({ error: e?.message || "Unknown error in /api/tts" });
   }

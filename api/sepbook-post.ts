@@ -2,7 +2,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { createClient } from "@supabase/supabase-js";
 import { extractSepbookMentions } from "./sepbook-mentions.js";
-import { translateForumTexts } from "../server/lib/forum-translations.js";
+import { localesForAllTargets, translateForumTexts } from "../server/lib/forum-translations.js";
 import { assertDjtQuestServerEnv } from "../server/env-guard.js";
 import { normalizeLatLng, reverseGeocodeCityLabel } from "../server/lib/reverse-geocode.js";
 
@@ -63,20 +63,6 @@ const extractAttachmentUrls = (attachments: any): string[] => {
     if (Array.isArray(attachments.urls)) return attachments.urls.map(normalizeAttachmentUrl).filter(Boolean);
     if (Array.isArray(attachments.items)) return attachments.items.map(normalizeAttachmentUrl).filter(Boolean);
     if (Array.isArray(attachments.files)) return attachments.files.map(normalizeAttachmentUrl).filter(Boolean);
-  }
-  return [];
-};
-
-const normalizeRequestedLocales = (raw: any) => {
-  if (!raw) return [];
-  if (typeof raw === "string") {
-    return raw
-      .split(",")
-      .map((v) => v.trim())
-      .filter(Boolean);
-  }
-  if (Array.isArray(raw)) {
-    return raw.map((v) => String(v || "").trim()).filter(Boolean);
   }
   return [];
 };
@@ -330,9 +316,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
 	    const safeParticipantIds = participantIdsNoSelf;
 
-	    const targetLocales = normalizeRequestedLocales(locales);
+	    const targetLocales = localesForAllTargets(locales);
 	    let translations: any = { "pt-BR": text || "" };
-    if (text && targetLocales.length) {
+    if (text) {
       try {
         const [map] = await translateForumTexts({ texts: [text], targetLocales, maxPerBatch: 6 } as any);
         if (map && typeof map === "object") translations = map;
@@ -559,4 +545,4 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 }
 
-export const config = { api: { bodyParser: true } };
+export const config = { api: { bodyParser: true }, maxDuration: 60 };

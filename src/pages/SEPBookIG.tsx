@@ -1729,6 +1729,12 @@ export default function SEPBookIG() {
       const json = await resp.json().catch(() => ({}));
       if (!resp.ok) throw new Error(json?.error || "Falha ao atualizar publicação");
 
+      const updated = json?.post && typeof json.post === "object" ? json.post : null;
+      const nextTranslations =
+        updated?.translations && typeof updated.translations === "object"
+          ? updated.translations
+          : { ...(editingPost.translations || {}), [locale]: text };
+
       setPosts((prev) =>
         prev.map((p) =>
           p.id === editingPostId
@@ -1737,7 +1743,7 @@ export default function SEPBookIG() {
                 content_md: text,
                 attachments,
                 post_kind: editingPostKind,
-                translations: { ...(p.translations || {}), "pt-BR": text },
+                translations: nextTranslations,
               }
             : p,
         ),
@@ -1750,7 +1756,7 @@ export default function SEPBookIG() {
     } finally {
       setEditingPostSaving(false);
     }
-  }, [closeEditPost, editingPost, editingPostId, editingPostKind, editingPostMedia, editingPostText, editingPostUploading, toast]);
+  }, [closeEditPost, editingPost, editingPostId, editingPostKind, editingPostMedia, editingPostText, editingPostUploading, locale, toast]);
 
   const clearEditingPostMedia = useCallback(() => {
     const toRemove = (editingPostMedia || [])
@@ -2364,7 +2370,7 @@ export default function SEPBookIG() {
         const updated = json?.comment || {
           ...comment,
           content_md: text,
-          translations: { ...(comment.translations || {}), "pt-BR": text },
+          translations: { ...(comment.translations || {}), [locale]: text },
           updated_at: new Date().toISOString(),
         };
         setCommentsByPost((prev) => ({
@@ -2380,7 +2386,7 @@ export default function SEPBookIG() {
         setEditingCommentSaving(false);
       }
     },
-    [cancelEditComment, editingCommentText, toast],
+    [cancelEditComment, editingCommentText, locale, toast],
   );
 
   const deleteComment = useCallback(

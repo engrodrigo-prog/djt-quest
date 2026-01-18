@@ -2,7 +2,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { createClient } from "@supabase/supabase-js";
 import { extractSepbookMentions } from "./sepbook-mentions.js";
-import { translateForumTexts } from "../server/lib/forum-translations.js";
+import { localesForAllTargets, translateForumTexts } from "../server/lib/forum-translations.js";
 import { assertDjtQuestServerEnv } from "../server/env-guard.js";
 
 const SUPABASE_URL = process.env.SUPABASE_URL as string;
@@ -12,13 +12,6 @@ const ANON_KEY = (process.env.SUPABASE_ANON_KEY ||
   process.env.VITE_SUPABASE_ANON_KEY) as string;
 const SERVICE_KEY = (SERVICE_ROLE_KEY || ANON_KEY) as string;
 const MOD_ROLES = new Set(["admin", "gerente_djt", "gerente_divisao_djtx", "coordenador_djtx"]);
-
-const normalizeRequestedLocales = (raw: any) => {
-  if (!raw) return [];
-  if (typeof raw === "string") return raw.split(",").map((v) => v.trim()).filter(Boolean);
-  if (Array.isArray(raw)) return raw.map((v) => String(v || "").trim()).filter(Boolean);
-  return [];
-};
 
 async function resolveMentionIds(admin: any, mentions: string[]) {
   const list = Array.from(new Set((mentions || []).map((m) => String(m || "").trim()).filter(Boolean))).slice(0, 60);
@@ -153,7 +146,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     const { post_id, content_md, attachments, post_kind } = req.body || {};
-    const targetLocales = normalizeRequestedLocales(req.body?.locales);
+    const targetLocales = localesForAllTargets(req.body?.locales);
     const postId = String(post_id || "").trim();
     const text = String(content_md || "").trim();
     const atts = Array.isArray(attachments) ? attachments : [];
@@ -179,7 +172,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     let translations: any = { "pt-BR": text || "" };
-    if (text && targetLocales.length) {
+    if (text) {
       try {
         const [map] = await translateForumTexts({ texts: [text], targetLocales, maxPerBatch: 6 } as any);
         if (map && typeof map === "object") translations = map;
@@ -229,4 +222,4 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 }
 
-export const config = { api: { bodyParser: true } };
+export const config = { api: { bodyParser: true }, maxDuration: 60 };

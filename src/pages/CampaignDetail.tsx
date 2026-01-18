@@ -20,6 +20,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from "@/contexts/AuthContext";
+import { useI18n } from "@/contexts/I18nContext";
 import { MapContainer, Marker, Popup, TileLayer } from "react-leaflet";
 import { useMap } from "react-leaflet";
 import L from "leaflet";
@@ -61,11 +62,14 @@ interface ForumTopicRow {
   id: string;
   title: string;
   description: string | null;
+  title_translations?: Record<string, string> | null;
+  description_translations?: Record<string, string> | null;
 }
 
 interface SepPostRow {
   id: string;
   content_md: string;
+  translations?: Record<string, string> | null;
   like_count: number;
   comment_count: number;
   created_at: string;
@@ -171,6 +175,7 @@ export default function CampaignDetail() {
   const navigate = useNavigate();
   const { toast } = useToast();
   const { user, roles, userRole } = useAuth() as any;
+  const { locale } = useI18n();
 
   const [campaign, setCampaign] = useState<Campaign | null>(null);
   const [loading, setLoading] = useState(true);
@@ -263,7 +268,7 @@ export default function CampaignDetail() {
     try {
       const { data } = await supabase
         .from("sepbook_posts")
-        .select("id,content_md,like_count,comment_count,created_at")
+        .select("id,content_md,translations,like_count,comment_count,created_at")
         .eq("campaign_id", camp.id)
         .order("created_at", { ascending: false })
         .limit(20);
@@ -271,7 +276,7 @@ export default function CampaignDetail() {
     } catch {
       const { data } = await supabase
         .from("sepbook_posts")
-        .select("id,content_md,like_count,comment_count,created_at")
+        .select("id,content_md,translations,like_count,comment_count,created_at")
         .ilike("content_md", `%${hashTag}%`)
         .order("created_at", { ascending: false })
         .limit(20);
@@ -308,7 +313,7 @@ export default function CampaignDetail() {
             try {
               const { data } = await supabase
                 .from("forum_topics")
-                .select("id,title,description")
+                .select("id,title,description,title_translations,description_translations")
                 .eq("campaign_id", campaignId)
                 .order("created_at", { ascending: false })
                 .limit(30);
@@ -316,7 +321,7 @@ export default function CampaignDetail() {
             } catch {
               const { data } = await supabase
                 .from("forum_topics")
-                .select("id,title,description")
+                .select("id,title,description,title_translations,description_translations")
                 .or(`title.ilike.%${hashTag.replace("#", "")}%,description.ilike.%${hashTag.replace("#", "")}%`)
                 .order("created_at", { ascending: false })
                 .limit(20);
@@ -327,7 +332,7 @@ export default function CampaignDetail() {
             try {
               const { data } = await supabase
                 .from("sepbook_posts")
-                .select("id,content_md,like_count,comment_count,created_at")
+                .select("id,content_md,translations,like_count,comment_count,created_at")
                 .eq("campaign_id", campaignId)
                 .order("created_at", { ascending: false })
                 .limit(20);
@@ -335,7 +340,7 @@ export default function CampaignDetail() {
             } catch {
               const { data } = await supabase
                 .from("sepbook_posts")
-                .select("id,content_md,like_count,comment_count,created_at")
+                .select("id,content_md,translations,like_count,comment_count,created_at")
                 .ilike("content_md", `%${hashTag}%`)
                 .order("created_at", { ascending: false })
                 .limit(20);
@@ -404,6 +409,19 @@ export default function CampaignDetail() {
     if (set.has("lider_divisao") || set.has("gerente_divisao_djtx")) return true;
     return false;
   }, [isStaff, roleList]);
+
+  const getTopicTitle = useCallback(
+    (t: ForumTopicRow) => String((t as any)?.title_translations?.[locale] || t.title || ""),
+    [locale],
+  );
+  const getTopicDescription = useCallback(
+    (t: ForumTopicRow) => String((t as any)?.description_translations?.[locale] || t.description || ""),
+    [locale],
+  );
+  const getSepbookPreview = useCallback(
+    (p: SepPostRow) => String((p as any)?.translations?.[locale] || p.content_md || ""),
+    [locale],
+  );
 
   useEffect(() => {
     if (evScopeInitRef.current) return;
@@ -940,11 +958,15 @@ export default function CampaignDetail() {
                   className="p-2 rounded-md border hover:bg-accent/10 cursor-pointer"
                   onClick={() => navigate(`/forum/${t.id}`)}
                 >
+                  {(() => {
+                    const title = getTopicTitle(t);
+                    const description = getTopicDescription(t);
+                    return (
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium truncate">{t.title}</p>
+                      <p className="text-sm font-medium truncate">{title}</p>
                       <p className="text-[11px] text-muted-foreground truncate">
-                        {t.description}
+                        {description}
                       </p>
                     </div>
                     <Button
@@ -955,7 +977,7 @@ export default function CampaignDetail() {
                         e.stopPropagation()
                         const url = buildAbsoluteAppUrl(`/forum/${encodeURIComponent(t.id)}`)
                         openWhatsAppShare({
-                          message: `Veja este fórum no DJT Quest:\n${t.title}`,
+                          message: `Veja este fórum no DJT Quest:\n${title}`,
                           url,
                         })
                       }}
@@ -964,6 +986,8 @@ export default function CampaignDetail() {
                       <Share2 className="h-4 w-4" />
                     </Button>
                   </div>
+                    );
+                  })()}
                 </div>
               ))}
             </CardContent>
@@ -988,7 +1012,7 @@ export default function CampaignDetail() {
                     {new Date(p.created_at).toLocaleString(getActiveLocale())}
                   </p>
                   <p className="text-sm line-clamp-3 whitespace-pre-wrap">
-                    {p.content_md}
+                    {getSepbookPreview(p)}
                   </p>
                   <div className="flex items-center gap-3 mt-1 text-[11px] text-muted-foreground">
                     <span>❤ {p.like_count || 0}</span>
@@ -1010,7 +1034,7 @@ export default function CampaignDetail() {
                       className="ml-auto inline-flex items-center justify-center h-7 w-7 rounded-full border border-border/50 hover:bg-accent"
                       onClick={() => {
                         const url = buildAbsoluteAppUrl(`/sepbook#post-${encodeURIComponent(p.id)}`)
-                        const preview = (p.content_md || '').trim().replace(/\s+/g, ' ').slice(0, 140)
+                        const preview = getSepbookPreview(p).trim().replace(/\s+/g, ' ').slice(0, 140)
                         openWhatsAppShare({
                           message: preview
                             ? `Veja esta publicação no SEPBook (DJT Quest):\n"${preview}${preview.length >= 140 ? '…' : ''}"`

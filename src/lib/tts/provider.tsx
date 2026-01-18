@@ -36,7 +36,7 @@ const DEFAULTS = {
   // Prefer "on" by default (only plays on explicit user click).
   enabled: true,
   voiceGender: "male" as TtsVoiceGender,
-  rate: 1.1,
+  rate: 1.0,
   volume: 1,
 };
 
@@ -338,7 +338,8 @@ export function TtsProvider({ children }: { children: React.ReactNode }) {
           if (voice) utter.voice = voice;
           if (voice?.lang) utter.lang = voice.lang;
           utter.rate = clamp(rate, 0.25, 2);
-          utter.pitch = 1.05;
+          // Pitch impacts perceived gender on some engines; keep it aligned with the selected voice.
+          utter.pitch = isFemale ? 1.06 : 0.94;
           utter.volume = clamp(volume, 0, 1);
           utter.onend = () => {
             setIsSpeaking(false);

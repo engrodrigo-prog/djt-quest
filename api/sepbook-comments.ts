@@ -3,7 +3,7 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { createClient } from "@supabase/supabase-js";
 import { assertDjtQuestServerEnv, DJT_QUEST_SUPABASE_HOST } from "../server/env-guard.js";
 import { getSupabaseUrlFromEnv } from "../server/lib/supabase-url.js";
-import { translateForumTexts } from "../server/lib/forum-translations.js";
+import { localesForAllTargets, translateForumTexts } from "../server/lib/forum-translations.js";
 import { reverseGeocodeCityLabel } from "../server/lib/reverse-geocode.js";
 
 const SUPABASE_URL =
@@ -30,20 +30,6 @@ const ENV_INFO = {
   serviceRoleKeyLen: SERVICE_ROLE_KEY ? SERVICE_ROLE_KEY.length : 0,
   hasAnonKey: Boolean(ANON_KEY),
   anonKeyLen: ANON_KEY ? ANON_KEY.length : 0,
-};
-
-const normalizeRequestedLocales = (raw: any) => {
-  if (!raw) return [];
-  if (typeof raw === "string") {
-    return raw
-      .split(",")
-      .map((v) => v.trim())
-      .filter(Boolean);
-  }
-  if (Array.isArray(raw)) {
-    return raw.map((v) => String(v || "").trim()).filter(Boolean);
-  }
-  return [];
 };
 
 const clampLatLng = (latRaw: any, lngRaw: any) => {
@@ -362,7 +348,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const attachments = rawAttachments
         .filter((item: any) => typeof item === "string" && item.trim())
         .slice(0, 3);
-      const targetLocales = normalizeRequestedLocales(req.body?.locales);
+      const targetLocales = localesForAllTargets(req.body?.locales);
       const postId = String(post_id || "").trim();
       const parentId = parent_id ? String(parent_id).trim() : null;
       const text = String(content_md || "").trim();
@@ -372,7 +358,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const normalizedText = text.length >= 2 ? text : "";
 
       let translations: any = { "pt-BR": normalizedText || "" };
-      if (normalizedText && targetLocales.length) {
+      if (normalizedText) {
         try {
           const [map] = await translateForumTexts({ texts: [normalizedText], targetLocales, maxPerBatch: 6 } as any);
           if (map && typeof map === "object") translations = map;
@@ -526,7 +512,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const locationLabel = maybeCoords ? await reverseGeocodeCityLabel(maybeCoords.lat, maybeCoords.lng) : null;
       const text = String(content_md || "").trim();
       const normalizedText = text.length >= 2 ? text : "";
-      const targetLocales = normalizeRequestedLocales(req.body?.locales);
+      const targetLocales = localesForAllTargets(req.body?.locales);
 
       const reader = SERVICE_ROLE_KEY ? admin : authed;
       const { data: existing, error: fetchErr } = await reader
@@ -583,7 +569,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
 
       let translations: any = existing?.translations && typeof existing.translations === "object" ? existing.translations : { "pt-BR": normalizedText || "" };
-      if (normalizedText && targetLocales.length) {
+      if (normalizedText) {
         translations = { "pt-BR": normalizedText };
         try {
           const [map] = await translateForumTexts({ texts: [normalizedText], targetLocales, maxPerBatch: 6 } as any);
@@ -798,4 +784,4 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 }
 
-export const config = { api: { bodyParser: true } };
+export const config = { api: { bodyParser: true }, maxDuration: 60 };
