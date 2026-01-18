@@ -1,8 +1,8 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
 import { assertDjtQuestServerEnv } from '../server/env-guard.js';
-import { financeRequestCancelSchema } from '../server/finance/schema.js';
-import { canManageFinanceRequests, isGuestProfile } from '../server/finance/permissions.js';
+import { financeRequestAdminDeleteSchema, financeRequestCancelSchema } from '../server/finance/schema.js';
+import { canManageFinanceRequests, canPurgeFinanceRequests, isGuestProfile } from '../server/finance/permissions.js';
 import { pickQueryParam } from '../server/finance/utils.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL as string;
@@ -13,7 +13,9 @@ const ANON_KEY = (process.env.SUPABASE_ANON_KEY ||
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === 'OPTIONS') return res.status(204).send('');
-  if (req.method !== 'GET' && req.method !== 'PATCH') return res.status(405).json({ error: 'Method not allowed' });
+  if (req.method !== 'GET' && req.method !== 'PATCH' && req.method !== 'DELETE') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
 
   try {
     assertDjtQuestServerEnv({ requireSupabaseUrl: false });
@@ -48,6 +50,73 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const roles = Array.isArray(rolesRows) ? rolesRows.map((r: any) => String(r?.role || '')).filter(Boolean) : [];
     if (isGuestProfile(profile, roles)) {
       return res.status(403).json({ error: 'CONVIDADOS não podem acessar este módulo.' });
+    }
+
+    if (req.method === 'DELETE') {
+      if (!serviceAdmin) return res.status(503).json({ error: 'Delete requires SUPABASE_SERVICE_ROLE_KEY' });
+      const parsed = financeRequestAdminDeleteSchema.safeParse(req.body || {});
+      if (!parsed.success) return res.status(400).json({ error: 'Dados inválidos', details: parsed.error.flatten() });
+      if (!canPurgeFinanceRequests(roles)) return res.status(403).json({ error: 'Apenas admins podem apagar solicitações.' });
+
+      const { id, deleteStorage } = parsed.data;
+      const admin = serviceAdmin;
+
+      const { data: reqRow } = await admin
+        .from('finance_requests')
+        .select('id,protocol,status')
+        .eq('id', id)
+        .maybeSingle();
+      if (!reqRow) return res.status(404).json({ error: 'Solicitação não encontrada' });
+
+      const storageReport: { requested: boolean; removed: number; failed: number } = {
+        requested: Boolean(deleteStorage),
+        removed: 0,
+        failed: 0,
+      };
+
+      if (deleteStorage) {
+        const { data: atts } = await admin
+          .from('finance_request_attachments')
+          .select('storage_bucket,storage_path,metadata')
+          .eq('request_id', id);
+
+        const byBucket = new Map<string, Set<string>>();
+        const addPath = (bucket: any, path: any) => {
+          const b = String(bucket || '').trim();
+          const p = String(path || '').trim();
+          if (!b || !p) return;
+          const set = byBucket.get(b) || new Set<string>();
+          set.add(p);
+          byBucket.set(b, set);
+        };
+
+        for (const a of Array.isArray(atts) ? atts : []) {
+          addPath((a as any)?.storage_bucket, (a as any)?.storage_path);
+          const meta = (a as any)?.metadata && typeof (a as any)?.metadata === 'object' ? (a as any).metadata : {};
+          addPath(meta?.table_csv?.bucket || (a as any)?.storage_bucket, meta?.table_csv?.storage_path);
+          addPath(meta?.ai_extract_json?.bucket || (a as any)?.storage_bucket, meta?.ai_extract_json?.storage_path);
+        }
+
+        for (const [bucket, set] of byBucket.entries()) {
+          const paths = Array.from(set).filter(Boolean);
+          if (!paths.length) continue;
+          const { error } = await admin.storage.from(bucket).remove(paths);
+          if (error) {
+            storageReport.failed += paths.length;
+          } else {
+            storageReport.removed += paths.length;
+          }
+        }
+      }
+
+      const { error: delErr } = await admin.from('finance_requests').delete().eq('id', id);
+      if (delErr) return res.status(400).json({ error: delErr.message });
+
+      return res.status(200).json({
+        success: true,
+        deleted: { id: String(reqRow.id), protocol: String(reqRow.protocol || ''), status: String(reqRow.status || '') },
+        storage: storageReport,
+      });
     }
 
     const id =

@@ -52,3 +52,7 @@ export const canManageFinanceRequests = (roles = [], profile) => {
   return false;
 };
 
+export const canPurgeFinanceRequests = (roles = []) => {
+  const set = new Set((roles || []).map((r) => String(r || '').trim()));
+  return set.has('admin');
+};

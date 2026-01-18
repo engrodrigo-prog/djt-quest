@@ -166,3 +166,8 @@ export const financeRequestAdminUpdateSchema = z.object({
   status: z.enum(FINANCE_STATUSES),
   observation: z.string().trim().max(2000).optional().nullable(),
 });
+
+export const financeRequestAdminDeleteSchema = z.object({
+  id: z.string().uuid(),
+  deleteStorage: z.boolean().optional().nullable().transform((v) => Boolean(v)),
+});

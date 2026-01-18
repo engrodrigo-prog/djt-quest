@@ -1,12 +1,25 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiFetch } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { getActiveLocale } from "@/lib/i18n/activeLocale";
@@ -23,6 +36,7 @@ const formatBrl = (cents: number | null | undefined) => {
 
 export function FinanceRequestsManagement() {
   const { toast } = useToast();
+  const { roles, userRole } = useAuth() as any;
   const [items, setItems] = useState<RequestRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [exporting, setExporting] = useState<"xlsx" | null>(null);
@@ -43,6 +57,15 @@ export function FinanceRequestsManagement() {
   const [nextStatus, setNextStatus] = useState<string>("Enviado");
   const [observation, setObservation] = useState<string>("");
   const [extractingAi, setExtractingAi] = useState(false);
+  const [purging, setPurging] = useState(false);
+  const [purgeConfirmText, setPurgeConfirmText] = useState("");
+  const [purgeDeleteStorage, setPurgeDeleteStorage] = useState(true);
+
+  const isAdmin = useMemo(() => {
+    const list: string[] = Array.isArray(roles) ? roles : [];
+    if (list.includes("admin")) return true;
+    return typeof userRole === "string" && userRole.includes("admin");
+  }, [roles, userRole]);
 
   const buildParams = useCallback((extra?: Record<string, string>) => {
     const params = new URLSearchParams();
@@ -176,6 +199,37 @@ export function FinanceRequestsManagement() {
       toast({ title: "Erro", description: e?.message || "Falha ao processar anexos", variant: "destructive" });
     } finally {
       setExtractingAi(false);
+    }
+  };
+
+  const purgeSelected = async () => {
+    const id = String(detail?.request?.id || detailId || "").trim();
+    if (!id) return;
+    if (!isAdmin) return;
+    if (purging) return;
+
+    try {
+      setPurging(true);
+      const resp = await apiFetch("/api/finance-request", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, deleteStorage: purgeDeleteStorage }),
+      });
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(json?.error || "Falha ao apagar solicitação");
+      toast({
+        title: "Solicitação apagada",
+        description: `Removida: ${detail?.request?.protocol || id}`,
+      });
+      setDetailOpen(false);
+      setDetailId(null);
+      setDetail(null);
+      setPurgeConfirmText("");
+      void load();
+    } catch (e: any) {
+      toast({ title: "Erro", description: e?.message || "Falha ao apagar", variant: "destructive" });
+    } finally {
+      setPurging(false);
     }
   };
 
@@ -573,6 +627,58 @@ export function FinanceRequestsManagement() {
                     <Button type="button" variant="outline" onClick={runAiExtractForSelected} disabled={extractingAi}>
                       {extractingAi ? "Processando..." : "Gerar leitura IA"}
                     </Button>
+                  ) : null}
+                  {isAdmin ? (
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button type="button" variant="destructive" disabled={purging}>
+                          {purging ? "Apagando..." : "Apagar (admin)"}
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Apagar solicitação</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            Remove definitivamente do banco de dados (itens, anexos e histórico). Use apenas para limpar testes/cancelados.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+
+                        <div className="space-y-3">
+                          <div className="rounded-md border p-3 text-[12px]">
+                            <div className="font-medium">{detail.request.protocol || detail.request.id}</div>
+                            <div className="text-muted-foreground">
+                              Status atual: <span className="font-medium">{detail.request.status}</span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="text-[12px] font-medium">Apagar arquivos do Storage</div>
+                              <div className="text-[11px] text-muted-foreground">
+                                Remove o anexo original e também os derivados (CSV/JSON) quando encontrados.
+                              </div>
+                            </div>
+                            <Switch checked={purgeDeleteStorage} onCheckedChange={(v) => setPurgeDeleteStorage(Boolean(v))} />
+                          </div>
+
+                          <div className="space-y-1">
+                            <Label className="text-[11px] text-muted-foreground">Digite APAGAR para confirmar</Label>
+                            <Input value={purgeConfirmText} onChange={(e) => setPurgeConfirmText(e.target.value)} placeholder="APAGAR" />
+                          </div>
+                        </div>
+
+                        <AlertDialogFooter>
+                          <AlertDialogCancel disabled={purging}>Cancelar</AlertDialogCancel>
+                          <AlertDialogAction
+                            disabled={purging || purgeConfirmText.trim().toUpperCase() !== "APAGAR"}
+                            onClick={() => void purgeSelected()}
+                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                          >
+                            Apagar agora
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
                   ) : null}
                   <Button type="button" variant="outline" onClick={() => setDetailOpen(false)}>
                     Fechar
