@@ -2,6 +2,7 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import { createClient } from "@supabase/supabase-js";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import fs from "node:fs/promises";
@@ -129,6 +130,239 @@ const detectVercelProject = async (repoRoot) => {
   } catch {
     return { projectId: null, orgId: null, projectName: null, source: "none" };
   }
+};
+
+const firstNonEmpty = (...values) => {
+  for (const v of values) {
+    const s = String(v || "").trim();
+    if (s) return s;
+  }
+  return null;
+};
+
+const normalizeUrl = (raw) => {
+  const s = String(raw || "").trim();
+  if (!s) return null;
+  return s.replace(/\/+$/, "");
+};
+
+const parseDotenv = (raw) => {
+  const out = {};
+  const lines = String(raw || "").split(/\r?\n/);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const withoutExport = trimmed.startsWith("export ") ? trimmed.slice(7).trim() : trimmed;
+    const eq = withoutExport.indexOf("=");
+    if (eq <= 0) continue;
+    const key = withoutExport.slice(0, eq).trim();
+    if (!key) continue;
+    let val = withoutExport.slice(eq + 1).trim();
+    if ((val.startsWith("\"") && val.endsWith("\"")) || (val.startsWith("'") && val.endsWith("'"))) {
+      val = val.slice(1, -1);
+    }
+    out[key] = val;
+  }
+  return out;
+};
+
+const readDotenvSupabase = async (repoRoot) => {
+  const files = [".env.local", ".env.development.local", ".env.development", ".env"];
+  const out = {
+    VITE_SUPABASE_URL: null,
+    VITE_SUPABASE_ANON_KEY: null,
+    VITE_SUPABASE_PUBLISHABLE_KEY: null,
+  };
+
+  for (const rel of files) {
+    const p = path.join(repoRoot, rel);
+    if (!await exists(p)) continue;
+    try {
+      const raw = await fs.readFile(p, "utf-8");
+      const parsed = parseDotenv(raw);
+      for (const k of Object.keys(out)) {
+        if (!out[k] && parsed[k]) out[k] = String(parsed[k]).trim() || null;
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  return out;
+};
+
+const detectSupabaseProjectRefFromClient = async (repoRoot) => {
+  const p = path.join(repoRoot, "src", "integrations", "supabase", "client.ts");
+  try {
+    const raw = await fs.readFile(p, "utf-8");
+    const m = raw.match(/DJT_QUEST_SUPABASE_PROJECT_REF\s*=\s*['"]([^'"]+)['"]/);
+    if (m) return String(m[1] || "").trim() || null;
+    const hostM = raw.match(/['"]([a-z0-9]+)\.supabase\.co['"]/i);
+    if (hostM) return String(hostM[1] || "").trim() || null;
+    return null;
+  } catch {
+    return null;
+  }
+};
+
+const detectSupabaseConfig = async (repoRoot) => {
+  const dotenv = await readDotenvSupabase(repoRoot);
+
+  let url = normalizeUrl(firstNonEmpty(process.env.SUPABASE_URL, process.env.VITE_SUPABASE_URL, dotenv.VITE_SUPABASE_URL));
+
+  const serviceRoleKey = firstNonEmpty(process.env.SUPABASE_SERVICE_ROLE_KEY);
+  const anonKey = firstNonEmpty(
+    process.env.SUPABASE_ANON_KEY,
+    process.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+    process.env.VITE_SUPABASE_ANON_KEY,
+    dotenv.VITE_SUPABASE_PUBLISHABLE_KEY,
+    dotenv.VITE_SUPABASE_ANON_KEY,
+  );
+
+  let host = null;
+  let projectRef = null;
+  if (url) {
+    try {
+      const u = new URL(url);
+      host = u.host || null;
+      const m = u.hostname.match(/^([a-z0-9]+)\.supabase\.co$/i);
+      if (m) projectRef = m[1];
+    } catch {
+      // ignore
+    }
+  }
+
+  if (!projectRef) {
+    const detectedRef = await detectSupabaseProjectRefFromClient(repoRoot);
+    if (detectedRef) projectRef = detectedRef;
+    if (!url && detectedRef) {
+      url = `https://${detectedRef}.supabase.co`;
+      host = `${detectedRef}.supabase.co`;
+    }
+  }
+
+  const key = serviceRoleKey || anonKey || null;
+  const keyType = serviceRoleKey ? "service_role" : (key ? "anon" : "none");
+  const envAnonKey = firstNonEmpty(
+    process.env.SUPABASE_ANON_KEY,
+    process.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+    process.env.VITE_SUPABASE_ANON_KEY,
+  );
+  const keySource = serviceRoleKey ? "env:SUPABASE_SERVICE_ROLE_KEY" : (envAnonKey ? "env" : (anonKey ? "dotenv" : "none"));
+
+  return { url, host, projectRef, key, keyType, keySource };
+};
+
+const getSupabaseContext = async (repoRoot) => {
+  const cfg = await detectSupabaseConfig(repoRoot);
+  return {
+    url: cfg.url,
+    host: cfg.host,
+    projectRef: cfg.projectRef,
+    keyType: cfg.keyType,
+    keySource: cfg.keySource,
+  };
+};
+
+const getSupabaseClient = async (repoRoot) => {
+  const cfg = await detectSupabaseConfig(repoRoot);
+  if (!cfg.url) {
+    throw new Error(
+      "Missing SUPABASE_URL (configure supabase_url in .vscode/mcp.json or set VITE_SUPABASE_URL in .env.local)",
+    );
+  }
+  if (!cfg.key) {
+    throw new Error("Missing Supabase key (configure SUPABASE_ANON_KEY or SUPABASE_SERVICE_ROLE_KEY)");
+  }
+
+  const client = createClient(cfg.url, cfg.key, {
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+    global: { headers: { "X-Client-Info": "djt-local-mcp" } },
+  });
+
+  return { client, cfg };
+};
+
+let supabaseOpenApiCache = { url: null, at: 0, data: null };
+
+const getSupabaseOpenApi = async (repoRoot) => {
+  const cfg = await detectSupabaseConfig(repoRoot);
+  if (!cfg.url) {
+    throw new Error(
+      "Missing SUPABASE_URL (configure supabase_url in .vscode/mcp.json or set VITE_SUPABASE_URL in .env.local)",
+    );
+  }
+  if (!cfg.key) {
+    throw new Error("Missing Supabase key (configure SUPABASE_ANON_KEY or SUPABASE_SERVICE_ROLE_KEY)");
+  }
+
+  const now = Date.now();
+  if (supabaseOpenApiCache.data && supabaseOpenApiCache.url === cfg.url && (now - supabaseOpenApiCache.at) < 30_000) {
+    return { openapi: supabaseOpenApiCache.data, cfg };
+  }
+
+  const openapi = await fetchJson(`${cfg.url}/rest/v1/`, {
+    headers: {
+      apikey: cfg.key,
+      Authorization: `Bearer ${cfg.key}`,
+      Accept: "application/openapi+json",
+    },
+    timeoutMs: 25_000,
+  });
+
+  supabaseOpenApiCache = { url: cfg.url, at: now, data: openapi };
+  return { openapi, cfg };
+};
+
+const applySupabaseFilters = (query, filters) => {
+  const list = Array.isArray(filters) ? filters : [];
+  for (const f of list) {
+    const column = String(f?.column || "").trim();
+    const operator = String(f?.operator || "").trim();
+    const value = f?.value;
+    if (!column) throw new Error("Filtro inválido: column obrigatório");
+    if (!operator) throw new Error("Filtro inválido: operator obrigatório");
+
+    switch (operator) {
+      case "eq":
+        query = query.eq(column, value);
+        break;
+      case "neq":
+        query = query.neq(column, value);
+        break;
+      case "gt":
+        query = query.gt(column, value);
+        break;
+      case "gte":
+        query = query.gte(column, value);
+        break;
+      case "lt":
+        query = query.lt(column, value);
+        break;
+      case "lte":
+        query = query.lte(column, value);
+        break;
+      case "like":
+        query = query.like(column, String(value ?? ""));
+        break;
+      case "ilike":
+        query = query.ilike(column, String(value ?? ""));
+        break;
+      case "in": {
+        const values = Array.isArray(value)
+          ? value
+          : (typeof value === "string" ? value.split(",").map((s) => s.trim()).filter(Boolean) : [value]);
+        query = query.in(column, values);
+        break;
+      }
+      case "is":
+        query = query.is(column, value);
+        break;
+      default:
+        throw new Error(`Filtro inválido: operator desconhecido (${operator})`);
+    }
+  }
+  return query;
 };
 
 const githubApi = async (repoRoot, pathWithQuery, opts = {}) => {
@@ -261,17 +495,150 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         additionalProperties: false,
       },
     },
-    {
-      name: "vercel.get_project",
-      description: "Busca detalhes do projeto Vercel (detecta projectId via .vercel/project.json).",
-      inputSchema: {
-        type: "object",
-        properties: { projectId: { type: "string" }, teamId: { type: "string" } },
-        additionalProperties: false,
-      },
-    },
-  ],
-}));
+	    {
+	      name: "vercel.get_project",
+	      description: "Busca detalhes do projeto Vercel (detecta projectId via .vercel/project.json).",
+	      inputSchema: {
+	        type: "object",
+	        properties: { projectId: { type: "string" }, teamId: { type: "string" } },
+	        additionalProperties: false,
+	      },
+	    },
+	    {
+	      name: "supabase.context",
+	      description: "Detecta Supabase URL e disponibilidade de chaves (sem expor secrets).",
+	      inputSchema: { type: "object", properties: {}, additionalProperties: false },
+	    },
+	    {
+	      name: "supabase.list_tables",
+	      description: "Lista tabelas e RPCs expostos pelo PostgREST (via OpenAPI em /rest/v1/).",
+	      inputSchema: {
+	        type: "object",
+	        properties: {
+	          maxTables: { type: "number", default: 200 },
+	          maxRpcs: { type: "number", default: 200 },
+	        },
+	        additionalProperties: false,
+	      },
+	    },
+	    {
+	      name: "supabase.describe_table",
+	      description: "Mostra o schema OpenAPI de uma tabela (colunas/tipos), se disponível.",
+	      inputSchema: {
+	        type: "object",
+	        properties: { table: { type: "string" } },
+	        required: ["table"],
+	        additionalProperties: false,
+	      },
+	    },
+	    {
+	      name: "supabase.table_select",
+	      description: "Select (somente leitura) em uma tabela via Supabase/PostgREST.",
+	      inputSchema: {
+	        type: "object",
+	        properties: {
+	          schema: { type: "string", default: "public" },
+	          table: { type: "string" },
+	          select: { type: "string", default: "*" },
+	          filters: {
+	            type: "array",
+	            items: {
+	              type: "object",
+	              properties: {
+	                column: { type: "string" },
+	                operator: {
+	                  type: "string",
+	                  enum: ["eq", "neq", "gt", "gte", "lt", "lte", "like", "ilike", "in", "is"],
+	                },
+	                value: {},
+	              },
+	              required: ["column", "operator"],
+	              additionalProperties: false,
+	            },
+	          },
+	          orderBy: {
+	            type: "object",
+	            properties: {
+	              column: { type: "string" },
+	              ascending: { type: "boolean", default: true },
+	              nullsFirst: { type: "boolean" },
+	            },
+	            required: ["column"],
+	            additionalProperties: false,
+	          },
+	          limit: { type: "number", default: 50 },
+	          offset: { type: "number", default: 0 },
+	          withCount: { type: "boolean", default: false },
+	        },
+	        required: ["table"],
+	        additionalProperties: false,
+	      },
+	    },
+	    {
+	      name: "supabase.table_count",
+	      description: "Count (somente leitura) de linhas em uma tabela, com filtros opcionais.",
+	      inputSchema: {
+	        type: "object",
+	        properties: {
+	          schema: { type: "string", default: "public" },
+	          table: { type: "string" },
+	          filters: {
+	            type: "array",
+	            items: {
+	              type: "object",
+	              properties: {
+	                column: { type: "string" },
+	                operator: {
+	                  type: "string",
+	                  enum: ["eq", "neq", "gt", "gte", "lt", "lte", "like", "ilike", "in", "is"],
+	                },
+	                value: {},
+	              },
+	              required: ["column", "operator"],
+	              additionalProperties: false,
+	            },
+	          },
+	        },
+	        required: ["table"],
+	        additionalProperties: false,
+	      },
+	    },
+	    {
+	      name: "supabase.storage.list_buckets",
+	      description: "Lista buckets do Supabase Storage (somente leitura).",
+	      inputSchema: { type: "object", properties: {}, additionalProperties: false },
+	    },
+	    {
+	      name: "supabase.storage.list_objects",
+	      description: "Lista objetos em um bucket do Supabase Storage (somente leitura).",
+	      inputSchema: {
+	        type: "object",
+	        properties: {
+	          bucket: { type: "string" },
+	          prefix: { type: "string" },
+	          limit: { type: "number", default: 100 },
+	          offset: { type: "number", default: 0 },
+	        },
+	        required: ["bucket"],
+	        additionalProperties: false,
+	      },
+	    },
+	    {
+	      name: "supabase.storage.create_signed_url",
+	      description: "Gera uma signed URL de leitura para um objeto no Storage.",
+	      inputSchema: {
+	        type: "object",
+	        properties: {
+	          bucket: { type: "string" },
+	          path: { type: "string" },
+	          expiresIn: { type: "number", default: 3600 },
+	        },
+	        required: ["bucket", "path"],
+	        additionalProperties: false,
+	      },
+	    },
+	  ],
+	}));
 
 server.setRequestHandler(CallToolRequestSchema, async (req) => {
   const name = String(req.params?.name || "");
@@ -280,11 +647,12 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
   try {
     const repoRoot = await findRepoRoot(process.cwd());
 
-    if (name === "djt.context") {
-      const github = await detectGitHubRepo(repoRoot);
-      const vercel = await detectVercelProject(repoRoot);
-      return okText({ repoRoot, github, vercel });
-    }
+	    if (name === "djt.context") {
+	      const github = await detectGitHubRepo(repoRoot);
+	      const vercel = await detectVercelProject(repoRoot);
+	      const supabase = await getSupabaseContext(repoRoot);
+	      return okText({ repoRoot, github, vercel, supabase });
+	    }
 
     if (name === "djt.comment_pr_with_latest_vercel_preview") {
       const pullNumber = Number(args?.pullNumber);
@@ -470,24 +838,204 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
       return okText(data);
     }
 
-    if (name === "vercel.get_project") {
-      const ctx = await detectVercelProject(repoRoot);
-      const projectId = String(args?.projectId || ctx.projectId || "").trim();
-      const teamId = String(args?.teamId || ctx.orgId || "").trim();
-      if (!projectId) throw new Error("projectId não detectado (link o projeto com `vercel link` ou passe projectId).");
+	    if (name === "vercel.get_project") {
+	      const ctx = await detectVercelProject(repoRoot);
+	      const projectId = String(args?.projectId || ctx.projectId || "").trim();
+	      const teamId = String(args?.teamId || ctx.orgId || "").trim();
+	      if (!projectId) throw new Error("projectId não detectado (link o projeto com `vercel link` ou passe projectId).");
 
       const params = new URLSearchParams();
       if (teamId) params.set("teamId", teamId);
       const qs = params.toString();
-      const data = await vercelApi(repoRoot, `/v9/projects/${encodeURIComponent(projectId)}${qs ? `?${qs}` : ""}`);
-      return okText(data);
-    }
+	      const data = await vercelApi(repoRoot, `/v9/projects/${encodeURIComponent(projectId)}${qs ? `?${qs}` : ""}`);
+	      return okText(data);
+	    }
 
-    throw new Error(`Unknown tool: ${name}`);
-  } catch (e) {
-    if (isAbortError(e)) return safeError("Request aborted");
-    return safeError(e);
-  }
+	    if (name === "supabase.context") {
+	      const supabase = await getSupabaseContext(repoRoot);
+	      return okText(supabase);
+	    }
+
+	    if (name === "supabase.list_tables") {
+	      const maxTables = Math.max(0, Math.min(2000, Number(args?.maxTables) || 200));
+	      const maxRpcs = Math.max(0, Math.min(2000, Number(args?.maxRpcs) || 200));
+	      const { openapi, cfg } = await getSupabaseOpenApi(repoRoot);
+	      const paths = openapi && typeof openapi === "object" && openapi.paths && typeof openapi.paths === "object" ? openapi.paths : {};
+
+	      const tables = [];
+	      const rpcs = [];
+	      for (const p of Object.keys(paths)) {
+	        const tableM = p.match(/^\/([^/]+)$/);
+	        if (tableM && tableM[1] && tableM[1] !== "rpc") tables.push(tableM[1]);
+	        const rpcM = p.match(/^\/rpc\/([^/]+)$/);
+	        if (rpcM && rpcM[1]) rpcs.push(rpcM[1]);
+	      }
+
+	      tables.sort();
+	      rpcs.sort();
+
+	      return okText({
+	        url: cfg.url,
+	        keyType: cfg.keyType,
+	        totalPaths: Object.keys(paths).length,
+	        tables: tables.slice(0, maxTables),
+	        rpcs: rpcs.slice(0, maxRpcs),
+	      });
+	    }
+
+	    if (name === "supabase.describe_table") {
+	      const input = String(args?.table || "").trim();
+	      if (!input) throw new Error("table obrigatório");
+	      const table = input.includes(".") ? input.split(".").pop() : input;
+	      if (!table) throw new Error("table inválido");
+
+	      const { openapi, cfg } = await getSupabaseOpenApi(repoRoot);
+	      const schemas =
+	        openapi && typeof openapi === "object" && openapi.components && typeof openapi.components === "object"
+	          && openapi.components.schemas && typeof openapi.components.schemas === "object"
+	          ? openapi.components.schemas
+	          : (openapi && typeof openapi === "object" && openapi.definitions && typeof openapi.definitions === "object" ? openapi.definitions : {});
+
+	      const want = table.toLowerCase();
+	      let schemaName = table in schemas ? table : null;
+	      if (!schemaName) {
+	        for (const k of Object.keys(schemas)) {
+	          if (String(k).toLowerCase() === want) {
+	            schemaName = k;
+	            break;
+	          }
+	        }
+	      }
+
+	      const schema = schemaName ? schemas[schemaName] : null;
+	      const props = schema && typeof schema === "object" && schema.properties && typeof schema.properties === "object"
+	        ? schema.properties
+	        : null;
+	      const columns = props
+	        ? Object.fromEntries(
+	          Object.entries(props).map(([col, def]) => ([
+	            col,
+	            {
+	              type: def && typeof def === "object" ? def.type ?? null : null,
+	              format: def && typeof def === "object" ? def.format ?? null : null,
+	              nullable: def && typeof def === "object" ? def.nullable ?? null : null,
+	            },
+	          ])),
+	        )
+	        : null;
+
+	      const rest = openapi && typeof openapi === "object" && openapi.paths && typeof openapi.paths === "object"
+	        ? openapi.paths[`/${table}`] ?? null
+	        : null;
+	      const restGet = rest && typeof rest === "object" ? rest.get ?? null : null;
+
+	      return okText({
+	        url: cfg.url,
+	        keyType: cfg.keyType,
+	        table,
+	        schemaName,
+	        required: schema && typeof schema === "object" && Array.isArray(schema.required) ? schema.required : null,
+	        columns,
+	        restGet,
+	      });
+	    }
+
+	    if (name === "supabase.table_select") {
+	      const schema = String(args?.schema || "public").trim() || "public";
+	      const table = String(args?.table || "").trim();
+	      const select = String(args?.select || "*").trim() || "*";
+	      const withCount = Boolean(args?.withCount);
+	      const limit = Math.max(1, Math.min(500, Number(args?.limit) || 50));
+	      const offset = Math.max(0, Math.min(10000, Number(args?.offset) || 0));
+	      if (!table) throw new Error("table obrigatório");
+
+	      const { client, cfg } = await getSupabaseClient(repoRoot);
+	      const selectOpts = withCount ? { count: "exact" } : undefined;
+	      let query = client.schema(schema).from(table).select(select, selectOpts);
+	      query = applySupabaseFilters(query, args?.filters);
+
+	      if (args?.orderBy && typeof args.orderBy === "object") {
+	        const col = String(args.orderBy.column || "").trim();
+	        if (col) {
+	          query = query.order(col, {
+	            ascending: args.orderBy.ascending !== false,
+	            ...(args.orderBy.nullsFirst == null ? {} : { nullsFirst: Boolean(args.orderBy.nullsFirst) }),
+	          });
+	        }
+	      }
+
+	      query = offset ? query.range(offset, offset + limit - 1) : query.limit(limit);
+	      const { data, error, count } = await query;
+	      if (error) throw new Error(error.message);
+	      return okText({ url: cfg.url, keyType: cfg.keyType, schema, table, count: count ?? null, data });
+	    }
+
+	    if (name === "supabase.table_count") {
+	      const schema = String(args?.schema || "public").trim() || "public";
+	      const table = String(args?.table || "").trim();
+	      if (!table) throw new Error("table obrigatório");
+
+	      const { client, cfg } = await getSupabaseClient(repoRoot);
+	      let query = client.schema(schema).from(table).select("*", { count: "exact", head: true });
+	      query = applySupabaseFilters(query, args?.filters);
+	      const { error, count } = await query;
+	      if (error) throw new Error(error.message);
+	      return okText({ url: cfg.url, keyType: cfg.keyType, schema, table, count: count ?? null });
+	    }
+
+	    if (name === "supabase.storage.list_buckets") {
+	      const { client, cfg } = await getSupabaseClient(repoRoot);
+	      const { data, error } = await client.storage.listBuckets();
+	      if (error) throw new Error(error.message);
+	      const list = Array.isArray(data) ? data : [];
+	      return okText({
+	        url: cfg.url,
+	        keyType: cfg.keyType,
+	        buckets: list.map((b) => ({
+	          id: b.id,
+	          name: b.name,
+	          public: b.public,
+	          created_at: b.created_at,
+	          updated_at: b.updated_at,
+	        })),
+	      });
+	    }
+
+	    if (name === "supabase.storage.list_objects") {
+	      const bucket = String(args?.bucket || "").trim();
+	      if (!bucket) throw new Error("bucket obrigatório");
+	      const prefix = args?.prefix == null ? undefined : String(args.prefix);
+	      const limit = Math.max(1, Math.min(1000, Number(args?.limit) || 100));
+	      const offset = Math.max(0, Math.min(10000, Number(args?.offset) || 0));
+
+	      const { client, cfg } = await getSupabaseClient(repoRoot);
+	      const { data, error } = await client.storage.from(bucket).list(prefix, {
+	        limit,
+	        offset,
+	        sortBy: { column: "name", order: "asc" },
+	      });
+	      if (error) throw new Error(error.message);
+	      return okText({ url: cfg.url, keyType: cfg.keyType, bucket, prefix: prefix ?? null, items: data ?? [] });
+	    }
+
+	    if (name === "supabase.storage.create_signed_url") {
+	      const bucket = String(args?.bucket || "").trim();
+	      const filePath = String(args?.path || "").trim();
+	      if (!bucket) throw new Error("bucket obrigatório");
+	      if (!filePath) throw new Error("path obrigatório");
+	      const expiresIn = Math.max(60, Math.min(604_800, Number(args?.expiresIn) || 3600));
+
+	      const { client, cfg } = await getSupabaseClient(repoRoot);
+	      const { data, error } = await client.storage.from(bucket).createSignedUrl(filePath, expiresIn);
+	      if (error) throw new Error(error.message);
+	      return okText({ url: cfg.url, keyType: cfg.keyType, bucket, path: filePath, expiresIn, signedUrl: data?.signedUrl || null });
+	    }
+
+	    throw new Error(`Unknown tool: ${name}`);
+	  } catch (e) {
+	    if (isAbortError(e)) return safeError("Request aborted");
+	    return safeError(e);
+	  }
 });
 
 const transport = new StdioServerTransport();

@@ -11,6 +11,24 @@
       "type": "promptString",
       "description": "Vercel token (Personal Token) para deployments/logs via MCP",
       "password": true
+    },
+    {
+      "id": "supabase_url",
+      "type": "promptString",
+      "description": "Supabase URL (opcional). Se vazio, tenta detectar pelo repo (.env.local / src/integrations/supabase/client.ts).",
+      "password": false
+    },
+    {
+      "id": "supabase_service_role_key",
+      "type": "promptString",
+      "description": "Supabase SERVICE_ROLE key (opcional; leitura/admin; cuidado com produção).",
+      "password": true
+    },
+    {
+      "id": "supabase_anon_key",
+      "type": "promptString",
+      "description": "Supabase ANON key (opcional; sujeito a RLS).",
+      "password": true
     }
   ],
   "servers": {
@@ -22,9 +40,11 @@
       ],
       "env": {
         "GITHUB_TOKEN": "${input:github_token}",
-        "VERCEL_TOKEN": "${input:vercel_token}"
+        "VERCEL_TOKEN": "${input:vercel_token}",
+        "SUPABASE_URL": "${input:supabase_url}",
+        "SUPABASE_SERVICE_ROLE_KEY": "${input:supabase_service_role_key}",
+        "SUPABASE_ANON_KEY": "${input:supabase_anon_key}"
       }
     }
   }
 }
-
