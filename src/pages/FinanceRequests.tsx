@@ -326,7 +326,17 @@ export default function FinanceRequests() {
     try {
       const resp = await apiFetch(`/api/finance-request?id=${encodeURIComponent(rid)}`);
       const json = await resp.json().catch(() => ({}));
-      if (!resp.ok) throw new Error(json?.error || "Falha ao carregar detalhes");
+      if (!resp.ok) {
+        if (resp.status === 404) {
+          toast({ title: "Não encontrado", description: json?.error || "Solicitação não encontrada. Atualizando lista..." });
+          setDetailOpen(false);
+          setDetailId(null);
+          setDetail(null);
+          void load();
+          return;
+        }
+        throw new Error(json?.error || "Falha ao carregar detalhes");
+      }
       setDetail(json);
     } catch (e: any) {
       setDetail(null);

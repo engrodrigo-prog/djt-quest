@@ -47,6 +47,8 @@ export async function apiFetch(input: string, init?: RequestInit) {
   const aiTaskId = aiMeta && !uiSilent ? aiProgressStore.startTask(aiMeta) : null;
 
   const headers = new Headers(init?.headers || {});
+  const method = String(init?.method || "GET").toUpperCase();
+  if (method === "GET" && !headers.has("Cache-Control")) headers.set("Cache-Control", "no-store");
 
   if (!headers.has('Authorization')) {
     try {
@@ -60,7 +62,8 @@ export async function apiFetch(input: string, init?: RequestInit) {
   }
 
   try {
-    return await fetch(apiUrl(input), { ...init, headers });
+    const cache = init?.cache ?? "no-store";
+    return await fetch(apiUrl(input), { ...init, headers, cache });
   } finally {
     if (aiTaskId) aiProgressStore.endTask(aiTaskId);
   }

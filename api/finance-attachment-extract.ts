@@ -31,6 +31,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
   try {
+    res.setHeader("Cache-Control", "no-store, max-age=0");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Surrogate-Control", "no-store");
+
     assertDjtQuestServerEnv({ requireSupabaseUrl: false });
     if (!SUPABASE_URL || !ANON_KEY) return res.status(500).json({ error: "Missing Supabase config" });
     if (!SERVICE_ROLE_KEY) return res.status(503).json({ error: "Missing SUPABASE_SERVICE_ROLE_KEY" });
@@ -123,4 +127,3 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 }
 
 export const config = { api: { bodyParser: { sizeLimit: "2mb" } }, maxDuration: 60 };
-

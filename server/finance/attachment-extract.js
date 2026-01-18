@@ -5,6 +5,13 @@ import { extractImageTextWithAi, parseJsonFromAiContent } from "../lib/ai-curati
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const OPENAI_MODEL_FINANCE_TABLE = process.env.OPENAI_MODEL_FINANCE_TABLE || "gpt-4.1-mini";
 const OPENAI_MODEL_FINANCE_DOC = process.env.OPENAI_MODEL_FINANCE_DOC || process.env.OPENAI_MODEL_FINANCE_TABLE || "gpt-4.1-mini";
+const OPENAI_MODEL_FINANCE_DOC_IMAGE =
+  process.env.OPENAI_MODEL_FINANCE_DOC_IMAGE ||
+  process.env.OPENAI_MODEL_VISION ||
+  process.env.OPENAI_MODEL_PREMIUM ||
+  process.env.OPENAI_MODEL_FAST ||
+  OPENAI_MODEL_FINANCE_DOC ||
+  "gpt-4.1-mini";
 
 const inferExt = (name) => {
   const clean = String(name || "").split("?")[0].split("#")[0];
@@ -185,6 +192,85 @@ const extractFinanceDocFromTextWithAi = async (rawText) => {
   return parsed;
 };
 
+const extractFinanceDocFromImageWithAi = async (params) => {
+  const buffer = params?.buffer;
+  const mime = String(params?.mime || "image/jpeg").toLowerCase();
+  if (!buffer || !Buffer.isBuffer(buffer) || buffer.length === 0) return null;
+  if (!mime.startsWith("image/")) return null;
+  if (!OPENAI_API_KEY) return null;
+
+  const MAX_BYTES = 6 * 1024 * 1024;
+  if (buffer.length > MAX_BYTES) return null;
+
+  const isGpt5 = String(OPENAI_MODEL_FINANCE_DOC_IMAGE).startsWith("gpt-5");
+
+  const prompt =
+    "Você recebe uma IMAGEM de um comprovante, nota fiscal ou recibo.\n" +
+    "Objetivo: transcrever e estruturar informações para reembolso.\n\n" +
+    "Responda APENAS com JSON válido no formato:\n" +
+    "{\n" +
+    '  "extracted_text": "string (texto extraído da imagem, pode ser vazio)",\n' +
+    "  \"document\": {\n" +
+    '    "document_type": "nota_fiscal" | "recibo" | "comprovante" | "outro",\n' +
+    '    "issuer_name": string|null,\n' +
+    '    "issuer_tax_id": string|null,\n' +
+    '    "recipient_name": string|null,\n' +
+    '    "recipient_tax_id": string|null,\n' +
+    '    "document_number": string|null,\n' +
+    '    "series": string|null,\n' +
+    '    "date": "YYYY-MM-DD"|null,\n' +
+    '    "total_amount": number|null,\n' +
+    '    "currency": string|null,\n' +
+    '    "items": [{"description":string,"quantity":number|null,"unit_price":number|null,"total":number|null}],\n' +
+    '    "notes": string|null\n' +
+    "  }\n" +
+    "}\n\n" +
+    "Regras:\n" +
+    "- NÃO invente valores; use null quando não tiver certeza.\n" +
+    "- Se houver valores monetários, use ponto como separador decimal (ex.: 1234.56).\n" +
+    "- Se não houver itens, retorne items: [].\n";
+
+  const dataUrl = `data:${mime};base64,${buffer.toString("base64")}`;
+  const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${OPENAI_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: OPENAI_MODEL_FINANCE_DOC_IMAGE,
+      ...(isGpt5 ? {} : { temperature: 0.1 }),
+      messages: [
+        { role: "system", content: "Você extrai dados de comprovantes e retorna JSON estrito." },
+        {
+          role: "user",
+          content: [
+            { type: "text", text: prompt },
+            { type: "image_url", image_url: { url: dataUrl } },
+          ],
+        },
+      ],
+      ...(isGpt5 ? { max_completion_tokens: 1100 } : { max_tokens: 1100 }),
+      response_format: { type: "json_object" },
+    }),
+  });
+  if (!resp.ok) return null;
+  const data = await resp.json().catch(() => null);
+  const content = data?.choices?.[0]?.message?.content || "";
+  const parsed = parseJsonFromAiContent(content).parsed;
+  if (!parsed || typeof parsed !== "object") return null;
+
+  const document = parsed?.document && typeof parsed.document === "object" ? parsed.document : null;
+  if (!document) return null;
+
+  const extracted_text = typeof parsed?.extracted_text === "string" ? parsed.extracted_text.trim() : "";
+  return {
+    extracted_text: extracted_text.length > 120_000 ? extracted_text.slice(0, 120_000) + "\n..." : extracted_text,
+    document,
+    model: OPENAI_MODEL_FINANCE_DOC_IMAGE,
+  };
+};
+
 export const extractTextForFinanceAttachment = async (params) => {
   const buffer = params?.buffer;
   if (!buffer || !Buffer.isBuffer(buffer) || buffer.length === 0) return null;
@@ -227,6 +313,24 @@ export const buildFinanceCsvPath = buildCsvPath;
 export const buildFinanceAiJsonPath = buildAiJsonPath;
 
 export const extractJsonForFinanceAttachment = async (params) => {
+  const buffer = params?.buffer;
+  if (!buffer || !Buffer.isBuffer(buffer) || buffer.length === 0) return null;
+  const filename = String(params?.filename || "").trim();
+  const contentType = String(params?.contentType || "").trim().toLowerCase();
+  const ext = inferExt(filename);
+
+  const isImage =
+    contentType.startsWith("image/") ||
+    ["png", "jpg", "jpeg", "webp", "gif", "bmp", "tif", "tiff", "avif", "heic", "heif"].includes(ext);
+
+  if (isImage) {
+    const direct = await extractFinanceDocFromImageWithAi({
+      buffer,
+      mime: contentType || `image/${ext || "jpeg"}`,
+    }).catch(() => null);
+    if (direct?.document) return direct;
+  }
+
   const text = await extractTextForFinanceAttachment(params);
   if (!text) return null;
   const parsed = await extractFinanceDocFromTextWithAi(text);
