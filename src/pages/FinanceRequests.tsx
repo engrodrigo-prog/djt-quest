@@ -389,7 +389,7 @@ export default function FinanceRequests() {
       if (!resp.ok) throw new Error(json?.error || "Falha ao processar anexos");
       toast({
         title: "Processamento iniciado",
-        description: `Processados: ${json?.processed ?? 0} (JSON: ${json?.processedJson ?? 0}, CSV: ${json?.processedCsv ?? 0})`,
+        description: `Processados: ${json?.processed ?? 0} (JSON: ${json?.processedJson ?? 0})`,
       });
       void openDetail(id);
     } catch (e: any) {
@@ -1008,32 +1008,21 @@ export default function FinanceRequests() {
                                             <span className="truncate">{a.filename || a.url}</span>
                                           </a>
                                           <div className="flex items-center gap-2 flex-shrink-0">
-                                            {a?.metadata?.ai_extract_json?.url ? (
-                                              <a
-                                                href={a.metadata.ai_extract_json.url}
-                                                target="_blank"
-                                                rel="noreferrer"
-                                                className="text-[11px] text-muted-foreground hover:underline"
-                                                title="Leitura do anexo (IA) em JSON"
-                                              >
-                                                JSON
-                                              </a>
-                                            ) : null}
-                                            {a?.metadata?.table_csv?.url ? (
-                                              <a
-                                                href={a.metadata.table_csv.url}
-                                                target="_blank"
-                                                rel="noreferrer"
-                                                className="text-[11px] text-muted-foreground hover:underline"
-                                                title="Tabela extraída (CSV)"
-                                              >
-                                                CSV
-                                              </a>
-                                            ) : null}
-                                          </div>
+                                          {a?.metadata?.ai_extract_json?.url ? (
+                                            <a
+                                              href={a.metadata.ai_extract_json.url}
+                                              target="_blank"
+                                              rel="noreferrer"
+                                              className="text-[11px] text-muted-foreground hover:underline"
+                                              title="Leitura do anexo (IA) em JSON"
+                                            >
+                                              JSON
+                                            </a>
+                                          ) : null}
                                         </div>
-                                      ))}
-                                    </div>
+                                      </div>
+                                    ))}
+                                  </div>
                                   ) : (
                                     <p className="text-[11px] text-muted-foreground mt-1">—</p>
                                   )}
@@ -1056,32 +1045,21 @@ export default function FinanceRequests() {
                                       <span className="truncate">{a.filename || a.url}</span>
                                     </a>
                                     <div className="flex items-center gap-2 flex-shrink-0">
-                                      {a?.metadata?.ai_extract_json?.url ? (
-                                        <a
-                                          href={a.metadata.ai_extract_json.url}
-                                          target="_blank"
-                                          rel="noreferrer"
-                                          className="text-[11px] text-muted-foreground hover:underline"
-                                          title="Leitura do anexo (IA) em JSON"
-                                        >
-                                          JSON
-                                        </a>
-                                      ) : null}
-                                      {a?.metadata?.table_csv?.url ? (
-                                        <a
-                                          href={a.metadata.table_csv.url}
-                                          target="_blank"
-                                          rel="noreferrer"
-                                          className="text-[11px] text-muted-foreground hover:underline"
-                                          title="Tabela extraída (CSV)"
-                                        >
-                                          CSV
-                                        </a>
-                                      ) : null}
-                                    </div>
+                                    {a?.metadata?.ai_extract_json?.url ? (
+                                      <a
+                                        href={a.metadata.ai_extract_json.url}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="text-[11px] text-muted-foreground hover:underline"
+                                        title="Leitura do anexo (IA) em JSON"
+                                      >
+                                        JSON
+                                      </a>
+                                    ) : null}
                                   </div>
-                                ))}
-                              </div>
+                                </div>
+                              ))}
+                            </div>
                             </div>
                           ) : null}
                         </>
@@ -1113,17 +1091,6 @@ export default function FinanceRequests() {
                                 title="Leitura do anexo (IA) em JSON"
                               >
                                 JSON
-                              </a>
-                            ) : null}
-                            {a?.metadata?.table_csv?.url ? (
-                              <a
-                                href={a.metadata.table_csv.url}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="text-[11px] text-muted-foreground hover:underline"
-                                title="Tabela extraída (CSV)"
-                              >
-                                CSV
                               </a>
                             ) : null}
                           </div>

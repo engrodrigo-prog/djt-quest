@@ -36,7 +36,7 @@ const formatBrl = (cents: number | null | undefined) => {
 
 export function FinanceRequestsManagement() {
   const { toast } = useToast();
-  const { roles, userRole } = useAuth() as any;
+  const { roles, userRole, profile } = useAuth() as any;
   const [items, setItems] = useState<RequestRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [exporting, setExporting] = useState<"xlsx" | null>(null);
@@ -61,11 +61,28 @@ export function FinanceRequestsManagement() {
   const [purgeConfirmText, setPurgeConfirmText] = useState("");
   const [purgeDeleteStorage, setPurgeDeleteStorage] = useState(true);
 
-  const isAdmin = useMemo(() => {
+  const canPurge = useMemo(() => {
     const list: string[] = Array.isArray(roles) ? roles : [];
     if (list.includes("admin")) return true;
     return typeof userRole === "string" && userRole.includes("admin");
   }, [roles, userRole]);
+
+  const canPurgeByAllowlist = useMemo(() => {
+    const matricula = String(profile?.matricula || "").trim();
+    if (matricula === "601555") return true;
+    const key = String(profile?.name || "")
+      .toLowerCase()
+      .normalize("NFD")
+      // eslint-disable-next-line no-control-regex
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim();
+    if (key.includes("rodrigo") && key.includes("nascimento")) return true;
+    if (key.includes("cintia") && key.includes("veiga")) return true;
+    return false;
+  }, [profile?.matricula, profile?.name]);
+
+  const canPurgeRequests = canPurge || canPurgeByAllowlist;
 
   const buildParams = useCallback((extra?: Record<string, string>) => {
     const params = new URLSearchParams();
@@ -192,7 +209,7 @@ export function FinanceRequestsManagement() {
       if (!resp.ok) throw new Error(json?.error || "Falha ao processar anexos");
       toast({
         title: "Processamento iniciado",
-        description: `Processados: ${json?.processed ?? 0} (JSON: ${json?.processedJson ?? 0}, CSV: ${json?.processedCsv ?? 0})`,
+        description: `Processados: ${json?.processed ?? 0} (JSON: ${json?.processedJson ?? 0})`,
       });
       void openDetail(id);
     } catch (e: any) {
@@ -205,7 +222,7 @@ export function FinanceRequestsManagement() {
   const purgeSelected = async () => {
     const id = String(detail?.request?.id || detailId || "").trim();
     if (!id) return;
-    if (!isAdmin) return;
+    if (!canPurgeRequests) return;
     if (purging) return;
 
     try {
@@ -473,32 +490,21 @@ export function FinanceRequestsManagement() {
                                               <span className="truncate">{a.filename || a.url}</span>
                                             </a>
                                             <div className="flex items-center gap-2 flex-shrink-0">
-                                              {a?.metadata?.ai_extract_json?.url ? (
-                                                <a
-                                                  href={a.metadata.ai_extract_json.url}
-                                                  target="_blank"
-                                                  rel="noreferrer"
-                                                  className="text-[11px] text-muted-foreground hover:underline"
-                                                  title="Leitura do anexo (IA) em JSON"
-                                                >
-                                                  JSON
-                                                </a>
-                                              ) : null}
-                                              {a?.metadata?.table_csv?.url ? (
-                                                <a
-                                                  href={a.metadata.table_csv.url}
-                                                  target="_blank"
-                                                  rel="noreferrer"
-                                                  className="text-[11px] text-muted-foreground hover:underline"
-                                                  title="Tabela extraída (CSV)"
-                                                >
-                                                  CSV
-                                                </a>
-                                              ) : null}
-                                            </div>
-                                          </div>
-                                        ))}
-                                      </div>
+                                  {a?.metadata?.ai_extract_json?.url ? (
+                                    <a
+                                      href={a.metadata.ai_extract_json.url}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="text-[11px] text-muted-foreground hover:underline"
+                                      title="Leitura do anexo (IA) em JSON"
+                                    >
+                                      JSON
+                                    </a>
+                                  ) : null}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
                                     ) : (
                                       <p className="text-[11px] text-muted-foreground mt-1">—</p>
                                     )}
@@ -521,32 +527,21 @@ export function FinanceRequestsManagement() {
                                         <span className="truncate">{a.filename || a.url}</span>
                                       </a>
                                       <div className="flex items-center gap-2 flex-shrink-0">
-                                        {a?.metadata?.ai_extract_json?.url ? (
-                                          <a
-                                            href={a.metadata.ai_extract_json.url}
-                                            target="_blank"
-                                            rel="noreferrer"
-                                            className="text-[11px] text-muted-foreground hover:underline"
-                                            title="Leitura do anexo (IA) em JSON"
-                                          >
-                                            JSON
-                                          </a>
-                                        ) : null}
-                                        {a?.metadata?.table_csv?.url ? (
-                                          <a
-                                            href={a.metadata.table_csv.url}
-                                            target="_blank"
-                                            rel="noreferrer"
-                                            className="text-[11px] text-muted-foreground hover:underline"
-                                            title="Tabela extraída (CSV)"
-                                          >
-                                            CSV
-                                          </a>
-                                        ) : null}
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
+                            {a?.metadata?.ai_extract_json?.url ? (
+                              <a
+                                href={a.metadata.ai_extract_json.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-[11px] text-muted-foreground hover:underline"
+                                title="Leitura do anexo (IA) em JSON"
+                              >
+                                JSON
+                              </a>
+                            ) : null}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                               </div>
                             ) : null}
                           </>
@@ -578,17 +573,6 @@ export function FinanceRequestsManagement() {
                                   title="Leitura do anexo (IA) em JSON"
                                 >
                                   JSON
-                                </a>
-                              ) : null}
-                              {a?.metadata?.table_csv?.url ? (
-                                <a
-                                  href={a.metadata.table_csv.url}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="text-[11px] text-muted-foreground hover:underline"
-                                  title="Tabela extraída (CSV)"
-                                >
-                                  CSV
                                 </a>
                               ) : null}
                             </div>
@@ -628,7 +612,7 @@ export function FinanceRequestsManagement() {
                       {extractingAi ? "Processando..." : "Gerar leitura IA"}
                     </Button>
                   ) : null}
-                  {isAdmin ? (
+                  {canPurgeRequests ? (
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
                         <Button type="button" variant="destructive" disabled={purging}>
@@ -655,7 +639,7 @@ export function FinanceRequestsManagement() {
                             <div className="min-w-0">
                               <div className="text-[12px] font-medium">Apagar arquivos do Storage</div>
                               <div className="text-[11px] text-muted-foreground">
-                                Remove o anexo original e também os derivados (CSV/JSON) quando encontrados.
+                                Remove o anexo original e também os derivados (JSON) quando encontrados.
                               </div>
                             </div>
                             <Switch checked={purgeDeleteStorage} onCheckedChange={(v) => setPurgeDeleteStorage(Boolean(v))} />

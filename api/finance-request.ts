@@ -56,7 +56,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (!serviceAdmin) return res.status(503).json({ error: 'Delete requires SUPABASE_SERVICE_ROLE_KEY' });
       const parsed = financeRequestAdminDeleteSchema.safeParse(req.body || {});
       if (!parsed.success) return res.status(400).json({ error: 'Dados inválidos', details: parsed.error.flatten() });
-      if (!canPurgeFinanceRequests(roles)) return res.status(403).json({ error: 'Apenas admins podem apagar solicitações.' });
+      if (!canPurgeFinanceRequests(roles, profile)) return res.status(403).json({ error: 'Apenas admins podem apagar solicitações.' });
 
       const { id, deleteStorage } = parsed.data;
       const admin = serviceAdmin;

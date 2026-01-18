@@ -52,7 +52,17 @@ export const canManageFinanceRequests = (roles = [], profile) => {
   return false;
 };
 
-export const canPurgeFinanceRequests = (roles = []) => {
+export const canPurgeFinanceRequests = (roles = [], profile) => {
   const set = new Set((roles || []).map((r) => String(r || '').trim()));
-  return set.has('admin');
+  if (set.has('admin')) return true;
+
+  // Allowlist: specific admins (legacy data may not have explicit 'admin' role).
+  const matricula = String(profile?.matricula || '').trim();
+  if (matricula === '601555') return true; // Rodrigo (matrícula)
+
+  const key = normalizeNameKey(profile?.name);
+  if (key.includes('rodrigo') && key.includes('nascimento')) return true;
+  if (key.includes('cintia') && key.includes('veiga')) return true;
+
+  return false;
 };
