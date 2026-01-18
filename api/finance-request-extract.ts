@@ -80,7 +80,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const { data: attachments } = await admin
       .from("finance_request_attachments")
-      .select("id,url,storage_bucket,storage_path,filename,content_type,metadata")
+      .select("id,item_id,url,storage_bucket,storage_path,filename,content_type,metadata")
       .eq("request_id", id)
       .order("created_at", { ascending: true });
     const list = Array.isArray(attachments) ? attachments : [];
@@ -185,6 +185,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           version: 1,
           request_id: id,
           attachment_id: attId,
+          item_id: att?.item_id || null,
+          item_idx: Number.isFinite(Number(meta?.finance_item_idx)) ? Number(meta.finance_item_idx) : null,
           source: {
             bucket,
             storage_path: path,

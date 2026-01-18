@@ -67,7 +67,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!isOwner && !canManage) return res.status(403).json({ error: 'Forbidden' });
 
     if (req.method === 'GET') {
-      const [atts, hist] = await Promise.all([
+      const [items, atts, hist] = await Promise.all([
+        db
+          .from('finance_request_items')
+          .select('*')
+          .eq('request_id', id)
+          .order('idx', { ascending: true }),
         db
           .from('finance_request_attachments')
           .select('*')
@@ -81,6 +86,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       ]);
       return res.status(200).json({
         request: reqRow,
+        items: Array.isArray(items.data) ? items.data : [],
         attachments: Array.isArray(atts.data) ? atts.data : [],
         history: Array.isArray(hist.data) ? hist.data : [],
         permissions: { can_manage: canManage, can_cancel: isOwner && String(reqRow.status) === 'Enviado' },

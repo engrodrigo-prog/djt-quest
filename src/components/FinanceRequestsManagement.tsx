@@ -42,6 +42,7 @@ export function FinanceRequestsManagement() {
   const [updating, setUpdating] = useState(false);
   const [nextStatus, setNextStatus] = useState<string>("Enviado");
   const [observation, setObservation] = useState<string>("");
+  const [extractingAi, setExtractingAi] = useState(false);
 
   const buildParams = useCallback((extra?: Record<string, string>) => {
     const params = new URLSearchParams();
@@ -150,6 +151,31 @@ export function FinanceRequestsManagement() {
       toast({ title: "Erro", description: e?.message || "Falha ao atualizar", variant: "destructive" });
     } finally {
       setUpdating(false);
+    }
+  };
+
+  const runAiExtractForSelected = async () => {
+    const id = String(detail?.request?.id || detailId || "").trim();
+    if (!id) return;
+    if (extractingAi) return;
+    try {
+      setExtractingAi(true);
+      const resp = await apiFetch("/api/finance-request-extract", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(json?.error || "Falha ao processar anexos");
+      toast({
+        title: "Processamento iniciado",
+        description: `Processados: ${json?.processed ?? 0} (JSON: ${json?.processedJson ?? 0}, CSV: ${json?.processedCsv ?? 0})`,
+      });
+      void openDetail(id);
+    } catch (e: any) {
+      toast({ title: "Erro", description: e?.message || "Falha ao processar anexos", variant: "destructive" });
+    } finally {
+      setExtractingAi(false);
     }
   };
 
@@ -329,50 +355,197 @@ export function FinanceRequestsManagement() {
                   <div className="text-muted-foreground whitespace-pre-wrap">{detail.request.description}</div>
                 </div>
 
-                <div className="rounded-md border p-2">
-                  <div className="flex items-center justify-between">
-                    <div className="text-[12px] font-medium">Anexos</div>
-                    <span className="text-[11px] text-muted-foreground">{(detail.attachments || []).length} arquivo(s)</span>
+                {Array.isArray(detail.items) && detail.items.length ? (
+                  <div className="rounded-md border p-2">
+                    <div className="flex items-center justify-between">
+                      <div className="text-[12px] font-medium">Itens</div>
+                      <span className="text-[11px] text-muted-foreground">{detail.items.length} item(ns)</span>
+                    </div>
+                    <div className="mt-2 space-y-2">
+                      {(() => {
+                        const atts = Array.isArray(detail.attachments) ? detail.attachments : [];
+                        const byItem = new Map<string, any[]>();
+                        const unassigned: any[] = [];
+                        const idxToItemId = new Map<number, string>();
+                        for (const it of detail.items) {
+                          const idx = Number((it as any)?.idx);
+                          const id = String((it as any)?.id || "").trim();
+                          if (Number.isFinite(idx) && id) idxToItemId.set(idx, id);
+                        }
+
+                        for (const a of atts) {
+                          let itemId = String(a?.item_id || "").trim();
+                          if (!itemId) {
+                            const idx = Number(a?.metadata?.finance_item_idx);
+                            const mapped = Number.isFinite(idx) ? idxToItemId.get(idx) : null;
+                            if (mapped) itemId = mapped;
+                          }
+                          if (itemId) {
+                            const list = byItem.get(itemId) || [];
+                            list.push(a);
+                            byItem.set(itemId, list);
+                          } else {
+                            unassigned.push(a);
+                          }
+                        }
+
+                        return (
+                          <>
+                            {detail.items.map((it: any, idx: number) => {
+                              const itemAtts = byItem.get(String(it?.id || "")) || [];
+                              return (
+                                <div key={it.id || idx} className="rounded-md border p-2 bg-muted/10">
+                                  <div className="flex items-start justify-between gap-2">
+                                    <div className="min-w-0">
+                                      <div className="text-[12px] font-medium">{it.expense_type || detail.request.expense_type || "—"}</div>
+                                      {it.description ? (
+                                        <div className="text-[11px] text-muted-foreground whitespace-pre-wrap">{it.description}</div>
+                                      ) : null}
+                                    </div>
+                                    <div className="text-[12px] text-muted-foreground flex-shrink-0">{formatBrl(it.amount_cents)}</div>
+                                  </div>
+
+                                  <div className="mt-2">
+                                    <div className="flex items-center justify-between">
+                                      <div className="text-[11px] text-muted-foreground">Comprovantes</div>
+                                      <span className="text-[11px] text-muted-foreground">{itemAtts.length} arquivo(s)</span>
+                                    </div>
+                                    {itemAtts.length ? (
+                                      <div className="mt-1 space-y-1">
+                                        {itemAtts.map((a: any) => (
+                                          <div key={a.id} className="flex items-center justify-between gap-3">
+                                            <a href={a.url} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-[12px] hover:underline min-w-0">
+                                              <FileText className="h-4 w-4 flex-shrink-0" />
+                                              <span className="truncate">{a.filename || a.url}</span>
+                                            </a>
+                                            <div className="flex items-center gap-2 flex-shrink-0">
+                                              {a?.metadata?.ai_extract_json?.url ? (
+                                                <a
+                                                  href={a.metadata.ai_extract_json.url}
+                                                  target="_blank"
+                                                  rel="noreferrer"
+                                                  className="text-[11px] text-muted-foreground hover:underline"
+                                                  title="Leitura do anexo (IA) em JSON"
+                                                >
+                                                  JSON
+                                                </a>
+                                              ) : null}
+                                              {a?.metadata?.table_csv?.url ? (
+                                                <a
+                                                  href={a.metadata.table_csv.url}
+                                                  target="_blank"
+                                                  rel="noreferrer"
+                                                  className="text-[11px] text-muted-foreground hover:underline"
+                                                  title="Tabela extraída (CSV)"
+                                                >
+                                                  CSV
+                                                </a>
+                                              ) : null}
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    ) : (
+                                      <p className="text-[11px] text-muted-foreground mt-1">—</p>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+
+                            {unassigned.length ? (
+                              <div className="rounded-md border p-2">
+                                <div className="flex items-center justify-between">
+                                  <div className="text-[12px] font-medium">Anexos (sem item)</div>
+                                  <span className="text-[11px] text-muted-foreground">{unassigned.length} arquivo(s)</span>
+                                </div>
+                                <div className="mt-2 space-y-1">
+                                  {unassigned.map((a: any) => (
+                                    <div key={a.id} className="flex items-center justify-between gap-3">
+                                      <a href={a.url} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-[12px] hover:underline min-w-0">
+                                        <FileText className="h-4 w-4 flex-shrink-0" />
+                                        <span className="truncate">{a.filename || a.url}</span>
+                                      </a>
+                                      <div className="flex items-center gap-2 flex-shrink-0">
+                                        {a?.metadata?.ai_extract_json?.url ? (
+                                          <a
+                                            href={a.metadata.ai_extract_json.url}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="text-[11px] text-muted-foreground hover:underline"
+                                            title="Leitura do anexo (IA) em JSON"
+                                          >
+                                            JSON
+                                          </a>
+                                        ) : null}
+                                        {a?.metadata?.table_csv?.url ? (
+                                          <a
+                                            href={a.metadata.table_csv.url}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="text-[11px] text-muted-foreground hover:underline"
+                                            title="Tabela extraída (CSV)"
+                                          >
+                                            CSV
+                                          </a>
+                                        ) : null}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            ) : null}
+                          </>
+                        );
+                      })()}
+                    </div>
                   </div>
-	                  {(detail.attachments || []).length ? (
-	                    <div className="mt-2 space-y-1">
-	                      {(detail.attachments || []).map((a: any) => (
-	                        <div key={a.id} className="flex items-center justify-between gap-3">
-	                          <a href={a.url} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-[12px] hover:underline min-w-0">
-	                            <FileText className="h-4 w-4 flex-shrink-0" />
-	                            <span className="truncate">{a.filename || a.url}</span>
-	                          </a>
-	                          <div className="flex items-center gap-2 flex-shrink-0">
-	                            {a?.metadata?.ai_extract_json?.url ? (
-	                              <a
-	                                href={a.metadata.ai_extract_json.url}
-	                                target="_blank"
-	                                rel="noreferrer"
-	                                className="text-[11px] text-muted-foreground hover:underline"
-	                                title="Leitura do anexo (IA) em JSON"
-	                              >
-	                                JSON
-	                              </a>
-	                            ) : null}
-	                            {a?.metadata?.table_csv?.url ? (
-	                              <a
-	                                href={a.metadata.table_csv.url}
-	                                target="_blank"
-	                                rel="noreferrer"
-	                                className="text-[11px] text-muted-foreground hover:underline"
-	                                title="Tabela extraída (CSV)"
-	                              >
-	                                CSV
-	                              </a>
-	                            ) : null}
-	                          </div>
-	                        </div>
-	                      ))}
-	                    </div>
-	                  ) : (
-	                    <p className="text-[11px] text-muted-foreground mt-2">Sem anexos.</p>
-	                  )}
-	                </div>
+                ) : (
+                  <div className="rounded-md border p-2">
+                    <div className="flex items-center justify-between">
+                      <div className="text-[12px] font-medium">Anexos</div>
+                      <span className="text-[11px] text-muted-foreground">{(detail.attachments || []).length} arquivo(s)</span>
+                    </div>
+                    {(detail.attachments || []).length ? (
+                      <div className="mt-2 space-y-1">
+                        {(detail.attachments || []).map((a: any) => (
+                          <div key={a.id} className="flex items-center justify-between gap-3">
+                            <a href={a.url} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-[12px] hover:underline min-w-0">
+                              <FileText className="h-4 w-4 flex-shrink-0" />
+                              <span className="truncate">{a.filename || a.url}</span>
+                            </a>
+                            <div className="flex items-center gap-2 flex-shrink-0">
+                              {a?.metadata?.ai_extract_json?.url ? (
+                                <a
+                                  href={a.metadata.ai_extract_json.url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="text-[11px] text-muted-foreground hover:underline"
+                                  title="Leitura do anexo (IA) em JSON"
+                                >
+                                  JSON
+                                </a>
+                              ) : null}
+                              {a?.metadata?.table_csv?.url ? (
+                                <a
+                                  href={a.metadata.table_csv.url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="text-[11px] text-muted-foreground hover:underline"
+                                  title="Tabela extraída (CSV)"
+                                >
+                                  CSV
+                                </a>
+                              ) : null}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-muted-foreground mt-2">Sem anexos.</p>
+                    )}
+                  </div>
+                )}
 
                 <div className="rounded-md border p-2">
                   <div className="text-[12px] font-medium">Histórico</div>
@@ -396,6 +569,11 @@ export function FinanceRequestsManagement() {
                 </div>
 
                 <div className="flex justify-end gap-2">
+                  {detail.request.request_kind === "Reembolso" && (detail.attachments || []).length ? (
+                    <Button type="button" variant="outline" onClick={runAiExtractForSelected} disabled={extractingAi}>
+                      {extractingAi ? "Processando..." : "Gerar leitura IA"}
+                    </Button>
+                  ) : null}
                   <Button type="button" variant="outline" onClick={() => setDetailOpen(false)}>
                     Fechar
                   </Button>

@@ -23,6 +23,18 @@ const attachmentItem = z.object({
   metadata: z.record(z.any()).optional().nullable(),
 });
 
+const requestItem = z.object({
+  expenseType: z.enum(FINANCE_EXPENSE_TYPES).optional().nullable(),
+  description: z.string().trim().min(1).max(2000).optional().nullable(),
+  amountBrl: z
+    .string()
+    .trim()
+    .optional()
+    .nullable()
+    .refine((v) => v == null || v === '' || parseBrlToCents(v) != null, 'Valor inválido'),
+  attachments: z.array(attachmentItem).optional().nullable(),
+});
+
 export const financeRequestCreateSchema = z
   .object({
     company: z.enum(FINANCE_COMPANIES),
@@ -40,6 +52,7 @@ export const financeRequestCreateSchema = z
       .nullable()
       .refine((v) => v == null || v === '' || parseBrlToCents(v) != null, 'Valor inválido'),
     attachments: z.array(attachmentItem).optional().nullable(),
+    items: z.array(requestItem).optional().nullable(),
   })
   .superRefine((data, ctx) => {
     const kind = data.requestKind;
@@ -47,6 +60,77 @@ export const financeRequestCreateSchema = z
     const start = new Date(data.dateStart);
     if (data.dateEnd && Number.isFinite(start.getTime()) && end && end < start) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['dateEnd'], message: 'Data Fim deve ser >= Data Início' });
+    }
+
+    const items = Array.isArray(data.items) ? data.items : [];
+    const usingItems = items.length > 0;
+
+    if (usingItems) {
+      if (kind === 'Adiantamento') {
+        for (let i = 0; i < items.length; i += 1) {
+          const it = items[i] || {};
+          const desc = String(it?.description || '').trim();
+          if (!desc) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ['items', i, 'description'],
+              message: 'Descrição do item obrigatória',
+            });
+          }
+          if (it?.expenseType && it.expenseType !== 'Adiantamento') {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ['items', i, 'expenseType'],
+              message: 'Tipo deve ser Adiantamento',
+            });
+          }
+          const a = Array.isArray(it?.attachments) ? it.attachments : [];
+          if (a.length > 0) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ['items', i, 'attachments'],
+              message: 'Adiantamento não permite anexos',
+            });
+          }
+        }
+        return;
+      }
+
+      // Reembolso
+      for (let i = 0; i < items.length; i += 1) {
+        const it = items[i] || {};
+        if (!it?.expenseType) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['items', i, 'expenseType'],
+            message: 'Tipo do item obrigatório',
+          });
+        } else if (it.expenseType === 'Adiantamento') {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['items', i, 'expenseType'],
+            message: 'Tipo Adiantamento não permitido em Reembolso',
+          });
+        }
+        const a = Array.isArray(it?.attachments) ? it.attachments : [];
+        if (a.length < 1) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['items', i, 'attachments'],
+            message: 'Envie pelo menos 1 anexo por item',
+          });
+        }
+        const amount = String(it?.amountBrl || '').trim();
+        if (!amount) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['items', i, 'amountBrl'],
+            message: 'Valor obrigatório por item',
+          });
+        }
+      }
+
+      return;
     }
 
     if (kind === 'Adiantamento') {

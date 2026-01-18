@@ -78,20 +78,99 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const request_kind = String(input.requestKind);
     const rawExpenseType = String(input.expenseType || '').trim();
-    const expense_type = request_kind === 'Adiantamento' ? 'Adiantamento' : rawExpenseType;
-    if (request_kind === 'Reembolso' && !expense_type) {
-      return res.status(400).json({ error: 'Tipo obrigatório. Selecione o tipo do reembolso.' });
+    const inputItems = Array.isArray((input as any).items) ? (input as any).items : [];
+    const usingItems = inputItems.length > 0;
+
+    const normalizeItemDescription = (v: any) =>
+      safeText(v, 2000) || safeText(input.description, 2000) || '—';
+
+    const normalizedItems: Array<{
+      idx: number;
+      expense_type: string;
+      description: string;
+      amount_cents: number | null;
+      attachments: any[];
+    }> = [];
+
+    const flattenedAttachments: Array<{ itemIdx: number; att: any }> = [];
+
+    if (usingItems) {
+      if (inputItems.length > 12) {
+        return res.status(400).json({ error: 'Máximo de 12 itens por solicitação.' });
+      }
+
+      for (let i = 0; i < inputItems.length; i += 1) {
+        const it = inputItems[i] || {};
+        const itemExpense = request_kind === 'Adiantamento' ? 'Adiantamento' : String(it?.expenseType || '').trim();
+        const itemAmount = parseBrlToCents(it?.amountBrl) ?? null;
+        const itemDesc = normalizeItemDescription(it?.description);
+        const itemAttachments = request_kind === 'Adiantamento' ? [] : (Array.isArray(it?.attachments) ? it.attachments : []);
+
+        normalizedItems.push({
+          idx: i,
+          expense_type: itemExpense,
+          description: itemDesc,
+          amount_cents: itemAmount,
+          attachments: itemAttachments,
+        });
+
+        for (const a of itemAttachments) {
+          flattenedAttachments.push({ itemIdx: i, att: a });
+        }
+      }
+    } else {
+      const legacyExpenseType = request_kind === 'Adiantamento' ? 'Adiantamento' : rawExpenseType;
+      const legacyAttachments = request_kind === 'Adiantamento' ? [] : (Array.isArray(input.attachments) ? input.attachments : []);
+      const legacyAmount = parseBrlToCents(input.amountBrl) ?? null;
+
+      normalizedItems.push({
+        idx: 0,
+        expense_type: legacyExpenseType,
+        description: normalizeItemDescription(null),
+        amount_cents: request_kind === 'Adiantamento' ? legacyAmount : legacyAmount,
+        attachments: legacyAttachments,
+      });
+
+      for (const a of legacyAttachments) {
+        flattenedAttachments.push({ itemIdx: 0, att: a });
+      }
     }
 
-    const attachments = Array.isArray(input.attachments) ? input.attachments : [];
-    if (request_kind === 'Reembolso' && attachments.length < 1) {
-      return res.status(400).json({ error: 'Envie pelo menos 1 anexo.' });
-    }
-    if (attachments.length > 12) {
+    if (flattenedAttachments.length > 12) {
       return res.status(400).json({ error: 'Máximo de 12 anexos por solicitação.' });
     }
 
-    const amount_cents = request_kind === 'Adiantamento' ? null : parseBrlToCents(input.amountBrl) ?? null;
+    const distinctExpenseTypes = Array.from(
+      new Set(
+        normalizedItems
+          .map((it) => String(it.expense_type || '').trim())
+          .filter(Boolean)
+          .filter((t) => t !== 'Adiantamento'),
+      ),
+    );
+
+    const expense_type =
+      request_kind === 'Adiantamento'
+        ? 'Adiantamento'
+        : usingItems
+          ? (distinctExpenseTypes.length === 1 ? distinctExpenseTypes[0] : 'Múltiplos')
+          : rawExpenseType;
+
+    if (request_kind === 'Reembolso') {
+      if (!expense_type || expense_type === 'Adiantamento') {
+        return res.status(400).json({ error: 'Tipo obrigatório. Selecione o tipo do reembolso.' });
+      }
+      if (!flattenedAttachments.length) {
+        return res.status(400).json({ error: 'Envie pelo menos 1 anexo.' });
+      }
+    }
+
+    const totalAmount = normalizedItems.reduce((acc, it) => acc + (typeof it.amount_cents === 'number' ? it.amount_cents : 0), 0);
+    const amount_cents =
+      request_kind === 'Reembolso'
+        ? (totalAmount > 0 ? totalAmount : null)
+        : (totalAmount > 0 ? totalAmount : null);
+
     if (request_kind === 'Reembolso' && (!amount_cents || amount_cents <= 0)) {
       return res.status(400).json({ error: 'Valor inválido. Use um valor em R$ (ex.: 123,45 ou 1.234,56).' });
     }
@@ -124,25 +203,70 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const requestId = String(created?.id || '');
     if (!requestId) return res.status(500).json({ error: 'Falha ao criar solicitação' });
 
-    if (attachments.length) {
-      const toInsert = attachments.map((a) => {
-        const url = String(a?.url || '').trim();
+    // Create items (best-effort; required for multi-item UX)
+    let itemIdByIdx = new Map<number, string>();
+    try {
+      const itemsToInsert = normalizedItems.map((it) => ({
+        request_id: requestId,
+        idx: it.idx,
+        expense_type: it.expense_type,
+        description: it.description,
+        amount_cents: it.amount_cents,
+        currency: 'BRL',
+        metadata: { source: usingItems ? 'multi_item_v1' : 'legacy_v1' },
+      }));
+      const { data: createdItems, error: itemErr } = await db
+        .from('finance_request_items')
+        .insert(itemsToInsert)
+        .select('id,idx');
+
+      if (itemErr) throw itemErr;
+      for (const row of Array.isArray(createdItems) ? createdItems : []) {
+        const idx = Number((row as any)?.idx);
+        const id = String((row as any)?.id || '');
+        if (Number.isFinite(idx) && id) itemIdByIdx.set(idx, id);
+      }
+    } catch (e: any) {
+      const msg = String(e?.message || e || '');
+      try {
+        await db.from('finance_requests').delete().eq('id', requestId);
+      } catch {
+        // ignore cleanup failure (RLS or transient)
+      }
+      if (msg.includes('finance_request_items') && msg.includes('does not exist')) {
+        return res.status(503).json({ error: 'Migrations pendentes: aplique as migrations de finance_request_items antes de usar múltiplos itens.' });
+      }
+      // If items insertion fails, fail the request to avoid inconsistent multi-item data.
+      return res.status(400).json({ error: msg || 'Falha ao criar itens da solicitação.' });
+    }
+
+    if (flattenedAttachments.length) {
+      const toInsert = flattenedAttachments.map(({ itemIdx, att }) => {
+        const url = String(att?.url || '').trim();
         const inferred = tryParseStorageFromPublicUrl({ supabaseUrl: SUPABASE_URL, url });
-        const storage_bucket = safeText(a?.storageBucket, 80) || inferred.bucket;
-        const storage_path = safeText(a?.storagePath, 600) || inferred.path;
+        const storage_bucket = safeText(att?.storageBucket, 80) || inferred.bucket;
+        const storage_path = safeText(att?.storagePath, 600) || inferred.path;
+        const baseMeta = att?.metadata && typeof att.metadata === 'object' ? att.metadata : {};
+        const meta = { ...baseMeta, finance_item_idx: itemIdx };
         return {
           request_id: requestId,
+          item_id: itemIdByIdx.get(itemIdx) || null,
           uploaded_by: uid,
           url,
           storage_bucket,
           storage_path,
-          filename: safeText(a?.filename, 240),
-          content_type: safeText(a?.contentType, 120),
-          size_bytes: typeof a?.sizeBytes === 'number' ? a.sizeBytes : null,
-          metadata: a?.metadata && typeof a.metadata === 'object' ? a.metadata : {},
+          filename: safeText(att?.filename, 240),
+          content_type: safeText(att?.contentType, 120),
+          size_bytes: typeof att?.sizeBytes === 'number' ? att.sizeBytes : null,
+          metadata: meta,
         };
       });
-      const { error: attErr } = await db.from('finance_request_attachments').insert(toInsert);
+      let { error: attErr } = await db.from('finance_request_attachments').insert(toInsert);
+      if (attErr && String(attErr.message || '').includes('item_id') && String(attErr.message || '').includes('does not exist')) {
+        const fallback = toInsert.map(({ item_id, ...rest }) => rest);
+        const retry = await db.from('finance_request_attachments').insert(fallback);
+        attErr = retry.error as any;
+      }
       if (attErr) {
         try {
           await db.from('finance_requests').delete().eq('id', requestId);

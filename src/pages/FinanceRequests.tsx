@@ -46,16 +46,23 @@ type AttachmentItem = {
   meta?: any;
 };
 
+type DraftItem = {
+  id: string;
+  expenseType: string;
+  amountBrl: string;
+  description: string;
+  attachments: AttachmentItem[];
+  uploading: boolean;
+};
+
 const EMPTY_FORM = {
   company: "",
   trainingOperational: "",
   requestKind: "",
-  expenseType: "",
   coordination: "",
   dateStart: "",
   dateEnd: "",
   description: "",
-  amountBrl: "",
 } as const;
 
 const PREFILL_ENABLED_KEY = "finance_prefill_enabled";
@@ -106,10 +113,10 @@ export default function FinanceRequests() {
   const [detailId, setDetailId] = useState<string | null>(null);
   const [detail, setDetail] = useState<any | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [extractingAi, setExtractingAi] = useState(false);
 
   const [submitting, setSubmitting] = useState(false);
-  const [attachmentsUploading, setAttachmentsUploading] = useState(false);
-  const [attachmentItems, setAttachmentItems] = useState<AttachmentItem[]>([]);
+  const [draftItems, setDraftItems] = useState<DraftItem[]>([]);
   const [form, setForm] = useState({ ...EMPTY_FORM });
   const [prefillEnabled, setPrefillEnabled] = useState<boolean>(() => {
     try {
@@ -143,18 +150,27 @@ export default function FinanceRequests() {
       // ignore
     }
 
+    const suggestedCompany =
+      matchFromList((profile as any)?.company, FINANCE_COMPANIES) ||
+      matchFromList((profile as any)?.empresa, FINANCE_COMPANIES) ||
+      lastCompany ||
+      FINANCE_COMPANIES[0] ||
+      "";
+
     const suggestedCoord =
       matchFromList(orgScope?.coordName, FINANCE_COORDINATIONS) ||
+      matchFromList((profile as any)?.team?.name, FINANCE_COORDINATIONS) ||
+      matchFromList(profile?.sigla_area, FINANCE_COORDINATIONS) ||
       matchFromList(profile?.operational_base, FINANCE_COORDINATIONS) ||
       lastCoord ||
       "";
 
     setForm((p) => ({
       ...p,
-      company: p.company || lastCompany || "",
+      company: p.company || suggestedCompany || "",
       coordination: p.coordination || suggestedCoord || "",
     }));
-  }, [orgScope?.coordName, profile?.operational_base]);
+  }, [orgScope?.coordName, profile?.operational_base, profile?.sigla_area, profile]);
 
   useEffect(() => {
     if (!newOpen) return;
@@ -212,8 +228,7 @@ export default function FinanceRequests() {
 
   const resetForm = () => {
     setForm({ ...EMPTY_FORM });
-    setAttachmentItems([]);
-    setAttachmentsUploading(false);
+    setDraftItems([]);
   };
 
   const submitNew = async () => {
@@ -243,22 +258,46 @@ export default function FinanceRequests() {
       toast({ title: "Descrição obrigatória", description: "Explique com mais detalhes (mín. 10 caracteres).", variant: "destructive" });
       return;
     }
-    if (attachmentsUploading) {
+    const anyUploading = draftItems.some((it) => Boolean(it.uploading));
+    if (anyUploading) {
       toast({ title: "Aguarde o upload", description: "Estamos concluindo o envio dos anexos antes de enviar.", variant: "default" });
       return;
     }
+
     if (form.requestKind === "Reembolso") {
-      if (!form.expenseType) {
-        toast({ title: "Tipo obrigatório", description: "Selecione o tipo do reembolso.", variant: "destructive" });
+      if (!draftItems.length) {
+        toast({ title: "Adicione ao menos 1 comprovante", variant: "destructive" });
         return;
       }
-      if (!form.amountBrl.trim()) {
-        toast({ title: "Valor obrigatório", variant: "destructive" });
+      for (let i = 0; i < draftItems.length; i += 1) {
+        const it = draftItems[i];
+        if (!it?.expenseType) {
+          toast({ title: "Tipo obrigatório", description: `Selecione o tipo do item #${i + 1}.`, variant: "destructive" });
+          return;
+        }
+        if (!it?.amountBrl?.trim()) {
+          toast({ title: "Valor obrigatório", description: `Informe o valor do item #${i + 1}.`, variant: "destructive" });
+          return;
+        }
+        const atts = Array.isArray(it?.attachments) ? it.attachments : [];
+        if (!atts.length) {
+          toast({ title: "Anexo obrigatório", description: `Envie o comprovante do item #${i + 1}.`, variant: "destructive" });
+          return;
+        }
+      }
+    }
+
+    if (form.requestKind === "Adiantamento") {
+      if (!draftItems.length) {
+        toast({ title: "Adicione ao menos 1 motivo", variant: "destructive" });
         return;
       }
-      if (!attachmentItems.length) {
-        toast({ title: "Anexo obrigatório", description: "Envie ao menos 1 anexo para Reembolso.", variant: "destructive" });
-        return;
+      for (let i = 0; i < draftItems.length; i += 1) {
+        const it = draftItems[i];
+        if (!String(it?.description || "").trim()) {
+          toast({ title: "Motivo obrigatório", description: `Descreva o motivo do item #${i + 1}.`, variant: "destructive" });
+          return;
+        }
       }
     }
 
@@ -268,20 +307,25 @@ export default function FinanceRequests() {
         company: form.company,
         trainingOperational: form.trainingOperational,
         requestKind: form.requestKind,
-        expenseType: form.requestKind === "Adiantamento" ? "Adiantamento" : form.expenseType,
         coordination: form.coordination,
         dateStart: form.dateStart,
         dateEnd: form.dateEnd || null,
         description: form.description,
-        amountBrl: form.requestKind === "Adiantamento" ? null : form.amountBrl,
-        attachments: form.requestKind === "Adiantamento" ? [] : attachmentItems.map((a) => ({
-          url: a.url,
-          filename: a.filename,
-          contentType: a.contentType,
-          sizeBytes: a.sizeBytes,
-          storageBucket: a.storageBucket,
-          storagePath: a.storagePath,
-          metadata: a.meta || {},
+        items: draftItems.map((it) => ({
+          expenseType: form.requestKind === "Reembolso" ? it.expenseType : "Adiantamento",
+          description: it.description,
+          amountBrl: it.amountBrl || null,
+          attachments: form.requestKind === "Reembolso"
+            ? (it.attachments || []).map((a) => ({
+              url: a.url,
+              filename: a.filename,
+              contentType: a.contentType,
+              sizeBytes: a.sizeBytes,
+              storageBucket: a.storageBucket,
+              storagePath: a.storagePath,
+              metadata: a.meta || {},
+            }))
+            : [],
         })),
       };
       const resp = await apiFetch("/api/finance-requests", {
@@ -311,7 +355,7 @@ export default function FinanceRequests() {
       try {
         const reqId = String(json?.request?.id || "").trim();
         if (reqId && form.requestKind === "Reembolso") {
-          // Best-effort: extrai tabela do anexo e gera um CSV no Storage (não bloqueia o envio).
+          // Best-effort: extrai tabela/JSON do anexo (não bloqueia o envio).
           void apiFetch("/api/finance-request-extract", {
             method: "POST",
             headers: { "Content-Type": "application/json", "X-AI-UI": "silent" },
@@ -327,6 +371,31 @@ export default function FinanceRequests() {
       toast({ title: "Erro ao enviar", description: e?.message || "Tente novamente.", variant: "destructive" });
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const runAiExtractForSelected = async () => {
+    const id = String(detail?.request?.id || detailId || "").trim();
+    if (!id) return;
+    if (extractingAi) return;
+    try {
+      setExtractingAi(true);
+      const resp = await apiFetch("/api/finance-request-extract", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(json?.error || "Falha ao processar anexos");
+      toast({
+        title: "Processamento iniciado",
+        description: `Processados: ${json?.processed ?? 0} (JSON: ${json?.processedJson ?? 0}, CSV: ${json?.processedCsv ?? 0})`,
+      });
+      void openDetail(id);
+    } catch (e: any) {
+      toast({ title: "Erro", description: e?.message || "Falha ao processar anexos", variant: "destructive" });
+    } finally {
+      setExtractingAi(false);
     }
   };
 
@@ -478,6 +547,10 @@ export default function FinanceRequests() {
                       Usa informações do seu cadastro (ex.: coordenação/base) e sua última escolha. Você pode alterar antes de enviar.
                     </div>
                     <div className="text-[11px] text-muted-foreground mt-1 truncate">
+                      {profile?.name ? `Nome: ${profile.name} • ` : ""}
+                      {(profile as any)?.matricula ? `Matrícula: ${(profile as any).matricula}` : ""}
+                    </div>
+                    <div className="text-[11px] text-muted-foreground mt-1 truncate">
                       {profile?.sigla_area ? `Área: ${profile.sigla_area} • ` : ""}
                       {profile?.operational_base ? `Base: ${profile.operational_base}` : ""}
                     </div>
@@ -519,13 +592,35 @@ export default function FinanceRequests() {
                   <Select
                     value={form.requestKind}
                     onValueChange={(v) => {
-                      setForm((p) => ({
-                        ...p,
-                        requestKind: v as any,
-                        expenseType: v === "Adiantamento" ? "Adiantamento" : "",
-                        amountBrl: v === "Adiantamento" ? "" : p.amountBrl,
-                      }));
-                      if (v === "Adiantamento") setAttachmentItems([]);
+                      const next = v as any;
+                      setForm((p) => ({ ...p, requestKind: next }));
+                      setDraftItems(() => {
+                        if (next === "Reembolso") {
+                          return [
+                            {
+                              id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
+                              expenseType: "",
+                              amountBrl: "",
+                              description: "",
+                              attachments: [],
+                              uploading: false,
+                            },
+                          ];
+                        }
+                        if (next === "Adiantamento") {
+                          return [
+                            {
+                              id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
+                              expenseType: "Adiantamento",
+                              amountBrl: "",
+                              description: "",
+                              attachments: [],
+                              uploading: false,
+                            },
+                          ];
+                        }
+                        return [];
+                      });
                     }}
                   >
                     <SelectTrigger className="mt-1"><SelectValue placeholder="Selecione" /></SelectTrigger>
@@ -536,19 +631,14 @@ export default function FinanceRequests() {
                 </div>
 
                 {form.requestKind === "Reembolso" ? (
-                  <div>
-                    <Label>Tipo</Label>
-                    <Select value={form.expenseType} onValueChange={(v) => setForm((p) => ({ ...p, expenseType: v as any }))}>
-                      <SelectTrigger className="mt-1"><SelectValue placeholder="Selecione" /></SelectTrigger>
-                      <SelectContent>
-                        {FINANCE_EXPENSE_TYPES.map((t) => (<SelectItem key={t} value={t}>{t}</SelectItem>))}
-                      </SelectContent>
-                    </Select>
+                  <div className="rounded-md border p-3 bg-muted/20">
+                    <div className="text-[12px] font-medium">Reembolso</div>
+                    <div className="text-[11px] text-muted-foreground">Adicione 1+ itens, cada um com valor e comprovante.</div>
                   </div>
                 ) : form.requestKind === "Adiantamento" ? (
                   <div className="rounded-md border p-3 bg-muted/20">
                     <div className="text-[12px] font-medium">Adiantamento</div>
-                    <div className="text-[11px] text-muted-foreground">Valor e anexo não são necessários.</div>
+                    <div className="text-[11px] text-muted-foreground">Adicione 1+ motivos (valor opcional, sem anexos).</div>
                   </div>
                 ) : (
                   <div className="rounded-md border p-3 bg-muted/10">
@@ -580,9 +670,189 @@ export default function FinanceRequests() {
             </div>
 
             {form.requestKind === "Reembolso" ? (
-              <div>
-                <Label>Valor (R$)</Label>
-                <Input className="mt-1" placeholder="Ex: 123,45" value={form.amountBrl} onChange={(e) => setForm((p) => ({ ...p, amountBrl: e.target.value }))} />
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label>Itens do reembolso</Label>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() =>
+                      setDraftItems((p) => [
+                        ...p,
+                        {
+                          id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
+                          expenseType: "",
+                          amountBrl: "",
+                          description: "",
+                          attachments: [],
+                          uploading: false,
+                        },
+                      ])
+                    }
+                    disabled={!form.requestKind || draftItems.length >= 12}
+                  >
+                    <Plus className="h-4 w-4 mr-2" />
+                    Adicionar
+                  </Button>
+                </div>
+
+                {draftItems.length ? (
+                  <div className="space-y-2">
+                    {draftItems.map((it, idx) => (
+                      <div key={it.id} className="rounded-md border p-3 bg-muted/10 space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="text-[12px] font-medium">Item #{idx + 1}</div>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => setDraftItems((p) => p.filter((x) => x.id !== it.id))}
+                            disabled={draftItems.length <= 1}
+                          >
+                            Remover
+                          </Button>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div>
+                            <Label className="text-[11px] text-muted-foreground">Tipo</Label>
+                            <Select
+                              value={it.expenseType}
+                              onValueChange={(v) => setDraftItems((p) => p.map((x) => x.id === it.id ? { ...x, expenseType: v } : x))}
+                            >
+                              <SelectTrigger className="mt-1"><SelectValue placeholder="Selecione" /></SelectTrigger>
+                              <SelectContent>
+                                {FINANCE_EXPENSE_TYPES
+                                  .filter((t) => t !== "Adiantamento")
+                                  .map((t) => (<SelectItem key={t} value={t}>{t}</SelectItem>))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div>
+                            <Label className="text-[11px] text-muted-foreground">Valor (R$)</Label>
+                            <Input
+                              className="mt-1"
+                              placeholder="Ex: 123,45"
+                              value={it.amountBrl}
+                              onChange={(e) => setDraftItems((p) => p.map((x) => x.id === it.id ? { ...x, amountBrl: e.target.value } : x))}
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <Label className="text-[11px] text-muted-foreground">Descrição do item (opcional)</Label>
+                          <Input
+                            className="mt-1"
+                            placeholder="Ex: Uber ida e volta"
+                            value={it.description}
+                            onChange={(e) => setDraftItems((p) => p.map((x) => x.id === it.id ? { ...x, description: e.target.value } : x))}
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <Label className="text-[11px] text-muted-foreground">Comprovante (PDF/JPG/PNG)</Label>
+                            <span className="text-[11px] text-muted-foreground">
+                              {(it.attachments || []).length ? "enviado" : it.uploading ? "enviando..." : "pendente"}
+                            </span>
+                          </div>
+                          <AttachmentUploader
+                            onAttachmentsChange={() => {}}
+                            onAttachmentItemsChange={(items) => setDraftItems((p) => p.map((x) => x.id === it.id ? { ...x, attachments: (items as any) || [] } : x))}
+                            onUploadingChange={(u) => setDraftItems((p) => p.map((x) => x.id === it.id ? { ...x, uploading: Boolean(u) } : x))}
+                            maxFiles={1}
+                            maxImages={1}
+                            maxVideos={0}
+                            maxSizeMB={25}
+                            capture="environment"
+                            includeImageGpsMeta
+                            bucket="evidence"
+                            pathPrefix="finance-requests"
+                            acceptMimeTypes={["application/pdf", "image/jpeg", "image/png", "image/webp"]}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-muted-foreground">Adicione um item para continuar.</p>
+                )}
+              </div>
+            ) : form.requestKind === "Adiantamento" ? (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label>Motivos do adiantamento</Label>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() =>
+                      setDraftItems((p) => [
+                        ...p,
+                        {
+                          id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
+                          expenseType: "Adiantamento",
+                          amountBrl: "",
+                          description: "",
+                          attachments: [],
+                          uploading: false,
+                        },
+                      ])
+                    }
+                    disabled={!form.requestKind || draftItems.length >= 12}
+                  >
+                    <Plus className="h-4 w-4 mr-2" />
+                    Adicionar
+                  </Button>
+                </div>
+
+                {draftItems.length ? (
+                  <div className="space-y-2">
+                    {draftItems.map((it, idx) => (
+                      <div key={it.id} className="rounded-md border p-3 bg-muted/10 space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="text-[12px] font-medium">Item #{idx + 1}</div>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => setDraftItems((p) => p.filter((x) => x.id !== it.id))}
+                            disabled={draftItems.length <= 1}
+                          >
+                            Remover
+                          </Button>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div className="sm:col-span-2">
+                            <Label className="text-[11px] text-muted-foreground">Motivo</Label>
+                            <Input
+                              className="mt-1"
+                              placeholder="Ex: despesas de campo, deslocamento, etc."
+                              value={it.description}
+                              onChange={(e) => setDraftItems((p) => p.map((x) => x.id === it.id ? { ...x, description: e.target.value } : x))}
+                            />
+                          </div>
+                          <div>
+                            <Label className="text-[11px] text-muted-foreground">Valor (opcional)</Label>
+                            <Input
+                              className="mt-1"
+                              placeholder="Ex: 500,00"
+                              value={it.amountBrl}
+                              onChange={(e) => setDraftItems((p) => p.map((x) => x.id === it.id ? { ...x, amountBrl: e.target.value } : x))}
+                            />
+                          </div>
+                          <div className="rounded-md border p-3 bg-muted/20">
+                            <div className="text-[12px] font-medium">Sem anexos</div>
+                            <div className="text-[11px] text-muted-foreground">Adiantamento não exige comprovantes.</div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-muted-foreground">Adicione um item para continuar.</p>
+                )}
               </div>
             ) : null}
 
@@ -590,32 +860,6 @@ export default function FinanceRequests() {
               <Label>Descrição</Label>
               <Textarea className="mt-1 min-h-[120px]" value={form.description} onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))} placeholder="Descreva a solicitação..." />
             </div>
-
-            {form.requestKind === "Reembolso" ? (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label>Anexos (PDF/JPG/PNG)</Label>
-                  <span className="text-[11px] text-muted-foreground">{attachmentItems.length} arquivo(s)</span>
-                </div>
-                <AttachmentUploader
-                  onAttachmentsChange={() => {}}
-                  onAttachmentItemsChange={(items) => setAttachmentItems(items as any)}
-                  onUploadingChange={setAttachmentsUploading}
-                  maxFiles={8}
-                  maxImages={8}
-                  maxVideos={0}
-                  maxSizeMB={25}
-                  capture="environment"
-                  includeImageGpsMeta
-                  bucket="evidence"
-                  pathPrefix="finance-requests"
-                  acceptMimeTypes={["application/pdf", "image/jpeg", "image/png", "image/webp"]}
-                />
-                <p className="text-[11px] text-muted-foreground">
-                  Para fotos, tentamos capturar GPS e horário (quando disponível no arquivo).
-                </p>
-              </div>
-            ) : null}
             </div>
           </div>
 
@@ -623,9 +867,13 @@ export default function FinanceRequests() {
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               <div className="text-[11px] text-muted-foreground">
                 {form.requestKind === "Reembolso"
-                  ? `Anexos: ${attachmentItems.length} arquivo(s)${attachmentsUploading ? " (enviando...)" : ""}`
+                  ? (() => {
+                    const uploading = draftItems.some((it) => Boolean(it.uploading));
+                    const attachments = draftItems.reduce((acc, it) => acc + (Array.isArray(it.attachments) ? it.attachments.length : 0), 0);
+                    return `Itens: ${draftItems.length} • Anexos: ${attachments}${uploading ? " (enviando...)" : ""}`;
+                  })()
                   : form.requestKind === "Adiantamento"
-                  ? "Adiantamento: sem valor e sem anexo."
+                  ? `Itens: ${draftItems.length} • Sem anexos.`
                   : "Preencha os campos para habilitar o envio."}
               </div>
               <div className="flex justify-end gap-2">
@@ -635,7 +883,7 @@ export default function FinanceRequests() {
                 <Button
                   type="button"
                   onClick={submitNew}
-                  disabled={submitting || attachmentsUploading || !canUse}
+                  disabled={submitting || draftItems.some((it) => Boolean(it.uploading)) || !canUse}
                 >
                   {submitting ? "Enviando..." : "Enviar"}
                 </Button>
@@ -692,50 +940,201 @@ export default function FinanceRequests() {
                 </div>
               </div>
 
-              <div className="rounded-md border p-2">
-                <div className="flex items-center justify-between">
-                  <div className="text-[12px] font-medium">Anexos</div>
-                  <span className="text-[11px] text-muted-foreground">{(detail.attachments || []).length} arquivo(s)</span>
+              {Array.isArray(detail.items) && detail.items.length ? (
+                <div className="rounded-md border p-2">
+                  <div className="flex items-center justify-between">
+                    <div className="text-[12px] font-medium">Itens</div>
+                    <span className="text-[11px] text-muted-foreground">{detail.items.length} item(ns)</span>
+                  </div>
+                  <div className="mt-2 space-y-2">
+                    {(() => {
+                      const atts = Array.isArray(detail.attachments) ? detail.attachments : [];
+                      const byItem = new Map<string, any[]>();
+                      const unassigned: any[] = [];
+                      const idxToItemId = new Map<number, string>();
+                      for (const it of detail.items) {
+                        const idx = Number((it as any)?.idx);
+                        const id = String((it as any)?.id || "").trim();
+                        if (Number.isFinite(idx) && id) idxToItemId.set(idx, id);
+                      }
+
+                      for (const a of atts) {
+                        let itemId = String(a?.item_id || "").trim();
+                        if (!itemId) {
+                          const idx = Number(a?.metadata?.finance_item_idx);
+                          const mapped = Number.isFinite(idx) ? idxToItemId.get(idx) : null;
+                          if (mapped) itemId = mapped;
+                        }
+                        if (itemId) {
+                          const list = byItem.get(itemId) || [];
+                          list.push(a);
+                          byItem.set(itemId, list);
+                        } else {
+                          unassigned.push(a);
+                        }
+                      }
+
+                      return (
+                        <>
+                          {detail.items.map((it: any, idx: number) => {
+                            const itemAtts = byItem.get(String(it?.id || "")) || [];
+                            return (
+                              <div key={it.id || idx} className="rounded-md border p-2 bg-muted/10">
+                                <div className="flex items-start justify-between gap-2">
+                                  <div className="min-w-0">
+                                    <div className="text-[12px] font-medium">
+                                      {it.expense_type || detail.request.expense_type || "—"}
+                                    </div>
+                                    {it.description ? (
+                                      <div className="text-[11px] text-muted-foreground whitespace-pre-wrap">{it.description}</div>
+                                    ) : null}
+                                  </div>
+                                  <div className="text-[12px] text-muted-foreground flex-shrink-0">
+                                    {formatBrl(it.amount_cents)}
+                                  </div>
+                                </div>
+
+                                <div className="mt-2">
+                                  <div className="flex items-center justify-between">
+                                    <div className="text-[11px] text-muted-foreground">Comprovantes</div>
+                                    <span className="text-[11px] text-muted-foreground">{itemAtts.length} arquivo(s)</span>
+                                  </div>
+                                  {itemAtts.length ? (
+                                    <div className="mt-1 space-y-1">
+                                      {itemAtts.map((a: any) => (
+                                        <div key={a.id} className="flex items-center justify-between gap-3">
+                                          <a href={a.url} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-[12px] hover:underline min-w-0">
+                                            <FileText className="h-4 w-4 flex-shrink-0" />
+                                            <span className="truncate">{a.filename || a.url}</span>
+                                          </a>
+                                          <div className="flex items-center gap-2 flex-shrink-0">
+                                            {a?.metadata?.ai_extract_json?.url ? (
+                                              <a
+                                                href={a.metadata.ai_extract_json.url}
+                                                target="_blank"
+                                                rel="noreferrer"
+                                                className="text-[11px] text-muted-foreground hover:underline"
+                                                title="Leitura do anexo (IA) em JSON"
+                                              >
+                                                JSON
+                                              </a>
+                                            ) : null}
+                                            {a?.metadata?.table_csv?.url ? (
+                                              <a
+                                                href={a.metadata.table_csv.url}
+                                                target="_blank"
+                                                rel="noreferrer"
+                                                className="text-[11px] text-muted-foreground hover:underline"
+                                                title="Tabela extraída (CSV)"
+                                              >
+                                                CSV
+                                              </a>
+                                            ) : null}
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <p className="text-[11px] text-muted-foreground mt-1">—</p>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+
+                          {unassigned.length ? (
+                            <div className="rounded-md border p-2">
+                              <div className="flex items-center justify-between">
+                                <div className="text-[12px] font-medium">Anexos (sem item)</div>
+                                <span className="text-[11px] text-muted-foreground">{unassigned.length} arquivo(s)</span>
+                              </div>
+                              <div className="mt-2 space-y-1">
+                                {unassigned.map((a: any) => (
+                                  <div key={a.id} className="flex items-center justify-between gap-3">
+                                    <a href={a.url} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-[12px] hover:underline min-w-0">
+                                      <FileText className="h-4 w-4 flex-shrink-0" />
+                                      <span className="truncate">{a.filename || a.url}</span>
+                                    </a>
+                                    <div className="flex items-center gap-2 flex-shrink-0">
+                                      {a?.metadata?.ai_extract_json?.url ? (
+                                        <a
+                                          href={a.metadata.ai_extract_json.url}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                          className="text-[11px] text-muted-foreground hover:underline"
+                                          title="Leitura do anexo (IA) em JSON"
+                                        >
+                                          JSON
+                                        </a>
+                                      ) : null}
+                                      {a?.metadata?.table_csv?.url ? (
+                                        <a
+                                          href={a.metadata.table_csv.url}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                          className="text-[11px] text-muted-foreground hover:underline"
+                                          title="Tabela extraída (CSV)"
+                                        >
+                                          CSV
+                                        </a>
+                                      ) : null}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ) : null}
+                        </>
+                      );
+                    })()}
+                  </div>
                 </div>
-                {(detail.attachments || []).length ? (
-                  <div className="mt-2 space-y-1">
-	                    {(detail.attachments || []).map((a: any) => (
-	                      <div key={a.id} className="flex items-center justify-between gap-3">
-	                        <a href={a.url} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-[12px] hover:underline min-w-0">
-	                          <FileText className="h-4 w-4 flex-shrink-0" />
-	                          <span className="truncate">{a.filename || a.url}</span>
-	                        </a>
-	                        <div className="flex items-center gap-2 flex-shrink-0">
-	                          {a?.metadata?.ai_extract_json?.url ? (
-	                            <a
-	                              href={a.metadata.ai_extract_json.url}
-	                              target="_blank"
-	                              rel="noreferrer"
-	                              className="text-[11px] text-muted-foreground hover:underline"
-	                              title="Leitura do anexo (IA) em JSON"
-	                            >
-	                              JSON
-	                            </a>
-	                          ) : null}
-	                          {a?.metadata?.table_csv?.url ? (
-	                            <a
-	                              href={a.metadata.table_csv.url}
-	                              target="_blank"
-	                              rel="noreferrer"
-	                              className="text-[11px] text-muted-foreground hover:underline"
-	                              title="Tabela extraída (CSV)"
-	                            >
-	                              CSV
-	                            </a>
-	                          ) : null}
-	                        </div>
-	                      </div>
-	                    ))}
-	                  </div>
-	                ) : (
-                  <p className="text-[11px] text-muted-foreground mt-2">Sem anexos.</p>
-                )}
-              </div>
+              ) : (
+                <div className="rounded-md border p-2">
+                  <div className="flex items-center justify-between">
+                    <div className="text-[12px] font-medium">Anexos</div>
+                    <span className="text-[11px] text-muted-foreground">{(detail.attachments || []).length} arquivo(s)</span>
+                  </div>
+                  {(detail.attachments || []).length ? (
+                    <div className="mt-2 space-y-1">
+                      {(detail.attachments || []).map((a: any) => (
+                        <div key={a.id} className="flex items-center justify-between gap-3">
+                          <a href={a.url} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-[12px] hover:underline min-w-0">
+                            <FileText className="h-4 w-4 flex-shrink-0" />
+                            <span className="truncate">{a.filename || a.url}</span>
+                          </a>
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            {a?.metadata?.ai_extract_json?.url ? (
+                              <a
+                                href={a.metadata.ai_extract_json.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-[11px] text-muted-foreground hover:underline"
+                                title="Leitura do anexo (IA) em JSON"
+                              >
+                                JSON
+                              </a>
+                            ) : null}
+                            {a?.metadata?.table_csv?.url ? (
+                              <a
+                                href={a.metadata.table_csv.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-[11px] text-muted-foreground hover:underline"
+                                title="Tabela extraída (CSV)"
+                              >
+                                CSV
+                              </a>
+                            ) : null}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-[11px] text-muted-foreground mt-2">Sem anexos.</p>
+                  )}
+                </div>
+              )}
 
               <div className="rounded-md border p-2">
                 <div className="text-[12px] font-medium">Histórico</div>
@@ -759,6 +1158,11 @@ export default function FinanceRequests() {
               </div>
 
               <div className="flex justify-end gap-2">
+                {detail.request.request_kind === "Reembolso" && (detail.attachments || []).length ? (
+                  <Button type="button" variant="outline" onClick={runAiExtractForSelected} disabled={extractingAi}>
+                    {extractingAi ? "Processando..." : "Gerar leitura IA"}
+                  </Button>
+                ) : null}
                 {canCancelSelected ? (
                   <Button type="button" variant="destructive" onClick={cancelSelected}>
                     <XCircle className="h-4 w-4 mr-2" />

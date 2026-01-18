@@ -131,6 +131,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (exportFmt === 'xlsx') {
       const ids = rows.map((r: any) => String(r?.id || '')).filter(Boolean);
       const attachmentsByRequest = new Map<string, any[]>();
+      const itemsByRequest = new Map<string, any[]>();
       if (ids.length) {
         const { data: atts } = await admin
           .from('finance_request_attachments')
@@ -143,6 +144,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           const list = attachmentsByRequest.get(rid) || [];
           list.push(a);
           attachmentsByRequest.set(rid, list);
+        }
+
+        const { data: its } = await admin
+          .from('finance_request_items')
+          .select('request_id,idx,expense_type,amount_cents,description')
+          .in('request_id', ids)
+          .order('idx', { ascending: true });
+        for (const it of Array.isArray(its) ? its : []) {
+          const rid = String((it as any)?.request_id || '');
+          if (!rid) continue;
+          const list = itemsByRequest.get(rid) || [];
+          list.push(it);
+          itemsByRequest.set(rid, list);
         }
       }
 
@@ -163,6 +177,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         Valor: typeof r.amount_cents === 'number' ? r.amount_cents / 100 : null,
         Status: r.status,
         Observacao: r.last_observation,
+        Itens: (itemsByRequest.get(String(r.id)) || [])
+          .map((it: any) => {
+            const idx = Number(it?.idx);
+            const pos = Number.isFinite(idx) ? idx + 1 : null;
+            const type = String(it?.expense_type || '').trim();
+            const amount = typeof it?.amount_cents === 'number' ? (it.amount_cents / 100).toFixed(2) : '';
+            const desc = String(it?.description || '').trim();
+            const head = [pos ? `${pos}.` : null, type].filter(Boolean).join(' ');
+            const tail = [amount ? `R$ ${amount}` : null, desc ? desc : null].filter(Boolean).join(' • ');
+            return [head, tail].filter(Boolean).join(' - ');
+          })
+          .filter(Boolean)
+          .join('\n') || null,
         Anexos: (attachmentsByRequest.get(String(r.id)) || [])
           .map((a: any) => String(a?.url || '').trim())
           .filter(Boolean)

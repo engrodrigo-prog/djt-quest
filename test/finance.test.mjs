@@ -41,6 +41,50 @@ test('finance schema: adiantamento forces type and allows no amount/attachments'
   assert.equal(r.success, true);
 });
 
+test('finance schema: multi-item reembolso validates each item', () => {
+  const base = {
+    company: 'CPFL Piratininga',
+    trainingOperational: 'Não',
+    requestKind: 'Reembolso',
+    expenseType: null,
+    coordination: 'Planejamento',
+    dateStart: '2026-01-16',
+    dateEnd: null,
+    description: 'Solicitação com múltiplos itens.',
+    amountBrl: null,
+    attachments: null,
+    items: [
+      { expenseType: 'Transporte', description: 'Uber', amountBrl: '', attachments: [] },
+    ],
+  };
+  const r = financeRequestCreateSchema.safeParse(base);
+  assert.equal(r.success, false);
+});
+
+test('finance schema: multi-item adiantamento forbids attachments', () => {
+  const base = {
+    company: 'CPFL Piratininga',
+    trainingOperational: 'Sim',
+    requestKind: 'Adiantamento',
+    expenseType: 'Adiantamento',
+    coordination: 'Planejamento',
+    dateStart: '2026-01-16',
+    dateEnd: null,
+    description: 'Solicitação de adiantamento com múltiplos motivos.',
+    amountBrl: null,
+    attachments: [],
+    items: [
+      {
+        description: 'Adiantamento para despesas de campo',
+        amountBrl: '100,00',
+        attachments: [{ url: 'https://example.com/a.pdf' }],
+      },
+    ],
+  };
+  const r = financeRequestCreateSchema.safeParse(base);
+  assert.equal(r.success, false);
+});
+
 test('finance perms: analyst role can manage; collaborator cannot', () => {
   assert.equal(isFinanceAnalyst(['analista_financeiro'], { name: 'X' }), true);
   assert.equal(canManageFinanceRequests(['analista_financeiro'], { name: 'X' }), true);
