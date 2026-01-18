@@ -44,6 +44,7 @@ Personal Token:
 ## 6) Ferramentas disponíveis
 ### Contexto
 - `djt.context`
+- `djt.comment_pr_with_latest_vercel_preview`
 
 ### GitHub
 - `github.list_pull_requests`
@@ -60,4 +61,4 @@ Personal Token:
 - “Liste os PRs abertos com `github.list_pull_requests`.”
 - “Crie uma issue ‘Bug: áudio do quiz trava’ com labels `bug`.”
 - “Liste os últimos 10 deployments do Vercel e me mande os links.”
-
+- “Comente no PR #123 o preview mais recente do Vercel com `djt.comment_pr_with_latest_vercel_preview`.”

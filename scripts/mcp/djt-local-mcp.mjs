@@ -176,6 +176,23 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
     },
     {
+      name: "djt.comment_pr_with_latest_vercel_preview",
+      description:
+        "Comenta no PR com o preview mais recente do Vercel (tenta casar branch/sha do PR com deployments do projeto).",
+      inputSchema: {
+        type: "object",
+        properties: {
+          pullNumber: { type: "number" },
+          repo: { type: "string", description: "owner/repo (opcional)" },
+          projectId: { type: "string" },
+          teamId: { type: "string" },
+          searchLimit: { type: "number", default: 25 },
+        },
+        required: ["pullNumber"],
+        additionalProperties: false,
+      },
+    },
+    {
       name: "github.list_pull_requests",
       description: "Lista PRs do repo (default: repo detectado pelo remote origin).",
       inputSchema: {
@@ -267,6 +284,84 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
       const github = await detectGitHubRepo(repoRoot);
       const vercel = await detectVercelProject(repoRoot);
       return okText({ repoRoot, github, vercel });
+    }
+
+    if (name === "djt.comment_pr_with_latest_vercel_preview") {
+      const pullNumber = Number(args?.pullNumber);
+      if (!Number.isFinite(pullNumber) || pullNumber <= 0) throw new Error("pullNumber inválido");
+
+      let repo = String(args?.repo || "").trim();
+      if (!repo) {
+        const detected = await detectGitHubRepo(repoRoot);
+        if (!detected) throw new Error("Repo GitHub não detectado (configure GITHUB_REPO ou remote origin).");
+        repo = `${detected.owner}/${detected.repo}`;
+      }
+      const [owner, repoName] = repo.split("/", 2);
+
+      const ctx = await detectVercelProject(repoRoot);
+      const projectId = String(args?.projectId || ctx.projectId || "").trim();
+      const teamId = String(args?.teamId || ctx.orgId || "").trim();
+      if (!projectId) throw new Error("projectId não detectado (link o projeto com `vercel link` ou passe projectId).");
+
+      const pr = await githubApi(repoRoot, `/repos/${owner}/${repoName}/pulls/${pullNumber}`);
+      const headRef = String(pr?.head?.ref || "").trim();
+      const headSha = String(pr?.head?.sha || "").trim();
+      if (!headRef && !headSha) throw new Error("Não foi possível detectar head.ref/head.sha do PR.");
+
+      const limit = Math.max(5, Math.min(50, Number(args?.searchLimit) || 25));
+      const params = new URLSearchParams();
+      params.set("projectId", projectId);
+      params.set("limit", String(limit));
+      if (teamId) params.set("teamId", teamId);
+      const depResp = await vercelApi(repoRoot, `/v6/deployments?${params.toString()}`);
+      const deployments = Array.isArray(depResp?.deployments) ? depResp.deployments : [];
+
+      const norm = (s) => String(s || "").trim().toLowerCase();
+      const wantSha = norm(headSha);
+      const wantRef = norm(headRef);
+
+      const found = deployments.find((d) => {
+        const git = d?.gitSource && typeof d.gitSource === "object" ? d.gitSource : {};
+        const meta = d?.meta && typeof d.meta === "object" ? d.meta : {};
+        const sha = norm(git?.sha || meta?.githubCommitSha || meta?.githubCommitSHA || meta?.GITHUB_COMMIT_SHA || "");
+        const ref = norm(git?.ref || meta?.githubCommitRef || meta?.githubCommitRefName || meta?.GITHUB_COMMIT_REF || "");
+        if (wantSha && sha && sha === wantSha) return true;
+        if (wantRef && ref && ref === wantRef) return true;
+        return false;
+      });
+
+      if (!found) {
+        return okText({
+          ok: false,
+          reason: "Nenhum deployment encontrado para este PR (tente aumentar searchLimit).",
+          pr: { number: pr?.number, url: pr?.html_url, headRef, headSha },
+          vercel: { projectId, teamId, searched: deployments.length },
+        });
+      }
+
+      const deploymentId = String(found?.uid || found?.id || "").trim();
+      const deploymentHost = String(found?.url || "").trim();
+      const previewUrl = deploymentHost ? `https://${deploymentHost}` : null;
+
+      const bodyLines = [
+        "Preview Vercel (auto):",
+        previewUrl ? previewUrl : "(sem url)",
+        deploymentId ? `deployment: ${deploymentId}` : null,
+        headRef ? `branch: ${headRef}` : null,
+        headSha ? `sha: ${headSha}` : null,
+      ].filter(Boolean);
+
+      const comment = await githubApi(repoRoot, `/repos/${owner}/${repoName}/issues/${pullNumber}/comments`, {
+        method: "POST",
+        body: { body: bodyLines.join("\n") },
+      });
+
+      return okText({
+        ok: true,
+        previewUrl,
+        deploymentId,
+        commentUrl: comment?.html_url || null,
+      });
     }
 
     if (name === "github.list_pull_requests") {
