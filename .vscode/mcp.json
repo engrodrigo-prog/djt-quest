@@ -1,0 +1,30 @@
+{
+  "inputs": [
+    {
+      "id": "github_token",
+      "type": "promptString",
+      "description": "GitHub token (fine-grained PAT) para repo/PR/issue via MCP",
+      "password": true
+    },
+    {
+      "id": "vercel_token",
+      "type": "promptString",
+      "description": "Vercel token (Personal Token) para deployments/logs via MCP",
+      "password": true
+    }
+  ],
+  "servers": {
+    "djt-local": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "scripts/mcp/djt-local-mcp.mjs"
+      ],
+      "env": {
+        "GITHUB_TOKEN": "${input:github_token}",
+        "VERCEL_TOKEN": "${input:vercel_token}"
+      }
+    }
+  }
+}
+
