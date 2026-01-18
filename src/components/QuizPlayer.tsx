@@ -139,7 +139,7 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
 
       // Se a tentativa já foi finalizada (ex.: errou no Milhão), não deve permitir responder.
       try {
-        const { data: attempt } = await supabase
+        const { data: attempt } = await (supabase as any)
           .from('quiz_attempts')
           .select('submitted_at, score')
           .eq('user_id', uid)
@@ -185,7 +185,7 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
     try {
       // carregar título do desafio para detectar Quiz do Milhão
       try {
-        const { data: challenge } = await supabase
+        const { data: challenge } = await (supabase as any)
           .from('challenges')
           .select('title, quiz_specialties')
           .eq('id', challengeId)
@@ -198,7 +198,7 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
       const uid = session.session?.user?.id;
       if (uid) {
         try {
-          const { data: attempt } = await supabase
+          const { data: attempt } = await (supabase as any)
             .from('quiz_attempts')
             .select('submitted_at')
             .eq('user_id', uid)

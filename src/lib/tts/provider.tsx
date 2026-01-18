@@ -205,7 +205,7 @@ export function TtsProvider({ children }: { children: React.ReactNode }) {
     async (patch: { tts_enabled?: boolean; tts_voice_gender?: TtsVoiceGender; tts_rate?: number; tts_volume?: number }) => {
       if (!user) return;
       try {
-        const { error } = await supabase.from("profiles").update(patch).eq("id", user.id);
+        const { error } = await supabase.from("profiles").update(patch as any).eq("id", user.id);
         if (error) throw error;
       } catch {
         /* ignore */
