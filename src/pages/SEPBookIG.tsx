@@ -2894,7 +2894,7 @@ export default function SEPBookIG() {
   };
 
   return (
-    <div className="min-h-screen bg-background text-foreground pb-[120px]">
+    <div className="min-h-screen min-h-[100dvh] bg-background text-foreground pb-[120px]">
       <SendUserFeedbackDialog
         open={feedbackDialogOpen}
         onOpenChange={(open) => {
@@ -3262,7 +3262,7 @@ export default function SEPBookIG() {
           }
         }}
       >
-        <DrawerContent className="h-[92dvh] max-h-[92dvh] sm:h-auto">
+        <DrawerContent className="mt-0 sm:mt-24 h-[100dvh] max-h-[100dvh] sm:h-auto">
           <DrawerHeader>
             <DrawerTitle>{tr("sepbook.newPost")}</DrawerTitle>
             <DrawerDescription className="sr-only">Criar uma nova postagem, com menções e campanha opcional</DrawerDescription>
@@ -3300,7 +3300,7 @@ export default function SEPBookIG() {
                   value={composerText}
                   onChange={(e) => setComposerText(e.target.value)}
                   placeholder={tr("sepbook.captionPlaceholder")}
-                  className="min-h-[140px]"
+                  className="min-h-[200px] sm:min-h-[140px]"
                 />
 
                 {composerCampaignId ? (
@@ -3453,7 +3453,7 @@ export default function SEPBookIG() {
           if (!open) cancelEditPost();
         }}
       >
-      <DrawerContent className="h-[92dvh] max-h-[92dvh] sm:h-auto">
+      <DrawerContent className="mt-0 sm:mt-24 h-[100dvh] max-h-[100dvh] sm:h-auto">
           <DrawerHeader>
             <DrawerTitle>{tr("sepbook.edit")} </DrawerTitle>
             <DrawerDescription className="sr-only">Editar texto, mídia e menções da publicação</DrawerDescription>
@@ -3491,7 +3491,7 @@ export default function SEPBookIG() {
 	                  value={editingPostText}
 	                  onChange={(e) => setEditingPostText(e.target.value)}
 	                  placeholder={tr("sepbook.captionPlaceholder")}
-	                  className="min-h-[140px]"
+	                  className="min-h-[200px] sm:min-h-[140px]"
 	                />
 
                 {editingPostMentionQuery && editingPostMentions.items.length > 0 && (
@@ -3619,7 +3619,7 @@ export default function SEPBookIG() {
           }
         }}
       >
-        <DrawerContent className="h-[92dvh] max-h-[92dvh] sm:h-auto">
+        <DrawerContent className="mt-0 sm:mt-24 h-[100dvh] max-h-[100dvh] sm:h-auto">
           <DrawerHeader>
             <DrawerTitle>
               {activePost

@@ -7,6 +7,10 @@ export interface TextareaProps extends React.TextareaHTMLAttributes<HTMLTextArea
 const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(({ className, ...props }, ref) => {
   const autoId = React.useId();
   const resolvedId = props.id || (typeof props.name === "string" && props.name ? props.name : "") || autoId;
+  const mergedStyle: React.CSSProperties = { ...props.style };
+  if (mergedStyle.scrollMarginBottom == null) {
+    mergedStyle.scrollMarginBottom = "calc(var(--djt-keyboard-inset, 0px) + 24px)";
+  }
   return (
     <textarea
       id={resolvedId}
@@ -15,6 +19,7 @@ const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(({ classNa
         className,
       )}
       ref={ref}
+      style={mergedStyle}
       {...props}
     />
   );

@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 function isEditableElement(el: EventTarget | null): el is HTMLElement {
   if (!(el instanceof HTMLElement)) return false;
@@ -31,13 +31,26 @@ function computeKeyboardInset(): number {
 }
 
 export function MobileKeyboardManager() {
+  const activeEditableRef = useRef<HTMLElement | null>(null);
+
   useEffect(() => {
     const root = document.documentElement;
     const vv = window.visualViewport;
 
+    const scrollActiveIntoView = () => {
+      const target = activeEditableRef.current || (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+      if (!isEditableElement(target)) return;
+      try {
+        target.scrollIntoView({ block: "center", inline: "nearest" });
+      } catch {
+        // ignore
+      }
+    };
+
     const updateInset = () => {
       const inset = computeKeyboardInset();
       root.style.setProperty("--djt-keyboard-inset", `${inset}px`);
+      if (inset > 0) scrollActiveIntoView();
     };
 
     updateInset();
@@ -50,17 +63,11 @@ export function MobileKeyboardManager() {
     const onFocusIn = (ev: FocusEvent) => {
       const target = ev.target;
       if (!isEditableElement(target)) return;
-
-      const inset = Number.parseInt(getComputedStyle(root).getPropertyValue("--djt-keyboard-inset") || "0", 10) || 0;
-      if (inset <= 0) return;
+      activeEditableRef.current = target;
 
       window.setTimeout(() => {
-        try {
-          (target as HTMLElement).scrollIntoView({ block: "center", inline: "nearest" });
-        } catch {
-          // ignore
-        }
-      }, 60);
+        scrollActiveIntoView();
+      }, 80);
     };
 
     document.addEventListener("focusin", onFocusIn);
@@ -77,4 +84,3 @@ export function MobileKeyboardManager() {
 
   return null;
 }
-
