@@ -798,6 +798,7 @@ export default function SEPBookIG() {
   const [editingPostUploading, setEditingPostUploading] = useState(false);
   const editingPostCameraRef = useRef<HTMLInputElement | null>(null);
   const editingPostGalleryRef = useRef<HTMLInputElement | null>(null);
+  const editingPostInputRef = useRef<HTMLTextAreaElement | null>(null);
 
   const [commentsOpenFor, setCommentsOpenFor] = useState<string | null>(null);
   const [commentsByPost, setCommentsByPost] = useState<Record<string, SepComment[]>>({});
@@ -1553,6 +1554,14 @@ export default function SEPBookIG() {
     return () => window.clearTimeout(t);
   }, [composerOpen]);
 
+  useEffect(() => {
+    if (!editingPostId) return;
+    const t = window.setTimeout(() => {
+      editingPostInputRef.current?.focus();
+    }, 120);
+    return () => window.clearTimeout(t);
+  }, [editingPostId]);
+
   // Mobile UX: when the composer drawer is open, collapse bottom navigation
   // so actions (camera/gallery/publish) are never hidden behind the bar.
   useEffect(() => {
@@ -1670,6 +1679,14 @@ export default function SEPBookIG() {
 
   const startEditPost = useCallback(
     (post: SepPost) => {
+      try {
+        if (typeof document !== "undefined") {
+          const el = document.activeElement;
+          if (el instanceof HTMLElement) el.blur();
+        }
+      } catch {
+        // ignore
+      }
       setEditingPostId(post.id);
       setEditingPostText(String(post.content_md || ""));
       setEditingPostKind(normalizePostKind((post as any)?.post_kind));
@@ -2973,6 +2990,14 @@ export default function SEPBookIG() {
               size="icon"
               variant="ghost"
               onClick={() => {
+                try {
+                  if (typeof document !== "undefined") {
+                    const el = document.activeElement;
+                    if (el instanceof HTMLElement) el.blur();
+                  }
+                } catch {
+                  // ignore
+                }
                 setComposerPostKind("normal");
                 setComposerOpen(true);
               }}
@@ -3461,12 +3486,13 @@ export default function SEPBookIG() {
                   </div>
                 </div>
 
-                <Textarea
-                  value={editingPostText}
-                  onChange={(e) => setEditingPostText(e.target.value)}
-                  placeholder={tr("sepbook.captionPlaceholder")}
-                  className="min-h-[140px]"
-                />
+	                <Textarea
+	                  ref={editingPostInputRef}
+	                  value={editingPostText}
+	                  onChange={(e) => setEditingPostText(e.target.value)}
+	                  placeholder={tr("sepbook.captionPlaceholder")}
+	                  className="min-h-[140px]"
+	                />
 
                 {editingPostMentionQuery && editingPostMentions.items.length > 0 && (
                   <div className="rounded-xl border bg-background">

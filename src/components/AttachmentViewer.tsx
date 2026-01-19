@@ -85,9 +85,12 @@ export const AttachmentViewer = ({
             if (t === 'video') {
               return (
                 <video
+                  key={url}
+                  src={url}
                   controls
                   className="w-full max-h-[70vh] bg-black"
                   preload="metadata"
+                  playsInline
                   onDoubleClick={(e) => {
                     if (!onMediaDoubleClick) return;
                     e.preventDefault();
@@ -95,7 +98,6 @@ export const AttachmentViewer = ({
                     onMediaDoubleClick();
                   }}
                 >
-                  <source src={url} />
                   Seu navegador não suporta vídeo.
                 </video>
               );
@@ -103,6 +105,7 @@ export const AttachmentViewer = ({
             const imageIndex = images.indexOf(url);
             return (
               <img
+                key={url}
                 src={url}
                 alt={`Mídia ${carouselIndex + 1}`}
                 className={cn(
@@ -145,7 +148,7 @@ export const AttachmentViewer = ({
                   variant="secondary"
                   size="sm"
                   onClick={() => setCarouselIndex((prev) => (prev > 0 ? prev - 1 : media.length - 1))}
-                  className="rounded-full"
+                  className="rounded-full z-10"
                   aria-label="Anterior"
                 >
                   ←
@@ -156,7 +159,7 @@ export const AttachmentViewer = ({
                   variant="secondary"
                   size="sm"
                   onClick={() => setCarouselIndex((prev) => (prev < media.length - 1 ? prev + 1 : 0))}
-                  className="rounded-full"
+                  className="rounded-full z-10"
                   aria-label="Próximo"
                 >
                   →
