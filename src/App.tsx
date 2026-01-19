@@ -13,6 +13,7 @@ import { TtsPlayerBar } from "@/components/TtsPlayerBar";
 import { RouteRefreshManager } from "@/components/RouteRefreshManager";
 import { AiProgressOverlay } from "@/components/AiProgressOverlay";
 import { SepbookGpsConsentPrompt } from "@/components/SepbookGpsConsentPrompt";
+import { MobileKeyboardManager } from "@/components/MobileKeyboardManager";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { CompleteProfile } from "./components/CompleteProfile";
 import { requiresProfileCompletion } from "@/lib/profileCompletion";
@@ -76,6 +77,7 @@ const App = () => (
       <Sonner />
       <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <RouteRefreshManager />
+        <MobileKeyboardManager />
         <AuthProvider>
           <I18nProvider>
             <AiProgressOverlay />

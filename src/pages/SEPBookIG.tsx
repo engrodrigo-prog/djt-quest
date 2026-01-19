@@ -6,7 +6,6 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Drawer, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import {
@@ -3238,14 +3237,14 @@ export default function SEPBookIG() {
           }
         }}
       >
-        <DrawerContent className="max-h-[92vh] max-h-[92dvh]">
+        <DrawerContent className="h-[92dvh] max-h-[92dvh] sm:h-auto">
           <DrawerHeader>
             <DrawerTitle>{tr("sepbook.newPost")}</DrawerTitle>
             <DrawerDescription className="sr-only">Criar uma nova postagem, com menções e campanha opcional</DrawerDescription>
           </DrawerHeader>
 
           <div className="flex flex-col h-full">
-            <ScrollArea className="flex-1 px-3 pb-3">
+            <div className="flex-1 overflow-y-auto px-3 pb-3 [-webkit-overflow-scrolling:touch]">
               <div className="space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border bg-muted/20 px-3 py-2">
                   <div className="text-[12px] text-muted-foreground">{tr("sepbook.postKindLabel")}</div>
@@ -3341,7 +3340,7 @@ export default function SEPBookIG() {
                   </div>
                 )}
               </div>
-            </ScrollArea>
+            </div>
 
             <div className="border-t bg-background px-3 py-3 space-y-2 pb-[calc(env(safe-area-inset-bottom)+12px)]">
               {composerUploading || composerMedia.some((m) => m.uploading) ? (
@@ -3429,14 +3428,14 @@ export default function SEPBookIG() {
           if (!open) cancelEditPost();
         }}
       >
-      <DrawerContent className="max-h-[92vh]">
+      <DrawerContent className="h-[92dvh] max-h-[92dvh] sm:h-auto">
           <DrawerHeader>
             <DrawerTitle>{tr("sepbook.edit")} </DrawerTitle>
             <DrawerDescription className="sr-only">Editar texto, mídia e menções da publicação</DrawerDescription>
           </DrawerHeader>
 
           <div className="flex flex-col h-full">
-            <ScrollArea className="flex-1 px-3 pb-3">
+            <div className="flex-1 overflow-y-auto px-3 pb-3 [-webkit-overflow-scrolling:touch]">
               <div className="space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border bg-muted/20 px-3 py-2">
                   <div className="text-[12px] text-muted-foreground">{tr("sepbook.postKindLabel")}</div>
@@ -3488,7 +3487,7 @@ export default function SEPBookIG() {
                   </div>
                 )}
               </div>
-            </ScrollArea>
+            </div>
 
             <div className="border-t bg-background px-3 py-3 pb-[calc(env(safe-area-inset-bottom)+12px)]">
               {editingPostUploading || editingPostMedia.some((m) => m.uploading) ? (
@@ -3594,7 +3593,7 @@ export default function SEPBookIG() {
           }
         }}
       >
-        <DrawerContent className="max-h-[92vh]">
+        <DrawerContent className="h-[92dvh] max-h-[92dvh] sm:h-auto">
           <DrawerHeader>
             <DrawerTitle>
               {activePost
@@ -3605,7 +3604,7 @@ export default function SEPBookIG() {
           </DrawerHeader>
 
           <div className="flex flex-col h-full">
-            <ScrollArea className="flex-1 px-3 pb-3">
+            <div className="flex-1 overflow-y-auto px-3 pb-3 [-webkit-overflow-scrolling:touch]">
               {activePost && (
                 <div className="mb-3 rounded-xl border bg-muted/20 px-3 py-2">
                   <div className="text-[12px] text-muted-foreground">
@@ -3654,7 +3653,7 @@ export default function SEPBookIG() {
                   })()}
                 </div>
               )}
-            </ScrollArea>
+            </div>
 
             <div className="border-t bg-background px-3 py-3 space-y-2 pb-[calc(env(safe-area-inset-bottom)+12px)]">
               {replyTarget && (
