@@ -24,4 +24,20 @@ export const FINANCE_COORDINATIONS = [
   'DJTB (Coordenadores)',
   'DJT (Gerentes + Coordenadora)',
 ] as const;
-export const FINANCE_STATUSES = ['Enviado', 'Em análise', 'Aprovado', 'Reprovado', 'Pago', 'Cancelado'] as const;
+export const FINANCE_STATUSES = ['Enviado', 'Em Análise', 'Aprovado', 'Reprovado', 'Cancelado'] as const;
+
+export const normalizeFinanceStatus = (raw: unknown): string => {
+  const status = String(raw ?? '').trim();
+  if (status === 'Em análise') return 'Em Análise';
+  if (status === 'Pago') return 'Aprovado';
+  return status;
+};
+
+export const financeStatusBadgeClassName = (raw: unknown): string => {
+  const status = normalizeFinanceStatus(raw);
+  if (status === 'Enviado') return 'border-transparent bg-blue-600 text-white';
+  if (status === 'Em Análise') return 'border-transparent bg-orange-500 text-white';
+  if (status === 'Aprovado') return 'border-transparent bg-green-600 text-white';
+  if (status === 'Reprovado' || status === 'Cancelado') return 'border-transparent bg-red-600 text-white';
+  return 'border-transparent bg-muted text-foreground';
+};

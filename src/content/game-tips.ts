@@ -170,7 +170,7 @@ export const gameTips: Record<string, GameTip> = {
       '',
       'Boas práticas:',
       '• Use “Observação” para orientar o colaborador sobre o que falta (ex.: comprovante ilegível, data divergente).',
-      '• Mantenha o status atualizado (Enviado → Em análise → Aprovado/Reprovado → Pago/Cancelado) para evitar retrabalho.'
+      '• Mantenha o status atualizado (Enviado → Em Análise → Aprovado/Reprovado/Cancelado) para evitar retrabalho.'
     ].join('\n'),
   },
   'studylab-oracle': {

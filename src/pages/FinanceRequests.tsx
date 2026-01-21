@@ -15,7 +15,15 @@ import { AttachmentUploader } from "@/components/AttachmentUploader";
 import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft, FileText, Plus, XCircle } from "lucide-react";
 import { getActiveLocale } from "@/lib/i18n/activeLocale";
-import { FINANCE_COMPANIES, FINANCE_COORDINATIONS, FINANCE_EXPENSE_TYPES, FINANCE_REQUEST_KINDS, FINANCE_STATUSES } from "@/lib/finance/constants";
+import {
+  FINANCE_COMPANIES,
+  FINANCE_COORDINATIONS,
+  FINANCE_EXPENSE_TYPES,
+  FINANCE_REQUEST_KINDS,
+  FINANCE_STATUSES,
+  financeStatusBadgeClassName,
+  normalizeFinanceStatus,
+} from "@/lib/finance/constants";
 
 type RequestRow = {
   id: string;
@@ -589,8 +597,8 @@ export default function FinanceRequests() {
                         </div>
                       </div>
                       <div className="flex flex-col items-end gap-1">
-                        <Badge variant={r.status === "Enviado" ? "secondary" : r.status === "Pago" ? "default" : "outline"} className="text-[10px]">
-                          {r.status}
+                        <Badge variant="outline" className={`text-[10px] ${financeStatusBadgeClassName(r.status)}`}>
+                          {normalizeFinanceStatus(r.status)}
                         </Badge>
                         <div className="text-[11px] text-muted-foreground">{formatBrl(r.amount_cents)}</div>
                       </div>
@@ -857,7 +865,7 @@ export default function FinanceRequests() {
                             includeImageGpsMeta
                             bucket="evidence"
                             pathPrefix="finance-requests"
-                            acceptMimeTypes={["application/pdf", "image/jpeg", "image/png", "image/webp"]}
+                            acceptMimeTypes={["application/pdf", "image/*"]}
                           />
                         </div>
                       </div>
@@ -1000,7 +1008,9 @@ export default function FinanceRequests() {
                   </div>
                 </div>
                 <div className="text-right">
-                  <Badge className="text-[11px]">{detail.request.status}</Badge>
+                  <Badge variant="outline" className={`text-[11px] ${financeStatusBadgeClassName(detail.request.status)}`}>
+                    {normalizeFinanceStatus(detail.request.status)}
+                  </Badge>
                   <div className="text-[12px] text-muted-foreground mt-1">{formatBrl(detail.request.amount_cents)}</div>
                 </div>
               </div>

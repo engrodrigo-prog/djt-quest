@@ -6,6 +6,69 @@ import { toast } from "sonner";
 import { Upload, X, Image as ImageIcon, Music, Video, FileText, Camera } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+const IMAGE_EXTS = new Set(["jpg", "jpeg", "png", "gif", "webp", "avif", "heic", "heif", "bmp", "tif", "tiff"]);
+const VIDEO_EXTS = new Set(["mp4", "webm", "mov", "qt"]);
+const AUDIO_EXTS = new Set(["mp3", "wav", "ogg", "webm", "m4a", "aac", "flac"]);
+
+const getFileExt = (filename: string): string => {
+  const name = String(filename || "").trim();
+  const idx = name.lastIndexOf(".");
+  if (idx < 0) return "";
+  return name.slice(idx + 1).trim().toLowerCase();
+};
+
+const normalizeMime = (raw: string): string => {
+  const t = String(raw || "").trim().toLowerCase();
+  if (t === "image/jpg") return "image/jpeg";
+  if (t === "image/pjpeg") return "image/jpeg";
+  if (t === "application/x-pdf") return "application/pdf";
+  return t;
+};
+
+const guessMimeTypeFromFilename = (filename: string): string => {
+  const ext = getFileExt(filename);
+  if (!ext) return "";
+  if (ext === "pdf") return "application/pdf";
+  if (ext === "jpg" || ext === "jpeg") return "image/jpeg";
+  if (ext === "png") return "image/png";
+  if (ext === "gif") return "image/gif";
+  if (ext === "webp") return "image/webp";
+  if (ext === "avif") return "image/avif";
+  if (ext === "heic") return "image/heic";
+  if (ext === "heif") return "image/heif";
+  if (ext === "bmp") return "image/bmp";
+  if (ext === "tif" || ext === "tiff") return "image/tiff";
+  if (ext === "mp4") return "video/mp4";
+  if (ext === "webm") return "video/webm";
+  if (ext === "mov" || ext === "qt") return "video/quicktime";
+  if (ext === "mp3") return "audio/mpeg";
+  if (ext === "wav") return "audio/wav";
+  if (ext === "ogg") return "audio/ogg";
+  if (ext === "m4a") return "audio/mp4";
+  return "";
+};
+
+const isProbablyImageFile = (file: File): boolean => {
+  const t = normalizeMime(String(file?.type || ""));
+  if (t.startsWith("image/")) return true;
+  const ext = getFileExt(String(file?.name || ""));
+  return IMAGE_EXTS.has(ext);
+};
+
+const isProbablyVideoFile = (file: File): boolean => {
+  const t = normalizeMime(String(file?.type || ""));
+  if (t.startsWith("video/")) return true;
+  const ext = getFileExt(String(file?.name || ""));
+  return VIDEO_EXTS.has(ext);
+};
+
+const isProbablyAudioFile = (file: File): boolean => {
+  const t = normalizeMime(String(file?.type || ""));
+  if (t.startsWith("audio/")) return true;
+  const ext = getFileExt(String(file?.name || ""));
+  return AUDIO_EXTS.has(ext);
+};
+
 interface Attachment {
   id: string;
   file: File;
@@ -102,7 +165,22 @@ export const AttachmentUploader = ({
 }: AttachmentUploaderProps) => {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [isDragging, setIsDragging] = useState(false);
-  const allowedMimeSet = new Set<string>(acceptMimeTypes && acceptMimeTypes.length > 0 ? acceptMimeTypes : Object.keys(ALLOWED_TYPES));
+  const allowedMimeList = useMemo(
+    () => (acceptMimeTypes && acceptMimeTypes.length > 0 ? acceptMimeTypes : Object.keys(ALLOWED_TYPES)),
+    [acceptMimeTypes],
+  );
+  const allowedMimeSet = useMemo(
+    () => new Set<string>(allowedMimeList.map((t) => normalizeMime(String(t || ""))).filter(Boolean)),
+    [allowedMimeList],
+  );
+  const allowedWildcards = useMemo(
+    () =>
+      allowedMimeList
+        .map((t) => normalizeMime(String(t || "")))
+        .filter((t) => t.endsWith("/*"))
+        .map((t) => t.slice(0, -1)),
+    [allowedMimeList],
+  );
   const inputId = useMemo(() => `file-upload-${Math.random().toString(36).slice(2)}`, []);
   const cameraInputId = useMemo(() => `camera-upload-${Math.random().toString(36).slice(2)}`, []);
   const cameraEnabled = Boolean(capture);
@@ -132,17 +210,28 @@ export const AttachmentUploader = ({
   }, [cameraEnabled, capture]);
 
   const validateFile = useCallback((file: File): string | null => {
-    if (!allowedMimeSet.has(file.type)) {
-      return `Tipo de arquivo não permitido: ${file.type}`;
+    const rawType = normalizeMime(String(file?.type || ""));
+    const guessedType = guessMimeTypeFromFilename(String(file?.name || ""));
+    const candidates = Array.from(new Set([rawType, guessedType].filter(Boolean)));
+
+    const isAllowed = candidates.some((t) => {
+      if (allowedMimeSet.has(t)) return true;
+      return allowedWildcards.some((prefix) => t.startsWith(prefix));
+    });
+
+    if (!isAllowed) {
+      const ext = getFileExt(String(file?.name || ""));
+      const prettyType = rawType || (ext ? `.${ext}` : "desconhecido");
+      return `Tipo de arquivo não permitido: ${prettyType}`;
     }
     if (file.size > maxSizeMB * 1024 * 1024) {
       return `Arquivo muito grande: ${(file.size / 1024 / 1024).toFixed(1)}MB (máx: ${maxSizeMB}MB)`;
     }
     return null;
-  }, [maxSizeMB, allowedMimeSet]);
+  }, [maxSizeMB, allowedMimeSet, allowedWildcards]);
 
   const ensureVideoDurationOk = useCallback(async (file: File): Promise<string | null> => {
-    if ((!maxVideoSeconds && !maxVideoDimension) || !file.type.startsWith('video/')) return null;
+    if ((!maxVideoSeconds && !maxVideoDimension) || !isProbablyVideoFile(file)) return null;
     if (typeof document === 'undefined') return null;
     return await new Promise((resolve) => {
       try {
@@ -178,7 +267,7 @@ export const AttachmentUploader = ({
   }, [maxVideoDimension, maxVideoSeconds]);
 
   const createPreview = async (file: File): Promise<string | undefined> => {
-    if (!file.type.startsWith('image/')) return undefined;
+    if (!isProbablyImageFile(file)) return undefined;
 
     return new Promise((resolve) => {
       const reader = new FileReader();
@@ -220,8 +309,7 @@ export const AttachmentUploader = ({
 
   const extractGpsFromImage = async (file: File): Promise<{ lat: number; lng: number } | null> => {
     try {
-      const t = String(file?.type || "");
-      if (!t.startsWith("image/")) return null;
+      if (!isProbablyImageFile(file)) return null;
       const mod: any = await import("exifr");
       const exifr: any = mod?.default || mod;
       if (!exifr?.gps) return null;
@@ -240,8 +328,7 @@ export const AttachmentUploader = ({
 
   const extractCapturedAtFromImage = async (file: File): Promise<string | null> => {
     try {
-      const t = String(file?.type || "");
-      if (!t.startsWith("image/")) return null;
+      if (!isProbablyImageFile(file)) return null;
       const mod: any = await import("exifr");
       const exifr: any = mod?.default || mod;
       if (!exifr?.parse) return null;
@@ -262,9 +349,9 @@ export const AttachmentUploader = ({
 
   const maybeDownscaleImage = async (file: File): Promise<File> => {
     if (typeof document === 'undefined') return file;
-    if (!file.type.startsWith('image/')) return file;
+    if (!isProbablyImageFile(file)) return file;
     // Preserve animated GIFs (canvas would flatten them)
-    if (file.type === 'image/gif') return file;
+    if (normalizeMime(String(file.type || "")) === 'image/gif' || getFileExt(file.name) === "gif") return file;
 
     const MAX_DIMENSION = Math.max(256, Math.floor(Number(maxImageDimension) || 1080));
     const QUALITY = Math.max(0.1, Math.min(1, Number(imageQuality) || 0.8));
@@ -374,17 +461,17 @@ export const AttachmentUploader = ({
 
     const newAttachments: Attachment[] = [];
 
-    let imagesCount = attachments.filter((a) => a.file.type.startsWith('image/')).length;
-    let videosCount = attachments.filter((a) => a.file.type.startsWith('video/')).length;
+    let imagesCount = attachments.filter((a) => isProbablyImageFile(a.file)).length;
+    let videosCount = attachments.filter((a) => isProbablyVideoFile(a.file)).length;
 
     for (const file of fileArray) {
-      if (file.type.startsWith('image/') && typeof maxImages === 'number' && maxImages >= 0) {
+      if (isProbablyImageFile(file) && typeof maxImages === 'number' && maxImages >= 0) {
         if (imagesCount >= maxImages) {
           toast.error(`Máximo de ${maxImages} imagem(ns) por post`);
           continue;
         }
       }
-      if (file.type.startsWith('video/') && typeof maxVideos === 'number' && maxVideos >= 0) {
+      if (isProbablyVideoFile(file) && typeof maxVideos === 'number' && maxVideos >= 0) {
         if (videosCount >= maxVideos) {
           toast.error(`Máximo de ${maxVideos} vídeo(s) por post`);
           continue;
@@ -415,8 +502,8 @@ export const AttachmentUploader = ({
         meta: includeImageGpsMeta ? { exifGps, exifCapturedAt } : undefined,
       });
 
-      if (file.type.startsWith('image/')) imagesCount += 1;
-      if (file.type.startsWith('video/')) videosCount += 1;
+      if (isProbablyImageFile(file)) imagesCount += 1;
+      if (isProbablyVideoFile(file)) videosCount += 1;
     }
 
     setAttachments(prev => [...prev, ...newAttachments]);
@@ -559,7 +646,7 @@ export const AttachmentUploader = ({
         <input
           type="file"
           multiple
-          accept={(acceptMimeTypes && acceptMimeTypes.length ? acceptMimeTypes : Object.keys(ALLOWED_TYPES)).join(',')}
+          accept={allowedMimeList.join(',')}
           onChange={(e) => handleFiles(e.target.files)}
           disabled={attachments.length >= maxFiles}
           className="hidden"

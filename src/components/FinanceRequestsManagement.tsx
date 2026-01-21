@@ -24,7 +24,14 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { getActiveLocale } from "@/lib/i18n/activeLocale";
 import { Download, FileText, RefreshCw, Save } from "lucide-react";
-import { FINANCE_COMPANIES, FINANCE_COORDINATIONS, FINANCE_REQUEST_KINDS, FINANCE_STATUSES } from "@/lib/finance/constants";
+import {
+  FINANCE_COMPANIES,
+  FINANCE_COORDINATIONS,
+  FINANCE_REQUEST_KINDS,
+  FINANCE_STATUSES,
+  financeStatusBadgeClassName,
+  normalizeFinanceStatus,
+} from "@/lib/finance/constants";
 
 type RequestRow = any;
 
@@ -138,8 +145,8 @@ export function FinanceRequestsManagement() {
         throw new Error(json?.error || "Falha ao carregar detalhes");
       }
       setDetail(json);
-      const st = String(json?.request?.status || "Enviado");
-      setNextStatus(st);
+      const st = normalizeFinanceStatus(json?.request?.status || "Enviado");
+      setNextStatus(st || "Enviado");
       setObservation(String(json?.request?.last_observation || ""));
     } catch (e: any) {
       setDetail(null);
@@ -261,13 +268,14 @@ export function FinanceRequestsManagement() {
   };
 
   const totals = useMemo(() => {
-    const pending = items.filter((r) => !["Pago", "Cancelado", "Reprovado"].includes(String(r.status))).length;
-    const paid = items.filter((r) => String(r.status) === "Pago").length;
+    const pending = items.filter((r) => ["Enviado", "Em Análise"].includes(normalizeFinanceStatus(r.status))).length;
+    const approved = items.filter((r) => normalizeFinanceStatus(r.status) === "Aprovado").length;
+    const rejected = items.filter((r) => ["Reprovado", "Cancelado"].includes(normalizeFinanceStatus(r.status))).length;
     const total = items
       .map((r) => Number(r?.amount_cents))
       .filter((n) => Number.isFinite(n))
       .reduce((a, b) => a + b, 0);
-    return { pending, paid, total };
+    return { pending, approved, rejected, total };
   }, [items]);
 
   return (
@@ -348,7 +356,8 @@ export function FinanceRequestsManagement() {
         <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
           <Badge variant="secondary" className="text-[10px]">Itens: {items.length}</Badge>
           <Badge variant="outline" className="text-[10px]">Em andamento: {totals.pending}</Badge>
-          <Badge variant="outline" className="text-[10px]">Pagos: {totals.paid}</Badge>
+          <Badge variant="outline" className="text-[10px]">Aprovados: {totals.approved}</Badge>
+          <Badge variant="outline" className="text-[10px]">Reprov./Canc.: {totals.rejected}</Badge>
           <Badge className="text-[10px]">Total (R$): {(totals.total / 100).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Badge>
         </div>
 
@@ -374,7 +383,9 @@ export function FinanceRequestsManagement() {
                     </div>
                   </div>
                   <div className="flex flex-col items-end gap-1">
-                    <Badge className="text-[10px]">{r.status}</Badge>
+                    <Badge variant="outline" className={`text-[10px] ${financeStatusBadgeClassName(r.status)}`}>
+                      {normalizeFinanceStatus(r.status)}
+                    </Badge>
                     <div className="text-[11px] text-muted-foreground">{formatBrl(r.amount_cents)}</div>
                   </div>
                 </div>
@@ -410,7 +421,9 @@ export function FinanceRequestsManagement() {
                     </div>
                   </div>
                   <div className="text-right">
-                    <Badge className="text-[11px]">{detail.request.status}</Badge>
+                    <Badge variant="outline" className={`text-[11px] ${financeStatusBadgeClassName(detail.request.status)}`}>
+                      {normalizeFinanceStatus(detail.request.status)}
+                    </Badge>
                     <div className="text-[12px] text-muted-foreground mt-1">{formatBrl(detail.request.amount_cents)}</div>
                   </div>
                 </div>

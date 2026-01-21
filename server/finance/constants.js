@@ -29,6 +29,6 @@ export const FINANCE_COORDINATIONS = [
   'DJT (Gerentes + Coordenadora)',
 ];
 
-export const FINANCE_STATUSES = ['Enviado', 'Em análise', 'Aprovado', 'Reprovado', 'Pago', 'Cancelado'];
+export const FINANCE_STATUSES = ['Enviado', 'Em Análise', 'Aprovado', 'Reprovado', 'Cancelado'];
 
 export const FINANCE_ANALYST_ROLE = 'analista_financeiro';
