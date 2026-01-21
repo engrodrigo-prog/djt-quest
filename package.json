@@ -24,7 +24,8 @@
     "assets:download:avatars": "node scripts/download-avatars.mjs",
     "sanity:backend": "node scripts/sanity-check.mjs",
     "cleanup:teams": "node scripts/cleanup-teams.mjs",
-    "seed:daniel-curator": "node scripts/ensure-daniel-curator.mjs"
+    "seed:daniel-curator": "node scripts/ensure-daniel-curator.mjs",
+    "sepbook:backfill:gps": "node scripts/backfill-sepbook-photo-gps.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

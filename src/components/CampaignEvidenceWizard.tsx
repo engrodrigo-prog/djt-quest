@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { AttachmentUploader } from "@/components/AttachmentUploader";
 import { AttachmentViewer } from "@/components/AttachmentViewer";
@@ -38,24 +37,6 @@ const isGuestProfile = (p: any) =>
   normalizeTeamId(p?.team_id) === GUEST_TEAM_ID ||
   normalizeTeamId(p?.sigla_area) === GUEST_TEAM_ID ||
   normalizeTeamId(p?.operational_base) === GUEST_TEAM_ID;
-
-const STORAGE_GPS_CONSENT_ALLOW = "gps_consent_allow"; // store only when YES
-
-const readGpsConsentAllow = () => {
-  try {
-    return localStorage.getItem(STORAGE_GPS_CONSENT_ALLOW) === "1";
-  } catch {
-    return false;
-  }
-};
-
-const writeGpsConsentAllow = () => {
-  try {
-    localStorage.setItem(STORAGE_GPS_CONSENT_ALLOW, "1");
-  } catch {
-    /* ignore */
-  }
-};
 
 const normalizeHashtag = (raw: string) =>
   String(raw || "")
@@ -127,9 +108,6 @@ export function CampaignEvidenceWizard({
   const [tagsLoading, setTagsLoading] = useState(false);
 
   const [sapNote, setSapNote] = useState<string>("");
-  const [gpsEnabled, setGpsEnabled] = useState<boolean>(false);
-  const [gpsConsentOpen, setGpsConsentOpen] = useState(false);
-  const gpsConsentResolverRef = useRef<((ok: boolean) => void) | null>(null);
   const [deviceLocation, setDeviceLocation] = useState<{ lat: number; lng: number; accuracy?: number | null; timestamp?: string | null } | null>(null);
   const [gpsLoading, setGpsLoading] = useState(false);
 
@@ -391,19 +369,16 @@ export function CampaignEvidenceWizard({
     [campaign.id, currentUserId, toast],
   );
 
-  const askGpsConsentOnce = () =>
-    new Promise<boolean>((resolve) => {
-      if (readGpsConsentAllow()) return resolve(true);
-      gpsConsentResolverRef.current = resolve;
-      setGpsConsentOpen(true);
-    });
-
   const requestDeviceLocation = useCallback(async () => {
     setGpsLoading(true);
     try {
       if (!navigator.geolocation) throw new Error("Geolocalização indisponível neste dispositivo.");
       const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
-        navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 10000 });
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: true,
+          timeout: 15000,
+          maximumAge: 10 * 60_000,
+        });
       });
       const { latitude, longitude, accuracy } = pos.coords;
       const next = {
@@ -413,7 +388,6 @@ export function CampaignEvidenceWizard({
         timestamp: new Date(pos.timestamp || Date.now()).toISOString(),
       };
       setDeviceLocation(next);
-      writeGpsConsentAllow();
     } catch (e: any) {
       setDeviceLocation(null);
       throw e;
@@ -422,23 +396,28 @@ export function CampaignEvidenceWizard({
     }
   }, []);
 
-  const toggleGps = async (next: boolean) => {
-    if (!next) {
-      setGpsEnabled(false);
-      setDeviceLocation(null);
-      return;
-    }
+  // Auto-capture device GPS when needed (EXIF is preferred; device GPS is fallback).
+  useEffect(() => {
+    if (step !== 4) return;
+    const needsDevice = imageItems.some((it) => {
+      const g = it?.meta?.exifGps;
+      return !(g && typeof g.lat === "number" && typeof g.lng === "number");
+    });
+    if (!needsDevice) return;
+    if (deviceLocation || gpsLoading) return;
+    void requestDeviceLocation().catch(() => {
+      // Permission denied / unavailable: keep GPS as unavailable.
+    });
+  }, [deviceLocation, gpsLoading, imageItems, requestDeviceLocation, step]);
+
+  const retryDeviceLocation = useCallback(async () => {
     try {
-      const ok = await askGpsConsentOnce();
-      if (!ok) return;
-      setGpsEnabled(true);
       await requestDeviceLocation();
     } catch (e: any) {
       toast({ title: "GPS indisponível", description: e?.message || "Permissão negada.", variant: "destructive" });
-      setGpsEnabled(false);
       setDeviceLocation(null);
     }
-  };
+  }, [requestDeviceLocation, toast]);
 
   const gpsByUrl = useMemo(() => {
     const map = new Map<string, GpsPoint>();
@@ -450,7 +429,7 @@ export function CampaignEvidenceWizard({
         map.set(u, { lat: exif.lat, lng: exif.lng, source: "exif", timestamp: null, accuracy: null });
         continue;
       }
-      if (gpsEnabled && deviceLocation) {
+      if (deviceLocation) {
         map.set(u, {
           lat: deviceLocation.lat,
           lng: deviceLocation.lng,
@@ -463,7 +442,7 @@ export function CampaignEvidenceWizard({
       map.set(u, { lat: 0, lng: 0, source: "unavailable", accuracy: null, timestamp: null });
     }
     return map;
-  }, [deviceLocation, gpsEnabled, imageItems]);
+  }, [deviceLocation, imageItems]);
 
   const gpsSummary = useMemo(() => {
     const items = Array.from(gpsByUrl.values());
@@ -981,17 +960,8 @@ export function CampaignEvidenceWizard({
                   <div>
                     <p className="text-sm font-semibold">Localização (GPS)</p>
                     <p className="text-[11px] text-muted-foreground">
-                      Preferimos GPS do EXIF das fotos; se não existir, podemos usar o GPS do dispositivo (com consentimento).
+                      Preferimos GPS do EXIF das fotos; se não existir, tentamos usar o GPS do dispositivo (permissão do navegador).
                     </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Switch
-                      checked={gpsEnabled}
-                      onCheckedChange={(v) => {
-                        toggleGps(Boolean(v));
-                      }}
-                      disabled={gpsLoading}
-                    />
                   </div>
                 </div>
 
@@ -1001,16 +971,21 @@ export function CampaignEvidenceWizard({
                   <span>Sem GPS: {gpsSummary.none}/{gpsSummary.total}</span>
                 </div>
 
-                {gpsEnabled && deviceLocation && (
+                {deviceLocation && (
                   <div className="text-[11px] text-muted-foreground">
                     Local atual capturado{deviceLocation.accuracy ? ` (±${Math.round(deviceLocation.accuracy)}m)` : ""}
                   </div>
                 )}
 
-                {gpsEnabled && gpsLoading && <div className="text-xs text-muted-foreground">Obtendo localização…</div>}
-                {!gpsEnabled && (
-                  <div className="text-xs text-muted-foreground">
-                    Se você negar, pode salvar mesmo assim — e será marcado como “GPS indisponível”.
+                {gpsLoading && <div className="text-xs text-muted-foreground">Obtendo localização…</div>}
+                {!deviceLocation && !gpsLoading && (
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-xs text-muted-foreground">
+                      Se você negar a permissão do navegador, as fotos sem EXIF ficarão como “GPS indisponível”.
+                    </div>
+                    <Button type="button" variant="outline" size="sm" onClick={() => void retryDeviceLocation()} disabled={gpsLoading}>
+                      Tentar novamente
+                    </Button>
                   </div>
                 )}
               </div>
@@ -1073,51 +1048,6 @@ export function CampaignEvidenceWizard({
                 {submitting ? "Enviando..." : "Enviar evidência"}
               </Button>
             </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog
-        open={gpsConsentOpen}
-        onOpenChange={(openNext) => {
-          if (openNext) {
-            setGpsConsentOpen(true);
-            return;
-          }
-          setGpsConsentOpen(false);
-          gpsConsentResolverRef.current?.(false);
-          gpsConsentResolverRef.current = null;
-        }}
-      >
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Usar localização (GPS)?</DialogTitle>
-            <DialogDescription>
-              Se você permitir, vamos tentar usar o GPS do dispositivo nas fotos que não tiverem EXIF. Se não permitir, você poderá salvar sem GPS.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex items-center justify-end gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => {
-                setGpsConsentOpen(false);
-                gpsConsentResolverRef.current?.(false);
-                gpsConsentResolverRef.current = null;
-              }}
-            >
-              Não permitir
-            </Button>
-            <Button
-              type="button"
-              onClick={() => {
-                setGpsConsentOpen(false);
-                gpsConsentResolverRef.current?.(true);
-                gpsConsentResolverRef.current = null;
-              }}
-            >
-              Permitir
-            </Button>
           </div>
         </DialogContent>
       </Dialog>

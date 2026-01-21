@@ -12,7 +12,6 @@ import { TtsProvider } from "@/lib/tts";
 import { TtsPlayerBar } from "@/components/TtsPlayerBar";
 import { RouteRefreshManager } from "@/components/RouteRefreshManager";
 import { AiProgressOverlay } from "@/components/AiProgressOverlay";
-import { SepbookGpsConsentPrompt } from "@/components/SepbookGpsConsentPrompt";
 import { MobileKeyboardManager } from "@/components/MobileKeyboardManager";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { CompleteProfile } from "./components/CompleteProfile";
@@ -85,7 +84,6 @@ const App = () => (
               <TtsProvider>
                 <TtsPlayerBar />
                 <StudioWelcomeToast />
-                <SepbookGpsConsentPrompt />
                 <Suspense
                   fallback={
                     <div className="min-h-screen flex items-center justify-center">

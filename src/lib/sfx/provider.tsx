@@ -34,10 +34,10 @@ const parseBool = (value: unknown): boolean | null => {
 };
 
 const isSfxEnabledFlag = () => {
-  const raw = (import.meta as any)?.env?.NEXT_PUBLIC_SFX_ENABLED;
-  if (raw == null) return true;
+  const raw = (import.meta as any)?.env?.VITE_SFX_ENABLED;
+  if (raw == null) return false;
   const b = parseBool(raw);
-  return b == null ? true : b;
+  return b == null ? false : b;
 };
 
 const safeReadFromStorage = () => {
@@ -290,4 +290,3 @@ export function useSfx() {
   if (!ctx) throw new Error("useSfx must be used within <SfxProvider />");
   return ctx;
 }
-

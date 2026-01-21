@@ -342,12 +342,51 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (!uid) return res.status(401).json({ error: "Unauthorized" });
 
       const { post_id, content_md, parent_id } = req.body || {};
-      const maybeCoords = clampLatLng(req.body?.location_lat, req.body?.location_lng);
-      const locationLabel = maybeCoords ? await reverseGeocodeCityLabel(maybeCoords.lat, maybeCoords.lng) : null;
       const rawAttachments = Array.isArray(req.body?.attachments) ? req.body.attachments : [];
       const attachments = rawAttachments
         .filter((item: any) => typeof item === "string" && item.trim())
         .slice(0, 3);
+      let maybeCoords = clampLatLng(req.body?.location_lat, req.body?.location_lng);
+
+      // Fallback: if there's media and no coords, reuse the user's last known SEPBook location (best-effort).
+      if (!maybeCoords && attachments.length > 0) {
+        try {
+          const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+          const reader = SERVICE_ROLE_KEY ? admin : authed;
+          const { data: lastComment } = await reader
+            .from("sepbook_comments")
+            .select("location_lat,location_lng,created_at")
+            .eq("user_id", uid)
+            .not("location_lat", "is", null)
+            .not("location_lng", "is", null)
+            .gte("created_at", since)
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          const fromComment = clampLatLng((lastComment as any)?.location_lat, (lastComment as any)?.location_lng);
+          if (fromComment) maybeCoords = fromComment;
+        } catch {}
+        if (!maybeCoords) {
+          try {
+            const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+            const reader = SERVICE_ROLE_KEY ? admin : authed;
+            const { data: lastPost } = await reader
+              .from("sepbook_posts")
+              .select("location_lat,location_lng,created_at")
+              .eq("user_id", uid)
+              .not("location_lat", "is", null)
+              .not("location_lng", "is", null)
+              .gte("created_at", since)
+              .order("created_at", { ascending: false })
+              .limit(1)
+              .maybeSingle();
+            const fromPost = clampLatLng((lastPost as any)?.location_lat, (lastPost as any)?.location_lng);
+            if (fromPost) maybeCoords = fromPost;
+          } catch {}
+        }
+      }
+
+      const locationLabel = maybeCoords ? await reverseGeocodeCityLabel(maybeCoords.lat, maybeCoords.lng) : null;
       const targetLocales = localesForAllTargets(req.body?.locales);
       const postId = String(post_id || "").trim();
       const parentId = parent_id ? String(parent_id).trim() : null;

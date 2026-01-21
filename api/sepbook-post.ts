@@ -327,8 +327,42 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     }
 
-    const maybeCoords = normalizeLatLng(location_lat, location_lng);
-    const computedLocationLabel = maybeCoords ? await reverseGeocodeCityLabel(maybeCoords.lat, maybeCoords.lng) : null;
+    let coords = normalizeLatLng(location_lat, location_lng);
+
+    // Fallback 1: pick the first valid lat/lng from gps_meta (client can send EXIF/device points per attachment).
+    if (!coords && Array.isArray(cleanGpsMeta) && cleanGpsMeta.length > 0) {
+      try {
+        for (const item of cleanGpsMeta) {
+          const c = normalizeLatLng((item as any)?.lat, (item as any)?.lng);
+          if (c) {
+            coords = c;
+            break;
+          }
+        }
+      } catch {}
+    }
+
+    // Fallback 2: if there's media and no coords, reuse the user's last known SEPBook location (best-effort).
+    if (!coords && atts.length > 0) {
+      try {
+        const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+        const reader = SERVICE_ROLE_KEY ? admin : authed;
+        const { data: last } = await reader
+          .from("sepbook_posts")
+          .select("location_lat,location_lng,created_at")
+          .eq("user_id", uid)
+          .not("location_lat", "is", null)
+          .not("location_lng", "is", null)
+          .gte("created_at", since)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        const fallback = normalizeLatLng((last as any)?.location_lat, (last as any)?.location_lng);
+        if (fallback) coords = fallback;
+      } catch {}
+    }
+
+    const computedLocationLabel = coords ? await reverseGeocodeCityLabel(coords.lat, coords.lng) : null;
 
     // Resolve campaign by explicit campaign_id or by &"Nome"
     let resolvedCampaignId = campaign_id || null;
@@ -361,8 +395,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       post_kind: kind,
       repost_of: repostOf || null,
       location_label: computedLocationLabel,
-      location_lat: maybeCoords ? maybeCoords.lat : null,
-      location_lng: maybeCoords ? maybeCoords.lng : null,
+      location_lat: coords ? coords.lat : null,
+      location_lng: coords ? coords.lng : null,
       campaign_id: resolvedCampaignId || null,
       challenge_id: challenge_id || null,
       group_label: group_label || null,
@@ -462,8 +496,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             campaign_id: resolvedCampaignId || null,
             group_label: group_label || null,
             location_label: computedLocationLabel,
-            location_lat: maybeCoords ? maybeCoords.lat : null,
-            location_lng: maybeCoords ? maybeCoords.lng : null,
+            location_lat: coords ? coords.lat : null,
+            location_lng: coords ? coords.lng : null,
             sap_service_note: cleanSap || null,
             transcript: cleanTranscript || null,
             tags: cleanTags,

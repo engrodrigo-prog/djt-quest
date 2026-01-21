@@ -160,47 +160,122 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }
       }
 
-      const sheetRows = rows.map((r) => ({
-        Protocolo: r.protocol,
-        CriadoEm: r.created_at,
-        AtualizadoEm: r.updated_at,
-        Nome: r.created_by_name,
-        Email: r.created_by_email,
-        Matricula: r.created_by_matricula,
-        Empresa: r.company,
-        TreinamentoOperacional: r.training_operational ? 'Sim' : 'Não',
-        TipoSolicitacao: r.request_kind,
-        Tipo: r.expense_type,
-        Coordenacao: r.coordination,
-        DataInicio: r.date_start,
-        DataFim: r.date_end,
-        Valor: typeof r.amount_cents === 'number' ? r.amount_cents / 100 : null,
-        Status: r.status,
-        Observacao: r.last_observation,
-        Itens: (itemsByRequest.get(String(r.id)) || [])
-          .map((it: any) => {
-            const idx = Number(it?.idx);
-            const pos = Number.isFinite(idx) ? idx + 1 : null;
-            const type = String(it?.expense_type || '').trim();
-            const amount = typeof it?.amount_cents === 'number' ? (it.amount_cents / 100).toFixed(2) : '';
-            const desc = String(it?.description || '').trim();
-            const head = [pos ? `${pos}.` : null, type].filter(Boolean).join(' ');
-            const tail = [amount ? `R$ ${amount}` : null, desc ? desc : null].filter(Boolean).join(' • ');
-            return [head, tail].filter(Boolean).join(' - ');
-          })
-          .filter(Boolean)
-          .join('\n') || null,
-        Anexos: (attachmentsByRequest.get(String(r.id)) || [])
-          .map((a: any) => String(a?.url || '').trim())
-          .filter(Boolean)
-          .join('\n') || null,
-        LeituraIA_JSON: (attachmentsByRequest.get(String(r.id)) || [])
-          .map((a: any) => String(a?.metadata?.ai_extract_json?.url || '').trim())
-          .filter(Boolean)
-          .join('\n') || null,
-      }));
+      const maxAttachments = Math.min(
+        12,
+        Math.max(
+          0,
+          ...rows.map((r: any) => (attachmentsByRequest.get(String(r?.id || '')) || []).length),
+        ),
+      );
+
+      const attachmentCols = Array.from({ length: maxAttachments }, (_, i) => `Anexo ${i + 1}`);
+      const aiJsonCols = Array.from({ length: maxAttachments }, (_, i) => `Leitura IA JSON ${i + 1}`);
+
+      const sheetRows = rows.map((r) => {
+        const rid = String(r.id);
+        const atts = attachmentsByRequest.get(rid) || [];
+        const base: Record<string, any> = {
+          Protocolo: r.protocol,
+          CriadoEm: r.created_at,
+          AtualizadoEm: r.updated_at,
+          Nome: r.created_by_name,
+          Email: r.created_by_email,
+          Matricula: r.created_by_matricula,
+          Empresa: r.company,
+          TreinamentoOperacional: r.training_operational ? 'Sim' : 'Não',
+          TipoSolicitacao: r.request_kind,
+          Tipo: r.expense_type,
+          Coordenacao: r.coordination,
+          DataInicio: r.date_start,
+          DataFim: r.date_end,
+          Valor: typeof r.amount_cents === 'number' ? r.amount_cents / 100 : null,
+          Status: r.status,
+          Observacao: r.last_observation,
+          Itens: (itemsByRequest.get(String(r.id)) || [])
+            .map((it: any) => {
+              const idx = Number(it?.idx);
+              const pos = Number.isFinite(idx) ? idx + 1 : null;
+              const type = String(it?.expense_type || '').trim();
+              const amount = typeof it?.amount_cents === 'number' ? (it.amount_cents / 100).toFixed(2) : '';
+              const desc = String(it?.description || '').trim();
+              const head = [pos ? `${pos}.` : null, type].filter(Boolean).join(' ');
+              const tail = [amount ? `R$ ${amount}` : null, desc ? desc : null].filter(Boolean).join(' • ');
+              return [head, tail].filter(Boolean).join(' - ');
+            })
+            .filter(Boolean)
+            .join('\n') || null,
+        };
+
+        attachmentCols.forEach((col, idx) => {
+          const a = atts[idx];
+          const filename = String(a?.filename || '').trim();
+          const url = String(a?.url || '').trim();
+          base[col] = a ? filename || url || `Anexo ${idx + 1}` : null;
+        });
+
+        aiJsonCols.forEach((col, idx) => {
+          const a = atts[idx];
+          const aiUrl = String(a?.metadata?.ai_extract_json?.url || '').trim();
+          base[col] = aiUrl ? 'JSON' : null;
+        });
+
+        return base;
+      });
+
+      const baseHeaders = [
+        'Protocolo',
+        'CriadoEm',
+        'AtualizadoEm',
+        'Nome',
+        'Email',
+        'Matricula',
+        'Empresa',
+        'TreinamentoOperacional',
+        'TipoSolicitacao',
+        'Tipo',
+        'Coordenacao',
+        'DataInicio',
+        'DataFim',
+        'Valor',
+        'Status',
+        'Observacao',
+        'Itens',
+      ];
+      const headers = [...baseHeaders, ...attachmentCols, ...aiJsonCols];
       const wb = XLSX.utils.book_new();
-      const ws = XLSX.utils.json_to_sheet(sheetRows);
+      const ws = XLSX.utils.json_to_sheet(sheetRows, { header: headers });
+
+      const colIndexByHeader = new Map<string, number>();
+      headers.forEach((h, idx) => colIndexByHeader.set(h, idx));
+
+      rows.forEach((r: any, rowIdx: number) => {
+        const rid = String(r?.id || '');
+        if (!rid) return;
+        const atts = attachmentsByRequest.get(rid) || [];
+
+        for (let i = 0; i < attachmentCols.length; i += 1) {
+          const url = String(atts[i]?.url || '').trim();
+          if (!url) continue;
+          const c = colIndexByHeader.get(attachmentCols[i]);
+          if (typeof c !== 'number') continue;
+          const addr = XLSX.utils.encode_cell({ r: rowIdx + 1, c });
+          const cell = (ws as any)[addr] || { t: 's', v: `Anexo ${i + 1}` };
+          cell.l = { Target: url, Tooltip: url };
+          (ws as any)[addr] = cell;
+        }
+
+        for (let i = 0; i < aiJsonCols.length; i += 1) {
+          const url = String(atts[i]?.metadata?.ai_extract_json?.url || '').trim();
+          if (!url) continue;
+          const c = colIndexByHeader.get(aiJsonCols[i]);
+          if (typeof c !== 'number') continue;
+          const addr = XLSX.utils.encode_cell({ r: rowIdx + 1, c });
+          const cell = (ws as any)[addr] || { t: 's', v: 'JSON' };
+          cell.l = { Target: url, Tooltip: url };
+          (ws as any)[addr] = cell;
+        }
+      });
+
       XLSX.utils.book_append_sheet(wb, ws, 'Solicitacoes');
       const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as any;
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');

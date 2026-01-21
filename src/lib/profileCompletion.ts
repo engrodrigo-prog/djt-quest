@@ -9,10 +9,16 @@ type ProfileCompletionStatus = {
 
 const normalizeFlag = (value: unknown) => String(value ?? "").trim().toUpperCase();
 
-export const getProfileCompletionStatus = (profile: any): ProfileCompletionStatus => {
-  const isExternal =
+export const isExternalProfile = (profile: any): boolean => {
+  return (
+    ["EXTERNO", "CONVIDADOS"].includes(normalizeFlag(profile?.team_id)) ||
     ["EXTERNO", "CONVIDADOS"].includes(normalizeFlag(profile?.sigla_area)) ||
-    ["EXTERNO", "CONVIDADOS"].includes(normalizeFlag(profile?.operational_base));
+    ["EXTERNO", "CONVIDADOS"].includes(normalizeFlag(profile?.operational_base))
+  );
+};
+
+export const getProfileCompletionStatus = (profile: any): ProfileCompletionStatus => {
+  const isExternal = isExternalProfile(profile);
 
   const avatarUrl = String(profile?.avatar_url || profile?.avatar_thumbnail_url || "").trim();
   const dob = String(profile?.date_of_birth || "").trim();
@@ -32,12 +38,21 @@ export const getProfileCompletionStatus = (profile: any): ProfileCompletionStatu
 
 export const requiresProfileCompletion = (profile: any): boolean => {
   if (!profile) return false;
+  // Always enforce explicit flags (security + onboarding).
+  if (profile?.must_change_password) return true;
+  if (profile?.needs_profile_completion) return true;
+
   const status = getProfileCompletionStatus(profile);
+
+  // Convidados/externos não devem ficar bloqueados do app por campos faltantes.
+  // Se precisar exigir algo para um convidado, use `needs_profile_completion=true`.
+  if (status.isExternal) return false;
+
   const missingRequired =
     status.missingAvatar ||
     status.missingDob ||
     status.missingEmail ||
     status.missingMatricula ||
     status.missingOperationalBase;
-  return Boolean(profile?.must_change_password || profile?.needs_profile_completion || missingRequired);
+  return missingRequired;
 };

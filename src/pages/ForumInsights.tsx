@@ -8,6 +8,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useToast } from '@/hooks/use-toast'
 import { HelpInfo } from '@/components/HelpInfo'
 import { useI18n } from '@/contexts/I18nContext'
+import Navigation from '@/components/Navigation'
 
 interface InsightItem {
   topic_id: string
@@ -118,6 +119,7 @@ export default function ForumInsights() {
           </div>
         )}
       </div>
+      <Navigation />
     </div>
   )
 }

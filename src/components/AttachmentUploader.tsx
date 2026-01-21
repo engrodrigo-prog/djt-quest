@@ -193,7 +193,29 @@ export const AttachmentUploader = ({
     const ln = Number(lng);
     if (!Number.isFinite(la) || !Number.isFinite(ln)) return null;
     if (Math.abs(la) > 90 || Math.abs(ln) > 180) return null;
+    if (Math.abs(la) < 1e-9 && Math.abs(ln) < 1e-9) return null;
     return { lat: la, lng: ln };
+  };
+
+  const readFileAsArrayBuffer = async (file: File): Promise<ArrayBuffer | null> => {
+    try {
+      if (typeof (file as any)?.arrayBuffer === "function") {
+        return await (file as any).arrayBuffer();
+      }
+    } catch {
+      // fall back
+    }
+    if (typeof FileReader === "undefined") return null;
+    return await new Promise((resolve) => {
+      try {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as ArrayBuffer);
+        reader.onerror = () => resolve(null);
+        reader.readAsArrayBuffer(file);
+      } catch {
+        resolve(null);
+      }
+    });
   };
 
   const extractGpsFromImage = async (file: File): Promise<{ lat: number; lng: number } | null> => {
@@ -203,7 +225,11 @@ export const AttachmentUploader = ({
       const mod: any = await import("exifr");
       const exifr: any = mod?.default || mod;
       if (!exifr?.gps) return null;
-      const gps = await exifr.gps(file).catch(() => null);
+      const buf = await readFileAsArrayBuffer(file);
+      if (!buf) return null;
+      const gps = await exifr
+        .gps(buf)
+        .catch(() => exifr.gps(file).catch(() => null));
       const lat = gps?.latitude ?? gps?.lat;
       const lng = gps?.longitude ?? gps?.lon ?? gps?.lng;
       return clampLatLng(Number(lat), Number(lng));

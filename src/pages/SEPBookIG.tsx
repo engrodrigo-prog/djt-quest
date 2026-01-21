@@ -186,7 +186,6 @@ type MapProfile = {
   telefone?: string | null;
   avatar_url: string | null;
   avatar_thumbnail_url?: string | null;
-  sepbook_gps_consent?: boolean | null;
 };
 
 const getExtFromType = (mime: string) => {
@@ -368,6 +367,27 @@ const clampLatLng = (lat: number, lng: number) => {
   return { lat: la, lng: ln };
 };
 
+const readFileAsArrayBuffer = async (file: File): Promise<ArrayBuffer | null> => {
+  try {
+    if (typeof (file as any)?.arrayBuffer === "function") {
+      return await (file as any).arrayBuffer();
+    }
+  } catch {
+    // fall back
+  }
+  if (typeof FileReader === "undefined") return null;
+  return await new Promise((resolve) => {
+    try {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as ArrayBuffer);
+      reader.onerror = () => resolve(null);
+      reader.readAsArrayBuffer(file);
+    } catch {
+      resolve(null);
+    }
+  });
+};
+
 const geoKeyFor = (lat: number, lng: number) => `${Number(lat).toFixed(5)},${Number(lng).toFixed(5)}`;
 const formatLatLng = (lat: number, lng: number) => `${Number(lat).toFixed(5)}, ${Number(lng).toFixed(5)}`;
 
@@ -393,7 +413,11 @@ async function extractGpsFromImage(file: File): Promise<{ lat: number; lng: numb
     const mod: any = await import("exifr");
     const exifr: any = mod?.default || mod;
     if (!exifr?.gps) return null;
-    const gps = await exifr.gps(file).catch(() => null);
+    const buf = await readFileAsArrayBuffer(file);
+    if (!buf) return null;
+    const gps = await exifr
+      .gps(buf)
+      .catch(() => exifr.gps(file).catch(() => null));
     const lat = gps?.latitude ?? gps?.lat;
     const lng = gps?.longitude ?? gps?.lon ?? gps?.lng;
     return clampLatLng(Number(lat), Number(lng));
@@ -709,7 +733,7 @@ export default function SEPBookIG() {
       try {
         const { data } = await supabase
           .from("profiles")
-          .select("id, name, operational_base, sigla_area, phone, telefone, avatar_url, avatar_thumbnail_url, sepbook_gps_consent")
+          .select("id, name, operational_base, sigla_area, phone, telefone, avatar_url, avatar_thumbnail_url")
           .eq("id", uid)
           .maybeSingle();
         if (!cancelled) setMyProfile((data as any) || null);
@@ -1049,7 +1073,7 @@ export default function SEPBookIG() {
       try {
         const { data } = await supabase
           .from("profiles")
-          .select("id, name, operational_base, sigla_area, phone, telefone, avatar_url, avatar_thumbnail_url, sepbook_gps_consent")
+          .select("id, name, operational_base, sigla_area, phone, telefone, avatar_url, avatar_thumbnail_url")
           .in("id", ids);
         if (cancelled) return;
         const next: Record<string, MapProfile> = {};
@@ -1303,9 +1327,57 @@ export default function SEPBookIG() {
     })();
   }, [commentsByPost, commentsOpenFor, locale, visiblePosts]);
 
-  const resolveLocationForNewPost = useCallback(async () => {
-    if (myProfile?.sepbook_gps_consent !== true) return null;
+  const deviceGpsCacheRef = useRef<{ coords: { lat: number; lng: number }; ts: number } | null>(null);
+  const deviceGpsInFlightRef = useRef<Promise<{ lat: number; lng: number } | null> | null>(null);
 
+  const getDeviceGps = useCallback(async (opts?: { maxAgeMs?: number; timeoutMs?: number; highAccuracy?: boolean }) => {
+    const maxAgeMs = Math.max(0, Math.floor(Number(opts?.maxAgeMs ?? 10 * 60_000)));
+    const timeoutMs = Math.max(500, Math.floor(Number(opts?.timeoutMs ?? 15_000)));
+    const highAccuracy = Boolean(opts?.highAccuracy ?? true);
+
+    const cached = deviceGpsCacheRef.current;
+    if (cached && Date.now() - cached.ts < maxAgeMs) return cached.coords;
+    if (deviceGpsInFlightRef.current) return await deviceGpsInFlightRef.current;
+
+    if (typeof navigator === "undefined") return null;
+    const geo = (navigator as any).geolocation;
+    if (!geo || typeof geo.getCurrentPosition !== "function") return null;
+
+    deviceGpsInFlightRef.current = new Promise((resolve) => {
+      let settled = false;
+      const finish = (coords: { lat: number; lng: number } | null) => {
+        if (settled) return;
+        settled = true;
+        resolve(coords);
+      };
+
+      try {
+        geo.getCurrentPosition(
+          (pos: any) => {
+            const coords = clampLatLng(Number(pos?.coords?.latitude), Number(pos?.coords?.longitude));
+            finish(coords);
+          },
+          () => finish(null),
+          { enableHighAccuracy: highAccuracy, timeout: timeoutMs, maximumAge: maxAgeMs },
+        );
+      } catch {
+        finish(null);
+      }
+
+      try {
+        globalThis.setTimeout(() => finish(null), timeoutMs + 400);
+      } catch {
+        // ignore
+      }
+    });
+
+    const coords = await deviceGpsInFlightRef.current;
+    deviceGpsInFlightRef.current = null;
+    if (coords) deviceGpsCacheRef.current = { coords, ts: Date.now() };
+    return coords;
+  }, []);
+
+  const resolveLocationForNewPost = useCallback(async () => {
     // Prefer EXIF GPS from the image, if present.
     if (composerGpsSource?.gps && composerGpsSource.url) {
       return {
@@ -1316,20 +1388,29 @@ export default function SEPBookIG() {
         __gps_url: composerGpsSource.url || null,
       };
     }
-    return null;
-  }, [composerGpsSource, myProfile?.sepbook_gps_consent]);
+    const hasMedia = composerMedia.some((m) => m.kind === "image" || m.kind === "video");
+    if (!hasMedia) return null;
+    const device = await getDeviceGps({ highAccuracy: true, timeoutMs: 15_000 });
+    if (!device) return null;
+    return { location_lat: device.lat, location_lng: device.lng, location_label: null, __gps_url: null };
+  }, [composerGpsSource, composerMedia, getDeviceGps]);
 
   const resolveLocationForNewComment = useCallback(async () => {
-    if (!commentGpsSource?.gps || !commentGpsSource.url) return null;
-    if (myProfile?.sepbook_gps_consent !== true) return null;
-    return {
-      location_lat: commentGpsSource.gps.lat,
-      location_lng: commentGpsSource.gps.lng,
-      // The backend will reverse-geocode (city/state) from lat/lng; never use operational_base as "location".
-      location_label: null,
-      __gps_url: commentGpsSource.url || null,
-    };
-  }, [commentGpsSource, myProfile?.sepbook_gps_consent]);
+    if (commentGpsSource?.gps && commentGpsSource.url) {
+      return {
+        location_lat: commentGpsSource.gps.lat,
+        location_lng: commentGpsSource.gps.lng,
+        // The backend will reverse-geocode (city/state) from lat/lng; never use operational_base as "location".
+        location_label: null,
+        __gps_url: commentGpsSource.url || null,
+      };
+    }
+    const hasMedia = commentMedia.some((m) => m.kind === "image" || m.kind === "video");
+    if (!hasMedia) return null;
+    const device = await getDeviceGps({ highAccuracy: true, timeoutMs: 15_000 });
+    if (!device) return null;
+    return { location_lat: device.lat, location_lng: device.lng, location_label: null, __gps_url: null };
+  }, [commentGpsSource, commentMedia, getDeviceGps]);
 
   const geoLabelCacheRef = useRef<Record<string, string>>({});
   const geoInFlightRef = useRef<Set<string>>(new Set());
@@ -2128,6 +2209,10 @@ export default function SEPBookIG() {
       const list = opts.files ? Array.from(opts.files) : [];
       if (!list.length) return;
 
+      // Warm up device GPS early (best-effort) for camera captures / videos,
+      // since many mobile browsers strip EXIF GPS from camera-captured files.
+      if (opts.source === "camera") void getDeviceGps({ highAccuracy: true, timeoutMs: 15_000 });
+
       const isComposerPost = opts.context === "post";
       const isEditPost = opts.context === "edit-post";
       const isPost = isComposerPost || isEditPost;
@@ -2189,6 +2274,7 @@ export default function SEPBookIG() {
         const id = randomId();
         const previewUrl = URL.createObjectURL(file);
         const gps = kind === "image" ? await extractGpsFromImage(file) : null;
+        if (!gps && (kind === "image" || kind === "video")) void getDeviceGps({ highAccuracy: true, timeoutMs: 15_000 });
         const item: MediaItem = { id, file, kind, previewUrl, gps, uploading: true, progress: 30 };
         setState((prev: MediaItem[]) => [...prev, item]);
 
@@ -2232,7 +2318,7 @@ export default function SEPBookIG() {
         /* ignore */
       }
     },
-    [commentMedia, composerMedia, editingPostMedia, toast],
+    [commentMedia, composerMedia, editingPostMedia, getDeviceGps, toast],
   );
 
   const handleCleanupComposer = useCallback(async () => {
@@ -2495,6 +2581,14 @@ export default function SEPBookIG() {
       const gpsUrl = locationPayload && typeof (locationPayload as any).__gps_url === "string" ? String((locationPayload as any).__gps_url) : null;
       const { __gps_url: _omit, ...locationFields } = (locationPayload as any) || {};
       const orderedAttachments = orderUrlsWithGpsFirst(uploadedComposerUrls, gpsUrl);
+      const gpsMeta = orderedAttachments.map((url) => {
+        const u = String(url || "").trim();
+        const item = composerMedia.find((m) => String(m.url || "") === u) || null;
+        if (item?.kind === "image" && item.gps) return { url: u, source: "exif", lat: item.gps.lat, lng: item.gps.lng };
+        const coords = clampLatLng(Number((locationFields as any)?.location_lat), Number((locationFields as any)?.location_lng));
+        if (coords) return { url: u, source: "device", lat: coords.lat, lng: coords.lng };
+        return { url: u, source: "unavailable" };
+      });
       const resp = await apiFetch("/api/sepbook-post", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -2503,6 +2597,7 @@ export default function SEPBookIG() {
           attachments: orderedAttachments,
           post_kind: composerPostKind,
           campaign_id: composerCampaignId || null,
+          gps_meta: gpsMeta,
           ...(locationFields || {}),
         }),
       });
@@ -4343,8 +4438,6 @@ export default function SEPBookIG() {
           )}
         </DialogContent>
       </Dialog>
-
-      {/* GPS consent is handled globally on login via SepbookGpsConsentPrompt */}
     </div>
   );
 }

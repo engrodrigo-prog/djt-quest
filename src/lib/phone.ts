@@ -1,3 +1,5 @@
+import { isExternalProfile } from "@/lib/profileCompletion";
+
 export type ParsedPhone = {
   country: string;
   area: string;
@@ -39,8 +41,9 @@ export const PHONE_CONFIRM_REQUIRED_AFTER = '2026-01-11T00:00:00.000Z';
 
 export function requiresPhoneConfirmation(profile: any): boolean {
   if (!profile) return false;
+  // Convidados/externos: não bloquear acesso por confirmação de WhatsApp.
+  if (isExternalProfile(profile)) return false;
   const confirmedAt = profile.phone_confirmed_at ? Date.parse(String(profile.phone_confirmed_at)) : NaN;
   const cutoff = Date.parse(PHONE_CONFIRM_REQUIRED_AFTER);
   return !Number.isFinite(confirmedAt) || confirmedAt < cutoff;
 }
-

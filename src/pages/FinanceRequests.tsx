@@ -11,7 +11,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import { AttachmentUploader } from "@/components/AttachmentUploader";
 import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft, FileText, Plus, XCircle } from "lucide-react";
@@ -65,10 +64,6 @@ const EMPTY_FORM = {
   description: "",
 } as const;
 
-const PREFILL_ENABLED_KEY = "finance_prefill_enabled";
-const LAST_COMPANY_KEY = "finance_last_company";
-const LAST_COORDINATION_KEY = "finance_last_coordination";
-
 const isGuestTeamId = (raw: any) => String(raw || "").trim().toUpperCase() === "CONVIDADOS";
 const isGuestProfile = (p: any, roles: string[] = []) =>
   roles.includes("invited") || isGuestTeamId(p?.sigla_area) || isGuestTeamId(p?.operational_base);
@@ -100,6 +95,13 @@ const formatBrl = (cents: number | null | undefined) => {
   return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 };
 
+const isLikelyImageAttachment = (att: any) => {
+  const ct = String(att?.content_type || att?.contentType || "").trim().toLowerCase();
+  if (ct.startsWith("image/")) return true;
+  const url = String(att?.url || "").trim();
+  return /\.(png|jpe?g|gif|webp|avif)(\?|#|$)/i.test(url);
+};
+
 export default function FinanceRequests() {
   const { user, profile, roles, orgScope } = useAuth() as any;
   const { toast } = useToast();
@@ -119,42 +121,11 @@ export default function FinanceRequests() {
   const [draftItems, setDraftItems] = useState<DraftItem[]>([]);
   const [form, setForm] = useState({ ...EMPTY_FORM });
   const [aiExtractingByPath, setAiExtractingByPath] = useState<Record<string, boolean>>({});
-  const [prefillEnabled, setPrefillEnabled] = useState<boolean>(() => {
-    try {
-      if (typeof window === "undefined") return true;
-      const v = window.localStorage.getItem(PREFILL_ENABLED_KEY);
-      if (v == null) return true;
-      return v === "1";
-    } catch {
-      return true;
-    }
-  });
-
-  useEffect(() => {
-    try {
-      if (typeof window === "undefined") return;
-      window.localStorage.setItem(PREFILL_ENABLED_KEY, prefillEnabled ? "1" : "0");
-    } catch {
-      // ignore
-    }
-  }, [prefillEnabled]);
 
   const applyPrefill = useCallback(() => {
-    let lastCompany = "";
-    let lastCoord = "";
-    try {
-      if (typeof window !== "undefined") {
-        lastCompany = matchFromList(window.localStorage.getItem(LAST_COMPANY_KEY), FINANCE_COMPANIES);
-        lastCoord = matchFromList(window.localStorage.getItem(LAST_COORDINATION_KEY), FINANCE_COORDINATIONS);
-      }
-    } catch {
-      // ignore
-    }
-
     const suggestedCompany =
       matchFromList((profile as any)?.company, FINANCE_COMPANIES) ||
       matchFromList((profile as any)?.empresa, FINANCE_COMPANIES) ||
-      lastCompany ||
       FINANCE_COMPANIES[0] ||
       "";
 
@@ -163,7 +134,6 @@ export default function FinanceRequests() {
       matchFromList((profile as any)?.team?.name, FINANCE_COORDINATIONS) ||
       matchFromList(profile?.sigla_area, FINANCE_COORDINATIONS) ||
       matchFromList(profile?.operational_base, FINANCE_COORDINATIONS) ||
-      lastCoord ||
       "";
 
     setForm((p) => ({
@@ -175,9 +145,8 @@ export default function FinanceRequests() {
 
   useEffect(() => {
     if (!newOpen) return;
-    if (!prefillEnabled) return;
     applyPrefill();
-  }, [applyPrefill, newOpen, prefillEnabled]);
+  }, [applyPrefill, newOpen]);
 
   const canUse = useMemo(() => {
     const roleList = Array.isArray(roles) ? roles : [];
@@ -463,14 +432,6 @@ export default function FinanceRequests() {
         throw new Error(firstFieldError ? `${message}: ${String(firstFieldError)}` : message);
       }
       toast({ title: "Solicitação enviada", description: `Protocolo: ${json?.request?.protocol || "—"}` });
-      try {
-        if (typeof window !== "undefined") {
-          if (form.company) window.localStorage.setItem(LAST_COMPANY_KEY, String(form.company));
-          if (form.coordination) window.localStorage.setItem(LAST_COORDINATION_KEY, String(form.coordination));
-        }
-      } catch {
-        // ignore
-      }
       setNewOpen(false);
       try {
         const reqId = String(json?.request?.id || "").trim();
@@ -662,9 +623,9 @@ export default function FinanceRequests() {
               <div className="rounded-md border p-3 bg-muted/10">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <div className="text-[12px] font-medium">Pré-preencher com meus dados</div>
+                    <div className="text-[12px] font-medium">Solicitante</div>
                     <div className="text-[11px] text-muted-foreground">
-                      Usa informações do seu cadastro (ex.: coordenação/base) e sua última escolha. Você pode alterar antes de enviar.
+                      Nome, matrícula, área, base operacional e empresa vêm do seu cadastro (ajuste Empresa/Coordenação abaixo se necessário).
                     </div>
                     <div className="text-[11px] text-muted-foreground mt-1 truncate">
                       {profile?.name ? `Nome: ${profile.name} • ` : ""}
@@ -674,12 +635,9 @@ export default function FinanceRequests() {
                       {profile?.sigla_area ? `Área: ${profile.sigla_area} • ` : ""}
                       {profile?.operational_base ? `Base: ${profile.operational_base}` : ""}
                     </div>
-                  </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <Button type="button" variant="outline" size="sm" onClick={applyPrefill}>
-                      Preencher agora
-                    </Button>
-                    <Switch checked={prefillEnabled} onCheckedChange={(v) => setPrefillEnabled(Boolean(v))} />
+                    <div className="text-[11px] text-muted-foreground mt-1 truncate">
+                      {form.company ? `Empresa: ${form.company}` : ""}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1134,7 +1092,18 @@ export default function FinanceRequests() {
                                       {itemAtts.map((a: any) => (
                                         <div key={a.id} className="flex items-center justify-between gap-3">
                                           <a href={a.url} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-[12px] hover:underline min-w-0">
-                                            <FileText className="h-4 w-4 flex-shrink-0" />
+                                            <span className="h-10 w-10 rounded-md overflow-hidden border bg-muted/20 flex-shrink-0 flex items-center justify-center">
+                                              {isLikelyImageAttachment(a) ? (
+                                                <img
+                                                  src={a.url}
+                                                  alt={a.filename || "Anexo"}
+                                                  className="h-full w-full object-cover"
+                                                  loading="lazy"
+                                                />
+                                              ) : (
+                                                <FileText className="h-4 w-4 text-muted-foreground" />
+                                              )}
+                                            </span>
                                             <span className="truncate">{a.filename || a.url}</span>
                                           </a>
                                           <div className="flex items-center gap-2 flex-shrink-0">
@@ -1171,7 +1140,18 @@ export default function FinanceRequests() {
                                 {unassigned.map((a: any) => (
                                   <div key={a.id} className="flex items-center justify-between gap-3">
                                     <a href={a.url} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-[12px] hover:underline min-w-0">
-                                      <FileText className="h-4 w-4 flex-shrink-0" />
+                                      <span className="h-10 w-10 rounded-md overflow-hidden border bg-muted/20 flex-shrink-0 flex items-center justify-center">
+                                        {isLikelyImageAttachment(a) ? (
+                                          <img
+                                            src={a.url}
+                                            alt={a.filename || "Anexo"}
+                                            className="h-full w-full object-cover"
+                                            loading="lazy"
+                                          />
+                                        ) : (
+                                          <FileText className="h-4 w-4 text-muted-foreground" />
+                                        )}
+                                      </span>
                                       <span className="truncate">{a.filename || a.url}</span>
                                     </a>
                                     <div className="flex items-center gap-2 flex-shrink-0">
@@ -1208,7 +1188,18 @@ export default function FinanceRequests() {
                       {(detail.attachments || []).map((a: any) => (
                         <div key={a.id} className="flex items-center justify-between gap-3">
                           <a href={a.url} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-[12px] hover:underline min-w-0">
-                            <FileText className="h-4 w-4 flex-shrink-0" />
+                            <span className="h-10 w-10 rounded-md overflow-hidden border bg-muted/20 flex-shrink-0 flex items-center justify-center">
+                              {isLikelyImageAttachment(a) ? (
+                                <img
+                                  src={a.url}
+                                  alt={a.filename || "Anexo"}
+                                  className="h-full w-full object-cover"
+                                  loading="lazy"
+                                />
+                              ) : (
+                                <FileText className="h-4 w-4 text-muted-foreground" />
+                              )}
+                            </span>
                             <span className="truncate">{a.filename || a.url}</span>
                           </a>
                           <div className="flex items-center gap-2 flex-shrink-0">

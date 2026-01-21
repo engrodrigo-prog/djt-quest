@@ -90,6 +90,14 @@ interface CampaignOption {
   title: string;
 }
 
+type UploadedAttachmentItem = {
+  url: string;
+  meta?: {
+    exifGps?: { lat: number; lng: number } | null;
+    exifCapturedAt?: string | null;
+  };
+};
+
 export default function SEPBook() {
   const { user, profile, isLeader } = useAuth();
   const { toast } = useToast();
@@ -98,6 +106,7 @@ export default function SEPBook() {
   const routerLocation = useRouterLocation();
   const [content, setContent] = useState("");
   const [attachments, setAttachments] = useState<string[]>([]);
+  const [attachmentItems, setAttachmentItems] = useState<UploadedAttachmentItem[]>([]);
   const [attachmentsUploading, setAttachmentsUploading] = useState(false);
   const [repostOf, setRepostOf] = useState<SepPost | null>(null);
   const [posts, setPosts] = useState<SepPost[]>([]);
@@ -1152,50 +1161,101 @@ export default function SEPBook() {
     }
   };
 
-  const handlePublish = async () => {
-    const text = content.trim();
-    if (!text && attachments.length === 0 && !repostOf) {
-      toast({ title: "Conteúdo vazio", description: "Escreva algo ou envie uma mídia antes de publicar.", variant: "destructive" });
+	  const handlePublish = async () => {
+	    const text = content.trim();
+	    if (!text && attachments.length === 0 && !repostOf) {
+	      toast({ title: "Conteúdo vazio", description: "Escreva algo ou envie uma mídia antes de publicar.", variant: "destructive" });
       return;
     }
     if (attachmentsUploading) {
       toast({ title: "Aguarde o envio das mídias", description: "Estamos concluindo o upload das fotos/vídeos antes de publicar.", variant: "default" });
       return;
     }
-    setLoading(true);
-    try {
-      let finalText = text;
-      const { data: session } = await supabase.auth.getSession();
-      const token = session.session?.access_token;
-      if (!token) throw new Error("Não autenticado");
-      const participantsToSend = new Set(selectedParticipants);
-      if (user?.id) participantsToSend.add(user.id);
-      const resp = await fetch("/api/sepbook-post", {
-        method: "POST",
+	    setLoading(true);
+	    try {
+	      let finalText = text;
+	      const { data: session } = await supabase.auth.getSession();
+	      const token = session.session?.access_token;
+	      if (!token) throw new Error("Não autenticado");
+
+	      const exifGps =
+	        (attachmentItems || [])
+	          .map((it) => it?.meta?.exifGps || null)
+	          .find((g) => g && typeof g.lat === "number" && typeof g.lng === "number") || null;
+	      let finalCoords = exifGps ? { lat: exifGps.lat, lng: exifGps.lng } : coords;
+	      let finalLocationLabel = exifGps ? "GPS da foto" : locationLabel;
+
+	      // If no EXIF GPS and no stored coords, best-effort: try device location.
+	      if (!finalCoords && attachments.length > 0 && typeof navigator !== "undefined" && navigator.geolocation) {
+	        try {
+	          const device = await new Promise<{ lat: number; lng: number } | null>((resolve) => {
+	            let settled = false;
+	            const finish = (v: { lat: number; lng: number } | null) => {
+	              if (settled) return;
+	              settled = true;
+	              resolve(v);
+	            };
+	            try {
+	              navigator.geolocation.getCurrentPosition(
+	                (pos) => finish({ lat: Number(pos.coords.latitude), lng: Number(pos.coords.longitude) }),
+	                () => finish(null),
+	                { enableHighAccuracy: true, timeout: 15000, maximumAge: 10 * 60_000 },
+	              );
+	            } catch {
+	              finish(null);
+	            }
+	            try {
+	              window.setTimeout(() => finish(null), 15_500);
+	            } catch {}
+	          });
+	          if (device && Number.isFinite(device.lat) && Number.isFinite(device.lng)) {
+	            finalCoords = device;
+	            finalLocationLabel = "Local atual";
+	          }
+	        } catch {
+	          // ignore
+	        }
+	      }
+
+	      const gpsMeta = (attachments || []).map((url) => {
+	        const u = String(url || "").trim();
+	        const it = (attachmentItems || []).find((x) => String((x as any)?.url || "") === u) as any;
+	        const g = it?.meta?.exifGps;
+	        if (g && typeof g.lat === "number" && typeof g.lng === "number") return { url: u, source: "exif", lat: g.lat, lng: g.lng };
+	        if (finalCoords) return { url: u, source: "device", lat: finalCoords.lat, lng: finalCoords.lng };
+	        return { url: u, source: "unavailable" };
+	      });
+
+	      const participantsToSend = new Set(selectedParticipants);
+	      if (user?.id) participantsToSend.add(user.id);
+	      const resp = await fetch("/api/sepbook-post", {
+	        method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          content_md: finalText,
-          attachments,
-          repost_of: repostOf?.id || null,
-          location_label: locationLabel,
-          location_lat: coords?.lat ?? null,
-          location_lng: coords?.lng ?? null,
-          campaign_id: selectedCampaignId || null,
-          participant_ids: Array.from(participantsToSend),
-          // challenge_id pode ser enviado quando vinculado a um desafio específico
-        }),
-      });
+	        body: JSON.stringify({
+	          content_md: finalText,
+	          attachments,
+	          repost_of: repostOf?.id || null,
+	          location_label: finalLocationLabel,
+	          location_lat: finalCoords?.lat ?? null,
+	          location_lng: finalCoords?.lng ?? null,
+	          campaign_id: selectedCampaignId || null,
+	          participant_ids: Array.from(participantsToSend),
+	          gps_meta: gpsMeta,
+	          // challenge_id pode ser enviado quando vinculado a um desafio específico
+	        }),
+	      });
       const json = await resp.json();
-      if (!resp.ok) throw new Error(json?.error || "Falha ao publicar no SEPBook");
-      setContent("");
-      setAttachments([]);
-      setRepostOf(null);
-      setSelectedCampaignId("");
-      setSelectedParticipants(new Set());
-      setUseLocation(false);
+	      if (!resp.ok) throw new Error(json?.error || "Falha ao publicar no SEPBook");
+	      setContent("");
+	      setAttachments([]);
+	      setAttachmentItems([]);
+	      setRepostOf(null);
+	      setSelectedCampaignId("");
+	      setSelectedParticipants(new Set());
+	      setUseLocation(false);
       setCoords(null);
       setLocationLabel(null);
       toast({ title: "Publicado no SEPBook" });
@@ -1706,21 +1766,23 @@ export default function SEPBook() {
                     </div>
                   </div>
                 )}
-                <AttachmentUploader
-                  onAttachmentsChange={setAttachments}
-                  maxFiles={5}
-                  maxImages={3}
-                  maxVideos={2}
-                  maxSizeMB={50}
-                  bucket="evidence"
-                  pathPrefix="sepbook"
-                  acceptMimeTypes={["image/jpeg", "image/png", "image/webp", "image/gif", "video/mp4", "video/webm"]}
-                  maxVideoSeconds={30}
-                  maxVideoDimension={1920}
-                  maxImageDimension={3840}
-                  imageQuality={0.82}
-                  onUploadingChange={setAttachmentsUploading}
-                />
+	                <AttachmentUploader
+	                  onAttachmentsChange={setAttachments}
+	                  onAttachmentItemsChange={(items) => setAttachmentItems(items as UploadedAttachmentItem[])}
+	                  maxFiles={5}
+	                  maxImages={3}
+	                  maxVideos={2}
+	                  maxSizeMB={50}
+	                  bucket="evidence"
+	                  pathPrefix="sepbook"
+	                  acceptMimeTypes={["image/jpeg", "image/png", "image/webp", "image/gif", "video/mp4", "video/webm"]}
+	                  maxVideoSeconds={30}
+	                  maxVideoDimension={1920}
+	                  maxImageDimension={3840}
+	                  imageQuality={0.82}
+	                  onUploadingChange={setAttachmentsUploading}
+	                  includeImageGpsMeta
+	                />
                 <p className="text-[11px] text-muted-foreground text-center">
                   Imagens são otimizadas para até 4K. Vídeos: até 30s (preferencialmente 1080p/FullHD). Limite: 3 fotos + 2 vídeos por post.
                 </p>
