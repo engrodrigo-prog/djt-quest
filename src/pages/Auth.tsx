@@ -106,7 +106,15 @@ const Auth = () => {
   const attemptLogin = useCallback(async (user: UserOption) => {
     setLoading(true);
     try {
-      const { error } = await signIn(user.email, password);
+      const email = String(user?.email || "").trim();
+      if (!email) {
+        toast.error(t("auth.errors.loginFailedTitle"), {
+          description: "Usuário sem e-mail cadastrado. Contate o suporte/gestor.",
+        });
+        return;
+      }
+
+      const { error } = await signIn(email, password);
 
       if (error) {
         console.error("Login error:", error);
@@ -117,7 +125,11 @@ const Auth = () => {
       }
 
       const authData = await refreshUserSession();
-      localStorage.setItem(LAST_USER_KEY, user.id);
+      try {
+        localStorage.setItem(LAST_USER_KEY, user.id);
+      } catch {
+        // ignore (Safari private mode / storage disabled)
+      }
       if (password === DEFAULT_PASSWORD) {
         const profileId = authData?.profile?.id;
         if (profileId) {
@@ -265,7 +277,12 @@ const Auth = () => {
   }, [lookupProfiles]);
 
   useEffect(() => {
-    const lastUserId = localStorage.getItem(LAST_USER_KEY);
+    let lastUserId: string | null = null;
+    try {
+      lastUserId = localStorage.getItem(LAST_USER_KEY);
+    } catch {
+      lastUserId = null;
+    }
     if (!lastUserId) return;
 
     let cancelled = false;

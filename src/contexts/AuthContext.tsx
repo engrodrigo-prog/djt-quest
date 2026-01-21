@@ -345,7 +345,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const refreshUserSession = async () => {
-    localStorage.removeItem(CACHE_KEY);
+    try {
+      localStorage.removeItem(CACHE_KEY);
+    } catch {
+      // ignore (Safari private mode / storage disabled)
+    }
     const { data: { session: currentSession } } = await supabase.auth.getSession();
     return await fetchUserSession(currentSession);
   };
@@ -378,7 +382,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         // Clear cache if user changed
         if (session?.user.id !== previousUserId && previousUserId) {
-          localStorage.removeItem(CACHE_KEY);
+          try {
+            localStorage.removeItem(CACHE_KEY);
+          } catch {
+            // ignore
+          }
         }
 
         setSession(session);
@@ -418,8 +426,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    return { error };
+    try {
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      return { error };
+    } catch (e: any) {
+      // Network/storage exceptions should not crash the login flow.
+      const msg = String(e?.message || e || 'Erro inesperado');
+      return { error: { message: msg } };
+    }
   };
 
   const signUp = async (email: string, password: string, name: string) => {
@@ -438,8 +452,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = async () => {
     console.log('🚪 Signing out, clearing cache');
-    localStorage.removeItem(CACHE_KEY);
-    localStorage.removeItem(ROLE_OVERRIDE_KEY);
+    try {
+      localStorage.removeItem(CACHE_KEY);
+      localStorage.removeItem(ROLE_OVERRIDE_KEY);
+    } catch {
+      // ignore
+    }
     await supabase.auth.signOut();
   };
 
