@@ -145,7 +145,8 @@ const Auth = () => {
       if (next) {
         navigate(next);
       } else {
-        navigate(authData?.isLeader ? '/leader-dashboard' : '/dashboard');
+        // Início deve ser o mesmo para todos; painel de liderança fica acessível a partir do Dashboard.
+        navigate('/dashboard');
       }
     } catch (error) {
       console.error("Login error:", error);

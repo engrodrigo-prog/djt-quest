@@ -9,7 +9,14 @@ type ProfileCompletionStatus = {
 
 const normalizeFlag = (value: unknown) => String(value ?? "").trim().toUpperCase();
 
-export const isExternalProfile = (profile: any): boolean => {
+const normalizeRoles = (roles?: unknown): string[] => {
+  if (!Array.isArray(roles)) return [];
+  return roles.map((r) => String(r ?? "").trim().toLowerCase()).filter(Boolean);
+};
+
+export const isExternalProfile = (profile: any, roles?: unknown): boolean => {
+  const roleList = normalizeRoles(roles);
+  if (roleList.includes("invited")) return true;
   return (
     ["EXTERNO", "CONVIDADOS"].includes(normalizeFlag(profile?.team_id)) ||
     ["EXTERNO", "CONVIDADOS"].includes(normalizeFlag(profile?.sigla_area)) ||
@@ -17,8 +24,8 @@ export const isExternalProfile = (profile: any): boolean => {
   );
 };
 
-export const getProfileCompletionStatus = (profile: any): ProfileCompletionStatus => {
-  const isExternal = isExternalProfile(profile);
+export const getProfileCompletionStatus = (profile: any, roles?: unknown): ProfileCompletionStatus => {
+  const isExternal = isExternalProfile(profile, roles);
 
   const avatarUrl = String(profile?.avatar_url || profile?.avatar_thumbnail_url || "").trim();
   const dob = String(profile?.date_of_birth || "").trim();
@@ -36,13 +43,13 @@ export const getProfileCompletionStatus = (profile: any): ProfileCompletionStatu
   };
 };
 
-export const requiresProfileCompletion = (profile: any): boolean => {
+export const requiresProfileCompletion = (profile: any, roles?: unknown): boolean => {
   if (!profile) return false;
   // Always enforce explicit flags (security + onboarding).
   if (profile?.must_change_password) return true;
   if (profile?.needs_profile_completion) return true;
 
-  const status = getProfileCompletionStatus(profile);
+  const status = getProfileCompletionStatus(profile, roles);
 
   // Convidados/externos não devem ficar bloqueados do app por campos faltantes.
   // Se precisar exigir algo para um convidado, use `needs_profile_completion=true`.

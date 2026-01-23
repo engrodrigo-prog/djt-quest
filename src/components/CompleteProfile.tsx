@@ -20,7 +20,7 @@ interface CompleteProfileProps {
 
 export function CompleteProfile({ profile }: CompleteProfileProps) {
   const navigate = useNavigate();
-  const { refreshUserSession } = useAuth();
+  const { refreshUserSession, roles } = useAuth();
   const [loading, setLoading] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(
     profile?.avatar_url || profile?.avatar_thumbnail_url || null,
@@ -45,8 +45,8 @@ export function CompleteProfile({ profile }: CompleteProfileProps) {
         email: formData.email || profile?.email,
         matricula: formData.matricula || profile?.matricula,
         operational_base: formData.operational_base || profile?.operational_base,
-      }),
-    [avatarUrl, formData, profile],
+      }, roles),
+    [avatarUrl, formData, profile, roles],
   );
 
   const handleAvatarCaptured = async (imageBase64: string) => {

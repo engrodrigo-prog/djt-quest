@@ -39,10 +39,10 @@ export function normalizePhone(raw: string): string | null {
 
 export const PHONE_CONFIRM_REQUIRED_AFTER = '2026-01-11T00:00:00.000Z';
 
-export function requiresPhoneConfirmation(profile: any): boolean {
+export function requiresPhoneConfirmation(profile: any, roles?: unknown): boolean {
   if (!profile) return false;
   // Convidados/externos: não bloquear acesso por confirmação de WhatsApp.
-  if (isExternalProfile(profile)) return false;
+  if (isExternalProfile(profile, roles)) return false;
   const confirmedAt = profile.phone_confirmed_at ? Date.parse(String(profile.phone_confirmed_at)) : NaN;
   const cutoff = Date.parse(PHONE_CONFIRM_REQUIRED_AFTER);
   return !Number.isFinite(confirmedAt) || confirmedAt < cutoff;

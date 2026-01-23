@@ -55,14 +55,14 @@ const LEADER_ALLOWED_ROLES = [
 const STUDIO_CURATION_ALLOWED_ROLES = STUDIO_ALLOWED_ROLES.filter((r) => r !== 'analista_financeiro');
 
 const ProfileCheckWrapper = ({ children }: { children: React.ReactNode }) => {
-  const { profile, loading } = useAuth();
+  const { profile, loading, roles } = useAuth();
   const { t } = useI18n();
 
   if (loading) {
     return <div className="min-h-screen flex items-center justify-center">{t("common.loading")}</div>;
   }
 
-  if (profile && requiresProfileCompletion(profile)) {
+  if (profile && requiresProfileCompletion(profile, roles)) {
     return <CompleteProfile profile={profile} />;
   }
 

@@ -19,13 +19,15 @@ export function ProtectedRoute({
   requireLeader = false,
   allowedRoles,
 }: ProtectedRouteProps) {
-  const { user, loading, studioAccess, isLeader, userRole, profile } = useAuth();
+  const { user, loading, studioAccess, isLeader, userRole, profile, roles } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
   const allowedRolesKey = allowedRoles?.join(',') ?? '';
-  const needsProfileCompletion = Boolean(user && profile && requiresProfileCompletion(profile));
-  const needsPhoneConfirm = Boolean(user && profile && !needsProfileCompletion && requiresPhoneConfirmation(profile));
+  const needsProfileCompletion = Boolean(user && profile && requiresProfileCompletion(profile, roles));
+  const needsPhoneConfirm = Boolean(
+    user && profile && !needsProfileCompletion && requiresPhoneConfirmation(profile, roles),
+  );
 
   useEffect(() => {
     const needsRole = requireStudio || requireLeader || allowedRolesKey.length > 0;
