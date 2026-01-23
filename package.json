@@ -8,6 +8,7 @@
     "dev:vercel:trace": "NODE_OPTIONS=--trace-deprecation vercel dev",
     "dev:vercel:nowarn": "NODE_NO_WARNINGS=1 vercel dev",
     "build": "vite build",
+    "vercel-build": "node scripts/vercel-migrate.mjs && vite build",
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
     "test": "node --test",

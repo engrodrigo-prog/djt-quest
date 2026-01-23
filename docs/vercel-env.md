@@ -14,6 +14,18 @@ Algumas rotas aceitam fallback para chave pública, mas o comportamento pode var
 
 - `SUPABASE_ANON_KEY`
 
+## Migrações no deploy (Supabase CLI)
+
+Para rodar `supabase db push` durante o build no Vercel:
+
+- `SUPABASE_DB_URL` (recomendado; string de conexão Postgres, com caracteres especiais percent-encoded)
+  ou
+- `SUPABASE_ACCESS_TOKEN` + `SUPABASE_DB_PASSWORD`
+
+Opcional:
+
+- `SUPABASE_MIGRATE_ON_PREVIEW=1` (executa também em deploys Preview)
+
 ## Variáveis públicas (frontend / Vite)
 
 Essas ficam expostas no bundle do navegador e devem usar prefixo `VITE_`:
@@ -31,4 +43,3 @@ Não coloque segredos no frontend:
 
 - Health check: `GET /api/ai?handler=health` (deve retornar `{ ok: true, ... }` quando `OPENAI_API_KEY` está configurada)
 - Em dev, se estiver rodando `npm run dev` sem proxy, prefira `vercel dev` para ter `/api/*` local.
-
