@@ -32,7 +32,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useI18n } from "@/contexts/I18nContext";
 import { translateTextsCached } from "@/lib/i18n/aiTranslate";
 import { localeToOpenAiLanguageTag } from "@/lib/i18n/language";
-import { MapContainer, Marker, Popup, TileLayer, useMap } from "react-leaflet";
+import { MapContainer, Marker, TileLayer, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import markerIcon2xUrl from "leaflet/dist/images/marker-icon-2x.png";
@@ -169,6 +169,7 @@ type SepMapItem = {
   user_id: string;
   author_name: string;
   author_avatar: string | null;
+  author_base?: string | null;
   created_at: string;
   location_label: string | null;
   post_id: string;
@@ -176,17 +177,6 @@ type SepMapItem = {
 };
 
 const randomId = () => Math.random().toString(36).slice(2);
-
-type MapProfile = {
-  id: string;
-  name: string | null;
-  operational_base: string | null;
-  sigla_area: string | null;
-  phone: string | null;
-  telefone?: string | null;
-  avatar_url: string | null;
-  avatar_thumbnail_url?: string | null;
-};
 
 const getExtFromType = (mime: string) => {
   const t = String(mime || "").toLowerCase();
@@ -228,22 +218,6 @@ const detectMentionQuery = (text: string) => {
   // - "@rodrigo " -> no match (wait for next char)
   const m = v.match(/@([\p{L}0-9_.-]+(?:\s+[\p{L}0-9_.-]+)*)$/u);
   return m?.[1] || "";
-};
-
-const cleanPhoneDigits = (raw: any) => {
-  const d = String(raw || "").replace(/\D+/g, "");
-  return d.length >= 8 ? d : "";
-};
-
-const getWhatsAppUrl = (digitsRaw: any) => {
-  const digits = cleanPhoneDigits(digitsRaw);
-  if (!digits) return null;
-  const isMobile =
-    typeof navigator !== "undefined" &&
-    ("userAgentData" in navigator
-      ? Boolean((navigator as Navigator & { userAgentData?: { mobile?: boolean } }).userAgentData?.mobile)
-      : /Android|iPhone|iPad|iPod|IEMobile|Opera Mini/i.test(navigator.userAgent));
-  return isMobile ? `https://wa.me/${digits}` : `https://web.whatsapp.com/send?phone=${digits}`;
 };
 
 const detectCampaignQuery = (text: string) => {
@@ -720,31 +694,6 @@ export default function SEPBookIG() {
     (Array.isArray(roles) &&
       roles.some((r) => ["admin", "gerente_djt", "gerente_divisao_djtx", "coordenador_djtx"].includes(String(r || ""))));
   const canGiveFeedback = Boolean(isLeader || studioAccess || isAdmin);
-  const [myProfile, setMyProfile] = useState<MapProfile | null>(null);
-
-  useEffect(() => {
-    const uid = String(user?.id || "").trim();
-    if (!uid) {
-      setMyProfile(null);
-      return;
-    }
-    let cancelled = false;
-    (async () => {
-      try {
-        const { data } = await supabase
-          .from("profiles")
-          .select("id, name, operational_base, sigla_area, phone, telefone, avatar_url, avatar_thumbnail_url")
-          .eq("id", uid)
-          .maybeSingle();
-        if (!cancelled) setMyProfile((data as any) || null);
-      } catch {
-        if (!cancelled) setMyProfile(null);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [user?.id]);
 
   const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false);
   const [feedbackTarget, setFeedbackTarget] = useState<{
@@ -790,11 +739,6 @@ export default function SEPBookIG() {
   const mapInstanceRef = useRef<L.Map | null>(null);
   const [commentGpsItems, setCommentGpsItems] = useState<SepCommentGps[]>([]);
   const [commentGpsLoading, setCommentGpsLoading] = useState(false);
-  const [mapProfiles, setMapProfiles] = useState<Record<string, MapProfile>>({});
-  const isMobileDevice = useMemo(() => {
-    if (typeof navigator === "undefined") return false;
-    return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || "");
-  }, []);
 
   const [composerOpen, setComposerOpen] = useState(false);
   const [composerText, setComposerText] = useState("");
@@ -1018,6 +962,7 @@ export default function SEPBookIG() {
           user_id: p.user_id,
           author_name: p.author_name,
           author_avatar: p.author_avatar || null,
+          author_base: (p as any)?.author_base || null,
           created_at: p.created_at,
           location_label: p.location_label || null,
           post_id: p.id,
@@ -1044,6 +989,7 @@ export default function SEPBookIG() {
           user_id: c.user_id,
           author_name: c.author_name,
           author_avatar: (c as any).author_avatar || null,
+          author_base: (c as any)?.author_base || null,
           created_at: c.created_at,
           location_label: (c as any).location_label || null,
           post_id: c.post_id,
@@ -1054,42 +1000,6 @@ export default function SEPBookIG() {
 
     return [...postItems, ...commentItems];
   }, [commentGpsItems, visiblePosts]);
-
-  const mapUserIdsKey = useMemo(() => {
-    const ids = mapPosts.map((x) => String(x.user_id || "")).filter(Boolean);
-    ids.sort();
-    return ids.join(",");
-  }, [mapPosts]);
-
-  useEffect(() => {
-    if (!mapOpen) return;
-    const ids = Array.from(new Set(mapPosts.map((x) => x.user_id).filter(Boolean))).slice(0, 140);
-    if (!ids.length) {
-      setMapProfiles({});
-      return;
-    }
-    let cancelled = false;
-    (async () => {
-      try {
-        const { data } = await supabase
-          .from("profiles")
-          .select("id, name, operational_base, sigla_area, phone, telefone, avatar_url, avatar_thumbnail_url")
-          .in("id", ids);
-        if (cancelled) return;
-        const next: Record<string, MapProfile> = {};
-        (Array.isArray(data) ? data : []).forEach((p: any) => {
-          if (!p?.id) return;
-          next[String(p.id)] = p as any;
-        });
-        setMapProfiles(next);
-      } catch {
-        if (!cancelled) setMapProfiles({});
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [mapOpen, mapUserIdsKey]);
 
   const visibleMapPosts = useMemo(() => {
     if (!mapBounds) return mapPosts;
@@ -1153,20 +1063,6 @@ export default function SEPBookIG() {
     if (!mapSelectedId) return null;
     return mapPosts.find((x) => x.key === mapSelectedId) || null;
   }, [mapPosts, mapSelectedId]);
-
-  const selectedMapProfile = useMemo(() => {
-    if (!selectedMapPost) return null;
-    return mapProfiles[String(selectedMapPost.user_id || "")] || null;
-  }, [mapProfiles, selectedMapPost]);
-
-  const selectedMapPhoneDigits = useMemo(() => {
-    if (!selectedMapProfile) return "";
-    return cleanPhoneDigits(selectedMapProfile.phone || selectedMapProfile.telefone);
-  }, [selectedMapProfile]);
-
-  const selectedMapTelUrl = useMemo(() => (selectedMapPhoneDigits ? `tel:${selectedMapPhoneDigits}` : null), [selectedMapPhoneDigits]);
-
-  const selectedMapWhatsAppUrl = useMemo(() => getWhatsAppUrl(selectedMapPhoneDigits), [selectedMapPhoneDigits]);
 
   const selectedMapLinks = useMemo(() => {
     if (!selectedMapPost) return null;
@@ -3339,6 +3235,8 @@ export default function SEPBookIG() {
 
       <Drawer
         open={composerOpen}
+        handleOnly
+        repositionInputs
         onOpenChange={(open) => {
           if (!open) {
             setComposerOpen(false);
@@ -3357,7 +3255,7 @@ export default function SEPBookIG() {
           }
         }}
       >
-        <DrawerContent className="mt-0 sm:mt-24 h-[100dvh] max-h-[100dvh] sm:h-auto">
+        <DrawerContent className="mt-0 sm:mt-24 h-[calc(100dvh-var(--djt-keyboard-inset,0px))] max-h-[calc(100dvh-var(--djt-keyboard-inset,0px))] sm:h-auto">
           <DrawerHeader>
             <DrawerTitle>{tr("sepbook.newPost")}</DrawerTitle>
             <DrawerDescription className="sr-only">Criar uma nova postagem, com menções e campanha opcional</DrawerDescription>
@@ -3544,11 +3442,13 @@ export default function SEPBookIG() {
 
       <Drawer
         open={Boolean(editingPostId)}
+        handleOnly
+        repositionInputs
         onOpenChange={(open) => {
           if (!open) cancelEditPost();
         }}
       >
-      <DrawerContent className="mt-0 sm:mt-24 h-[100dvh] max-h-[100dvh] sm:h-auto">
+        <DrawerContent className="mt-0 sm:mt-24 h-[calc(100dvh-var(--djt-keyboard-inset,0px))] max-h-[calc(100dvh-var(--djt-keyboard-inset,0px))] sm:h-auto">
           <DrawerHeader>
             <DrawerTitle>{tr("sepbook.edit")} </DrawerTitle>
             <DrawerDescription className="sr-only">Editar texto, mídia e menções da publicação</DrawerDescription>
@@ -3581,13 +3481,13 @@ export default function SEPBookIG() {
                   </div>
                 </div>
 
-	                <Textarea
-	                  ref={editingPostInputRef}
-	                  value={editingPostText}
-	                  onChange={(e) => setEditingPostText(e.target.value)}
-	                  placeholder={tr("sepbook.captionPlaceholder")}
-	                  className="min-h-[200px] sm:min-h-[140px]"
-	                />
+                <Textarea
+                  ref={editingPostInputRef}
+                  value={editingPostText}
+                  onChange={(e) => setEditingPostText(e.target.value)}
+                  placeholder={tr("sepbook.captionPlaceholder")}
+                  className="min-h-[200px] sm:min-h-[140px]"
+                />
 
                 {editingPostMentionQuery && editingPostMentions.items.length > 0 && (
                   <div className="rounded-xl border bg-background">
@@ -3696,6 +3596,8 @@ export default function SEPBookIG() {
 
       <Drawer
         open={Boolean(commentsOpenFor)}
+        handleOnly
+        repositionInputs
         onOpenChange={(open) => {
           if (!open) {
             setCommentsOpenFor(null);
@@ -3714,7 +3616,7 @@ export default function SEPBookIG() {
           }
         }}
       >
-        <DrawerContent className="mt-0 sm:mt-24 h-[100dvh] max-h-[100dvh] sm:h-auto">
+        <DrawerContent className="mt-0 sm:mt-24 h-[calc(100dvh-var(--djt-keyboard-inset,0px))] max-h-[calc(100dvh-var(--djt-keyboard-inset,0px))] sm:h-auto">
           <DrawerHeader>
             <DrawerTitle>
               {activePost
@@ -4245,25 +4147,11 @@ export default function SEPBookIG() {
                           <div className="h-12 w-12 rounded-lg border bg-muted" />
                         )}
                         <div className="min-w-0 flex-1">
-                          <div className="flex items-center justify-between gap-2">
-                            <UserProfilePopover
-                              userId={selectedMapPost.user_id}
-                              name={selectedMapPost.author_name}
-                              avatarUrl={selectedMapPost.author_avatar}
-                            >
-                              <button type="button" className="text-[13px] font-semibold truncate hover:underline p-0 bg-transparent border-0">
-                                {formatName(selectedMapPost.author_name)}
-                              </button>
-                            </UserProfilePopover>
-                            <div className="text-[11px] text-muted-foreground truncate">
-                              {new Date(selectedMapPost.created_at).toLocaleString()}
-                            </div>
-                          </div>
-                          <div className="text-[12px] text-muted-foreground truncate">
+                          <div className="text-[12px] font-semibold truncate">
                             {(() => {
-                              const coords = clampLatLng(Number(selectedMapPost.location_lat), Number(selectedMapPost.location_lng));
+                              const coords = clampLatLng(Number(selectedMapPost.lat), Number(selectedMapPost.lng));
                               const safe = sanitizeLocationLabel(selectedMapPost.location_label);
-                              const base = String(selectedMapProfile?.operational_base || "").trim().toLowerCase();
+                              const base = String(selectedMapPost.author_base || "").trim().toLowerCase();
                               const looksLikeBase = safe && base && safe.toLowerCase() === base;
                               const key = coords ? geoKeyFor(coords.lat, coords.lng) : null;
                               const geo = key ? geoLabelCacheRef.current[key] || null : null;
@@ -4272,76 +4160,37 @@ export default function SEPBookIG() {
                               const out = [city, coordLabel].filter(Boolean).join(" • ");
                               return out || tr("sepbook.location");
                             })()}
+                            {selectedMapPost.kind === "comment" ? ` • ${tr("sepbook.commentLabel")}` : ""}
                           </div>
-                          {selectedMapProfile?.operational_base ? (
-                            <div className="text-[12px] text-muted-foreground truncate">
-                              {tr("userPopover.baseLabel")}: {selectedMapProfile.operational_base}
-                            </div>
-                          ) : null}
-                          {selectedMapProfile?.sigla_area ? (
-                            <div className="text-[12px] text-muted-foreground truncate">{selectedMapProfile.sigla_area}</div>
-                          ) : null}
-                          <div className="text-[11px] text-muted-foreground">
-                            {tr("sepbook.mapHintSelectThenOpen")}
+                          <div className="text-[11px] text-muted-foreground truncate">
+                            {new Date(selectedMapPost.created_at).toLocaleString()}
                           </div>
-                          <div className="mt-1 flex flex-wrap items-center gap-2">
-                            <Button type="button" size="sm" variant="outline" asChild disabled={!selectedMapTelUrl}>
-                              <a href={selectedMapTelUrl || "#"} aria-disabled={!selectedMapTelUrl} onClick={(e) => !selectedMapTelUrl && e.preventDefault()}>
-                                {tr("userPopover.call")}
-                              </a>
-                            </Button>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {selectedMapLinks ? (
                             <Button
                               type="button"
                               size="sm"
-                              disabled={!selectedMapWhatsAppUrl}
-                              onClick={() => selectedMapWhatsAppUrl && window.open(selectedMapWhatsAppUrl, "_blank", "noopener,noreferrer")}
+                              variant="outline"
+                              onClick={() => window.open(selectedMapLinks.mapsUrl, "_blank", "noreferrer")}
                             >
-                              {tr("userPopover.whatsapp")}
+                              Maps
                             </Button>
-                          </div>
-                          {selectedMapLinks ? (
-                            <div className="mt-1 flex flex-wrap items-center gap-2">
-                              {isMobileDevice ? (
-                                <>
-                                  <Button
-                                    type="button"
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={() => window.open(selectedMapLinks.wazeUrl, "_blank", "noreferrer")}
-                                  >
-                                    Waze
-                                  </Button>
-                                  <Button
-                                    type="button"
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={() => window.open(selectedMapLinks.mapsUrl, "_blank", "noreferrer")}
-                                  >
-                                    Maps
-                                  </Button>
-                                </>
-                              ) : (
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => window.open(selectedMapLinks.mapsUrl, "_blank", "noreferrer")}
-                                >
-                                  Abrir no Maps
-                                </Button>
-                              )}
-                            </div>
                           ) : null}
+                          {selectedMapPost.kind === "comment" && selectedMapPost.comment_id ? (
+                            <Button
+                              type="button"
+                              size="sm"
+                              onClick={() => openCommentById(selectedMapPost.post_id, selectedMapPost.comment_id!)}
+                            >
+                              {tr("sepbook.openComment")}
+                            </Button>
+                          ) : (
+                            <Button type="button" size="sm" onClick={() => openPostById(selectedMapPost.post_id)}>
+                              {tr("sepbook.openPost")}
+                            </Button>
+                          )}
                         </div>
-                        {selectedMapPost.kind === "comment" && selectedMapPost.comment_id ? (
-                          <Button type="button" size="sm" onClick={() => openCommentById(selectedMapPost.post_id, selectedMapPost.comment_id!)}>
-                            {tr("sepbook.openComment")}
-                          </Button>
-                        ) : (
-                          <Button type="button" size="sm" onClick={() => openPostById(selectedMapPost.post_id)}>
-                            {tr("sepbook.openPost")}
-                          </Button>
-                        )}
                       </div>
                     </div>
                   ) : null}
@@ -4397,25 +4246,11 @@ export default function SEPBookIG() {
                         }}
                       />
                       <div className="min-w-0 flex-1">
-                        <UserProfilePopover userId={x.user_id} name={x.author_name} avatarUrl={x.author_avatar}>
-                          <button
-                            type="button"
-                            className="text-[13px] font-semibold truncate hover:underline p-0 bg-transparent border-0 text-left"
-                            onClick={(event) => event.stopPropagation()}
-                          >
-                            {formatName(x.author_name)}
-                          </button>
-                        </UserProfilePopover>
-                        {mapProfiles[String(x.user_id || "")]?.operational_base ? (
-                          <div className="text-[12px] text-muted-foreground truncate">
-                            {tr("userPopover.baseLabel")}: {mapProfiles[String(x.user_id || "")]!.operational_base}
-                          </div>
-                        ) : null}
-                        <div className="text-[12px] text-muted-foreground truncate">
+                        <div className="text-[12px] font-semibold truncate">
                           {(() => {
-                            const coords = clampLatLng(Number(x.location_lat), Number(x.location_lng));
+                            const coords = clampLatLng(Number(x.lat), Number(x.lng));
                             const safe = sanitizeLocationLabel(x.location_label);
-                            const base = String(mapProfiles[String(x.user_id || "")]?.operational_base || "").trim().toLowerCase();
+                            const base = String(x.author_base || "").trim().toLowerCase();
                             const looksLikeBase = safe && base && safe.toLowerCase() === base;
                             const key = coords ? geoKeyFor(coords.lat, coords.lng) : null;
                             const geo = key ? geoLabelCacheRef.current[key] || null : null;
