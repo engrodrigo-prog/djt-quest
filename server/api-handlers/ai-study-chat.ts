@@ -843,13 +843,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       session_id = null,
       attachments = [],
       language = "pt-BR",
-      mode = "study",
+      mode: rawMode = "study",
       save_compendium = false,
       quality = "auto",
       kb_tags = [],
       kb_focus = "",
       use_web = false,
     } = req.body || {};
+    let mode = String(rawMode || "study").toLowerCase();
+    if (!["study", "oracle", "ingest", "chat"].includes(mode)) mode = "study";
+    // If no material was selected, treat "study" as a ChatGPT-style chat (no catalog search).
+    if (mode === "study" && !source_id) mode = "chat";
     const qualityKey = String(quality || "auto").toLowerCase();
     const allowDevIngest =
       mode === "ingest" &&
@@ -1661,6 +1665,30 @@ Formato da resposta (texto livre, sem JSON):
 4) Pontos de atenção / segurança (se aplicável)
 
 Responda em ${language}.`
+        : mode === "chat"
+          ? langIsEn
+            ? `You are a helpful assistant (ChatGPT-style).
+
+Rules:
+- Use general knowledge and good judgment. If something depends on missing context, ask up to 2 clarifying questions.
+- If attachments are provided, use them as primary context.
+- Do NOT invent specific internal facts (IDs, exact procedures, manufacturer specs) that are not provided. If unsure, say so and suggest how to verify.
+${qualityHint}
+${imageHint}
+${focusHint}
+
+Output: plain text (no JSON). Answer in ${language}.`
+            : `Você é um assistente útil (modo ChatGPT).
+
+Regras:
+- Use conhecimento geral e bom senso. Se algo depender de contexto faltando, faça no máximo 2 perguntas de esclarecimento.
+- Se houver anexos, use-os como contexto principal.
+- NÃO invente fatos internos específicos (IDs, procedimentos exatos, especificações de fabricante) que não foram fornecidos. Se não tiver certeza, diga e sugira como validar.
+${qualityHint}
+${imageHint}
+${focusHint}
+
+Formato: texto livre (sem JSON). Responda em ${language}.`
         : langIsEn
           ? `You are a technical training tutor (Brazilian power sector context).
 Use the selected material (when provided) and the uploaded attachments as primary evidence.

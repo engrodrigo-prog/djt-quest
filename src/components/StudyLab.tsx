@@ -986,16 +986,8 @@ export const StudyLab = () => {
       return;
     }
 
-    if (!oracleMode) {
-      if (!selectedSourceId) {
-        toast.error("Selecione um material no catálogo para conversar sobre ele.");
-        setCatalogOpen(true);
-        return;
-      }
-      if (selectedSourceId === FIXED_RULES_ID) {
-        toast.error("Use o Catálogo para perguntar sobre o artigo fixo.");
-        return;
-      }
+    const willUseSelectedMaterial = !oracleMode && Boolean(selectedSourceId) && selectedSourceId !== FIXED_RULES_ID;
+    if (willUseSelectedMaterial) {
       const sel = sources.find((s) => s.id === selectedSourceId);
       if (sel && sel.ingest_status === "failed") {
         toast.error("Curadoria do material falhou. Tente catalogar novamente no Catálogo.");
@@ -1029,8 +1021,11 @@ export const StudyLab = () => {
         headers: { "Content-Type": "application/json" },
         signal: controller.signal,
         body: JSON.stringify({
-          mode: oracleMode ? "oracle" : "study",
-          ...(oracleMode ? {} : { source_id: selectedSourceId }),
+          // - oracle: uses the internal base + optional web search
+          // - study: uses a single selected material
+          // - chat: ChatGPT-style (no catalog/material required)
+          mode: oracleMode ? "oracle" : willUseSelectedMaterial ? "study" : "chat",
+          ...(oracleMode ? {} : willUseSelectedMaterial ? { source_id: selectedSourceId } : {}),
           session_id: chatSessionId,
           attachments: attachmentsForMessage.map((url) => ({ url })),
           language: getActiveLocale(),
@@ -1195,9 +1190,9 @@ export const StudyLab = () => {
                 checked={oracleMode}
                 onCheckedChange={(checked) => {
                   setOracleMode(checked);
-                  if (!checked && (!selectedSourceId || selectedSourceId === FIXED_RULES_ID)) {
-                    setCatalogOpen(true);
-                  }
+                  // Leaving Catalog mode should allow ChatGPT-style chat without forcing a material selection.
+                  // If the fixed rules source was selected, clear it so "chat" mode doesn't look "stuck".
+                  if (!checked && selectedSourceId === FIXED_RULES_ID) setSelectedSourceId(null);
                 }}
               />
               <Label htmlFor="studylab-catalog-toggle" className="text-xs font-medium">
@@ -1247,7 +1242,7 @@ export const StudyLab = () => {
               <p className="text-sm text-muted-foreground">
                 {oracleMode
                   ? "Pergunte qualquer coisa. O Catálogo responde usando sua base (e pesquisa online quando necessário)."
-                  : "Escolha um material no catálogo e pergunte sobre ele."}
+                  : "Pergunte qualquer coisa (modo ChatGPT). Opcional: escolha um material para responder com base nele."}
               </p>
             )}
             {chatMessages.map((m, idx) => (
@@ -1380,7 +1375,7 @@ export const StudyLab = () => {
                   ? "Digite sua pergunta…"
                   : selectedSource
                     ? `Pergunte sobre: ${selectedSource.title}`
-                    : "Selecione um material para perguntar"
+                    : "Digite sua pergunta… (opcional: escolha um material)"
               }
               rows={2}
               onKeyDown={(e) => {
