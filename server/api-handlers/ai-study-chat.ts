@@ -2868,17 +2868,17 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
         const data = await resp.json().catch(() => null);
         const incompleteReason = data?.incomplete_details?.reason;
         const candidateContent = String(collectOutputText(data) || extractChatText(data) || "").trim();
-        if (incompleteReason === "max_output_tokens" && modelMaxTokens < maxOutputCap) {
-          modelMaxTokens = Math.min(modelMaxTokens + 480, maxOutputCap);
-          lastErrTxt = "OpenAI retornou resposta truncada";
-          continue;
-        }
         if (candidateContent) {
           content = candidateContent;
           usedModel = model;
           usedMaxTokens = modelMaxTokens;
           finalIncompleteReason = incompleteReason || null;
           break;
+        }
+        if (incompleteReason === "max_output_tokens" && modelMaxTokens < maxOutputCap) {
+          modelMaxTokens = Math.min(modelMaxTokens + 480, maxOutputCap);
+          lastErrTxt = "OpenAI retornou resposta truncada";
+          continue;
         }
 	        if (!useMinimalPrompt && attempt === 0 && !usedWebSummary) {
 	          useMinimalPrompt = true;
