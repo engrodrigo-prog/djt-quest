@@ -2298,10 +2298,22 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
 	      if (!normalized) return false;
 	      return /\b(busque|buscar|pesquise|pesquisar|pesquisa|fontes?|referencias?|citacoes?|cite|links?)\b/.test(normalized);
 	    })();
+	    const autoWebInChat = (() => {
+	      if (!useWeb || mode !== "chat") return false;
+	      const normalized = normalizeForMatch(lastUserText || "");
+	      if (!normalized) return false;
+	      let score = 0;
+	      if (/\b(top|ranking|maiores|melhores|piores|lista|empresas?|setores?)\b/.test(normalized)) score += 1;
+	      if (/\b(consumo|energia|mwh|kwh|demanda|carga|industria|comercio|setor|empresa)\b/.test(normalized)) score += 1;
+	      if (/\b(sorocaba|regiao metropolitana|rms|sao paulo|sp)\b/.test(normalized)) score += 1;
+	      if (/\b(202\\d|atual|atualizado|hoje|agora|fontes?|publicas)\b/.test(normalized)) score += 1;
+	      return score >= 2;
+	    })();
 	    const shouldSearchWeb =
 	      webAllowed &&
 	      lastUserText &&
-	      ((mode === "oracle" && (userRequestedWeb || oracleBestScore < 2)) || (mode === "chat" && userRequestedWeb));
+	      ((mode === "oracle" && (userRequestedWeb || oracleBestScore < 2)) ||
+	        (mode === "chat" && (userRequestedWeb || autoWebInChat)));
 	    if (shouldSearchWeb) {
 	      const webTimeout = Math.min(
 	        STUDYLAB_WEB_SEARCH_TIMEOUT_MS,
