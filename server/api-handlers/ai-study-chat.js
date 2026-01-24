@@ -985,6 +985,7 @@ async function handler(req, res) {
     let lastUserText = "";
     let usedWebSummary = false;
     let attemptedWebSummary = false;
+    let webSummaryMeta = null;
     let oracleBestScore = 0;
     let usedOracleSourcesCount = 0;
     let usedOracleCompendiumCount = 0;
@@ -2166,6 +2167,12 @@ ${context}`
 	      attemptedWebSummary = true;
 	      const webTimeout = Math.min(STUDYLAB_WEB_SEARCH_TIMEOUT_MS, Math.max(1500, timeLeftMs() - WEB_RESERVE_FOR_OPENAI_MS));
 	      const webSummary = await fetchWebSearchSummary(lastUserText, { timeoutMs: webTimeout });
+	      webSummaryMeta = webSummary ? {
+	        model: webSummary.model,
+	        tool: webSummary.tool,
+	        queries: Array.isArray(webSummary.queries) ? webSummary.queries.length : 0,
+	        sources: Array.isArray(webSummary.sources) ? webSummary.sources.length : 0
+	      } : { ok: false };
       if (webSummary?.text) {
         usedWebSummary = true;
         openaiMessages.push({
@@ -2541,6 +2548,8 @@ ${webSummary.text}`
         attempts,
         timeout_ms: STUDYLAB_OPENAI_TIMEOUT_MS,
         max_output_tokens: usedMaxTokens,
+        web_attempted: attemptedWebSummary,
+        web_summary: webSummaryMeta,
         sources: usedOracleSourcesCount,
         compendium: usedOracleCompendiumCount,
         attachments: normalizedAttachments.length
