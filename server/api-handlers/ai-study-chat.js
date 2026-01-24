@@ -10,12 +10,12 @@ const SUPABASE_URL = process.env.SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
 const STUDYLAB_DEFAULT_CHAT_MODEL = "gpt-5-nano-2025-08-07";
 const STUDYLAB_WEB_MODEL_CANDIDATES = [
-  "gpt-4o-search-preview-2025-03-11",
-  "gpt-4o-mini-search-preview-2025-03-11",
   "gpt-4o-search-preview",
-  "gpt-4o-mini-search-preview"
+  "gpt-4o-mini-search-preview",
+  "gpt-4o-search-preview-2025-03-11",
+  "gpt-4o-mini-search-preview-2025-03-11"
 ];
-const STUDYLAB_DEFAULT_WEB_MODEL = STUDYLAB_WEB_MODEL_CANDIDATES[0];
+const STUDYLAB_DEFAULT_WEB_MODEL = "gpt-4o-mini";
 const STUDYLAB_MAX_COMPLETION_TOKENS = Math.max(
   240,
   Math.min(2000, Number(process.env.STUDYLAB_MAX_COMPLETION_TOKENS || 700))
@@ -72,16 +72,19 @@ const pickStudyLabChatModels = (fallbackModel) => uniqueStrings([
 ]);
 const pickStudyLabWebModels = (fallbackModel) => uniqueStrings([
   OPENAI_MODEL_STUDYLAB_WEB,
-  ...STUDYLAB_WEB_MODEL_CANDIDATES,
-  // Prefer a stronger model for web search + synthesis.
+  // Try broadly available models first (many accounts don't have search-preview access).
+  "gpt-4o-mini",
+  "gpt-4o",
+  "gpt-4.1-mini",
+  "gpt-4.1",
+  // Prefer a stronger model for web search + synthesis when available.
+  fallbackModel,
   chooseModel(true),
   chooseModel(false),
+  // Opportunistic: search-preview variants (may be unavailable for some keys).
+  ...STUDYLAB_WEB_MODEL_CANDIDATES,
   // Compatibility fallbacks in case the environment key does not have access to GPT-5 models.
-  process.env.OPENAI_MODEL_COMPAT,
-  "gpt-4o",
-  "gpt-4.1",
-  "gpt-4.1-mini",
-  "gpt-4o-mini"
+  process.env.OPENAI_MODEL_COMPAT
 ]);
 const pickStudyLabIngestModels = (fallbackModel) => uniqueStrings([
   OPENAI_MODEL_STUDYLAB_INGEST,
@@ -568,8 +571,8 @@ const runWebSearchOnce = async (query, opts) => {
     if (remaining < 900) return null;
     const perAttemptTimeout = Math.max(1200, Math.min(remaining, timeoutMs));
     if (isSearchPreviewModel(model) && perAttemptTimeout >= 1600) {
+      const attemptT0 = Date.now();
       try {
-        const attemptT0 = Date.now();
         const resp = await callOpenAiChatCompletion(
           {
             model,
@@ -617,14 +620,23 @@ const runWebSearchOnce = async (query, opts) => {
             duration_ms: Date.now() - attemptT0
           });
         }
-      } catch {
+      } catch (err) {
+        pushDebug({
+          model,
+          tool: null,
+          variant: "search-preview",
+          ok: false,
+          aborted: isAbortError(err),
+          message: String(err?.message || err || "").slice(0, 220),
+          duration_ms: Date.now() - attemptT0
+        });
       }
     }
     for (const tool of opts?.tools || []) {
       const toolVariants = [{ type: tool, search_context_size: contextSize }, { type: tool }];
       for (const toolObj of toolVariants) {
+        const attemptT0 = Date.now();
         try {
-          const attemptT0 = Date.now();
           const basePayload = {
             model,
             input,
@@ -678,7 +690,16 @@ const runWebSearchOnce = async (query, opts) => {
             sources: toolSources.length,
             duration_ms: Date.now() - attemptT0
           });
-        } catch {
+        } catch (err) {
+          pushDebug({
+            model,
+            tool,
+            variant: toolObj?.search_context_size ? "tool+context" : "tool",
+            ok: false,
+            aborted: isAbortError(err),
+            message: String(err?.message || err || "").slice(0, 220),
+            duration_ms: Date.now() - attemptT0
+          });
         }
       }
     }
@@ -749,7 +770,7 @@ const fetchWebSearchSummary = async (query, opts) => {
     1,
     Math.min(STUDYLAB_WEB_MAX_QUERIES, looksLikeDataQuery ? STUDYLAB_WEB_MAX_QUERIES : 2)
   );
-  const maxQueries = timeoutMs < 9000 ? 1 : timeoutMs < 14000 ? Math.min(2, maxQueriesBase) : maxQueriesBase;
+  const maxQueries = timeoutMs < 18000 ? 1 : timeoutMs < 24000 ? Math.min(2, maxQueriesBase) : maxQueriesBase;
   const tools = ["web_search", "web_search_preview"];
   const fallbackModel = chooseModel(true);
   const modelCandidates = pickStudyLabWebModels(fallbackModel);
@@ -798,7 +819,7 @@ const fetchWebSearchSummary = async (query, opts) => {
       ok: false,
       reason: "no_results",
       queries,
-      debug: debugAttempts.slice(0, 12)
+      debug: debugAttempts.slice(-12)
     };
   }
   const synthTimeout = Math.min(12e3, Math.max(1500, timeLeft() - 300));
@@ -825,7 +846,7 @@ const fetchWebSearchSummary = async (query, opts) => {
     model: synthesis?.model || research[0]?.model,
     queries,
     sources,
-    debug: debugAttempts.slice(0, 12)
+    debug: debugAttempts.slice(-12)
   };
 };
 const normalizeHashtagTag = (raw) => {
@@ -2248,7 +2269,7 @@ ${context}`
 		        tool: webSummary?.tool,
 		        queries: Array.isArray(webSummary?.queries) ? webSummary.queries.length : 0,
 		        sources: Array.isArray(webSummary?.sources) ? webSummary.sources.length : 0,
-		        debug: Array.isArray(webSummary?.debug) ? webSummary.debug.slice(0, 8) : void 0
+		        debug: Array.isArray(webSummary?.debug) ? webSummary.debug.slice(-8) : void 0
 		      };
 	      if (webSummary?.ok && webSummary?.text) {
 	        usedWebSummary = true;

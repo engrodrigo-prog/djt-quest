@@ -14,13 +14,13 @@ const SUPABASE_URL = process.env.SUPABASE_URL as string;
 const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY) as string;
 const STUDYLAB_DEFAULT_CHAT_MODEL = "gpt-5-nano-2025-08-07";
 const STUDYLAB_WEB_MODEL_CANDIDATES = [
-  "gpt-4o-search-preview-2025-03-11",
-  "gpt-4o-mini-search-preview-2025-03-11",
   "gpt-4o-search-preview",
   "gpt-4o-mini-search-preview",
+  "gpt-4o-search-preview-2025-03-11",
+  "gpt-4o-mini-search-preview-2025-03-11",
 ] as const;
-// Prefer the explicitly versioned search-preview model first (better stability for web search tool behavior).
-const STUDYLAB_DEFAULT_WEB_MODEL = STUDYLAB_WEB_MODEL_CANDIDATES[0];
+// Use a broadly available model as default; try search-preview variants opportunistically.
+const STUDYLAB_DEFAULT_WEB_MODEL = "gpt-4o-mini";
 // Keep answers reasonably short to reduce latency and avoid timeouts.
 const STUDYLAB_MAX_COMPLETION_TOKENS = Math.max(
   240,
@@ -96,16 +96,19 @@ const pickStudyLabChatModels = (fallbackModel: string) =>
 const pickStudyLabWebModels = (fallbackModel: string) =>
   uniqueStrings([
     OPENAI_MODEL_STUDYLAB_WEB,
-    ...STUDYLAB_WEB_MODEL_CANDIDATES,
-    // Prefer a stronger model for web search + synthesis.
+    // Try broadly available models first (many accounts don't have search-preview access).
+    "gpt-4o-mini",
+    "gpt-4o",
+    "gpt-4.1-mini",
+    "gpt-4.1",
+    // Prefer a stronger model for web search + synthesis when available.
+    fallbackModel,
     chooseModel(true),
     chooseModel(false),
+    // Opportunistic: search-preview variants (may be unavailable for some keys).
+    ...STUDYLAB_WEB_MODEL_CANDIDATES,
     // Compatibility fallbacks in case the environment key does not have access to GPT-5 models.
     process.env.OPENAI_MODEL_COMPAT,
-    "gpt-4o",
-    "gpt-4.1",
-    "gpt-4.1-mini",
-    "gpt-4o-mini",
   ]);
 const pickStudyLabIngestModels = (fallbackModel: string) =>
   uniqueStrings([
@@ -741,12 +744,12 @@ const runWebSearchOnce = async (
     if (remaining < 900) return null;
     const perAttemptTimeout = Math.max(1200, Math.min(remaining, timeoutMs));
 
-    // Search-preview models can sometimes browse without an explicit web_search tool.
-    if (isSearchPreviewModel(model) && perAttemptTimeout >= 1600) {
-      try {
-        const attemptT0 = Date.now();
-        const resp = await callOpenAiResponse(
-          {
+	    // Search-preview models can sometimes browse without an explicit web_search tool.
+	    if (isSearchPreviewModel(model) && perAttemptTimeout >= 1600) {
+	      const attemptT0 = Date.now();
+	      try {
+	        const resp = await callOpenAiResponse(
+	          {
             model,
             input: [
               {
@@ -792,22 +795,30 @@ const runWebSearchOnce = async (
             ok: true,
             sources: result?.sources?.length || 0,
             duration_ms: Date.now() - attemptT0,
-          });
-        }
-      } catch {
-        // ignore
-      }
-    }
+	          });
+	        }
+	      } catch (err: any) {
+	        pushDebug({
+	          model,
+	          tool: null,
+	          variant: "search-preview",
+	          ok: false,
+	          aborted: isAbortError(err),
+	          message: String(err?.message || err || "").slice(0, 220),
+	          duration_ms: Date.now() - attemptT0,
+	        });
+	      }
+	    }
 
-    for (const tool of opts.tools) {
-      const toolVariants: any[] = [{ type: tool, search_context_size: contextSize }, { type: tool }];
-      for (const toolObj of toolVariants) {
-        try {
-          const attemptT0 = Date.now();
-          const basePayload: any = {
-            model,
-            input,
-            tools: [toolObj],
+	    for (const tool of opts.tools) {
+	      const toolVariants: any[] = [{ type: tool, search_context_size: contextSize }, { type: tool }];
+	      for (const toolObj of toolVariants) {
+	        const attemptT0 = Date.now();
+	        try {
+	          const basePayload: any = {
+	            model,
+	            input,
+	            tools: [toolObj],
             text: { verbosity: "low" },
             max_output_tokens: 1100,
           };
@@ -828,9 +839,9 @@ const runWebSearchOnce = async (
           }
           if (!resp.ok) {
             const msg = String(json?.error?.message || json?.message || "");
-            pushDebug({
-              model,
-              tool,
+	          pushDebug({
+	            model,
+	            tool,
               variant: toolObj?.search_context_size ? "tool+context" : "tool",
               ok: false,
               status: resp.status,
@@ -855,13 +866,21 @@ const runWebSearchOnce = async (
             variant: toolObj?.search_context_size ? "tool+context" : "tool",
             ok: true,
             sources: toolSources.length,
-            duration_ms: Date.now() - attemptT0,
-          });
-        } catch {
-          // ignore and try fallback
-        }
-      }
-    }
+	            duration_ms: Date.now() - attemptT0,
+	          });
+	        } catch (err: any) {
+	          pushDebug({
+	            model,
+	            tool,
+	            variant: toolObj?.search_context_size ? "tool+context" : "tool",
+	            ok: false,
+	            aborted: isAbortError(err),
+	            message: String(err?.message || err || "").slice(0, 220),
+	            duration_ms: Date.now() - attemptT0,
+	          });
+	        }
+	      }
+	    }
   }
   return null;
 };
@@ -955,7 +974,7 @@ const fetchWebSearchSummary = async (query: string, opts?: { timeoutMs?: number 
     Math.min(STUDYLAB_WEB_MAX_QUERIES, looksLikeDataQuery ? STUDYLAB_WEB_MAX_QUERIES : 2),
   );
   const maxQueries =
-    timeoutMs < 9000 ? 1 : timeoutMs < 14000 ? Math.min(2, maxQueriesBase) : maxQueriesBase;
+    timeoutMs < 18000 ? 1 : timeoutMs < 24000 ? Math.min(2, maxQueriesBase) : maxQueriesBase;
 
   const tools = ["web_search", "web_search_preview"];
   const fallbackModel = chooseModel(true);
@@ -1013,7 +1032,7 @@ const fetchWebSearchSummary = async (query: string, opts?: { timeoutMs?: number 
       ok: false,
       reason: "no_results",
       queries,
-      debug: debugAttempts.slice(0, 12),
+      debug: debugAttempts.slice(-12),
     } as any;
   }
 
@@ -1049,7 +1068,7 @@ const fetchWebSearchSummary = async (query: string, opts?: { timeoutMs?: number 
     model: synthesis?.model || research[0]?.model,
     queries,
     sources,
-    debug: debugAttempts.slice(0, 12),
+    debug: debugAttempts.slice(-12),
   };
 };
 
@@ -2782,7 +2801,7 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
 	        tool: webSummary?.tool,
 	        queries: Array.isArray(webSummary?.queries) ? webSummary.queries.length : 0,
 	        sources: Array.isArray(webSummary?.sources) ? webSummary.sources.length : 0,
-	        debug: Array.isArray(webSummary?.debug) ? webSummary.debug.slice(0, 8) : undefined,
+	        debug: Array.isArray(webSummary?.debug) ? webSummary.debug.slice(-8) : undefined,
 	      };
 	      if (webSummary?.ok && webSummary?.text) {
 	        usedWebSummary = true;
