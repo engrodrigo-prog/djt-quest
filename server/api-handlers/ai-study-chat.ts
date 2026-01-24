@@ -540,7 +540,8 @@ const fetchWebSearchSummary = async (query: string, opts?: { timeoutMs?: number 
   if (!OPENAI_API_KEY || !query) return null;
   const timeoutMs = Math.max(1200, Math.min(Number(opts?.timeoutMs) || STUDYLAB_WEB_SEARCH_TIMEOUT_MS, 30000));
   const tools = ["web_search", "web_search_preview"];
-  const model = STUDYLAB_DEFAULT_CHAT_MODEL;
+  const fallbackModel = chooseModel(false);
+  const modelCandidates = pickStudyLabChatModels(fallbackModel);
   const input = [
     {
       role: "system",
@@ -554,44 +555,55 @@ const fetchWebSearchSummary = async (query: string, opts?: { timeoutMs?: number 
     { role: "user", content: [{ type: "input_text", text: query }] },
   ];
 
+  const startedAt = Date.now();
+  const timeLeft = () => Math.max(0, timeoutMs - (Date.now() - startedAt));
+
   for (const tool of tools) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      const resp = await fetch("https://api.openai.com/v1/responses", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${OPENAI_API_KEY}`,
-        },
-        signal: controller.signal,
-        body: JSON.stringify({
-          model,
-          input,
-          tools: [{ type: tool }],
-          tool_choice: { type: tool },
-          max_tool_calls: 1,
-          text: { verbosity: "low" },
-          max_output_tokens: 900,
-        }),
-      });
-      const json = await resp.json().catch(() => null);
-      if (!resp.ok) {
-        const msg = json?.error?.message || json?.message || "";
-        if (/tool|web_search|unknown|invalid/i.test(msg)) {
-          continue;
+    for (const model of modelCandidates) {
+      const remaining = timeLeft();
+      if (remaining < 900) return null;
+      const perAttemptTimeout = Math.max(1200, Math.min(remaining, timeoutMs));
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), perAttemptTimeout);
+      try {
+        const resp = await fetch("https://api.openai.com/v1/responses", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${OPENAI_API_KEY}`,
+          },
+          signal: controller.signal,
+          body: JSON.stringify({
+            model,
+            input,
+            tools: [{ type: tool }],
+            tool_choice: { type: tool },
+            max_tool_calls: 1,
+            text: { verbosity: "low" },
+            max_output_tokens: 900,
+          }),
+        });
+        const json = await resp.json().catch(() => null);
+        if (!resp.ok) {
+          const msg = json?.error?.message || json?.message || "";
+          if (/tool|web_search|unknown|invalid/i.test(msg)) {
+            continue;
+          }
+          if (/model|not found|does not exist|access|permission|not authorized/i.test(msg)) {
+            continue;
+          }
+          return null;
         }
-        return null;
+        const output = Array.isArray(json?.output) ? json.output : [];
+        const usedTool = output.some((o: any) => o?.type === "web_search_call");
+        if (!usedTool) continue;
+        const text = collectOutputText(json);
+        if (text) return { text, tool, model };
+      } catch {
+        // ignore and try fallback
+      } finally {
+        clearTimeout(timer);
       }
-      const output = Array.isArray(json?.output) ? json.output : [];
-      const usedTool = output.some((o: any) => o?.type === "web_search_call");
-      if (!usedTool) continue;
-      const text = collectOutputText(json);
-      if (text) return { text, tool };
-    } catch {
-      // ignore and try fallback
-    } finally {
-      clearTimeout(timer);
     }
   }
   return null;
@@ -1681,27 +1693,29 @@ Formato da resposta (texto livre, sem JSON):
 
 Responda em ${language}.`
         : mode === "chat"
-          ? langIsEn
-            ? `You are a helpful assistant (ChatGPT-style).
+	          ? langIsEn
+	            ? `You are a helpful assistant (ChatGPT-style).
 
-Rules:
-- Use general knowledge and good judgment. If something depends on missing context, ask up to 2 clarifying questions.
-- If attachments are provided, use them as primary context.
-- Do NOT invent specific internal facts (IDs, exact procedures, manufacturer specs) that are not provided. If unsure, say so and suggest how to verify.
-${qualityHint}
-${imageHint}
-${focusHint}
+	Rules:
+	- Use general knowledge and good judgment. If something depends on missing context, ask up to 2 clarifying questions.
+	- If the user asks for public sources/links and a web summary is provided above, use it and cite the links. If no web summary is present, still answer with best-effort assumptions and explain how to validate (do NOT claim you cannot browse the web).
+	- If attachments are provided, use them as primary context.
+	- Do NOT invent specific internal facts (IDs, exact procedures, manufacturer specs) that are not provided. If unsure, say so and suggest how to verify.
+	${qualityHint}
+	${imageHint}
+	${focusHint}
 
 Output: plain text (no JSON). Answer in ${language}.`
-            : `Você é um assistente útil (modo ChatGPT).
+	            : `Você é um assistente útil (modo ChatGPT).
 
-Regras:
-- Use conhecimento geral e bom senso. Se algo depender de contexto faltando, faça no máximo 2 perguntas de esclarecimento.
-- Se houver anexos, use-os como contexto principal.
-- NÃO invente fatos internos específicos (IDs, procedimentos exatos, especificações de fabricante) que não foram fornecidos. Se não tiver certeza, diga e sugira como validar.
-${qualityHint}
-${imageHint}
-${focusHint}
+	Regras:
+	- Use conhecimento geral e bom senso. Se algo depender de contexto faltando, faça no máximo 2 perguntas de esclarecimento.
+	- Se o usuário pedir fontes/links públicos e existir um resumo de pesquisa web acima, use-o e cite os links. Se não existir resumo web, ainda assim responda com estimativas/suposições e diga como validar (NÃO diga que “não tem acesso à web”).
+	- Se houver anexos, use-os como contexto principal.
+	- NÃO invente fatos internos específicos (IDs, procedimentos exatos, especificações de fabricante) que não foram fornecidos. Se não tiver certeza, diga e sugira como validar.
+	${qualityHint}
+	${imageHint}
+	${focusHint}
 
 Formato: texto livre (sem JSON). Responda em ${language}.`
         : langIsEn
@@ -2276,14 +2290,22 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
       }
     }
 
-    const useWeb = Boolean(use_web);
-    const webAllowed = use_web !== false;
-    // Web search: automatically when the catalog match is weak (otherwise keep latency low).
-    const shouldSearchWeb = mode === "oracle" && webAllowed && lastUserText && oracleBestScore < 2;
-    if (shouldSearchWeb) {
-      const webTimeout = Math.min(
-        STUDYLAB_WEB_SEARCH_TIMEOUT_MS,
-        Math.max(1500, timeLeftMs() - WEB_RESERVE_FOR_OPENAI_MS),
+	    const useWeb = Boolean(use_web);
+	    const webAllowed = use_web !== false;
+	    // Web search: automatically when the catalog match is weak (otherwise keep latency low).
+	    const userRequestedWeb = (() => {
+	      const normalized = normalizeForMatch(lastUserText || "");
+	      if (!normalized) return false;
+	      return /\b(busque|buscar|pesquise|pesquisar|pesquisa|fontes?|referencias?|citacoes?|cite|links?)\b/.test(normalized);
+	    })();
+	    const shouldSearchWeb =
+	      webAllowed &&
+	      lastUserText &&
+	      ((mode === "oracle" && (userRequestedWeb || oracleBestScore < 2)) || (mode === "chat" && userRequestedWeb));
+	    if (shouldSearchWeb) {
+	      const webTimeout = Math.min(
+	        STUDYLAB_WEB_SEARCH_TIMEOUT_MS,
+	        Math.max(1500, timeLeftMs() - WEB_RESERVE_FOR_OPENAI_MS),
       );
       const webSummary = await fetchWebSearchSummary(lastUserText, { timeoutMs: webTimeout });
       if (webSummary?.text) {
@@ -2351,14 +2373,14 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
       return systems.length ? systems : openaiMessages;
     })();
 
-    const preferPremium =
-      qualityKey === "thinking" ||
-      mode === "oracle" ||
-      useWeb ||
-      (includeImagesInPrompt && qualityKey !== "instant") ||
-      (sourceRow && String(sourceRow.scope || "").toLowerCase() === "org" && sourceRow.published !== false);
-    const fallbackModel = chooseModel(preferPremium);
-    const baseCandidates = pickStudyLabChatModels(fallbackModel);
+	    const preferPremium =
+	      qualityKey === "thinking" ||
+	      mode === "oracle" ||
+	      usedWebSummary ||
+	      (includeImagesInPrompt && qualityKey !== "instant") ||
+	      (sourceRow && String(sourceRow.scope || "").toLowerCase() === "org" && sourceRow.published !== false);
+	    const fallbackModel = chooseModel(preferPremium);
+	    const baseCandidates = pickStudyLabChatModels(fallbackModel);
     const modelCandidates = (() => {
       if (qualityKey === "instant") {
         const preferred = "gpt-5-nano-2025-08-07";
@@ -2374,12 +2396,12 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
       }
       return baseCandidates;
     })();
-    let maxTokensBase =
-      qualityKey === "thinking"
-        ? Math.max(STUDYLAB_MAX_COMPLETION_TOKENS, 1200)
-        : useWeb
-          ? Math.max(STUDYLAB_MAX_COMPLETION_TOKENS, 900)
-          : STUDYLAB_MAX_COMPLETION_TOKENS;
+	    let maxTokensBase =
+	      qualityKey === "thinking"
+	        ? Math.max(STUDYLAB_MAX_COMPLETION_TOKENS, 1200)
+	        : usedWebSummary
+	          ? Math.max(STUDYLAB_MAX_COMPLETION_TOKENS, 900)
+	          : STUDYLAB_MAX_COMPLETION_TOKENS;
     if (mode === "oracle") {
       const oracleFloor =
         qualityKey === "thinking" ? 1800 : qualityKey === "auto" ? 1400 : 1200;
@@ -2395,7 +2417,12 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
     let forceTextOnly = false;
 	    let useMinimalPrompt = false;
 	    let finalIncompleteReason: string | null = null;
-	    const verbosity = qualityKey === "instant" ? "low" : mode === "oracle" || useWeb || includeImagesInPrompt ? "medium" : "low";
+	    const verbosity =
+	      qualityKey === "instant"
+	        ? "low"
+	        : mode === "oracle" || usedWebSummary || includeImagesInPrompt
+	          ? "medium"
+	          : "low";
 	    const reasoningEffort = qualityKey === "thinking" ? "medium" : "low";
 	    let sendReasoningEffort = true;
 	    const maxOutputCap =
@@ -2403,11 +2430,11 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
 
     for (const model of modelCandidates) {
       let modelMaxTokens = maxTokensBase;
-      for (let attempt = 0; attempt < 2; attempt += 1) {
-        // Avoid stacking multiple long attempts (can exceed serverless max duration).
-        if (attempts >= (useWeb ? 2 : 3)) break;
-        let resp: Response | null = null;
-        try {
+	      for (let attempt = 0; attempt < 2; attempt += 1) {
+	        // Avoid stacking multiple long attempts (can exceed serverless max duration).
+	        if (attempts >= (usedWebSummary ? 2 : 3)) break;
+	        let resp: Response | null = null;
+	        try {
           attempts += 1;
           const promptMessages = useMinimalPrompt ? minimalOpenAiMessages : openaiMessages;
           const inputPayload = forceTextOnly
@@ -2449,21 +2476,21 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
             }
             aborted = true;
             break;
-          }
-          if (attempt === 0 && !useWeb) continue;
-          break;
-        }
+	          }
+	          if (attempt === 0 && !usedWebSummary) continue;
+	          break;
+	        }
 
-        if (!resp.ok) {
-          lastErrTxt = await resp.text().catch(() => `HTTP ${resp?.status}`);
-          if (!forceTextOnly && /input_text.*output_text|output_text.*refusal|invalid value/i.test(lastErrTxt)) {
-            forceTextOnly = true;
-            continue;
-          }
-          if (isFatalOpenAiStatus(resp.status)) break;
-          if (attempt === 0 && !useWeb) continue;
-          break;
-        }
+	        if (!resp.ok) {
+	          lastErrTxt = await resp.text().catch(() => `HTTP ${resp?.status}`);
+	          if (!forceTextOnly && /input_text.*output_text|output_text.*refusal|invalid value/i.test(lastErrTxt)) {
+	            forceTextOnly = true;
+	            continue;
+	          }
+	          if (isFatalOpenAiStatus(resp.status)) break;
+	          if (attempt === 0 && !usedWebSummary) continue;
+	          break;
+	        }
 
         const data = await resp.json().catch(() => null);
         const incompleteReason = data?.incomplete_details?.reason;
@@ -2479,14 +2506,14 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
           lastErrTxt = "OpenAI retornou resposta truncada";
           continue;
         }
-        if (!useMinimalPrompt && attempt === 0 && !useWeb) {
-          useMinimalPrompt = true;
-          lastErrTxt = "OpenAI retornou resposta vazia";
-          continue;
-        }
-        lastErrTxt = "OpenAI retornou resposta vazia";
-        if (attempt === 0 && !useWeb) continue;
-      }
+	        if (!useMinimalPrompt && attempt === 0 && !usedWebSummary) {
+	          useMinimalPrompt = true;
+	          lastErrTxt = "OpenAI retornou resposta vazia";
+	          continue;
+	        }
+	        lastErrTxt = "OpenAI retornou resposta vazia";
+	        if (attempt === 0 && !usedWebSummary) continue;
+	      }
 
       if (content) break;
       if (aborted) break;

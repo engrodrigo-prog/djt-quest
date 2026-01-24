@@ -1105,7 +1105,7 @@ export const StudyLab = () => {
           attachments: attachmentsForMessage.map((url) => ({ url })),
           language: getActiveLocale(),
           save_compendium: false,
-          ...(oracleMode ? { use_web: useWeb } : {}),
+          use_web: useWeb,
           quality: chatQuality,
           ...(kbEnabled && kbSelection?.tags?.length ? { kb_tags: kbSelection.tags, kb_focus: kbSelection.label } : {}),
           messages: payloadMessages,
@@ -1273,9 +1273,9 @@ export const StudyLab = () => {
                 <Label htmlFor="studylab-catalog-toggle" className="text-xs font-medium">
                   Modo Catálogo
                 </Label>
-              </div>
+            </div>
             <div className="flex items-center gap-2 rounded-full border px-3 py-1.5">
-              <Switch id="studylab-web-toggle" checked={useWeb} onCheckedChange={setUseWeb} disabled={!oracleMode} />
+              <Switch id="studylab-web-toggle" checked={useWeb} onCheckedChange={setUseWeb} disabled={chatLoading} />
               <Label htmlFor="studylab-web-toggle" className="text-xs font-medium">
                 Pesquisa web
               </Label>
