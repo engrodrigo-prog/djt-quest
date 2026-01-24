@@ -19,7 +19,7 @@ const dbPassword = process.env.SUPABASE_DB_PASSWORD;
 if (!dbUrl && (!accessToken || !dbPassword)) {
   const msg =
     "Missing SUPABASE_DB_URL (recommended) or SUPABASE_ACCESS_TOKEN + SUPABASE_DB_PASSWORD for migrations.";
-  if (isProd || force) {
+  if (force) {
     throw new Error(msg);
   }
   console.log(`[migrate] ${msg} Skipping.`);
