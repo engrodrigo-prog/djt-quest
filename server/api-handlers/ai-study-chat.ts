@@ -578,14 +578,30 @@ const extractWebToolSources = (payload: any) => {
     const t = String(title || "").trim();
     sources.push(t ? { title: t, url: u } : { url: u });
   };
-  for (const item of output) {
-    if (!item || typeof item !== "object") continue;
-    const type = String((item as any)?.type || "").toLowerCase();
-    if (!type.includes("web_search")) continue;
-    const results = Array.isArray((item as any)?.results) ? (item as any).results : [];
-    for (const r of results) push(r?.title || r?.name, r?.url || r?.link);
-    if ((item as any)?.url) push((item as any)?.title, (item as any).url);
-  }
+  const visit = (node: any, depth: number) => {
+    if (!node || depth > 6) return;
+    if (Array.isArray(node)) {
+      for (const item of node) visit(item, depth);
+      return;
+    }
+    if (typeof node !== "object") return;
+    const obj = node as any;
+
+    // Common result shapes
+    if (obj?.url) push(obj?.title || obj?.name || obj?.publisher, obj.url);
+    if (obj?.link) push(obj?.title || obj?.name || obj?.publisher, obj.link);
+    if (obj?.href) push(obj?.title || obj?.name || obj?.publisher, obj.href);
+
+    // Common container keys
+    if (Array.isArray(obj?.results)) visit(obj.results, depth + 1);
+    if (Array.isArray(obj?.items)) visit(obj.items, depth + 1);
+    if (Array.isArray(obj?.data)) visit(obj.data, depth + 1);
+    if (Array.isArray(obj?.content)) visit(obj.content, depth + 1);
+
+    for (const v of Object.values(obj)) visit(v, depth + 1);
+  };
+  visit(output, 0);
+
   return uniqueStrings(sources.map((s) => `${s.title ? `${s.title} :: ` : ""}${s.url}`))
     .map((line) => {
       const [left, right] = line.split(" :: ");
