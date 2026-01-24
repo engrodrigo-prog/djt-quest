@@ -2219,7 +2219,7 @@ ${webSummary.text}`
       const oracleFloor = qualityKey === "thinking" ? 1800 : qualityKey === "auto" ? 1400 : 1200;
       maxTokensBase = Math.max(maxTokensBase, oracleFloor);
     }
-    if (mode === "chat" && attemptedWebSummary && qualityKey !== "instant") {
+    if (mode === "chat" && usedWebSummary && qualityKey !== "instant") {
       maxTokensBase = Math.max(maxTokensBase, 1200);
     }
     let usedMaxTokens = maxTokensBase;
@@ -2229,7 +2229,7 @@ ${webSummary.text}`
     let aborted = false;
     let attempts = 0;
     let forceTextOnly = false;
-    let useMinimalPrompt = false;
+    let useMinimalPrompt = mode === "chat" && attemptedWebSummary;
     let finalIncompleteReason = null;
     const verbosity = qualityKey === "instant" ? "low" : mode === "oracle" || usedWebSummary || attemptedWebSummary || includeImagesInPrompt ? "medium" : "low";
     const reasoningEffort = qualityKey === "thinking" ? "medium" : "low";
@@ -2245,7 +2245,10 @@ ${webSummary.text}`
 	          attempts += 1;
 	          const promptMessages = useMinimalPrompt ? minimalOpenAiMessages : openaiMessages;
 	          const inputPayload = forceTextOnly ? toResponsesTextMessages(promptMessages) : toResponsesInputMessages(promptMessages);
-	          const openAiTimeout = Math.max(5e3, Math.min(STUDYLAB_OPENAI_TIMEOUT_MS, timeLeftMs() - 1200));
+	          let openAiTimeout = Math.max(5e3, Math.min(STUDYLAB_OPENAI_TIMEOUT_MS, timeLeftMs() - 1200));
+	          if (mode === "chat" && attemptedWebSummary) {
+	            openAiTimeout = Math.min(openAiTimeout, 25e3);
+	          }
 	          const payload = {
 	            model,
 	            input: inputPayload,
@@ -2343,7 +2346,10 @@ ${webSummary.text}`
           { role: "user", content: continuePrompt }
         ];
         const inputPayload = forceTextOnly ? toResponsesTextMessages(continueMessages) : toResponsesInputMessages(continueMessages);
-        const openAiTimeout = Math.max(5e3, Math.min(STUDYLAB_OPENAI_TIMEOUT_MS, timeLeftMs() - 1200));
+        let openAiTimeout = Math.max(5e3, Math.min(STUDYLAB_OPENAI_TIMEOUT_MS, timeLeftMs() - 1200));
+        if (mode === "chat" && attemptedWebSummary) {
+          openAiTimeout = Math.min(openAiTimeout, 15e3);
+        }
         const resp = await callOpenAiChatCompletion(
           {
             model: usedModel,

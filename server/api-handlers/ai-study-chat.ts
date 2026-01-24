@@ -2777,7 +2777,7 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
         qualityKey === "thinking" ? 1800 : qualityKey === "auto" ? 1400 : 1200;
       maxTokensBase = Math.max(maxTokensBase, oracleFloor);
     }
-    if (mode === "chat" && attemptedWebSummary && qualityKey !== "instant") {
+    if (mode === "chat" && usedWebSummary && qualityKey !== "instant") {
       maxTokensBase = Math.max(maxTokensBase, 1200);
     }
     let usedMaxTokens = maxTokensBase;
@@ -2788,7 +2788,7 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
     let aborted = false;
     let attempts = 0;
     let forceTextOnly = false;
-	    let useMinimalPrompt = false;
+	    let useMinimalPrompt = mode === "chat" && attemptedWebSummary;
 	    let finalIncompleteReason: string | null = null;
 	    const verbosity =
 	      qualityKey === "instant"
@@ -2813,10 +2813,10 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
           const inputPayload = forceTextOnly
             ? toResponsesTextMessages(promptMessages)
             : toResponsesInputMessages(promptMessages);
-	          const openAiTimeout = Math.max(
-	            5000,
-	            Math.min(STUDYLAB_OPENAI_TIMEOUT_MS, timeLeftMs() - 1200),
-	          );
+	          let openAiTimeout = Math.max(5000, Math.min(STUDYLAB_OPENAI_TIMEOUT_MS, timeLeftMs() - 1200));
+	          if (mode === "chat" && attemptedWebSummary) {
+	            openAiTimeout = Math.min(openAiTimeout, 25000);
+	          }
 	          const payload = {
 	            model,
 	            input: inputPayload,
@@ -2925,7 +2925,10 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
         const inputPayload = forceTextOnly
           ? toResponsesTextMessages(continueMessages)
           : toResponsesInputMessages(continueMessages);
-        const openAiTimeout = Math.max(5000, Math.min(STUDYLAB_OPENAI_TIMEOUT_MS, timeLeftMs() - 1200));
+        let openAiTimeout = Math.max(5000, Math.min(STUDYLAB_OPENAI_TIMEOUT_MS, timeLeftMs() - 1200));
+        if (mode === "chat" && attemptedWebSummary) {
+          openAiTimeout = Math.min(openAiTimeout, 15000);
+        }
         const resp = await callOpenAiResponse(
           {
             model: usedModel,
