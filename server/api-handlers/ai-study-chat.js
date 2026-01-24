@@ -570,6 +570,7 @@ const runWebSearchOnce = async (query, opts) => {
     const remaining = timeLeft();
     if (remaining < 900) return null;
     const perAttemptTimeout = Math.max(1200, Math.min(remaining, timeoutMs));
+    const webVerbosity = /^gpt-4\\.1/i.test(String(model || "")) ? "medium" : "low";
     if (isSearchPreviewModel(model) && perAttemptTimeout >= 1600) {
       const attemptT0 = Date.now();
       try {
@@ -588,7 +589,7 @@ const runWebSearchOnce = async (query, opts) => {
               },
               { role: "user", content: [{ type: "input_text", text: query }] }
             ],
-            text: { verbosity: "low" },
+            text: { verbosity: webVerbosity },
             max_output_tokens: 1100
           },
           perAttemptTimeout
@@ -641,7 +642,7 @@ const runWebSearchOnce = async (query, opts) => {
             model,
             input,
             tools: [toolObj],
-            text: { verbosity: "low" },
+            text: { verbosity: webVerbosity },
             max_output_tokens: 1100
           };
           let resp = await callOpenAiChatCompletion(
@@ -2366,7 +2367,7 @@ ${context}`
 	          const inputPayload = forceTextOnly ? toResponsesTextMessages(promptMessages) : toResponsesInputMessages(promptMessages);
 	          let openAiTimeout = Math.max(5e3, Math.min(STUDYLAB_OPENAI_TIMEOUT_MS, timeLeftMs() - 1200));
 	          if (mode === "chat" && attemptedWebSummary) {
-	            openAiTimeout = Math.min(openAiTimeout, 25e3);
+		            openAiTimeout = Math.min(openAiTimeout, 35e3);
 	          }
 	          const payload = {
 	            model,
@@ -2441,19 +2442,21 @@ ${context}`
       return res.status(200).json({
         success: false,
         error: `OpenAI error: ${lastErrTxt || "unknown"}`,
-        meta: {
-          model_candidates: modelCandidates,
-          used_web_summary: usedWebSummary,
-          use_web: Boolean(use_web),
-          oracle_best_score: oracleBestScore,
-          aborted,
-          attempts,
-          timeout_ms: STUDYLAB_OPENAI_TIMEOUT_MS,
-          max_output_tokens: usedMaxTokens,
-          latency_ms: Date.now() - t0
-        }
-      });
-    }
+	        meta: {
+	          model_candidates: modelCandidates,
+	          used_web_summary: usedWebSummary,
+	          use_web: Boolean(use_web),
+	          oracle_best_score: oracleBestScore,
+	          web_attempted: attemptedWebSummary,
+	          web_summary: webSummaryMeta,
+	          aborted,
+	          attempts,
+	          timeout_ms: STUDYLAB_OPENAI_TIMEOUT_MS,
+	          max_output_tokens: usedMaxTokens,
+	          latency_ms: Date.now() - t0
+	        }
+	      });
+	    }
 
     let continued = false;
     if (finalIncompleteReason === "max_output_tokens" && timeLeftMs() > 7e3) {
@@ -2467,7 +2470,7 @@ ${context}`
         const inputPayload = forceTextOnly ? toResponsesTextMessages(continueMessages) : toResponsesInputMessages(continueMessages);
         let openAiTimeout = Math.max(5e3, Math.min(STUDYLAB_OPENAI_TIMEOUT_MS, timeLeftMs() - 1200));
         if (mode === "chat" && attemptedWebSummary) {
-          openAiTimeout = Math.min(openAiTimeout, 15e3);
+	          openAiTimeout = Math.min(openAiTimeout, 2e4);
         }
         const resp = await callOpenAiChatCompletion(
           {

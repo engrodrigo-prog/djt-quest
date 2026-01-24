@@ -743,6 +743,7 @@ const runWebSearchOnce = async (
     const remaining = timeLeft();
     if (remaining < 900) return null;
     const perAttemptTimeout = Math.max(1200, Math.min(remaining, timeoutMs));
+    const webVerbosity = /^gpt-4\\.1/i.test(String(model || "")) ? "medium" : "low";
 
 	    // Search-preview models can sometimes browse without an explicit web_search tool.
 	    if (isSearchPreviewModel(model) && perAttemptTimeout >= 1600) {
@@ -765,7 +766,7 @@ const runWebSearchOnce = async (
               },
               { role: "user", content: [{ type: "input_text", text: query }] },
             ],
-            text: { verbosity: "low" },
+            text: { verbosity: webVerbosity },
             max_output_tokens: 1100,
           },
           perAttemptTimeout,
@@ -819,9 +820,9 @@ const runWebSearchOnce = async (
 	            model,
 	            input,
 	            tools: [toolObj],
-            text: { verbosity: "low" },
-            max_output_tokens: 1100,
-          };
+	            text: { verbosity: webVerbosity },
+	            max_output_tokens: 1100,
+	          };
           let resp = await callOpenAiResponse(
             {
               ...basePayload,
@@ -2939,10 +2940,10 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
           const inputPayload = forceTextOnly
             ? toResponsesTextMessages(promptMessages)
             : toResponsesInputMessages(promptMessages);
-	          let openAiTimeout = Math.max(5000, Math.min(STUDYLAB_OPENAI_TIMEOUT_MS, timeLeftMs() - 1200));
-	          if (mode === "chat" && attemptedWebSummary) {
-	            openAiTimeout = Math.min(openAiTimeout, 25000);
-	          }
+		          let openAiTimeout = Math.max(5000, Math.min(STUDYLAB_OPENAI_TIMEOUT_MS, timeLeftMs() - 1200));
+		          if (mode === "chat" && attemptedWebSummary) {
+		            openAiTimeout = Math.min(openAiTimeout, 35000);
+		          }
 	          const payload = {
 	            model,
 	            input: inputPayload,
@@ -3019,23 +3020,25 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
       if (aborted) break;
     }
 
-    if (!content) {
-      return res.status(200).json({
-        success: false,
-        error: `OpenAI error: ${lastErrTxt || "unknown"}`,
-        meta: {
-          model_candidates: modelCandidates,
-          used_web_summary: usedWebSummary,
-          use_web: Boolean(use_web),
-          oracle_best_score: oracleBestScore,
-          aborted,
-          attempts,
-          timeout_ms: STUDYLAB_OPENAI_TIMEOUT_MS,
-          max_output_tokens: usedMaxTokens,
-          latency_ms: Date.now() - t0,
-        },
-      });
-    }
+	    if (!content) {
+	      return res.status(200).json({
+	        success: false,
+	        error: `OpenAI error: ${lastErrTxt || "unknown"}`,
+	        meta: {
+	          model_candidates: modelCandidates,
+	          used_web_summary: usedWebSummary,
+	          use_web: Boolean(use_web),
+	          oracle_best_score: oracleBestScore,
+	          web_attempted: attemptedWebSummary,
+	          web_summary: webSummaryMeta,
+	          aborted,
+	          attempts,
+	          timeout_ms: STUDYLAB_OPENAI_TIMEOUT_MS,
+	          max_output_tokens: usedMaxTokens,
+	          latency_ms: Date.now() - t0,
+	        },
+	      });
+	    }
 
     let continued = false;
     if (finalIncompleteReason === "max_output_tokens" && timeLeftMs() > 7000) {
@@ -3051,10 +3054,10 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
         const inputPayload = forceTextOnly
           ? toResponsesTextMessages(continueMessages)
           : toResponsesInputMessages(continueMessages);
-        let openAiTimeout = Math.max(5000, Math.min(STUDYLAB_OPENAI_TIMEOUT_MS, timeLeftMs() - 1200));
-        if (mode === "chat" && attemptedWebSummary) {
-          openAiTimeout = Math.min(openAiTimeout, 15000);
-        }
+	        let openAiTimeout = Math.max(5000, Math.min(STUDYLAB_OPENAI_TIMEOUT_MS, timeLeftMs() - 1200));
+	        if (mode === "chat" && attemptedWebSummary) {
+	          openAiTimeout = Math.min(openAiTimeout, 20000);
+	        }
         const resp = await callOpenAiResponse(
           {
             model: usedModel,
