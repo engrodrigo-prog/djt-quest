@@ -43,6 +43,18 @@ const OPENAI_MODEL_STUDYLAB_INGEST = normalizeChatModel(
 );
 const OPENAI_MODEL_STUDYLAB_EMBEDDINGS =
   (process.env.OPENAI_MODEL_STUDYLAB_EMBEDDINGS as string) || "text-embedding-3-small";
+const STUDYLAB_DEFAULT_WEB_MODEL = normalizeChatModel(
+  (process.env.OPENAI_MODEL_PREMIUM as string) || (process.env.OPENAI_MODEL_FAST as string) || "",
+  "gpt-4o",
+);
+const OPENAI_MODEL_STUDYLAB_WEB = normalizeChatModel(
+  (process.env.OPENAI_MODEL_STUDYLAB_WEB as string) || "",
+  STUDYLAB_DEFAULT_WEB_MODEL,
+);
+const STUDYLAB_WEB_MAX_QUERIES = Math.max(1, Math.min(6, Number(process.env.STUDYLAB_WEB_MAX_QUERIES || 3)));
+const STUDYLAB_WEB_CONTEXT_SIZE = String(process.env.STUDYLAB_WEB_CONTEXT_SIZE || "high")
+  .trim()
+  .toLowerCase();
 
 function chooseModel(preferPremium = false) {
   const premium = process.env.OPENAI_MODEL_PREMIUM;
@@ -74,6 +86,19 @@ const pickStudyLabChatModels = (fallbackModel: string) =>
     fallbackModel,
     // Compatibility fallbacks in case the environment key does not have access to GPT-5 models.
     process.env.OPENAI_MODEL_COMPAT,
+    "gpt-4.1-mini",
+    "gpt-4o-mini",
+  ]);
+const pickStudyLabWebModels = (fallbackModel: string) =>
+  uniqueStrings([
+    OPENAI_MODEL_STUDYLAB_WEB,
+    // Prefer a stronger model for web search + synthesis.
+    chooseModel(true),
+    chooseModel(false),
+    // Compatibility fallbacks in case the environment key does not have access to GPT-5 models.
+    process.env.OPENAI_MODEL_COMPAT,
+    "gpt-4o",
+    "gpt-4.1",
     "gpt-4.1-mini",
     "gpt-4o-mini",
   ]);
@@ -536,77 +561,356 @@ const collectOutputText = (payload: any) => {
   return chunks.join("\n").trim();
 };
 
-const fetchWebSearchSummary = async (query: string, opts?: { timeoutMs?: number }) => {
-  if (!OPENAI_API_KEY || !query) return null;
-  const timeoutMs = Math.max(1200, Math.min(Number(opts?.timeoutMs) || STUDYLAB_WEB_SEARCH_TIMEOUT_MS, 30000));
-  const tools = ["web_search", "web_search_preview"];
-  const fallbackModel = chooseModel(false);
-  const modelCandidates = pickStudyLabChatModels(fallbackModel);
+const normalizeWebContextSize = (raw: string) => {
+  const value = String(raw || "").trim().toLowerCase();
+  if (value === "low" || value === "medium" || value === "high") return value;
+  return "high";
+};
+
+const extractUrlsFromText = (raw: string) => {
+  const matches = String(raw || "").match(/https?:\/\/[^\s)\]]+/g) || [];
+  return uniqueStrings(matches).slice(0, 24);
+};
+
+const extractWebToolSources = (payload: any) => {
+  const output = Array.isArray(payload?.output) ? payload.output : [];
+  const sources: Array<{ title?: string; url: string }> = [];
+  const push = (title: any, url: any) => {
+    const u = String(url || "").trim();
+    if (!u || !/^https?:\/\//i.test(u)) return;
+    const t = String(title || "").trim();
+    sources.push(t ? { title: t, url: u } : { url: u });
+  };
+  for (const item of output) {
+    if (!item || typeof item !== "object") continue;
+    const type = String((item as any)?.type || "").toLowerCase();
+    if (!type.includes("web_search")) continue;
+    const results = Array.isArray((item as any)?.results) ? (item as any).results : [];
+    for (const r of results) push(r?.title || r?.name, r?.url || r?.link);
+    if ((item as any)?.url) push((item as any)?.title, (item as any).url);
+  }
+  return uniqueStrings(sources.map((s) => `${s.title ? `${s.title} :: ` : ""}${s.url}`))
+    .map((line) => {
+      const [left, right] = line.split(" :: ");
+      if (right) return { title: left.trim() || undefined, url: right.trim() };
+      return { url: left.trim() };
+    })
+    .slice(0, 24);
+};
+
+const planWebQueries = async (
+  question: string,
+  opts: { timeoutMs: number; maxQueries: number; modelCandidates: string[] },
+) => {
+  const maxQueries = Math.max(1, Math.min(6, Number(opts.maxQueries || 3)));
+  const timeoutMs = Math.max(800, Math.min(Number(opts.timeoutMs || 2500), 6000));
+  const base = String(question || "").trim();
+  if (!base) return [] as string[];
+
   const input = [
     {
       role: "system",
       content: [
         {
           type: "input_text",
-          text: "Use a ferramenta de pesquisa na web UMA vez e então responda com um resumo objetivo (6 a 10 bullets) + fontes (3 a 6 links) no fim. Seja direto.",
+          text:
+            "Gere um pequeno plano de pesquisa na web: 2 a 5 consultas curtas (strings) que maximizem a chance de achar dados oficiais/locais. " +
+            "Responda APENAS com JSON válido no formato: {\"queries\":[\"...\"]}. Sem Markdown.",
+        },
+      ],
+    },
+    { role: "user", content: [{ type: "input_text", text: base }] },
+  ];
+
+  for (const model of opts.modelCandidates) {
+    try {
+      const resp = await callOpenAiResponse(
+        {
+          model,
+          input,
+          text: { verbosity: "low" },
+          max_output_tokens: 200,
+        },
+        timeoutMs,
+      );
+      const json = await resp.json().catch(() => null);
+      if (!resp.ok) continue;
+      const text = collectOutputText(json);
+      const parsed = parseJsonFromAiContent(text).parsed as any;
+      const queries = Array.isArray(parsed?.queries) ? parsed.queries : [];
+      const cleaned = uniqueStrings(queries.map((q: any) => String(q || "").trim()).filter(Boolean)).slice(0, maxQueries);
+      if (cleaned.length) return cleaned;
+    } catch {
+      // ignore
+    }
+  }
+  return [] as string[];
+};
+
+const runWebSearchOnce = async (
+  query: string,
+  opts: { timeoutMs: number; modelCandidates: string[]; tools: string[]; contextSize: string },
+) => {
+  const timeoutMs = Math.max(1200, Math.min(Number(opts.timeoutMs || 8000), 30000));
+  const startedAt = Date.now();
+  const timeLeft = () => Math.max(0, timeoutMs - (Date.now() - startedAt));
+  const contextSize = normalizeWebContextSize(opts.contextSize);
+
+  const input = [
+    {
+      role: "system",
+      content: [
+        {
+          type: "input_text",
+          text:
+            "Você é um pesquisador web. Use a ferramenta de pesquisa UMA vez e então responda APENAS com JSON válido (sem Markdown) neste schema:\n" +
+            "{\n" +
+            '  "query": "…",\n' +
+            '  "key_facts": ["…"],\n' +
+            '  "entities": [{"name":"…","type":"company|sector|org|dataset|report","notes":"…","source_urls":["…"]}],\n' +
+            '  "sources": [{"title":"…","url":"…","publisher":"…","date":"…"}]\n' +
+            "}\n" +
+            "Regras: priorize fontes oficiais/primárias (órgãos públicos, concessionárias, estatísticas, relatórios setoriais). Extraia números e recortes geográficos quando existirem. Não invente.",
         },
       ],
     },
     { role: "user", content: [{ type: "input_text", text: query }] },
   ];
 
-  const startedAt = Date.now();
-  const timeLeft = () => Math.max(0, timeoutMs - (Date.now() - startedAt));
-
-  for (const tool of tools) {
-    for (const model of modelCandidates) {
+  for (const tool of opts.tools) {
+    for (const model of opts.modelCandidates) {
       const remaining = timeLeft();
       if (remaining < 900) return null;
       const perAttemptTimeout = Math.max(1200, Math.min(remaining, timeoutMs));
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), perAttemptTimeout);
-      try {
-        const resp = await fetch("https://api.openai.com/v1/responses", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${OPENAI_API_KEY}`,
-          },
-          signal: controller.signal,
-          body: JSON.stringify({
+
+      const toolVariants: any[] = [{ type: tool, search_context_size: contextSize }, { type: tool }];
+      for (const toolObj of toolVariants) {
+        try {
+          const resp = await callOpenAiResponse(
+            {
+              model,
+              input,
+              tools: [toolObj],
+              tool_choice: { type: tool },
+              max_tool_calls: 1,
+              text: { verbosity: "low" },
+              max_output_tokens: 1100,
+            },
+            perAttemptTimeout,
+          );
+          const json = await resp.json().catch(() => null);
+          if (!resp.ok) {
+            const msg = String(json?.error?.message || json?.message || "");
+            if (/search_context_size|unknown parameter|unsupported parameter/i.test(msg) && toolObj?.search_context_size) {
+              continue;
+            }
+            if (/tool|web_search|unknown|invalid/i.test(msg)) continue;
+            if (/model|not found|does not exist|access|permission|not authorized/i.test(msg)) continue;
+            continue;
+          }
+          const output = Array.isArray(json?.output) ? json.output : [];
+          const usedTool = output.some((o: any) => String(o?.type || "").toLowerCase().includes("web_search"));
+          if (!usedTool) continue;
+
+          const rawText = collectOutputText(json);
+          const parsed = parseJsonFromAiContent(rawText).parsed as any;
+          const toolSources = extractWebToolSources(json);
+          const sourcesFromJson = Array.isArray(parsed?.sources) ? parsed.sources : [];
+          const sources = uniqueStrings(
+            [
+              ...sourcesFromJson.map((s: any) => String(s?.url || "").trim()),
+              ...toolSources.map((s) => s.url),
+              ...extractUrlsFromText(rawText),
+            ].filter(Boolean),
+          )
+            .map((url) => {
+              const match = sourcesFromJson.find((s: any) => String(s?.url || "").trim() === url);
+              const title = match ? String(match?.title || "").trim() : toolSources.find((s) => s.url === url)?.title;
+              return title ? { title, url } : { url };
+            })
+            .slice(0, 18);
+
+          const keyFactsRaw = Array.isArray(parsed?.key_facts) ? parsed.key_facts : [];
+          const key_facts = keyFactsRaw.map((f: any) => String(f || "").trim()).filter(Boolean).slice(0, 14);
+
+          return {
             model,
-            input,
-            tools: [{ type: tool }],
-            tool_choice: { type: tool },
-            max_tool_calls: 1,
-            text: { verbosity: "low" },
-            max_output_tokens: 900,
-          }),
-        });
-        const json = await resp.json().catch(() => null);
-        if (!resp.ok) {
-          const msg = json?.error?.message || json?.message || "";
-          if (/tool|web_search|unknown|invalid/i.test(msg)) {
-            continue;
-          }
-          if (/model|not found|does not exist|access|permission|not authorized/i.test(msg)) {
-            continue;
-          }
-          return null;
+            tool,
+            query,
+            key_facts,
+            sources,
+            raw: rawText ? rawText.slice(0, 2400) : "",
+          };
+        } catch {
+          // ignore and try fallback
         }
-        const output = Array.isArray(json?.output) ? json.output : [];
-        const usedTool = output.some((o: any) => o?.type === "web_search_call");
-        if (!usedTool) continue;
-        const text = collectOutputText(json);
-        if (text) return { text, tool, model };
-      } catch {
-        // ignore and try fallback
-      } finally {
-        clearTimeout(timer);
       }
     }
   }
   return null;
+};
+
+const synthesizeWebBrief = async (
+  question: string,
+  research: any[],
+  opts: { timeoutMs: number; modelCandidates: string[] },
+) => {
+  const timeoutMs = Math.max(1200, Math.min(Number(opts.timeoutMs || 9000), 25000));
+  const compactResearch = research
+    .map((r) => ({
+      query: String(r?.query || "").slice(0, 220),
+      key_facts: Array.isArray(r?.key_facts) ? r.key_facts.slice(0, 12) : [],
+      sources: Array.isArray(r?.sources) ? r.sources.slice(0, 12) : [],
+    }))
+    .slice(0, 6);
+
+  const input = [
+    {
+      role: "system",
+      content: [
+        {
+          type: "input_text",
+          text:
+            "Você consolida pesquisa web para gerar um rascunho de resposta útil.\n" +
+            "Regras:\n" +
+            "- Use SOMENTE o que estiver nas notas de pesquisa e links.\n" +
+            "- Se a pergunta pedir ranking/dados locais e não houver ranking oficial, entregue a melhor aproximação possível (com critério explícito) e explique como validar.\n" +
+            "- Sempre inclua 'Fontes (web)' com links.\n" +
+            "Formato (texto livre):\n" +
+            "1) Resposta (rascunho)\n" +
+            "2) Observações / limitações\n" +
+            "3) Fontes (web)\n",
+        },
+      ],
+    },
+    {
+      role: "user",
+      content: [
+        {
+          type: "input_text",
+          text: `Pergunta do usuário:\n${String(question || "").trim()}\n\nNotas de pesquisa (JSON):\n${JSON.stringify(
+            { research: compactResearch },
+            null,
+            2,
+          )}`,
+        },
+      ],
+    },
+  ];
+
+  for (const model of opts.modelCandidates) {
+    try {
+      const resp = await callOpenAiResponse(
+        {
+          model,
+          input,
+          text: { verbosity: "low" },
+          max_output_tokens: 1200,
+        },
+        timeoutMs,
+      );
+      const json = await resp.json().catch(() => null);
+      if (!resp.ok) continue;
+      const text = collectOutputText(json);
+      if (text) return { text, model };
+    } catch {
+      // ignore
+    }
+  }
+  return null;
+};
+
+const fetchWebSearchSummary = async (query: string, opts?: { timeoutMs?: number }) => {
+  if (!OPENAI_API_KEY || !query) return null;
+  const timeoutMs = Math.max(1500, Math.min(Number(opts?.timeoutMs) || STUDYLAB_WEB_SEARCH_TIMEOUT_MS, 30000));
+  const startedAt = Date.now();
+  const timeLeft = () => Math.max(0, timeoutMs - (Date.now() - startedAt));
+
+  const normalized = normalizeForMatch(query);
+  const looksLikeDataQuery =
+    /\b(top|ranking|maiores|melhores|piores|lista|setores?|empresas?|consumo|energia|mwh|kwh|demanda|carga)\b/.test(
+      normalized,
+    ) && /\b(202\d|atual|hoje|agora|fonte|fontes|public)\b/.test(normalized);
+  const maxQueries = Math.max(1, Math.min(STUDYLAB_WEB_MAX_QUERIES, looksLikeDataQuery ? STUDYLAB_WEB_MAX_QUERIES : 2));
+
+  const tools = ["web_search", "web_search_preview"];
+  const fallbackModel = chooseModel(true);
+  const modelCandidates = pickStudyLabWebModels(fallbackModel);
+  const contextSize = normalizeWebContextSize(STUDYLAB_WEB_CONTEXT_SIZE);
+
+  // Optional: generate better sub-queries (adaptive). If it fails, fallback to heuristics.
+  const planned = timeLeft() > 2200
+    ? await planWebQueries(query, {
+        timeoutMs: Math.min(2500, Math.max(900, timeLeft() - 500)),
+        maxQueries: Math.max(2, maxQueries),
+        modelCandidates,
+      })
+    : [];
+
+  const heuristicQueries = (() => {
+    const out: string[] = [];
+    out.push(query);
+    if (/\b(sorocaba|regiao metropolitana|rms|sao paulo|sp)\b/.test(normalized)) {
+      out.push(`${query} dados oficiais`);
+      out.push(`${query} ibge seade aneel epe`);
+    } else {
+      out.push(`${query} fontes oficiais`);
+    }
+    if (/\b(consumo|energia|mwh|kwh|demanda|carga)\b/.test(normalized)) {
+      out.push(`${query} consumo de energia por setor`);
+      out.push(`${query} concessionaria distribuicao consumo por classe`);
+    }
+    return out;
+  })();
+
+  const queries = uniqueStrings([...planned, ...heuristicQueries]).slice(0, maxQueries);
+  const research: any[] = [];
+
+  for (const q of queries) {
+    const remaining = timeLeft();
+    if (remaining < 1400) break;
+    const perQueryTimeout = Math.max(1200, Math.min(remaining, Math.max(2000, Math.floor(timeoutMs / queries.length))));
+    const attempt = await runWebSearchOnce(q, {
+      timeoutMs: perQueryTimeout,
+      modelCandidates,
+      tools,
+      contextSize,
+    });
+    if (attempt) research.push(attempt);
+  }
+
+  if (!research.length) return null;
+
+  const synthTimeout = Math.min(12000, Math.max(1500, timeLeft() - 300));
+  const synthesis =
+    synthTimeout >= 1500 ? await synthesizeWebBrief(query, research, { timeoutMs: synthTimeout, modelCandidates }) : null;
+
+  const sources = uniqueStrings(
+    research.flatMap((r) => (Array.isArray(r?.sources) ? r.sources.map((s: any) => String(s?.url || "").trim()) : [])),
+  )
+    .filter(Boolean)
+    .slice(0, 16);
+
+  const fallbackText = (() => {
+    const facts = uniqueStrings(research.flatMap((r) => (Array.isArray(r?.key_facts) ? r.key_facts : []))).slice(0, 14);
+    const lines: string[] = [];
+    lines.push("Pesquisa web (notas):");
+    for (const f of facts) lines.push(`- ${String(f).trim()}`);
+    if (sources.length) {
+      lines.push("");
+      lines.push("Fontes (web):");
+      for (const u of sources) lines.push(`- ${u}`);
+    }
+    return lines.join("\n").trim();
+  })();
+
+  return {
+    text: synthesis?.text || fallbackText,
+    tool: research[0]?.tool,
+    model: synthesis?.model || research[0]?.model,
+    queries,
+    sources,
+  };
 };
 
 const normalizeHashtagTag = (raw: string) => {
@@ -1651,6 +1955,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           : langIsEn
             ? "\n\nMode: Auto (balanced). Balance speed and completeness with a practical checklist."
             : "\n\nModo: Auto (equilibrado). Equilibre rapidez e completude com um checklist prático.";
+    const webHint =
+      use_web && mode === "chat"
+        ? langIsEn
+          ? "\n\nWeb research: if a web research summary is provided above, treat it as evidence, incorporate it, and ALWAYS include a 'Sources (web)' section with the links you used. Do not say you cannot browse."
+          : "\n\nPesquisa web: se existir um resumo de pesquisa web acima, trate como evidência, use-o e SEMPRE inclua uma seção 'Fontes (web)' com os links utilizados. Não diga que “não tem acesso à web”."
+        : "";
     const system =
       mode === "oracle"
         ? langIsEn
@@ -1698,10 +2008,11 @@ Responda em ${language}.`
 
 	Rules:
 	- Use general knowledge and good judgment. If something depends on missing context, ask up to 2 clarifying questions.
-	- If the user asks for public sources/links and a web summary is provided above, use it and cite the links. If no web summary is present, still answer with best-effort assumptions and explain how to validate (do NOT claim you cannot browse the web).
+	- If a web research summary is provided above, use it and cite the links. If no web summary is present, still answer with best-effort assumptions and explain how to validate (do NOT claim you cannot browse the web).
 	- If attachments are provided, use them as primary context.
 	- Do NOT invent specific internal facts (IDs, exact procedures, manufacturer specs) that are not provided. If unsure, say so and suggest how to verify.
 	${qualityHint}
+	${webHint}
 	${imageHint}
 	${focusHint}
 
@@ -1710,10 +2021,11 @@ Output: plain text (no JSON). Answer in ${language}.`
 
 	Regras:
 	- Use conhecimento geral e bom senso. Se algo depender de contexto faltando, faça no máximo 2 perguntas de esclarecimento.
-	- Se o usuário pedir fontes/links públicos e existir um resumo de pesquisa web acima, use-o e cite os links. Se não existir resumo web, ainda assim responda com estimativas/suposições e diga como validar (NÃO diga que “não tem acesso à web”).
+	- Se existir um resumo de pesquisa web acima, use-o e cite os links. Se não existir resumo web, ainda assim responda com estimativas/suposições e diga como validar (NÃO diga que “não tem acesso à web”).
 	- Se houver anexos, use-os como contexto principal.
 	- NÃO invente fatos internos específicos (IDs, procedimentos exatos, especificações de fabricante) que não foram fornecidos. Se não tiver certeza, diga e sugira como validar.
 	${qualityHint}
+	${webHint}
 	${imageHint}
 	${focusHint}
 
@@ -2324,7 +2636,7 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
         usedWebSummary = true;
         openaiMessages.push({
           role: "system",
-          content: `Pesquisa web automatica (resumo):\n${webSummary.text}`,
+          content: `Pesquisa web (consolidado):\n${webSummary.text}`,
         });
       }
     }
