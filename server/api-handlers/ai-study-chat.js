@@ -9,6 +9,7 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
 const STUDYLAB_DEFAULT_CHAT_MODEL = "gpt-5-nano-2025-08-07";
+const STUDYLAB_DEFAULT_WEB_MODEL = "gpt-4o-search-preview-2025-03-11";
 const STUDYLAB_MAX_COMPLETION_TOKENS = Math.max(
   240,
   Math.min(2000, Number(process.env.STUDYLAB_MAX_COMPLETION_TOKENS || 700))
@@ -30,10 +31,6 @@ const STUDYLAB_INLINE_IMAGE_BYTES = Math.max(
 const OPENAI_MODEL_STUDYLAB_CHAT = normalizeChatModel(process.env.OPENAI_MODEL_STUDYLAB_CHAT || "", STUDYLAB_DEFAULT_CHAT_MODEL);
 const OPENAI_MODEL_STUDYLAB_INGEST = normalizeChatModel(process.env.OPENAI_MODEL_STUDYLAB_INGEST || "", "gpt-4.1-mini");
 const OPENAI_MODEL_STUDYLAB_EMBEDDINGS = process.env.OPENAI_MODEL_STUDYLAB_EMBEDDINGS || "text-embedding-3-small";
-const STUDYLAB_DEFAULT_WEB_MODEL = normalizeChatModel(
-  process.env.OPENAI_MODEL_PREMIUM || process.env.OPENAI_MODEL_FAST || "",
-  "gpt-4o"
-);
 const OPENAI_MODEL_STUDYLAB_WEB = normalizeChatModel(process.env.OPENAI_MODEL_STUDYLAB_WEB || "", STUDYLAB_DEFAULT_WEB_MODEL);
 const STUDYLAB_WEB_MAX_QUERIES = Math.max(1, Math.min(6, Number(process.env.STUDYLAB_WEB_MAX_QUERIES || 3)));
 const STUDYLAB_WEB_CONTEXT_SIZE = String(process.env.STUDYLAB_WEB_CONTEXT_SIZE || "high").trim().toLowerCase();
@@ -504,6 +501,7 @@ const runWebSearchOnce = async (query, opts) => {
   const startedAt = Date.now();
   const timeLeft = () => Math.max(0, timeoutMs - (Date.now() - startedAt));
   const contextSize = normalizeWebContextSize(opts?.contextSize);
+  const isSearchPreviewModel = (model) => /search-preview/i.test(String(model || ""));
   const input = [
     {
       role: "system",
@@ -516,11 +514,69 @@ const runWebSearchOnce = async (query, opts) => {
     },
     { role: "user", content: [{ type: "input_text", text: query }] }
   ];
-  for (const tool of opts?.tools || []) {
-    for (const model of opts?.modelCandidates || []) {
-      const remaining = timeLeft();
-      if (remaining < 900) return null;
-      const perAttemptTimeout = Math.max(1200, Math.min(remaining, timeoutMs));
+  const buildResult = ({ model, tool = null, rawText, parsed, toolSources }) => {
+    const sourcesFromJson = Array.isArray(parsed?.sources) ? parsed.sources : [];
+    const urls = uniqueStrings(
+      [
+        ...sourcesFromJson.map((s) => String(s?.url || "").trim()),
+        ...(toolSources || []).map((s) => s.url),
+        ...extractUrlsFromText(rawText)
+      ].filter(Boolean)
+    ).slice(0, 18);
+    const sources = urls.map((url) => {
+      const match = sourcesFromJson.find((s) => String(s?.url || "").trim() === url);
+      const title = match ? String(match?.title || "").trim() : (toolSources || []).find((s) => s.url === url)?.title;
+      return title ? { title, url } : { url };
+    });
+    const keyFactsRaw = Array.isArray(parsed?.key_facts) ? parsed.key_facts : [];
+    const key_facts = keyFactsRaw.map((f) => String(f || "").trim()).filter(Boolean).slice(0, 14);
+    if (!sources.length) return null;
+    return {
+      model,
+      tool,
+      query,
+      key_facts,
+      sources,
+      raw: rawText ? rawText.slice(0, 2400) : ""
+    };
+  };
+  for (const model of opts?.modelCandidates || []) {
+    const remaining = timeLeft();
+    if (remaining < 900) return null;
+    const perAttemptTimeout = Math.max(1200, Math.min(remaining, timeoutMs));
+    if (isSearchPreviewModel(model) && perAttemptTimeout >= 1600) {
+      try {
+        const resp = await callOpenAiChatCompletion(
+          {
+            model,
+            input: [
+              {
+                role: "system",
+                content: [
+                  {
+                    type: "input_text",
+                    text: "Você tem capacidade de pesquisa web. Pesquise e responda APENAS com JSON válido no schema pedido. Inclua 'sources' com URLs reais e preferencialmente oficiais. Não invente."
+                  }
+                ]
+              },
+              { role: "user", content: [{ type: "input_text", text: query }] }
+            ],
+            text: { verbosity: "low" },
+            max_output_tokens: 1100
+          },
+          perAttemptTimeout
+        );
+        const json = await resp.json().catch(() => null);
+        if (resp.ok) {
+          const rawText = collectOutputText(json);
+          const parsed = parseJsonFromAiContent(rawText).parsed;
+          const result = buildResult({ model, tool: null, rawText, parsed, toolSources: [] });
+          if (result) return result;
+        }
+      } catch {
+      }
+    }
+    for (const tool of opts?.tools || []) {
       const toolVariants = [{ type: tool, search_context_size: contextSize }, { type: tool }];
       for (const toolObj of toolVariants) {
         try {
@@ -552,28 +608,8 @@ const runWebSearchOnce = async (query, opts) => {
           const rawText = collectOutputText(json);
           const parsed = parseJsonFromAiContent(rawText).parsed;
           const toolSources = extractWebToolSources(json);
-          const sourcesFromJson = Array.isArray(parsed?.sources) ? parsed.sources : [];
-          const sources = uniqueStrings(
-            [
-              ...sourcesFromJson.map((s) => String(s?.url || "").trim()),
-              ...toolSources.map((s) => s.url),
-              ...extractUrlsFromText(rawText)
-            ].filter(Boolean)
-          ).map((url) => {
-            const match = sourcesFromJson.find((s) => String(s?.url || "").trim() === url);
-            const title = match ? String(match?.title || "").trim() : toolSources.find((s) => s.url === url)?.title;
-            return title ? { title, url } : { url };
-          }).slice(0, 18);
-          const keyFactsRaw = Array.isArray(parsed?.key_facts) ? parsed.key_facts : [];
-          const key_facts = keyFactsRaw.map((f) => String(f || "").trim()).filter(Boolean).slice(0, 14);
-          return {
-            model,
-            tool,
-            query,
-            key_facts,
-            sources,
-            raw: rawText ? rawText.slice(0, 2400) : ""
-          };
+          const result = buildResult({ model, tool, rawText, parsed, toolSources });
+          if (result) return result;
         } catch {
         }
       }
@@ -634,7 +670,11 @@ const fetchWebSearchSummary = async (query, opts) => {
   const startedAt = Date.now();
   const timeLeft = () => Math.max(0, timeoutMs - (Date.now() - startedAt));
   const normalized = normalizeForMatch(query);
-  const looksLikeDataQuery = /\b(top|ranking|maiores|melhores|piores|lista|setores?|empresas?|consumo|energia|mwh|kwh|demanda|carga)\b/.test(normalized) && /\b(202\\d|atual|hoje|agora|fonte|fontes|public)\b/.test(normalized);
+  const wantsRanking = /\b(top|ranking|maiores|melhores|piores|lista)\b/.test(normalized);
+  const wantsEntities = /\b(setores?|empresas?|negocios?)\b/.test(normalized);
+  const wantsEnergy = /\b(consumo|energia|mwh|kwh|demanda|carga)\b/.test(normalized);
+  const looksLocal = /\b(sorocaba|regiao metropolitana|rms|sao paulo|sp)\b/.test(normalized);
+  const looksLikeDataQuery = wantsRanking && wantsEntities && wantsEnergy && looksLocal;
   const maxQueries = Math.max(1, Math.min(STUDYLAB_WEB_MAX_QUERIES, looksLikeDataQuery ? STUDYLAB_WEB_MAX_QUERIES : 2));
   const tools = ["web_search", "web_search_preview"];
   const fallbackModel = chooseModel(true);
@@ -930,6 +970,7 @@ async function handler(req, res) {
     let sourceRow = null;
     let lastUserText = "";
     let usedWebSummary = false;
+    let attemptedWebSummary = false;
     let oracleBestScore = 0;
     let usedOracleSourcesCount = 0;
     let usedOracleCompendiumCount = 0;
@@ -1558,7 +1599,7 @@ Foco do usuário (temas da base de conhecimento): ${forumKbFocus}
     const langIsEn = String(language || "").toLowerCase().startsWith("en");
     const imageHint = includeImagesInPrompt ? langIsEn ? "\n\nIf images are attached, identify the object/equipment and extract visible nameplate fields (manufacturer, model, serial, ratings). Only state what you can see; if a field is unreadable, say so." : "\n\nSe houver imagens anexadas, identifique o objeto/equipamento e extraia os campos visíveis da placa (fabricante, modelo, nº de série, tensões/correntes/potência). Só afirme o que estiver visível; se algo estiver ilegível, diga que não dá para ler." : "";
     const qualityHint = qualityKey === "thinking" ? langIsEn ? "\n\nMode: Thinking (more detail). Provide a complete, structured answer, but avoid repetition." : "\n\nModo: Thinking (mais detalhado). Entregue uma resposta completa e estruturada, evitando repetição." : qualityKey === "instant" ? langIsEn ? "\n\nMode: Instant (fast). Keep it short and practical: direct answer + checklist. Do not ramble." : "\n\nModo: Instant (rápido). Seja curto e prático: resposta direta + checklist. Não se estenda." : langIsEn ? "\n\nMode: Auto (balanced). Balance speed and completeness with a practical checklist." : "\n\nModo: Auto (equilibrado). Equilibre rapidez e completude com um checklist prático.";
-    const webHint = use_web && mode === "chat" ? langIsEn ? "\n\nWeb research: if a web research summary is provided above, treat it as evidence, incorporate it, and ALWAYS include a 'Sources (web)' section with the links you used. Do not say you cannot browse." : "\n\nPesquisa web: se existir um resumo de pesquisa web acima, trate como evidência, use-o e SEMPRE inclua uma seção 'Fontes (web)' com os links utilizados. Não diga que “não tem acesso à web”." : "";
+    const webHint = use_web && mode === "chat" ? langIsEn ? "\n\nWeb research: if a web research summary is provided above, treat it as evidence and use it.\n- If the question asks for a ranking/top list (e.g., “Top 5 sectors and 3 companies each”), DELIVER the list.\n- If there is no official public ranking, give the best proxy-based approximation and be explicit about criteria/limits.\n- Always include a 'Sources (web)' section with the links used.\n- Do not say you cannot browse." : "\n\nPesquisa web: se existir um resumo de pesquisa web acima, trate como evidência e use-o.\n- Se a pergunta pedir ranking/top/lista (ex.: “Top 5 setores e 3 empresas em cada”), ENTREGUE a lista.\n- Se não existir ranking oficial público, faça a melhor aproximação possível (proxy) e deixe claro o critério/limitações.\n- Sempre inclua uma seção 'Fontes (web)' com os links utilizados.\n- Não diga que “não tem acesso à web”." : "";
     const system = mode === "oracle" ? langIsEn ? `You are DJT Quest's Knowledge Catalog and training monitor.
 You help collaborators find answers using the available internal base (published org catalog + the user's materials + approved compendium). When the base is insufficient, rely on the automated web summary (when present).
 
@@ -2108,6 +2149,7 @@ ${context}`
 	    })();
 	    const shouldSearchWeb = webAllowed && lastUserText && ((mode === "oracle" && (userRequestedWeb || oracleBestScore < 2)) || mode === "chat" && (userRequestedWeb || autoWebInChat));
 	    if (shouldSearchWeb) {
+	      attemptedWebSummary = true;
 	      const webTimeout = Math.min(STUDYLAB_WEB_SEARCH_TIMEOUT_MS, Math.max(1500, timeLeftMs() - WEB_RESERVE_FOR_OPENAI_MS));
 	      const webSummary = await fetchWebSearchSummary(lastUserText, { timeoutMs: webTimeout });
       if (webSummary?.text) {
@@ -2154,7 +2196,7 @@ ${webSummary.text}`
       if (lastUser) systems.push(lastUser);
       return systems.length ? systems : openaiMessages;
     })();
-    const preferPremium = qualityKey === "thinking" || mode === "oracle" || usedWebSummary || includeImagesInPrompt && qualityKey !== "instant" || sourceRow && String(sourceRow.scope || "").toLowerCase() === "org" && sourceRow.published !== false;
+    const preferPremium = qualityKey === "thinking" || mode === "oracle" || usedWebSummary || attemptedWebSummary || includeImagesInPrompt && qualityKey !== "instant" || sourceRow && String(sourceRow.scope || "").toLowerCase() === "org" && sourceRow.published !== false;
     const fallbackModel = chooseModel(preferPremium);
     const baseCandidates = pickStudyLabChatModels(fallbackModel);
     const modelCandidates = (() => {
@@ -2172,10 +2214,13 @@ ${webSummary.text}`
       }
       return baseCandidates;
     })();
-    let maxTokensBase = qualityKey === "thinking" ? Math.max(STUDYLAB_MAX_COMPLETION_TOKENS, 1200) : usedWebSummary ? Math.max(STUDYLAB_MAX_COMPLETION_TOKENS, 900) : STUDYLAB_MAX_COMPLETION_TOKENS;
+    let maxTokensBase = qualityKey === "thinking" ? Math.max(STUDYLAB_MAX_COMPLETION_TOKENS, 1200) : usedWebSummary || attemptedWebSummary ? Math.max(STUDYLAB_MAX_COMPLETION_TOKENS, 900) : STUDYLAB_MAX_COMPLETION_TOKENS;
     if (mode === "oracle") {
       const oracleFloor = qualityKey === "thinking" ? 1800 : qualityKey === "auto" ? 1400 : 1200;
       maxTokensBase = Math.max(maxTokensBase, oracleFloor);
+    }
+    if (mode === "chat" && attemptedWebSummary && qualityKey !== "instant") {
+      maxTokensBase = Math.max(maxTokensBase, 1200);
     }
     let usedMaxTokens = maxTokensBase;
     let content = "";
@@ -2186,10 +2231,10 @@ ${webSummary.text}`
     let forceTextOnly = false;
     let useMinimalPrompt = false;
     let finalIncompleteReason = null;
-    const verbosity = qualityKey === "instant" ? "low" : mode === "oracle" || usedWebSummary || includeImagesInPrompt ? "medium" : "low";
+    const verbosity = qualityKey === "instant" ? "low" : mode === "oracle" || usedWebSummary || attemptedWebSummary || includeImagesInPrompt ? "medium" : "low";
     const reasoningEffort = qualityKey === "thinking" ? "medium" : "low";
     let sendReasoningEffort = true;
-    const maxOutputCap = qualityKey === "thinking" ? 2000 : qualityKey === "instant" ? 1400 : 1800;
+    const maxOutputCap = qualityKey === "thinking" ? 2000 : qualityKey === "instant" ? 1400 : attemptedWebSummary ? 2200 : 1800;
     for (const model of modelCandidates) {
       let modelMaxTokens = maxTokensBase;
       for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -2246,17 +2291,18 @@ ${webSummary.text}`
         }
         const data = await resp.json().catch(() => null);
         const incompleteReason = data?.incomplete_details?.reason;
-        content = String(collectOutputText(data) || extractChatText(data) || "").trim();
-        if (content) {
-          usedModel = model;
-          usedMaxTokens = modelMaxTokens;
-          finalIncompleteReason = incompleteReason || null;
-          break;
-        }
+        const candidateContent = String(collectOutputText(data) || extractChatText(data) || "").trim();
         if (incompleteReason === "max_output_tokens" && modelMaxTokens < maxOutputCap) {
           modelMaxTokens = Math.min(modelMaxTokens + 480, maxOutputCap);
           lastErrTxt = "OpenAI retornou resposta truncada";
           continue;
+        }
+        if (candidateContent) {
+          content = candidateContent;
+          usedModel = model;
+          usedMaxTokens = modelMaxTokens;
+          finalIncompleteReason = incompleteReason || null;
+          break;
         }
         if (!useMinimalPrompt && attempt === 0 && !usedWebSummary) {
           useMinimalPrompt = true;
@@ -2286,6 +2332,41 @@ ${webSummary.text}`
         }
       });
     }
+
+    let continued = false;
+    if (finalIncompleteReason === "max_output_tokens" && timeLeftMs() > 7e3) {
+      try {
+        const continuePrompt = langIsEn ? "Continue the previous answer EXACTLY from where it stopped. Do not repeat what was already said. Finish the requested output and keep a 'Sources (web)' section with links (if applicable)." : "Continue a resposta anterior EXATAMENTE de onde parou. Não repita o que já foi dito. Conclua a saída pedida e mantenha uma seção 'Fontes (web)' com links (se aplicável).";
+        const continueMessages = [
+          ...minimalOpenAiMessages,
+          { role: "assistant", content },
+          { role: "user", content: continuePrompt }
+        ];
+        const inputPayload = forceTextOnly ? toResponsesTextMessages(continueMessages) : toResponsesInputMessages(continueMessages);
+        const openAiTimeout = Math.max(5e3, Math.min(STUDYLAB_OPENAI_TIMEOUT_MS, timeLeftMs() - 1200));
+        const resp = await callOpenAiChatCompletion(
+          {
+            model: usedModel,
+            input: inputPayload,
+            text: { verbosity },
+            max_output_tokens: Math.min(900, maxOutputCap)
+          },
+          openAiTimeout
+        );
+        if (resp.ok) {
+          const data = await resp.json().catch(() => null);
+          const extra = String(collectOutputText(data) || extractChatText(data) || "").trim();
+          if (extra) {
+            content = `${content}\n\n${extra}`.trim();
+            continued = true;
+            const incompleteReason = data?.incomplete_details?.reason;
+            finalIncompleteReason = incompleteReason || finalIncompleteReason;
+          }
+        }
+      } catch {
+      }
+    }
+
     const isUuid = (value) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || "").trim());
     let resolvedSessionId = typeof session_id === "string" && session_id.trim() && isUuid(session_id.trim()) ? session_id.trim() : null;
     if (!resolvedSessionId) {
@@ -2436,6 +2517,7 @@ ${webSummary.text}`
         oracle_best_score: oracleBestScore,
         incomplete_reason: finalIncompleteReason,
         truncated: finalIncompleteReason === "max_output_tokens",
+        continued,
         attempts,
         timeout_ms: STUDYLAB_OPENAI_TIMEOUT_MS,
         max_output_tokens: usedMaxTokens,

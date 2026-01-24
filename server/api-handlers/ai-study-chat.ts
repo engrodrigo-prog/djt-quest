@@ -13,6 +13,7 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY as string;
 const SUPABASE_URL = process.env.SUPABASE_URL as string;
 const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY) as string;
 const STUDYLAB_DEFAULT_CHAT_MODEL = "gpt-5-nano-2025-08-07";
+const STUDYLAB_DEFAULT_WEB_MODEL = "gpt-4o-search-preview-2025-03-11";
 // Keep answers reasonably short to reduce latency and avoid timeouts.
 const STUDYLAB_MAX_COMPLETION_TOKENS = Math.max(
   240,
@@ -43,10 +44,6 @@ const OPENAI_MODEL_STUDYLAB_INGEST = normalizeChatModel(
 );
 const OPENAI_MODEL_STUDYLAB_EMBEDDINGS =
   (process.env.OPENAI_MODEL_STUDYLAB_EMBEDDINGS as string) || "text-embedding-3-small";
-const STUDYLAB_DEFAULT_WEB_MODEL = normalizeChatModel(
-  (process.env.OPENAI_MODEL_PREMIUM as string) || (process.env.OPENAI_MODEL_FAST as string) || "",
-  "gpt-4o",
-);
 const OPENAI_MODEL_STUDYLAB_WEB = normalizeChatModel(
   (process.env.OPENAI_MODEL_STUDYLAB_WEB as string) || "",
   STUDYLAB_DEFAULT_WEB_MODEL,
@@ -655,6 +652,7 @@ const runWebSearchOnce = async (
   const startedAt = Date.now();
   const timeLeft = () => Math.max(0, timeoutMs - (Date.now() - startedAt));
   const contextSize = normalizeWebContextSize(opts.contextSize);
+  const isSearchPreviewModel = (model: string) => /search-preview/i.test(String(model || ""));
 
   const input = [
     {
@@ -677,12 +675,80 @@ const runWebSearchOnce = async (
     { role: "user", content: [{ type: "input_text", text: query }] },
   ];
 
-  for (const tool of opts.tools) {
-    for (const model of opts.modelCandidates) {
-      const remaining = timeLeft();
-      if (remaining < 900) return null;
-      const perAttemptTimeout = Math.max(1200, Math.min(remaining, timeoutMs));
+  const buildResult = (
+    params: { model: string; tool?: string | null; rawText: string; parsed: any; toolSources: Array<{ title?: string; url: string }> },
+  ) => {
+    const sourcesFromJson = Array.isArray(params.parsed?.sources) ? params.parsed.sources : [];
+    const urls = uniqueStrings(
+      [
+        ...sourcesFromJson.map((s: any) => String(s?.url || "").trim()),
+        ...params.toolSources.map((s) => s.url),
+        ...extractUrlsFromText(params.rawText),
+      ].filter(Boolean),
+    ).slice(0, 18);
+    const sources = urls.map((url) => {
+      const match = sourcesFromJson.find((s: any) => String(s?.url || "").trim() === url);
+      const title = match ? String(match?.title || "").trim() : params.toolSources.find((s) => s.url === url)?.title;
+      return title ? { title, url } : { url };
+    });
 
+    const keyFactsRaw = Array.isArray(params.parsed?.key_facts) ? params.parsed.key_facts : [];
+    const key_facts = keyFactsRaw.map((f: any) => String(f || "").trim()).filter(Boolean).slice(0, 14);
+
+    if (!sources.length) return null;
+    return {
+      model: params.model,
+      tool: params.tool || null,
+      query,
+      key_facts,
+      sources,
+      raw: params.rawText ? params.rawText.slice(0, 2400) : "",
+    };
+  };
+
+  for (const model of opts.modelCandidates) {
+    const remaining = timeLeft();
+    if (remaining < 900) return null;
+    const perAttemptTimeout = Math.max(1200, Math.min(remaining, timeoutMs));
+
+    // Search-preview models can sometimes browse without an explicit web_search tool.
+    if (isSearchPreviewModel(model) && perAttemptTimeout >= 1600) {
+      try {
+        const resp = await callOpenAiResponse(
+          {
+            model,
+            input: [
+              {
+                role: "system",
+                content: [
+                  {
+                    type: "input_text",
+                    text:
+                      "Você tem capacidade de pesquisa web. Pesquise e responda APENAS com JSON válido no schema pedido. " +
+                      "Inclua 'sources' com URLs reais e preferencialmente oficiais. Não invente.",
+                  },
+                ],
+              },
+              { role: "user", content: [{ type: "input_text", text: query }] },
+            ],
+            text: { verbosity: "low" },
+            max_output_tokens: 1100,
+          },
+          perAttemptTimeout,
+        );
+        const json = await resp.json().catch(() => null);
+        if (resp.ok) {
+          const rawText = collectOutputText(json);
+          const parsed = parseJsonFromAiContent(rawText).parsed as any;
+          const result = buildResult({ model, tool: null, rawText, parsed, toolSources: [] });
+          if (result) return result;
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    for (const tool of opts.tools) {
       const toolVariants: any[] = [{ type: tool, search_context_size: contextSize }, { type: tool }];
       for (const toolObj of toolVariants) {
         try {
@@ -715,32 +781,8 @@ const runWebSearchOnce = async (
           const rawText = collectOutputText(json);
           const parsed = parseJsonFromAiContent(rawText).parsed as any;
           const toolSources = extractWebToolSources(json);
-          const sourcesFromJson = Array.isArray(parsed?.sources) ? parsed.sources : [];
-          const sources = uniqueStrings(
-            [
-              ...sourcesFromJson.map((s: any) => String(s?.url || "").trim()),
-              ...toolSources.map((s) => s.url),
-              ...extractUrlsFromText(rawText),
-            ].filter(Boolean),
-          )
-            .map((url) => {
-              const match = sourcesFromJson.find((s: any) => String(s?.url || "").trim() === url);
-              const title = match ? String(match?.title || "").trim() : toolSources.find((s) => s.url === url)?.title;
-              return title ? { title, url } : { url };
-            })
-            .slice(0, 18);
-
-          const keyFactsRaw = Array.isArray(parsed?.key_facts) ? parsed.key_facts : [];
-          const key_facts = keyFactsRaw.map((f: any) => String(f || "").trim()).filter(Boolean).slice(0, 14);
-
-          return {
-            model,
-            tool,
-            query,
-            key_facts,
-            sources,
-            raw: rawText ? rawText.slice(0, 2400) : "",
-          };
+          const result = buildResult({ model, tool, rawText, parsed, toolSources });
+          if (result) return result;
         } catch {
           // ignore and try fallback
         }
@@ -827,10 +869,11 @@ const fetchWebSearchSummary = async (query: string, opts?: { timeoutMs?: number 
   const timeLeft = () => Math.max(0, timeoutMs - (Date.now() - startedAt));
 
   const normalized = normalizeForMatch(query);
-  const looksLikeDataQuery =
-    /\b(top|ranking|maiores|melhores|piores|lista|setores?|empresas?|consumo|energia|mwh|kwh|demanda|carga)\b/.test(
-      normalized,
-    ) && /\b(202\d|atual|hoje|agora|fonte|fontes|public)\b/.test(normalized);
+  const wantsRanking = /\b(top|ranking|maiores|melhores|piores|lista)\b/.test(normalized);
+  const wantsEntities = /\b(setores?|empresas?|negocios?)\b/.test(normalized);
+  const wantsEnergy = /\b(consumo|energia|mwh|kwh|demanda|carga)\b/.test(normalized);
+  const looksLocal = /\b(sorocaba|regiao metropolitana|rms|sao paulo|sp)\b/.test(normalized);
+  const looksLikeDataQuery = wantsRanking && wantsEntities && wantsEnergy && looksLocal;
   const maxQueries = Math.max(1, Math.min(STUDYLAB_WEB_MAX_QUERIES, looksLikeDataQuery ? STUDYLAB_WEB_MAX_QUERIES : 2));
 
   const tools = ["web_search", "web_search_preview"];
@@ -1215,6 +1258,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     let sourceRow: any = null;
     let lastUserText = "";
     let usedWebSummary = false;
+    let attemptedWebSummary = false;
     let oracleBestScore = 0;
     let usedOracleSourcesCount = 0;
     let usedOracleCompendiumCount = 0;
@@ -1958,8 +2002,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const webHint =
       use_web && mode === "chat"
         ? langIsEn
-          ? "\n\nWeb research: if a web research summary is provided above, treat it as evidence, incorporate it, and ALWAYS include a 'Sources (web)' section with the links you used. Do not say you cannot browse."
-          : "\n\nPesquisa web: se existir um resumo de pesquisa web acima, trate como evidência, use-o e SEMPRE inclua uma seção 'Fontes (web)' com os links utilizados. Não diga que “não tem acesso à web”."
+          ? "\n\nWeb research: if a web research summary is provided above, treat it as evidence and use it.\n- If the question asks for a ranking/top list (e.g., “Top 5 sectors and 3 companies each”), DELIVER the list.\n- If there is no official public ranking, give the best proxy-based approximation and be explicit about criteria/limits.\n- Always include a 'Sources (web)' section with the links used.\n- Do not say you cannot browse."
+          : "\n\nPesquisa web: se existir um resumo de pesquisa web acima, trate como evidência e use-o.\n- Se a pergunta pedir ranking/top/lista (ex.: “Top 5 setores e 3 empresas em cada”), ENTREGUE a lista.\n- Se não existir ranking oficial público, faça a melhor aproximação possível (proxy) e deixe claro o critério/limitações.\n- Sempre inclua uma seção 'Fontes (web)' com os links utilizados.\n- Não diga que “não tem acesso à web”."
         : "";
     const system =
       mode === "oracle"
@@ -2627,6 +2671,7 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
 	      ((mode === "oracle" && (userRequestedWeb || oracleBestScore < 2)) ||
 	        (mode === "chat" && (userRequestedWeb || autoWebInChat)));
 	    if (shouldSearchWeb) {
+	      attemptedWebSummary = true;
 	      const webTimeout = Math.min(
 	        STUDYLAB_WEB_SEARCH_TIMEOUT_MS,
 	        Math.max(1500, timeLeftMs() - WEB_RESERVE_FOR_OPENAI_MS),
@@ -2701,6 +2746,7 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
 	      qualityKey === "thinking" ||
 	      mode === "oracle" ||
 	      usedWebSummary ||
+	      attemptedWebSummary ||
 	      (includeImagesInPrompt && qualityKey !== "instant") ||
 	      (sourceRow && String(sourceRow.scope || "").toLowerCase() === "org" && sourceRow.published !== false);
 	    const fallbackModel = chooseModel(preferPremium);
@@ -2723,13 +2769,16 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
 	    let maxTokensBase =
 	      qualityKey === "thinking"
 	        ? Math.max(STUDYLAB_MAX_COMPLETION_TOKENS, 1200)
-	        : usedWebSummary
+	        : usedWebSummary || attemptedWebSummary
 	          ? Math.max(STUDYLAB_MAX_COMPLETION_TOKENS, 900)
 	          : STUDYLAB_MAX_COMPLETION_TOKENS;
     if (mode === "oracle") {
       const oracleFloor =
         qualityKey === "thinking" ? 1800 : qualityKey === "auto" ? 1400 : 1200;
       maxTokensBase = Math.max(maxTokensBase, oracleFloor);
+    }
+    if (mode === "chat" && attemptedWebSummary && qualityKey !== "instant") {
+      maxTokensBase = Math.max(maxTokensBase, 1200);
     }
     let usedMaxTokens = maxTokensBase;
 
@@ -2744,13 +2793,13 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
 	    const verbosity =
 	      qualityKey === "instant"
 	        ? "low"
-	        : mode === "oracle" || usedWebSummary || includeImagesInPrompt
+	        : mode === "oracle" || usedWebSummary || attemptedWebSummary || includeImagesInPrompt
 	          ? "medium"
 	          : "low";
 	    const reasoningEffort = qualityKey === "thinking" ? "medium" : "low";
 	    let sendReasoningEffort = true;
 	    const maxOutputCap =
-	      qualityKey === "thinking" ? 2000 : qualityKey === "instant" ? 1400 : 1800;
+	      qualityKey === "thinking" ? 2000 : qualityKey === "instant" ? 1400 : attemptedWebSummary ? 2200 : 1800;
 
     for (const model of modelCandidates) {
       let modelMaxTokens = maxTokensBase;
@@ -2818,17 +2867,18 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
 
         const data = await resp.json().catch(() => null);
         const incompleteReason = data?.incomplete_details?.reason;
-        content = String(collectOutputText(data) || extractChatText(data) || "").trim();
-        if (content) {
-          usedModel = model;
-          usedMaxTokens = modelMaxTokens;
-          finalIncompleteReason = incompleteReason || null;
-          break;
-        }
+        const candidateContent = String(collectOutputText(data) || extractChatText(data) || "").trim();
         if (incompleteReason === "max_output_tokens" && modelMaxTokens < maxOutputCap) {
           modelMaxTokens = Math.min(modelMaxTokens + 480, maxOutputCap);
           lastErrTxt = "OpenAI retornou resposta truncada";
           continue;
+        }
+        if (candidateContent) {
+          content = candidateContent;
+          usedModel = model;
+          usedMaxTokens = modelMaxTokens;
+          finalIncompleteReason = incompleteReason || null;
+          break;
         }
 	        if (!useMinimalPrompt && attempt === 0 && !usedWebSummary) {
 	          useMinimalPrompt = true;
@@ -2859,6 +2909,45 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
           latency_ms: Date.now() - t0,
         },
       });
+    }
+
+    let continued = false;
+    if (finalIncompleteReason === "max_output_tokens" && timeLeftMs() > 7000) {
+      try {
+        const continuePrompt = langIsEn
+          ? "Continue the previous answer EXACTLY from where it stopped. Do not repeat what was already said. Finish the requested output and keep a 'Sources (web)' section with links (if applicable)."
+          : "Continue a resposta anterior EXATAMENTE de onde parou. Não repita o que já foi dito. Conclua a saída pedida e mantenha uma seção 'Fontes (web)' com links (se aplicável).";
+        const continueMessages = [
+          ...minimalOpenAiMessages,
+          { role: "assistant", content },
+          { role: "user", content: continuePrompt },
+        ];
+        const inputPayload = forceTextOnly
+          ? toResponsesTextMessages(continueMessages)
+          : toResponsesInputMessages(continueMessages);
+        const openAiTimeout = Math.max(5000, Math.min(STUDYLAB_OPENAI_TIMEOUT_MS, timeLeftMs() - 1200));
+        const resp = await callOpenAiResponse(
+          {
+            model: usedModel,
+            input: inputPayload,
+            text: { verbosity },
+            max_output_tokens: Math.min(900, maxOutputCap),
+          },
+          openAiTimeout,
+        );
+        if (resp.ok) {
+          const data = await resp.json().catch(() => null);
+          const extra = String(collectOutputText(data) || extractChatText(data) || "").trim();
+          if (extra) {
+            content = `${content}\n\n${extra}`.trim();
+            continued = true;
+            const incompleteReason = data?.incomplete_details?.reason;
+            finalIncompleteReason = incompleteReason || finalIncompleteReason;
+          }
+        }
+      } catch {
+        // ignore
+      }
     }
 
     const isUuid = (value: string) =>
@@ -3049,6 +3138,7 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
         oracle_best_score: oracleBestScore,
         incomplete_reason: finalIncompleteReason,
         truncated: finalIncompleteReason === "max_output_tokens",
+        continued,
         attempts,
         timeout_ms: STUDYLAB_OPENAI_TIMEOUT_MS,
         max_output_tokens: usedMaxTokens,
