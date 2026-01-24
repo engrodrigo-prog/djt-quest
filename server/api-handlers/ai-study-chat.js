@@ -570,7 +570,7 @@ const runWebSearchOnce = async (query, opts) => {
     const remaining = timeLeft();
     if (remaining < 900) return null;
     const perAttemptTimeout = Math.max(1200, Math.min(remaining, timeoutMs));
-    const webVerbosity = /^gpt-4\.1/i.test(String(model || "")) ? "medium" : "low";
+    const webVerbosity = "medium";
     if (isSearchPreviewModel(model) && perAttemptTimeout >= 1600) {
       const attemptT0 = Date.now();
       try {
@@ -2416,16 +2416,22 @@ ${context}`
         const incompleteReason = data?.incomplete_details?.reason;
         const candidateContent = String(collectOutputText(data) || extractChatText(data) || "").trim();
         if (candidateContent) {
+          if (incompleteReason === "max_output_tokens" && modelMaxTokens < maxOutputCap) {
+            if (!content || candidateContent.length > content.length) {
+              content = candidateContent;
+              usedModel = model;
+              usedMaxTokens = modelMaxTokens;
+              finalIncompleteReason = incompleteReason || null;
+            }
+            modelMaxTokens = Math.min(modelMaxTokens + 480, maxOutputCap);
+            lastErrTxt = "OpenAI retornou resposta truncada";
+            continue;
+          }
           content = candidateContent;
           usedModel = model;
           usedMaxTokens = modelMaxTokens;
           finalIncompleteReason = incompleteReason || null;
           break;
-        }
-        if (incompleteReason === "max_output_tokens" && modelMaxTokens < maxOutputCap) {
-          modelMaxTokens = Math.min(modelMaxTokens + 480, maxOutputCap);
-          lastErrTxt = "OpenAI retornou resposta truncada";
-          continue;
         }
         if (!useMinimalPrompt && attempt === 0 && !usedWebSummary) {
           useMinimalPrompt = true;

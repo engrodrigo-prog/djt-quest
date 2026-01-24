@@ -743,7 +743,7 @@ const runWebSearchOnce = async (
     const remaining = timeLeft();
     if (remaining < 900) return null;
     const perAttemptTimeout = Math.max(1200, Math.min(remaining, timeoutMs));
-    const webVerbosity = /^gpt-4\.1/i.test(String(model || "")) ? "medium" : "low";
+    const webVerbosity = "medium";
 
 	    // Search-preview models can sometimes browse without an explicit web_search tool.
 	    if (isSearchPreviewModel(model) && perAttemptTimeout >= 1600) {
@@ -2992,21 +2992,27 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
 	          break;
 	        }
 
-        const data = await resp.json().catch(() => null);
-        const incompleteReason = data?.incomplete_details?.reason;
-        const candidateContent = String(collectOutputText(data) || extractChatText(data) || "").trim();
-        if (candidateContent) {
-          content = candidateContent;
-          usedModel = model;
-          usedMaxTokens = modelMaxTokens;
-          finalIncompleteReason = incompleteReason || null;
-          break;
-        }
-        if (incompleteReason === "max_output_tokens" && modelMaxTokens < maxOutputCap) {
-          modelMaxTokens = Math.min(modelMaxTokens + 480, maxOutputCap);
-          lastErrTxt = "OpenAI retornou resposta truncada";
-          continue;
-        }
+	        const data = await resp.json().catch(() => null);
+	        const incompleteReason = data?.incomplete_details?.reason;
+	        const candidateContent = String(collectOutputText(data) || extractChatText(data) || "").trim();
+	        if (candidateContent) {
+	          if (incompleteReason === "max_output_tokens" && modelMaxTokens < maxOutputCap) {
+	            if (!content || candidateContent.length > content.length) {
+	              content = candidateContent;
+	              usedModel = model;
+	              usedMaxTokens = modelMaxTokens;
+	              finalIncompleteReason = incompleteReason || null;
+	            }
+	            modelMaxTokens = Math.min(modelMaxTokens + 480, maxOutputCap);
+	            lastErrTxt = "OpenAI retornou resposta truncada";
+	            continue;
+	          }
+	          content = candidateContent;
+	          usedModel = model;
+	          usedMaxTokens = modelMaxTokens;
+	          finalIncompleteReason = incompleteReason || null;
+	          break;
+	        }
 	        if (!useMinimalPrompt && attempt === 0 && !usedWebSummary) {
 	          useMinimalPrompt = true;
 	          lastErrTxt = "OpenAI retornou resposta vazia";
