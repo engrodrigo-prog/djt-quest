@@ -167,15 +167,14 @@ Retorne APENAS JSON válido: {"strings": ["...","..."]} mantendo o mesmo número
       },
       body: JSON.stringify({
         model,
-        input: [
-          { role: "system", content: [{ type: "input_text", text: system }] },
-          { role: "user", content: [{ type: "input_text", text: user.content }] }
-        ],
-        text: { verbosity: "low" },
-        reasoning: { effort: "low" },
-        max_output_tokens: 1200
-      })
-    });
+	        input: [
+	          { role: "system", content: [{ type: "input_text", text: system }] },
+	          { role: "user", content: [{ type: "input_text", text: user.content }] }
+	        ],
+	        text: { verbosity: "low" },
+	        max_output_tokens: 1200
+	      })
+	    });
     if (!resp.ok) return { output: inputStrings };
     const json = await resp.json().catch(() => null);
     content = collectOutputText(json) || "";
@@ -260,15 +259,14 @@ Retorne APENAS JSON válido: {"strings": ["...","..."]} mantendo o mesmo número
       },
       body: JSON.stringify({
         model,
-        input: [
-          { role: "system", content: [{ type: "input_text", text: system }] },
-          { role: "user", content: [{ type: "input_text", text: user.content }] }
-        ],
-        text: { verbosity: "low" },
-        reasoning: { effort: "low" },
-        max_output_tokens: 1400
-      })
-    });
+	        input: [
+	          { role: "system", content: [{ type: "input_text", text: system }] },
+	          { role: "user", content: [{ type: "input_text", text: user.content }] }
+	        ],
+	        text: { verbosity: "low" },
+	        max_output_tokens: 1400
+	      })
+	    });
     if (!resp.ok) return { output: inputStrings };
     const json = await resp.json().catch(() => null);
     content = collectOutputText(json) || "";

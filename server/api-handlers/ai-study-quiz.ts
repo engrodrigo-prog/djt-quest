@@ -363,13 +363,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               model,
               input,
               tools: [{ type: tool }],
-              tool_choice: { type: tool },
-              max_tool_calls: 1,
-              text: { verbosity: "low" },
-              reasoning: { effort: "low" },
-              max_output_tokens: 900,
-            }),
-          });
+	              tool_choice: { type: tool },
+	              max_tool_calls: 1,
+	              text: { verbosity: "low" },
+	              max_output_tokens: 900,
+	            }),
+	          });
           const json = await resp.json().catch(() => null);
           if (!resp.ok) {
             const msg = json?.error?.message || json?.message || "";

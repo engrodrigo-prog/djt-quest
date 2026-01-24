@@ -380,6 +380,22 @@ const callOpenAiResponse = async (payload: any, timeoutMs?: number) => {
   }
 };
 
+const isUnsupportedReasoningEffortError = (raw: unknown) => {
+  const txt = String(raw || "");
+  if (!txt) return false;
+  try {
+    const json = JSON.parse(txt);
+    const code = json?.error?.code || json?.code || "";
+    const param = json?.error?.param || json?.param || "";
+    if (String(code) === "unsupported_parameter" && String(param) === "reasoning.effort") return true;
+    const msg = json?.error?.message || json?.message || "";
+    if (typeof msg === "string" && /reasoning\\.effort/i.test(msg) && /unsupported/i.test(msg)) return true;
+  } catch {
+    // ignore
+  }
+  return /reasoning\\.effort/i.test(txt) && /(unsupported_parameter|unsupported parameter)/i.test(txt);
+};
+
 const normalizeForMatch = (raw: string) =>
   String(raw || "")
     .toLowerCase()
@@ -556,7 +572,6 @@ const fetchWebSearchSummary = async (query: string, opts?: { timeoutMs?: number 
           tool_choice: { type: tool },
           max_tool_calls: 1,
           text: { verbosity: "low" },
-          reasoning: { effort: "low" },
           max_output_tokens: 900,
         }),
       });
@@ -2378,12 +2393,13 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
     let aborted = false;
     let attempts = 0;
     let forceTextOnly = false;
-    let useMinimalPrompt = false;
-    let finalIncompleteReason: string | null = null;
-    const verbosity = qualityKey === "instant" ? "low" : mode === "oracle" || useWeb || includeImagesInPrompt ? "medium" : "low";
-    const reasoningEffort = qualityKey === "thinking" ? "medium" : "low";
-    const maxOutputCap =
-      qualityKey === "thinking" ? 2000 : qualityKey === "instant" ? 1400 : 1800;
+	    let useMinimalPrompt = false;
+	    let finalIncompleteReason: string | null = null;
+	    const verbosity = qualityKey === "instant" ? "low" : mode === "oracle" || useWeb || includeImagesInPrompt ? "medium" : "low";
+	    const reasoningEffort = qualityKey === "thinking" ? "medium" : "low";
+	    let sendReasoningEffort = true;
+	    const maxOutputCap =
+	      qualityKey === "thinking" ? 2000 : qualityKey === "instant" ? 1400 : 1800;
 
     for (const model of modelCandidates) {
       let modelMaxTokens = maxTokensBase;
@@ -2397,21 +2413,37 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
           const inputPayload = forceTextOnly
             ? toResponsesTextMessages(promptMessages)
             : toResponsesInputMessages(promptMessages);
-          const openAiTimeout = Math.max(
-            5000,
-            Math.min(STUDYLAB_OPENAI_TIMEOUT_MS, timeLeftMs() - 1200),
-          );
-          resp = await callOpenAiResponse({
-            model,
-            input: inputPayload,
-            text: { verbosity },
-            reasoning: { effort: reasoningEffort },
-            max_output_tokens: modelMaxTokens,
-          }, openAiTimeout);
-        } catch (e: any) {
-          lastErrTxt = e?.message || "OpenAI request failed";
-          if (isAbortError(e)) {
-            if (!useMinimalPrompt) {
+	          const openAiTimeout = Math.max(
+	            5000,
+	            Math.min(STUDYLAB_OPENAI_TIMEOUT_MS, timeLeftMs() - 1200),
+	          );
+	          const payload = {
+	            model,
+	            input: inputPayload,
+	            text: { verbosity },
+	            ...(!sendReasoningEffort ? {} : { reasoning: { effort: reasoningEffort } }),
+	            max_output_tokens: modelMaxTokens,
+	          };
+	          resp = await callOpenAiResponse(payload, openAiTimeout);
+	          if (!resp.ok && sendReasoningEffort) {
+	            const peek = await resp.clone().text().catch(() => "");
+	            if (isUnsupportedReasoningEffortError(peek)) {
+	              sendReasoningEffort = false;
+	              resp = await callOpenAiResponse(
+	                {
+	                  model,
+	                  input: inputPayload,
+	                  text: { verbosity },
+	                  max_output_tokens: modelMaxTokens,
+	                },
+	                openAiTimeout,
+	              );
+	            }
+	          }
+	        } catch (e: any) {
+	          lastErrTxt = e?.message || "OpenAI request failed";
+	          if (isAbortError(e)) {
+	            if (!useMinimalPrompt) {
               useMinimalPrompt = true;
               continue;
             }

@@ -144,7 +144,6 @@ Retorne APENAS JSON válido: {"strings": ["...","..."]} mantendo o mesmo número
           { role: 'user', content: [{ type: 'input_text', text: user.content }] },
         ],
         text: { verbosity: 'low' },
-        reasoning: { effort: 'low' },
         max_output_tokens: 1200,
       }),
     });
