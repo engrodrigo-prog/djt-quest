@@ -107,6 +107,39 @@ const EMPTY_INCIDENT: IncidentForm = {
 const PRIVATE_TTL_DAYS = 7;
 const FIXED_RULES_ID = "fixed:djt-quest-rules";
 
+const STUDYLAB_PREFS = {
+  oracleMode: "djt.studylab.oracleMode",
+  useWeb: "djt.studylab.useWeb",
+  chatQuality: "djt.studylab.chatQuality",
+  kbEnabled: "djt.studylab.kbEnabled",
+} as const;
+
+const readStoredBool = (key: string, fallback: boolean) => {
+  if (typeof window === "undefined") return fallback;
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (raw == null) return fallback;
+    const s = String(raw).trim().toLowerCase();
+    if (!s) return fallback;
+    if (s === "1" || s === "true" || s === "yes" || s === "on") return true;
+    if (s === "0" || s === "false" || s === "no" || s === "off") return false;
+    return fallback;
+  } catch {
+    return fallback;
+  }
+};
+
+const readStoredEnum = <T extends string>(key: string, allowed: readonly T[], fallback: T): T => {
+  if (typeof window === "undefined") return fallback;
+  try {
+    const raw = window.localStorage.getItem(key);
+    const v = String(raw || "").trim();
+    return (allowed as readonly string[]).includes(v) ? (v as T) : fallback;
+  } catch {
+    return fallback;
+  }
+};
+
 const FIXED_SOURCES: StudySource[] = [
   {
     id: FIXED_RULES_ID,
@@ -247,13 +280,51 @@ export const StudyLab = () => {
   const [chatAttachmentsOpen, setChatAttachmentsOpen] = useState(false);
   const chatViewportRef = useRef<HTMLDivElement | null>(null);
 
-  const [oracleMode, setOracleMode] = useState(true);
-  const [useWeb, setUseWeb] = useState(true);
-  const [chatQuality, setChatQuality] = useState<"auto" | "instant" | "thinking">("auto");
-  const [kbEnabled, setKbEnabled] = useState(false);
+  const [oracleMode, setOracleMode] = useState(() => readStoredBool(STUDYLAB_PREFS.oracleMode, true));
+  const [useWeb, setUseWeb] = useState(() => readStoredBool(STUDYLAB_PREFS.useWeb, true));
+  const [chatQuality, setChatQuality] = useState<"auto" | "instant" | "thinking">(() =>
+    readStoredEnum(STUDYLAB_PREFS.chatQuality, ["auto", "instant", "thinking"] as const, "auto"),
+  );
+  const [kbEnabled, setKbEnabled] = useState(() => readStoredBool(STUDYLAB_PREFS.kbEnabled, false));
   const [kbSelection, setKbSelection] = useState<ForumKbSelection | null>(null);
   const chatAbortRef = useRef<AbortController | null>(null);
   const [chatInputFocused, setChatInputFocused] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(STUDYLAB_PREFS.oracleMode, oracleMode ? "1" : "0");
+    } catch {
+      // ignore
+    }
+  }, [oracleMode]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(STUDYLAB_PREFS.useWeb, useWeb ? "1" : "0");
+    } catch {
+      // ignore
+    }
+  }, [useWeb]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(STUDYLAB_PREFS.chatQuality, chatQuality);
+    } catch {
+      // ignore
+    }
+  }, [chatQuality]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(STUDYLAB_PREFS.kbEnabled, kbEnabled ? "1" : "0");
+    } catch {
+      // ignore
+    }
+  }, [kbEnabled]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -986,11 +1057,15 @@ export const StudyLab = () => {
       return;
     }
 
-    const willUseSelectedMaterial = !oracleMode && Boolean(selectedSourceId) && selectedSourceId !== FIXED_RULES_ID;
+    const willUseSelectedMaterial = !oracleMode && Boolean(selectedSource) && selectedSource.id !== FIXED_RULES_ID;
     if (willUseSelectedMaterial) {
-      const sel = sources.find((s) => s.id === selectedSourceId);
+      const sel = selectedSource;
       if (sel && sel.ingest_status === "failed") {
         toast.error("Curadoria do material falhou. Tente catalogar novamente no Catálogo.");
+        return;
+      }
+      if (sel && sel.ingest_status === "pending") {
+        toast("Ainda analisando este material. Tente novamente em alguns instantes.");
         return;
       }
     }
@@ -1025,7 +1100,7 @@ export const StudyLab = () => {
           // - study: uses a single selected material
           // - chat: ChatGPT-style (no catalog/material required)
           mode: oracleMode ? "oracle" : willUseSelectedMaterial ? "study" : "chat",
-          ...(oracleMode ? {} : willUseSelectedMaterial ? { source_id: selectedSourceId } : {}),
+          ...(oracleMode ? {} : willUseSelectedMaterial ? { source_id: selectedSource!.id } : {}),
           session_id: chatSessionId,
           attachments: attachmentsForMessage.map((url) => ({ url })),
           language: getActiveLocale(),
@@ -1140,8 +1215,8 @@ export const StudyLab = () => {
                 {oracleMode
                   ? "Catálogo: busca na sua base + compêndio."
                   : selectedSource
-                    ? `Material: ${selectedSource.title}`
-                    : "Selecione um material no catálogo."}
+                    ? `ChatGPT (com material): ${selectedSource.title}`
+                    : "ChatGPT (sem material)."}
               </CardDescription>
             </div>
           </div>
@@ -1185,20 +1260,20 @@ export const StudyLab = () => {
               </Button>
             </div>
             <div className="flex items-center gap-2 rounded-full border px-3 py-1.5">
-              <Switch
-                id="studylab-catalog-toggle"
-                checked={oracleMode}
-                onCheckedChange={(checked) => {
-                  setOracleMode(checked);
-                  // Leaving Catalog mode should allow ChatGPT-style chat without forcing a material selection.
-                  // If the fixed rules source was selected, clear it so "chat" mode doesn't look "stuck".
-                  if (!checked && selectedSourceId === FIXED_RULES_ID) setSelectedSourceId(null);
-                }}
-              />
-              <Label htmlFor="studylab-catalog-toggle" className="text-xs font-medium">
-                Catálogo
-              </Label>
-            </div>
+                <Switch
+                  id="studylab-catalog-toggle"
+                  checked={oracleMode}
+                  onCheckedChange={(checked) => {
+                    setOracleMode(checked);
+                    // Leaving Catalog mode should allow ChatGPT-style chat without forcing a material selection.
+                    // Avoid surprising "single material" mode by clearing any stale selection when switching off.
+                    if (!checked) setSelectedSourceId(null);
+                  }}
+                />
+                <Label htmlFor="studylab-catalog-toggle" className="text-xs font-medium">
+                  Modo Catálogo
+                </Label>
+              </div>
             <div className="flex items-center gap-2 rounded-full border px-3 py-1.5">
               <Switch id="studylab-web-toggle" checked={useWeb} onCheckedChange={setUseWeb} disabled={!oracleMode} />
               <Label htmlFor="studylab-web-toggle" className="text-xs font-medium">
@@ -1212,9 +1287,16 @@ export const StudyLab = () => {
               </Label>
             </div>
             {!oracleMode && (
-              <Button type="button" variant="outline" size="sm" onClick={() => setCatalogOpen(true)}>
-                Escolher material
-              </Button>
+              <>
+                <Button type="button" variant="outline" size="sm" onClick={() => setCatalogOpen(true)}>
+                  Opcional: escolher material
+                </Button>
+                {selectedSource && (
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setSelectedSourceId(null)}>
+                    Limpar material
+                  </Button>
+                )}
+              </>
             )}
             <Button type="button" variant="outline" size="sm" onClick={handleNewChat}>
               Nova conversa
@@ -1242,7 +1324,7 @@ export const StudyLab = () => {
               <p className="text-sm text-muted-foreground">
                 {oracleMode
                   ? "Pergunte qualquer coisa. O Catálogo responde usando sua base (e pesquisa online quando necessário)."
-                  : "Pergunte qualquer coisa (modo ChatGPT). Opcional: escolha um material para responder com base nele."}
+                  : "Pergunte qualquer coisa (modo ChatGPT). Se quiser, escolha um material para responder com base nele."}
               </p>
             )}
             {chatMessages.map((m, idx) => (
