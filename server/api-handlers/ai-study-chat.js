@@ -602,9 +602,6 @@ const runWebSearchOnce = async (query, opts) => {
             if (/model|not found|does not exist|access|permission|not authorized/i.test(msg)) continue;
             continue;
           }
-          const output = Array.isArray(json?.output) ? json.output : [];
-          const usedTool = output.some((o) => String(o?.type || "").toLowerCase().includes("web_search"));
-          if (!usedTool) continue;
           const rawText = collectOutputText(json);
           const parsed = parseJsonFromAiContent(rawText).parsed;
           const toolSources = extractWebToolSources(json);
