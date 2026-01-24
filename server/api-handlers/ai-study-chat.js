@@ -15,7 +15,7 @@ const STUDYLAB_WEB_MODEL_CANDIDATES = [
   "gpt-4o-search-preview",
   "gpt-4o-mini-search-preview"
 ];
-const STUDYLAB_DEFAULT_WEB_MODEL = STUDYLAB_WEB_MODEL_CANDIDATES[2];
+const STUDYLAB_DEFAULT_WEB_MODEL = STUDYLAB_WEB_MODEL_CANDIDATES[0];
 const STUDYLAB_MAX_COMPLETION_TOKENS = Math.max(
   240,
   Math.min(2000, Number(process.env.STUDYLAB_MAX_COMPLETION_TOKENS || 700))
@@ -519,6 +519,12 @@ const runWebSearchOnce = async (query, opts) => {
   const timeLeft = () => Math.max(0, timeoutMs - (Date.now() - startedAt));
   const contextSize = normalizeWebContextSize(opts?.contextSize);
   const isSearchPreviewModel = (model) => /search-preview/i.test(String(model || ""));
+  const debug = Array.isArray(opts?.debug) ? opts.debug : null;
+  const pushDebug = (entry) => {
+    if (!debug) return;
+    if (debug.length >= 18) return;
+    debug.push(entry);
+  };
   const input = [
     {
       role: "system",
@@ -563,6 +569,7 @@ const runWebSearchOnce = async (query, opts) => {
     const perAttemptTimeout = Math.max(1200, Math.min(remaining, timeoutMs));
     if (isSearchPreviewModel(model) && perAttemptTimeout >= 1600) {
       try {
+        const attemptT0 = Date.now();
         const resp = await callOpenAiChatCompletion(
           {
             model,
@@ -584,11 +591,31 @@ const runWebSearchOnce = async (query, opts) => {
           perAttemptTimeout
         );
         const json = await resp.json().catch(() => null);
+        if (!resp.ok) {
+          const msg = String(json?.error?.message || json?.message || `HTTP ${resp.status}`);
+          pushDebug({
+            model,
+            tool: null,
+            variant: "search-preview",
+            ok: false,
+            status: resp.status,
+            message: msg.slice(0, 220),
+            duration_ms: Date.now() - attemptT0
+          });
+        }
         if (resp.ok) {
           const rawText = collectOutputText(json);
           const parsed = parseJsonFromAiContent(rawText).parsed;
           const result = buildResult({ model, tool: null, rawText, parsed, toolSources: [] });
           if (result) return result;
+          pushDebug({
+            model,
+            tool: null,
+            variant: "search-preview",
+            ok: true,
+            sources: 0,
+            duration_ms: Date.now() - attemptT0
+          });
         }
       } catch {
       }
@@ -597,21 +624,40 @@ const runWebSearchOnce = async (query, opts) => {
       const toolVariants = [{ type: tool, search_context_size: contextSize }, { type: tool }];
       for (const toolObj of toolVariants) {
         try {
-          const resp = await callOpenAiChatCompletion(
+          const attemptT0 = Date.now();
+          const basePayload = {
+            model,
+            input,
+            tools: [toolObj],
+            text: { verbosity: "low" },
+            max_output_tokens: 1100
+          };
+          let resp = await callOpenAiChatCompletion(
             {
-              model,
-              input,
-              tools: [toolObj],
-              tool_choice: { type: tool },
-              max_tool_calls: 1,
-              text: { verbosity: "low" },
-              max_output_tokens: 1100
+              ...basePayload,
+              tool_choice: { type: tool }
             },
             perAttemptTimeout
           );
-          const json = await resp.json().catch(() => null);
+          let json = await resp.json().catch(() => null);
           if (!resp.ok) {
             const msg = String(json?.error?.message || json?.message || "");
+            if (/tool_choice|unknown parameter.*tool_choice|unsupported parameter.*tool_choice|invalid tool_choice/i.test(msg)) {
+              resp = await callOpenAiChatCompletion(basePayload, perAttemptTimeout);
+              json = await resp.json().catch(() => null);
+            }
+          }
+          if (!resp.ok) {
+            const msg = String(json?.error?.message || json?.message || "");
+            pushDebug({
+              model,
+              tool,
+              variant: toolObj?.search_context_size ? "tool+context" : "tool",
+              ok: false,
+              status: resp.status,
+              message: msg.slice(0, 220),
+              duration_ms: Date.now() - attemptT0
+            });
             if (/search_context_size|unknown parameter|unsupported parameter/i.test(msg) && toolObj?.search_context_size) {
               continue;
             }
@@ -624,6 +670,14 @@ const runWebSearchOnce = async (query, opts) => {
           const toolSources = extractWebToolSources(json);
           const result = buildResult({ model, tool, rawText, parsed, toolSources });
           if (result) return result;
+          pushDebug({
+            model,
+            tool,
+            variant: toolObj?.search_context_size ? "tool+context" : "tool",
+            ok: true,
+            sources: toolSources.length,
+            duration_ms: Date.now() - attemptT0
+          });
         } catch {
         }
       }
@@ -679,7 +733,9 @@ const synthesizeWebBrief = async (question, research, opts) => {
   return null;
 };
 const fetchWebSearchSummary = async (query, opts) => {
-  if (!OPENAI_API_KEY || !query) return null;
+  if (!OPENAI_API_KEY || !query) {
+    return { ok: false, reason: "missing_key_or_query" };
+  }
   const timeoutMs = Math.max(1500, Math.min(Number(opts?.timeoutMs) || STUDYLAB_WEB_SEARCH_TIMEOUT_MS, 3e4));
   const startedAt = Date.now();
   const timeLeft = () => Math.max(0, timeoutMs - (Date.now() - startedAt));
@@ -689,12 +745,16 @@ const fetchWebSearchSummary = async (query, opts) => {
   const wantsEnergy = /\b(consumo|energia|mwh|kwh|demanda|carga)\b/.test(normalized);
   const looksLocal = /\b(sorocaba|regiao metropolitana|rms|sao paulo|sp)\b/.test(normalized);
   const looksLikeDataQuery = wantsRanking && wantsEntities && wantsEnergy && looksLocal;
-  const maxQueries = Math.max(1, Math.min(STUDYLAB_WEB_MAX_QUERIES, looksLikeDataQuery ? STUDYLAB_WEB_MAX_QUERIES : 2));
+  const maxQueriesBase = Math.max(
+    1,
+    Math.min(STUDYLAB_WEB_MAX_QUERIES, looksLikeDataQuery ? STUDYLAB_WEB_MAX_QUERIES : 2)
+  );
+  const maxQueries = timeoutMs < 9000 ? 1 : timeoutMs < 14000 ? Math.min(2, maxQueriesBase) : maxQueriesBase;
   const tools = ["web_search", "web_search_preview"];
   const fallbackModel = chooseModel(true);
   const modelCandidates = pickStudyLabWebModels(fallbackModel);
   const contextSize = normalizeWebContextSize(STUDYLAB_WEB_CONTEXT_SIZE);
-  const planned = timeLeft() > 2200 ? await planWebQueries(query, {
+  const planned = timeLeft() > 16000 ? await planWebQueries(query, {
     timeoutMs: Math.min(2500, Math.max(900, timeLeft() - 500)),
     maxQueries: Math.max(2, maxQueries),
     modelCandidates
@@ -716,21 +776,33 @@ const fetchWebSearchSummary = async (query, opts) => {
   })();
   const queries = uniqueStrings([...planned, ...heuristicQueries]).slice(0, maxQueries);
   const research = [];
+  const debugAttempts = [];
   for (const q of queries) {
     const remaining = timeLeft();
     if (remaining < 1400) break;
-    const perQueryTimeout = Math.max(1200, Math.min(remaining, Math.max(2e3, Math.floor(timeoutMs / queries.length))));
+    const perQueryTimeout = Math.max(
+      1600,
+      Math.min(remaining, Math.max(3500, Math.floor(timeoutMs / Math.max(1, queries.length))))
+    );
     const attempt = await runWebSearchOnce(q, {
       timeoutMs: perQueryTimeout,
       modelCandidates,
       tools,
-      contextSize
+      contextSize,
+      debug: debugAttempts
     });
     if (attempt) research.push(attempt);
   }
-  if (!research.length) return null;
+  if (!research.length) {
+    return {
+      ok: false,
+      reason: "no_results",
+      queries,
+      debug: debugAttempts.slice(0, 12)
+    };
+  }
   const synthTimeout = Math.min(12e3, Math.max(1500, timeLeft() - 300));
-  const synthesis = synthTimeout >= 1500 ? await synthesizeWebBrief(query, research, { timeoutMs: synthTimeout, modelCandidates }) : null;
+  const synthesis = synthTimeout >= 6000 ? await synthesizeWebBrief(query, research, { timeoutMs: synthTimeout, modelCandidates }) : null;
   const sources = uniqueStrings(
     research.flatMap((r) => Array.isArray(r?.sources) ? r.sources.map((s) => String(s?.url || "").trim()) : [])
   ).filter(Boolean).slice(0, 16);
@@ -747,11 +819,13 @@ const fetchWebSearchSummary = async (query, opts) => {
     return lines.join("\n").trim();
   })();
   return {
+    ok: true,
     text: synthesis?.text || fallbackText,
     tool: research[0]?.tool,
     model: synthesis?.model || research[0]?.model,
     queries,
-    sources
+    sources,
+    debug: debugAttempts.slice(0, 12)
   };
 };
 const normalizeHashtagTag = (raw) => {
@@ -1654,7 +1728,7 @@ Formato da resposta (texto livre, sem JSON):
 Responda em ${language}.` : mode === "chat" ? langIsEn ? `You are a helpful assistant (ChatGPT-style).
 
 Rules:
-- Use general knowledge and good judgment. If something depends on missing context, ask up to 2 clarifying questions.
+- Use general knowledge and good judgment. ${use_web ? "Do NOT ask clarifying questions; proceed with explicit assumptions." : "If something depends on missing context, ask up to 2 clarifying questions."}
 - If a web research summary is provided above, use it and cite the links. If no web summary is present, still answer with best-effort assumptions and explain how to validate (do NOT claim you cannot browse the web).
 - If attachments are provided, use them as primary context.
 - Do NOT invent specific internal facts (IDs, exact procedures, manufacturer specs) that are not provided. If unsure, say so and suggest how to verify.
@@ -1666,7 +1740,7 @@ ${focusHint}
 Output: plain text (no JSON). Answer in ${language}.` : `Você é um assistente útil (modo ChatGPT).
 
 Regras:
-- Use conhecimento geral e bom senso. Se algo depender de contexto faltando, faça no máximo 2 perguntas de esclarecimento.
+- Use conhecimento geral e bom senso. ${use_web ? "NÃO faça perguntas de esclarecimento; siga com suposições explícitas." : "Se algo depender de contexto faltando, faça no máximo 2 perguntas de esclarecimento."}
 - Se existir um resumo de pesquisa web acima, use-o e cite os links. Se não existir resumo web, ainda assim responda com estimativas/suposições e diga como validar (NÃO diga que “não tem acesso à web”).
 - Se houver anexos, use-os como contexto principal.
 - NÃO invente fatos internos específicos (IDs, procedimentos exatos, especificações de fabricante) que não foram fornecidos. Se não tiver certeza, diga e sugira como validar.
@@ -2163,25 +2237,28 @@ ${context}`
 	      return score >= 2;
 	    })();
 	    const shouldSearchWeb = webAllowed && lastUserText && ((mode === "oracle" && (userRequestedWeb || oracleBestScore < 2)) || mode === "chat" && (userRequestedWeb || autoWebInChat));
-	    if (shouldSearchWeb) {
-	      attemptedWebSummary = true;
-	      const webTimeout = Math.min(STUDYLAB_WEB_SEARCH_TIMEOUT_MS, Math.max(1500, timeLeftMs() - WEB_RESERVE_FOR_OPENAI_MS));
-	      const webSummary = await fetchWebSearchSummary(lastUserText, { timeoutMs: webTimeout });
-	      webSummaryMeta = webSummary ? {
-	        model: webSummary.model,
-	        tool: webSummary.tool,
-	        queries: Array.isArray(webSummary.queries) ? webSummary.queries.length : 0,
-	        sources: Array.isArray(webSummary.sources) ? webSummary.sources.length : 0
-	      } : { ok: false };
-      if (webSummary?.text) {
-        usedWebSummary = true;
-        openaiMessages.push({
-          role: "system",
-          content: `Pesquisa web (consolidado):
-${webSummary.text}`
-        });
-      }
-    }
+		    if (shouldSearchWeb) {
+		      attemptedWebSummary = true;
+		      const webTimeout = Math.min(STUDYLAB_WEB_SEARCH_TIMEOUT_MS, Math.max(1500, timeLeftMs() - WEB_RESERVE_FOR_OPENAI_MS));
+		      const webSummary = await fetchWebSearchSummary(lastUserText, { timeoutMs: webTimeout });
+		      webSummaryMeta = {
+		        ok: Boolean(webSummary?.ok),
+		        reason: webSummary?.ok ? void 0 : webSummary?.reason || "unknown",
+		        model: webSummary?.model,
+		        tool: webSummary?.tool,
+		        queries: Array.isArray(webSummary?.queries) ? webSummary.queries.length : 0,
+		        sources: Array.isArray(webSummary?.sources) ? webSummary.sources.length : 0,
+		        debug: Array.isArray(webSummary?.debug) ? webSummary.debug.slice(0, 8) : void 0
+		      };
+	      if (webSummary?.ok && webSummary?.text) {
+	        usedWebSummary = true;
+	        openaiMessages.push({
+	          role: "system",
+	          content: `Pesquisa web (consolidado):
+	${webSummary.text}`
+	        });
+	      }
+	    }
     if (mode === "oracle" && lastUserText && shouldInjectRules(lastUserText)) {
       openaiMessages.push({ role: "system", content: buildRulesContext() });
     }
