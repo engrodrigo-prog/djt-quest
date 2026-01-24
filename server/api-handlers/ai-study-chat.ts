@@ -743,7 +743,7 @@ const runWebSearchOnce = async (
     const remaining = timeLeft();
     if (remaining < 900) return null;
     const perAttemptTimeout = Math.max(1200, Math.min(remaining, timeoutMs));
-    const webVerbosity = /^gpt-4\\.1/i.test(String(model || "")) ? "medium" : "low";
+    const webVerbosity = /^gpt-4\.1/i.test(String(model || "")) ? "medium" : "low";
 
 	    // Search-preview models can sometimes browse without an explicit web_search tool.
 	    if (isSearchPreviewModel(model) && perAttemptTimeout >= 1600) {
