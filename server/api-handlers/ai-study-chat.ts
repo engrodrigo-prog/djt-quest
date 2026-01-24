@@ -13,7 +13,13 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY as string;
 const SUPABASE_URL = process.env.SUPABASE_URL as string;
 const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY) as string;
 const STUDYLAB_DEFAULT_CHAT_MODEL = "gpt-5-nano-2025-08-07";
-const STUDYLAB_DEFAULT_WEB_MODEL = "gpt-4o-search-preview-2025-03-11";
+const STUDYLAB_WEB_MODEL_CANDIDATES = [
+  "gpt-4o-search-preview-2025-03-11",
+  "gpt-4o-mini-search-preview-2025-03-11",
+  "gpt-4o-search-preview",
+  "gpt-4o-mini-search-preview",
+] as const;
+const STUDYLAB_DEFAULT_WEB_MODEL = STUDYLAB_WEB_MODEL_CANDIDATES[2];
 // Keep answers reasonably short to reduce latency and avoid timeouts.
 const STUDYLAB_MAX_COMPLETION_TOKENS = Math.max(
   240,
@@ -89,6 +95,7 @@ const pickStudyLabChatModels = (fallbackModel: string) =>
 const pickStudyLabWebModels = (fallbackModel: string) =>
   uniqueStrings([
     OPENAI_MODEL_STUDYLAB_WEB,
+    ...STUDYLAB_WEB_MODEL_CANDIDATES,
     // Prefer a stronger model for web search + synthesis.
     chooseModel(true),
     chooseModel(false),
@@ -2014,8 +2021,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const webHint =
       use_web && mode === "chat"
         ? langIsEn
-          ? "\n\nWeb research: if a web research summary is provided above, treat it as evidence and use it.\n- If the question asks for a ranking/top list (e.g., “Top 5 sectors and 3 companies each”), DELIVER the list.\n- If there is no official public ranking, give the best proxy-based approximation and be explicit about criteria/limits.\n- Always include a 'Sources (web)' section with the links used.\n- Do not say you cannot browse."
-          : "\n\nPesquisa web: se existir um resumo de pesquisa web acima, trate como evidência e use-o.\n- Se a pergunta pedir ranking/top/lista (ex.: “Top 5 setores e 3 empresas em cada”), ENTREGUE a lista.\n- Se não existir ranking oficial público, faça a melhor aproximação possível (proxy) e deixe claro o critério/limitações.\n- Sempre inclua uma seção 'Fontes (web)' com os links utilizados.\n- Não diga que “não tem acesso à web”."
+          ? "\n\nWeb research: if a web research summary is provided above, treat it as evidence and use it.\n- If the question asks for a ranking/top list (e.g., “Top 5 sectors and 3 companies each”), DELIVER the list.\n- If there is no official public ranking, give the best proxy-based approximation and be explicit about criteria/limits.\n- Do not ask clarifying questions; proceed with explicit assumptions and how to validate.\n- Always include a 'Sources (web)' section with the links used.\n- Do not say you cannot browse."
+          : "\n\nPesquisa web: se existir um resumo de pesquisa web acima, trate como evidência e use-o.\n- Se a pergunta pedir ranking/top/lista (ex.: “Top 5 setores e 3 empresas em cada”), ENTREGUE a lista.\n- Se não existir ranking oficial público, faça a melhor aproximação possível (proxy) e deixe claro o critério/limitações.\n- Não faça perguntas de esclarecimento; siga com suposições explícitas e diga como validar.\n- Sempre inclua uma seção 'Fontes (web)' com os links utilizados.\n- Não diga que “não tem acesso à web”."
         : "";
     const system =
       mode === "oracle"

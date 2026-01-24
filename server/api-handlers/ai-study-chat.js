@@ -9,7 +9,13 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
 const STUDYLAB_DEFAULT_CHAT_MODEL = "gpt-5-nano-2025-08-07";
-const STUDYLAB_DEFAULT_WEB_MODEL = "gpt-4o-search-preview-2025-03-11";
+const STUDYLAB_WEB_MODEL_CANDIDATES = [
+  "gpt-4o-search-preview-2025-03-11",
+  "gpt-4o-mini-search-preview-2025-03-11",
+  "gpt-4o-search-preview",
+  "gpt-4o-mini-search-preview"
+];
+const STUDYLAB_DEFAULT_WEB_MODEL = STUDYLAB_WEB_MODEL_CANDIDATES[2];
 const STUDYLAB_MAX_COMPLETION_TOKENS = Math.max(
   240,
   Math.min(2000, Number(process.env.STUDYLAB_MAX_COMPLETION_TOKENS || 700))
@@ -66,6 +72,7 @@ const pickStudyLabChatModels = (fallbackModel) => uniqueStrings([
 ]);
 const pickStudyLabWebModels = (fallbackModel) => uniqueStrings([
   OPENAI_MODEL_STUDYLAB_WEB,
+  ...STUDYLAB_WEB_MODEL_CANDIDATES,
   // Prefer a stronger model for web search + synthesis.
   chooseModel(true),
   chooseModel(false),
@@ -1606,7 +1613,7 @@ Foco do usuário (temas da base de conhecimento): ${forumKbFocus}
     const langIsEn = String(language || "").toLowerCase().startsWith("en");
     const imageHint = includeImagesInPrompt ? langIsEn ? "\n\nIf images are attached, identify the object/equipment and extract visible nameplate fields (manufacturer, model, serial, ratings). Only state what you can see; if a field is unreadable, say so." : "\n\nSe houver imagens anexadas, identifique o objeto/equipamento e extraia os campos visíveis da placa (fabricante, modelo, nº de série, tensões/correntes/potência). Só afirme o que estiver visível; se algo estiver ilegível, diga que não dá para ler." : "";
     const qualityHint = qualityKey === "thinking" ? langIsEn ? "\n\nMode: Thinking (more detail). Provide a complete, structured answer, but avoid repetition." : "\n\nModo: Thinking (mais detalhado). Entregue uma resposta completa e estruturada, evitando repetição." : qualityKey === "instant" ? langIsEn ? "\n\nMode: Instant (fast). Keep it short and practical: direct answer + checklist. Do not ramble." : "\n\nModo: Instant (rápido). Seja curto e prático: resposta direta + checklist. Não se estenda." : langIsEn ? "\n\nMode: Auto (balanced). Balance speed and completeness with a practical checklist." : "\n\nModo: Auto (equilibrado). Equilibre rapidez e completude com um checklist prático.";
-    const webHint = use_web && mode === "chat" ? langIsEn ? "\n\nWeb research: if a web research summary is provided above, treat it as evidence and use it.\n- If the question asks for a ranking/top list (e.g., “Top 5 sectors and 3 companies each”), DELIVER the list.\n- If there is no official public ranking, give the best proxy-based approximation and be explicit about criteria/limits.\n- Always include a 'Sources (web)' section with the links used.\n- Do not say you cannot browse." : "\n\nPesquisa web: se existir um resumo de pesquisa web acima, trate como evidência e use-o.\n- Se a pergunta pedir ranking/top/lista (ex.: “Top 5 setores e 3 empresas em cada”), ENTREGUE a lista.\n- Se não existir ranking oficial público, faça a melhor aproximação possível (proxy) e deixe claro o critério/limitações.\n- Sempre inclua uma seção 'Fontes (web)' com os links utilizados.\n- Não diga que “não tem acesso à web”." : "";
+    const webHint = use_web && mode === "chat" ? langIsEn ? "\n\nWeb research: if a web research summary is provided above, treat it as evidence and use it.\n- If the question asks for a ranking/top list (e.g., “Top 5 sectors and 3 companies each”), DELIVER the list.\n- If there is no official public ranking, give the best proxy-based approximation and be explicit about criteria/limits.\n- Do not ask clarifying questions; proceed with explicit assumptions and how to validate.\n- Always include a 'Sources (web)' section with the links used.\n- Do not say you cannot browse." : "\n\nPesquisa web: se existir um resumo de pesquisa web acima, trate como evidência e use-o.\n- Se a pergunta pedir ranking/top/lista (ex.: “Top 5 setores e 3 empresas em cada”), ENTREGUE a lista.\n- Se não existir ranking oficial público, faça a melhor aproximação possível (proxy) e deixe claro o critério/limitações.\n- Não faça perguntas de esclarecimento; siga com suposições explícitas e diga como validar.\n- Sempre inclua uma seção 'Fontes (web)' com os links utilizados.\n- Não diga que “não tem acesso à web”." : "";
     const system = mode === "oracle" ? langIsEn ? `You are DJT Quest's Knowledge Catalog and training monitor.
 You help collaborators find answers using the available internal base (published org catalog + the user's materials + approved compendium). When the base is insufficient, rely on the automated web summary (when present).
 
