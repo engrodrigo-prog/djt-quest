@@ -2384,13 +2384,14 @@ ${context}`
     const reasoningEffort = qualityKey === "thinking" ? "medium" : "low";
     let sendReasoningEffort = true;
     const maxOutputCap = qualityKey === "thinking" ? 2000 : qualityKey === "instant" ? 1400 : attemptedWebSummary ? 2200 : 1800;
-    for (const model of modelCandidates) {
-      let modelMaxTokens = maxTokensBase;
-      for (let attempt = 0; attempt < 2; attempt += 1) {
-        // Avoid stacking multiple long attempts (can exceed serverless max duration).
-        const attemptLimit = usedWebSummary && mode === "chat" ? 3 : usedWebSummary ? 2 : 3;
-        if (attempts >= attemptLimit) break;
-        let resp = null;
+	    for (const model of modelCandidates) {
+	      let modelMaxTokens = maxTokensBase;
+	      const perModelAttempts = usedWebSummary && mode === "chat" ? 3 : 2;
+	      for (let attempt = 0; attempt < perModelAttempts; attempt += 1) {
+	        // Avoid stacking multiple long attempts (can exceed serverless max duration).
+	        const attemptLimit = usedWebSummary && mode === "chat" ? 3 : usedWebSummary ? 2 : 3;
+	        if (attempts >= attemptLimit) break;
+	        let resp = null;
         try {
 	          attempts += 1;
 	          const promptMessages = useMinimalPrompt ? minimalOpenAiMessages : openaiMessages;
