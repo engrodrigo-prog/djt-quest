@@ -1752,11 +1752,11 @@ Foco do usuário (temas da base de conhecimento): ${forumKbFocus}
 	      if (!use_web || mode !== "chat") return "";
 	      if (langIsEn) {
 	        const base = "\n\nWeb research: if a web research summary is provided above, treat it as evidence and use it.\n- If the question asks for a ranking/top list (e.g., “Top 5 sectors and 3 companies each”), DELIVER the list.\n- If there is no official public ranking, give the best proxy-based approximation and be explicit about criteria/limits.\n- Be concise. Avoid long methodology text.\n- Do not ask clarifying questions; proceed with explicit assumptions.\n- Always include a 'Sources (web)' section with the links used.\n- Do not say you cannot browse.";
-	        const extra = webListRequest ? "\n\nRequired format:\n1) Top 5 sectors (ranked)\n2) For each sector: 3 companies (each with 1 short justification + at least 1 source link)\n3) Sources (web)" : "";
+	        const extra = webListRequest ? "\n\nRequired format (be VERY concise; no methodology text):\n1) Top 5 sectors (ranked) — 1 line each\n2) For each sector: 3 companies — only Name (Sorocaba/RMS) + 1 source link\n3) Sources (web) — single list (do not repeat links in the body)\nLimit: ~25 lines total." : "";
 	        return base + extra;
 	      }
 	      const base = "\n\nPesquisa web: se existir um resumo de pesquisa web acima, trate como evidência e use-o.\n- Se a pergunta pedir ranking/top/lista (ex.: “Top 5 setores e 3 empresas em cada”), ENTREGUE a lista.\n- Se não existir ranking oficial público, faça a melhor aproximação possível (proxy) e deixe claro o critério/limitações.\n- Seja conciso. Evite texto longo de metodologia.\n- Não faça perguntas de esclarecimento; siga com suposições explícitas.\n- Sempre inclua uma seção 'Fontes (web)' com os links utilizados.\n- Não diga que “não tem acesso à web”.";
-	      const extra = webListRequest ? "\n\nFormato obrigatório:\n1) Top 5 setores/segmentos (ordenado)\n2) Para cada setor: 3 empresas (cada uma com 1 justificativa curta + pelo menos 1 link de fonte)\n3) Fontes (web)" : "";
+	      const extra = webListRequest ? "\n\nFormato obrigatório (seja MUITO conciso; sem metodologia/passo-a-passo):\n1) Top 5 setores/segmentos (ordenado) — 1 linha por setor\n2) Para cada setor: 3 empresas — apenas Nome (Sorocaba/RMS) + 1 link de fonte\n3) Fontes (web) — lista única (não repita links no corpo)\nLimite: ~25 linhas no total." : "";
 	      return base + extra;
 	    })();
     const system = mode === "oracle" ? langIsEn ? `You are DJT Quest's Knowledge Catalog and training monitor.

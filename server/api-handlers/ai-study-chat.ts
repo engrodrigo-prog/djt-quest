@@ -2180,7 +2180,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           "- Always include a 'Sources (web)' section with the links used.\n" +
           "- Do not say you cannot browse.";
         const extra = webListRequest
-          ? "\n\nRequired format:\n1) Top 5 sectors (ranked)\n2) For each sector: 3 companies (each with 1 short justification + at least 1 source link)\n3) Sources (web)"
+          ? "\n\nRequired format (be VERY concise; no methodology text):\n1) Top 5 sectors (ranked) — 1 line each\n2) For each sector: 3 companies — only Name (Sorocaba/RMS) + 1 source link\n3) Sources (web) — single list (do not repeat links in the body)\nLimit: ~25 lines total."
           : "";
         return base + extra;
       }
@@ -2193,7 +2193,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         "- Sempre inclua uma seção 'Fontes (web)' com os links utilizados.\n" +
         "- Não diga que “não tem acesso à web”.";
       const extra = webListRequest
-        ? "\n\nFormato obrigatório:\n1) Top 5 setores/segmentos (ordenado)\n2) Para cada setor: 3 empresas (cada uma com 1 justificativa curta + pelo menos 1 link de fonte)\n3) Fontes (web)"
+        ? "\n\nFormato obrigatório (seja MUITO conciso; sem metodologia/passo-a-passo):\n1) Top 5 setores/segmentos (ordenado) — 1 linha por setor\n2) Para cada setor: 3 empresas — apenas Nome (Sorocaba/RMS) + 1 link de fonte\n3) Fontes (web) — lista única (não repita links no corpo)\nLimite: ~25 linhas no total."
         : "";
       return base + extra;
     })();
