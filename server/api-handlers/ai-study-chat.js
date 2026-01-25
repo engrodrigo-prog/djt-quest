@@ -772,6 +772,7 @@ const fetchWebSearchSummary = async (query, opts) => {
     return { ok: false, reason: "missing_key_or_query" };
   }
   const timeoutMs = Math.max(1500, Math.min(Number(opts?.timeoutMs) || STUDYLAB_WEB_SEARCH_TIMEOUT_MS, 3e4));
+  const fastMode = Boolean(opts?.fastMode);
   const startedAt = Date.now();
   const timeLeft = () => Math.max(0, timeoutMs - (Date.now() - startedAt));
   const normalized = normalizeForMatch(query);
@@ -780,16 +781,13 @@ const fetchWebSearchSummary = async (query, opts) => {
   const wantsEnergy = /\b(consumo|energia|mwh|kwh|demanda|carga)\b/.test(normalized);
   const looksLocal = /\b(sorocaba|regiao metropolitana|rms|sao paulo|sp)\b/.test(normalized);
   const looksLikeDataQuery = wantsRanking && wantsEntities && wantsEnergy && looksLocal;
-  const maxQueriesBase = Math.max(
-    1,
-    Math.min(STUDYLAB_WEB_MAX_QUERIES, looksLikeDataQuery ? STUDYLAB_WEB_MAX_QUERIES : 2)
-  );
-  const maxQueries = timeoutMs < 18000 ? 1 : timeoutMs < 24000 ? Math.min(2, maxQueriesBase) : maxQueriesBase;
+  const maxQueriesBase = fastMode ? 2 : Math.max(1, Math.min(STUDYLAB_WEB_MAX_QUERIES, looksLikeDataQuery ? STUDYLAB_WEB_MAX_QUERIES : 2));
+  const maxQueries = fastMode ? Math.min(2, maxQueriesBase) : timeoutMs < 11000 ? 1 : timeoutMs < 24000 ? Math.min(2, maxQueriesBase) : maxQueriesBase;
   const tools = ["web_search", "web_search_preview"];
   const fallbackModel = chooseModel(true);
   const modelCandidates = pickStudyLabWebModels(fallbackModel);
   const contextSize = normalizeWebContextSize(STUDYLAB_WEB_CONTEXT_SIZE);
-  const planned = timeLeft() > 16000 ? await planWebQueries(query, {
+  const planned = !fastMode && maxQueries >= 3 && timeLeft() > 16000 ? await planWebQueries(query, {
     timeoutMs: Math.min(2500, Math.max(900, timeLeft() - 500)),
     maxQueries: Math.max(2, maxQueries),
     modelCandidates
@@ -815,10 +813,7 @@ const fetchWebSearchSummary = async (query, opts) => {
   for (const q of queries) {
     const remaining = timeLeft();
     if (remaining < 1400) break;
-    const perQueryTimeout = Math.max(
-      1600,
-      Math.min(remaining, Math.max(3500, Math.floor(timeoutMs / Math.max(1, queries.length))))
-    );
+    const perQueryTimeout = fastMode ? Math.max(1400, Math.min(remaining, Math.floor(timeoutMs / Math.max(1, queries.length)))) : Math.max(1600, Math.min(remaining, Math.max(3500, Math.floor(timeoutMs / Math.max(1, queries.length)))));
     const attempt = await runWebSearchOnce(q, {
       timeoutMs: perQueryTimeout,
       modelCandidates,
@@ -836,7 +831,7 @@ const fetchWebSearchSummary = async (query, opts) => {
       debug: debugAttempts.slice(-12)
     };
   }
-  const synthTimeout = Math.min(12e3, Math.max(1500, timeLeft() - 300));
+  const synthTimeout = Math.min(fastMode ? 7000 : 12e3, Math.max(1500, timeLeft() - 300));
   const synthesis = synthTimeout >= 6000 ? await synthesizeWebBrief(query, research, { timeoutMs: synthTimeout, modelCandidates }) : null;
   const sources = uniqueStrings(
     research.flatMap((r) => Array.isArray(r?.sources) ? r.sources.map((s) => String(s?.url || "").trim()) : [])
@@ -1739,8 +1734,15 @@ Foco do usuário (temas da base de conhecimento): ${forumKbFocus}
 	    const langIsEn = String(language || "").toLowerCase().startsWith("en");
 	    const imageHint = includeImagesInPrompt ? langIsEn ? "\n\nIf images are attached, identify the object/equipment and extract visible nameplate fields (manufacturer, model, serial, ratings). Only state what you can see; if a field is unreadable, say so." : "\n\nSe houver imagens anexadas, identifique o objeto/equipamento e extraia os campos visíveis da placa (fabricante, modelo, nº de série, tensões/correntes/potência). Só afirme o que estiver visível; se algo estiver ilegível, diga que não dá para ler." : "";
 	    const qualityHint = qualityKey === "thinking" ? langIsEn ? "\n\nMode: Thinking (more detail). Provide a complete, structured answer, but avoid repetition." : "\n\nModo: Thinking (mais detalhado). Entregue uma resposta completa e estruturada, evitando repetição." : qualityKey === "instant" ? langIsEn ? "\n\nMode: Instant (fast). Keep it short and practical: direct answer + checklist. Do not ramble." : "\n\nModo: Instant (rápido). Seja curto e prático: resposta direta + checklist. Não se estenda." : langIsEn ? "\n\nMode: Auto (balanced). Balance speed and completeness with a practical checklist." : "\n\nModo: Auto (equilibrado). Equilibre rapidez e completude com um checklist prático.";
+	    const userRequestedWeb = (() => {
+	      const normalized = normalizeForMatch(lastUserText || "");
+	      if (!normalized) return false;
+	      return /\b(busque|buscar|pesquise|pesquisar|pesquisa|fontes?|referencias?|citacoes?|cite|links?|web|internet|search|google)\b/.test(normalized);
+	    })();
+	    // Web search: automatically when the catalog match is weak (otherwise keep latency low).
+	    const useWebForPrompt = Boolean(use_web) || userRequestedWeb;
 	    const webListRequest = (() => {
-	      if (!use_web || mode !== "chat") return false;
+	      if (!useWebForPrompt || mode !== "chat") return false;
 	      const normalized = normalizeForMatch(lastUserText || "");
 	      if (!normalized) return false;
 	      const wantsTop = /\b(top|ranking|maiores|melhores|piores|lista)\b/.test(normalized);
@@ -1749,17 +1751,58 @@ Foco do usuário (temas da base de conhecimento): ${forumKbFocus}
 	      return wantsTop && wantsCompanies && wantsSectors;
 	    })();
 	    const webHint = (() => {
-	      if (!use_web || mode !== "chat") return "";
+	      if (!useWebForPrompt || mode !== "chat") return "";
 	      if (langIsEn) {
-	        const base = "\n\nWeb research: if a web research summary is provided above, treat it as evidence and use it.\n- If the question asks for a ranking/top list (e.g., “Top 5 sectors and 3 companies each”), DELIVER the list.\n- If there is no official public ranking, give the best proxy-based approximation and be explicit about criteria/limits.\n- Be concise. Avoid long methodology text.\n- Do not ask clarifying questions; proceed with explicit assumptions.\n- Always include a 'Sources (web)' section with the links used.\n- Do not say you cannot browse.";
+	        const base = "\n\nWeb research: if a web research summary is provided above, treat it as evidence and use it.\n- If the question asks for a ranking/top list (e.g., “Top 5 sectors and 3 companies each”), DELIVER the list.\n- If there is no official public ranking, give the best proxy-based approximation and be explicit about criteria/limits.\n- Be concise. Avoid long methodology text.\n- Do not ask clarifying questions; proceed with explicit assumptions.\n- Do not ask for permission/confirmation to browse or proceed.\n- Always include a 'Sources (web)' section with the links used.\n- Do not say you cannot browse.";
 	        const extra = webListRequest ? "\n\nRequired format (be VERY concise; no methodology text):\n1) Top 5 sectors (ranked) — 1 line each\n2) For each sector: 3 companies — only Name (Sorocaba/RMS) + 1 source link\n3) Sources (web) — single list (do not repeat links in the body)\nLimit: ~25 lines total." : "";
 	        return base + extra;
 	      }
-	      const base = "\n\nPesquisa web: se existir um resumo de pesquisa web acima, trate como evidência e use-o.\n- Se a pergunta pedir ranking/top/lista (ex.: “Top 5 setores e 3 empresas em cada”), ENTREGUE a lista.\n- Se não existir ranking oficial público, faça a melhor aproximação possível (proxy) e deixe claro o critério/limitações.\n- Seja conciso. Evite texto longo de metodologia.\n- Não faça perguntas de esclarecimento; siga com suposições explícitas.\n- Sempre inclua uma seção 'Fontes (web)' com os links utilizados.\n- Não diga que “não tem acesso à web”.";
+	      const base = "\n\nPesquisa web: se existir um resumo de pesquisa web acima, trate como evidência e use-o.\n- Se a pergunta pedir ranking/top/lista (ex.: “Top 5 setores e 3 empresas em cada”), ENTREGUE a lista.\n- Se não existir ranking oficial público, faça a melhor aproximação possível (proxy) e deixe claro o critério/limitações.\n- Seja conciso. Evite texto longo de metodologia.\n- Não faça perguntas de esclarecimento; siga com suposições explícitas.\n- Não peça confirmação/permissão para pesquisar ou continuar.\n- Sempre inclua uma seção 'Fontes (web)' com os links utilizados.\n- Não diga que “não tem acesso à web”.";
 	      const extra = webListRequest ? "\n\nFormato obrigatório (seja MUITO conciso; sem metodologia/passo-a-passo):\n1) Top 5 setores/segmentos (ordenado) — 1 linha por setor\n2) Para cada setor: 3 empresas — apenas Nome (Sorocaba/RMS) + 1 link de fonte\n3) Fontes (web) — lista única (não repita links no corpo)\nLimite: ~25 linhas no total." : "";
 	      return base + extra;
 	    })();
-    const system = mode === "oracle" ? langIsEn ? `You are DJT Quest's Knowledge Catalog and training monitor.
+	    const oracleListRequest = (() => {
+	      if (mode !== "oracle") return false;
+	      const normalized = normalizeForMatch(lastUserText || "");
+	      if (!normalized) return false;
+	      const wantsTop = /\b(top|ranking|maiores|melhores|piores|lista)\b/.test(normalized);
+	      const wantsCompanies = /\b(empresas?)\b/.test(normalized);
+	      const wantsSectors = /\b(setores?|segmentos?|industrias?|comercio)\b/.test(normalized);
+	      return wantsTop && wantsCompanies && wantsSectors;
+	    })();
+	    const oracleGuidance = (() => {
+	      if (mode !== "oracle") return "";
+	      if (langIsEn) {
+	        const base = "\n\nExtra rules (speed):\n- Do NOT ask for permission/confirmation to browse or proceed.\n- Deliver the answer first. Only include step-by-step if the user explicitly asked.\n- If a web research summary is provided above, treat it as evidence and include a 'Sources (web)' section with links.\n- If there is no web summary and the internal base is insufficient, still answer with best-effort assumptions + limitations (do NOT respond with only a plan).\n";
+	        const extra = oracleListRequest ? "\nRequired format (be VERY concise; no methodology text):\n1) Top 5 sectors (ranked) — 1 line each\n2) For each sector: 3 companies — only Name (Sorocaba/RMS) + 1 source link\n3) Sources (web) — single list (do not repeat links in the body)\nLimit: ~25 lines total." : "";
+	        return base + extra;
+	      }
+	      const base = "\n\nRegras extras (rapidez):\n- NÃO peça confirmação/permissão para pesquisar ou continuar.\n- Entregue a resposta primeiro. Só faça passo-a-passo se o usuário pedir explicitamente.\n- Se existir um resumo de pesquisa web acima, trate como evidência e inclua uma seção 'Fontes (web)' com links.\n- Se NÃO houver resumo web e a base interna for insuficiente, responda com a melhor aproximação (proxy) + limitações (NÃO devolva apenas um plano).\n";
+	      const extra = oracleListRequest ? "\n\nFormato obrigatório (seja MUITO conciso; sem metodologia/passo-a-passo):\n1) Top 5 setores/segmentos (ordenado) — 1 linha por setor\n2) Para cada setor: 3 empresas — apenas Nome (Sorocaba/RMS) + 1 link de fonte\n3) Fontes (web) — lista única (não repita links no corpo)\nLimite: ~25 linhas no total." : "";
+	      return base + extra;
+	    })();
+	    const oracleOutputFormat = (() => {
+	      if (mode !== "oracle") return "";
+	      if (oracleListRequest) {
+	        return langIsEn ? `Output format (plain text, no JSON):
+1) Top 5 sectors (ranked) — 1 line each
+2) For each sector: 3 companies — Name (Sorocaba/RMS) + 1 source link
+3) Sources (web) — single list` : `Formato da resposta (texto livre, sem JSON):
+1) Top 5 setores/segmentos (ordenado) — 1 linha por setor
+2) Para cada setor: 3 empresas — Nome (Sorocaba/RMS) + 1 link de fonte
+3) Fontes (web) — lista única`;
+	      }
+	      return langIsEn ? `Output format (plain text, no JSON):
+1) Direct answer (short)
+2) Evidence / sources (if applicable)
+3) Steps / checklist (only if asked or needed)
+4) Safety / attention points (if applicable)` : `Formato da resposta (texto livre, sem JSON):
+1) Resposta direta (curta)
+2) Evidências / fontes (se aplicável)
+3) Passo a passo / checklist (só se o usuário pedir ou se for necessário)
+4) Pontos de atenção / segurança (se aplicável)`;
+	    })();
+	    const system = mode === "oracle" ? langIsEn ? `You are DJT Quest's Knowledge Catalog and training monitor.
 You help collaborators find answers using the available internal base (published org catalog + the user's materials + approved compendium). When the base is insufficient, rely on the automated web summary (when present).
 
 Rules:
@@ -1767,15 +1810,12 @@ Rules:
 - Be practical and instructive: steps, checks, safety notes when relevant.
 - Do NOT fabricate manufacturer specs, model numbers, or procedures not present in the base/web summary. If you can't find it, say so.
 - If the internal base contains tables/spreadsheets, treat them as data: interpret headers, compute totals/deltas, and make assumptions explicit.
+${oracleGuidance}
 ${qualityHint}
 ${imageHint}
 ${focusHint}
 
-Output format (plain text, no JSON):
-1) Direct answer (short)
-2) Steps / checklist
-3) Calculations / insights (if applicable)
-4) Safety / attention points (if applicable)
+${oracleOutputFormat}
 
 Answer in ${language}.` : `Você é o Catálogo de Conhecimento do DJT Quest e atua como monitor de treinamento.
 Você ajuda colaboradores a encontrar respostas usando a base interna (catálogo publicado da organização + materiais do usuário + compêndio aprovado). Quando a base for insuficiente, use o resumo de pesquisa web (quando existir).
@@ -1785,20 +1825,18 @@ Regras:
 - Seja prático e instrutivo: passo a passo, checagens, pontos de segurança quando fizer sentido.
 - NÃO invente especificações, dados de fabricantes/modelos ou procedimentos que não estejam na base/resumo web. Se não encontrar, diga que não encontrou.
 - Se a base interna tiver tabelas/planilhas, trate como dados: interprete cabeçalhos, faça cálculos (somas/deltas) e deixe as suposições explícitas.
+${oracleGuidance}
 ${qualityHint}
 ${imageHint}
 ${focusHint}
 
-Formato da resposta (texto livre, sem JSON):
-1) Resposta direta (curta)
-2) Passo a passo / checklist
-3) Cálculos / insights (se aplicável)
-4) Pontos de atenção / segurança (se aplicável)
+${oracleOutputFormat}
 
 Responda em ${language}.` : mode === "chat" ? langIsEn ? `You are a helpful assistant (ChatGPT-style).
 
 Rules:
-- Use general knowledge and good judgment. ${use_web ? "Do NOT ask clarifying questions; proceed with explicit assumptions." : "If something depends on missing context, ask up to 2 clarifying questions."}
+		- Use general knowledge and good judgment. Do NOT ask clarifying questions; proceed with explicit assumptions.
+		- Do NOT ask for permission/confirmation to browse or proceed.
 - If a web research summary is provided above, use it and cite the links. If no web summary is present, still answer with best-effort assumptions and explain how to validate (do NOT claim you cannot browse the web).
 - If attachments are provided, use them as primary context.
 - Do NOT invent specific internal facts (IDs, exact procedures, manufacturer specs) that are not provided. If unsure, say so and suggest how to verify.
@@ -1810,7 +1848,8 @@ ${focusHint}
 Output: plain text (no JSON). Answer in ${language}.` : `Você é um assistente útil (modo ChatGPT).
 
 Regras:
-- Use conhecimento geral e bom senso. ${use_web ? "NÃO faça perguntas de esclarecimento; siga com suposições explícitas." : "Se algo depender de contexto faltando, faça no máximo 2 perguntas de esclarecimento."}
+		- Use conhecimento geral e bom senso. NÃO faça perguntas de esclarecimento; siga com suposições explícitas.
+		- NÃO peça confirmação/permissão para pesquisar ou continuar.
 - Se existir um resumo de pesquisa web acima, use-o e cite os links. Se não existir resumo web, ainda assim responda com estimativas/suposições e diga como validar (NÃO diga que “não tem acesso à web”).
 - Se houver anexos, use-os como contexto principal.
 - NÃO invente fatos internos específicos (IDs, procedimentos exatos, especificações de fabricante) que não foram fornecidos. Se não tiver certeza, diga e sugira como validar.
@@ -2288,12 +2327,18 @@ ${context}`
         }
       }
 	    }
-	    const useWeb = Boolean(use_web);
-	    const webAllowed = use_web !== false;
-	    const userRequestedWeb = (() => {
+	    const useWeb = Boolean(use_web) || userRequestedWeb;
+	    const webAllowed = use_web !== false || userRequestedWeb;
+	    const autoWebInOracle = (() => {
+	      if (!useWeb || mode !== "oracle") return false;
 	      const normalized = normalizeForMatch(lastUserText || "");
 	      if (!normalized) return false;
-	      return /\b(busque|buscar|pesquise|pesquisar|pesquisa|fontes?|referencias?|citacoes?|cite|links?)\b/.test(normalized);
+	      let score = 0;
+	      if (/\b(top|ranking|maiores|melhores|piores|lista|empresas?|setores?)\b/.test(normalized)) score += 1;
+	      if (/\b(consumo|energia|mwh|kwh|demanda|carga|industria|comercio|setor|empresa)\b/.test(normalized)) score += 1;
+	      if (/\b(sorocaba|regiao metropolitana|rms|sao paulo|sp)\b/.test(normalized)) score += 1;
+	      if (/\b(202\\d|atual|atualizado|hoje|agora|fontes?|publicas)\b/.test(normalized)) score += 1;
+	      return score >= 3;
 	    })();
 	    const autoWebInChat = (() => {
 	      if (!useWeb || mode !== "chat") return false;
@@ -2306,11 +2351,14 @@ ${context}`
 	      if (/\b(202\\d|atual|atualizado|hoje|agora|fontes?|publicas)\b/.test(normalized)) score += 1;
 	      return score >= 2;
 	    })();
-	    const shouldSearchWeb = webAllowed && lastUserText && ((mode === "oracle" && (userRequestedWeb || oracleBestScore < 2)) || mode === "chat" && (userRequestedWeb || autoWebInChat));
+	    const shouldSearchWeb = webAllowed && lastUserText && ((mode === "oracle" && (userRequestedWeb || oracleBestScore < 2 || autoWebInOracle)) || mode === "chat" && (userRequestedWeb || autoWebInChat));
 		    if (shouldSearchWeb) {
 		      attemptedWebSummary = true;
 		      const webTimeout = Math.min(STUDYLAB_WEB_SEARCH_TIMEOUT_MS, Math.max(1500, timeLeftMs() - WEB_RESERVE_FOR_OPENAI_MS));
-		      const webSummary = await fetchWebSearchSummary(lastUserText, { timeoutMs: webTimeout });
+		      const webSummary = await fetchWebSearchSummary(lastUserText, {
+		        timeoutMs: webTimeout,
+		        fastMode: qualityKey === "instant" || userRequestedWeb
+		      });
 		      webSummaryMeta = {
 		        ok: Boolean(webSummary?.ok),
 		        reason: webSummary?.ok ? void 0 : webSummary?.reason || "unknown",
@@ -2462,8 +2510,8 @@ ${context}`
           if (attempt === 0 && !usedWebSummary) continue;
           break;
         }
-        const data = await resp.json().catch(() => null);
-        const incompleteReason = data?.incomplete_details?.reason;
+	        const data = await resp.json().catch(() => null);
+	        const incompleteReason = data?.incomplete_details?.reason || (String(data?.status || "").toLowerCase() === "incomplete" ? "incomplete" : null);
         const candidateContent = String(collectOutputText(data) || extractChatText(data) || "").trim();
         if (candidateContent) {
           if (incompleteReason === "max_output_tokens" && modelMaxTokens < maxOutputCap) {
@@ -2501,7 +2549,7 @@ ${context}`
 	        meta: {
 	          model_candidates: modelCandidates,
 	          used_web_summary: usedWebSummary,
-	          use_web: Boolean(use_web),
+	          use_web: useWeb,
 	          oracle_best_score: oracleBestScore,
 	          web_attempted: attemptedWebSummary,
 	          web_summary: webSummaryMeta,
@@ -2514,8 +2562,18 @@ ${context}`
 	      });
 	    }
 
-    let continued = false;
-    if (finalIncompleteReason === "max_output_tokens" && timeLeftMs() > 7e3) {
+	    let continued = false;
+	    const looksLikeCutoff = (raw) => {
+	      const t = String(raw || "").trim();
+	      if (!t || t.length < 120) return false;
+	      if (/https?:\/\/[^\s]+$/i.test(t)) return false;
+	      if (/[,:;\u2013\u2014-]$/.test(t)) return true;
+	      if (/\b(ex\.?|exemplo|p\.?ex\.?|ou|and|or|etc)\s*$/i.test(t)) return true;
+	      if (!/[.!?\u2026]$/.test(t) && /[0-9A-Za-zÀ-ÿ)]$/.test(t)) return true;
+	      return false;
+	    };
+	    const shouldContinue = timeLeftMs() > 7e3 && (finalIncompleteReason === "max_output_tokens" || finalIncompleteReason === "incomplete" || looksLikeCutoff(content));
+	    if (shouldContinue) {
       try {
         const continuePrompt = langIsEn ? "Continue the previous answer EXACTLY from where it stopped. Do not repeat what was already said. Finish the requested output and keep a 'Sources (web)' section with links (if applicable)." : "Continue a resposta anterior EXATAMENTE de onde parou. Não repita o que já foi dito. Conclua a saída pedida e mantenha uma seção 'Fontes (web)' com links (se aplicável).";
         const continueMessages = [
@@ -2543,10 +2601,10 @@ ${context}`
           if (extra) {
             content = `${content}\n\n${extra}`.trim();
             continued = true;
-            const incompleteReason = data?.incomplete_details?.reason;
-            finalIncompleteReason = incompleteReason || finalIncompleteReason;
-          }
-        }
+	            const incompleteReason = data?.incomplete_details?.reason || (String(data?.status || "").toLowerCase() === "incomplete" ? "incomplete" : null);
+	            finalIncompleteReason = incompleteReason || finalIncompleteReason;
+	          }
+	        }
       } catch {
       }
     }
@@ -2588,7 +2646,7 @@ ${context}`
         const metadata = {
           mode,
           source_id: source_id || null,
-          use_web: Boolean(use_web),
+          use_web: useWeb,
           kb_tags: forumKbTags,
           kb_focus: forumKbFocus,
           model: usedModel
@@ -2697,7 +2755,7 @@ ${context}`
         latency_ms: Date.now() - t0,
         web: usedWebSummary,
         used_web_summary: usedWebSummary,
-        use_web: Boolean(use_web),
+        use_web: useWeb,
         oracle_best_score: oracleBestScore,
         incomplete_reason: finalIncompleteReason,
         truncated: finalIncompleteReason === "max_output_tokens",
