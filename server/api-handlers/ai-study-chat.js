@@ -1736,10 +1736,29 @@ ${metaParts.join("\n\n")}` : ""}`;
 
 Foco do usuário (temas da base de conhecimento): ${forumKbFocus}
 - Priorize esse foco ao responder e ao sugerir próximos passos.` : "";
-    const langIsEn = String(language || "").toLowerCase().startsWith("en");
-    const imageHint = includeImagesInPrompt ? langIsEn ? "\n\nIf images are attached, identify the object/equipment and extract visible nameplate fields (manufacturer, model, serial, ratings). Only state what you can see; if a field is unreadable, say so." : "\n\nSe houver imagens anexadas, identifique o objeto/equipamento e extraia os campos visíveis da placa (fabricante, modelo, nº de série, tensões/correntes/potência). Só afirme o que estiver visível; se algo estiver ilegível, diga que não dá para ler." : "";
-    const qualityHint = qualityKey === "thinking" ? langIsEn ? "\n\nMode: Thinking (more detail). Provide a complete, structured answer, but avoid repetition." : "\n\nModo: Thinking (mais detalhado). Entregue uma resposta completa e estruturada, evitando repetição." : qualityKey === "instant" ? langIsEn ? "\n\nMode: Instant (fast). Keep it short and practical: direct answer + checklist. Do not ramble." : "\n\nModo: Instant (rápido). Seja curto e prático: resposta direta + checklist. Não se estenda." : langIsEn ? "\n\nMode: Auto (balanced). Balance speed and completeness with a practical checklist." : "\n\nModo: Auto (equilibrado). Equilibre rapidez e completude com um checklist prático.";
-    const webHint = use_web && mode === "chat" ? langIsEn ? "\n\nWeb research: if a web research summary is provided above, treat it as evidence and use it.\n- If the question asks for a ranking/top list (e.g., “Top 5 sectors and 3 companies each”), DELIVER the list.\n- If there is no official public ranking, give the best proxy-based approximation and be explicit about criteria/limits.\n- Do not ask clarifying questions; proceed with explicit assumptions and how to validate.\n- Always include a 'Sources (web)' section with the links used.\n- Do not say you cannot browse." : "\n\nPesquisa web: se existir um resumo de pesquisa web acima, trate como evidência e use-o.\n- Se a pergunta pedir ranking/top/lista (ex.: “Top 5 setores e 3 empresas em cada”), ENTREGUE a lista.\n- Se não existir ranking oficial público, faça a melhor aproximação possível (proxy) e deixe claro o critério/limitações.\n- Não faça perguntas de esclarecimento; siga com suposições explícitas e diga como validar.\n- Sempre inclua uma seção 'Fontes (web)' com os links utilizados.\n- Não diga que “não tem acesso à web”." : "";
+	    const langIsEn = String(language || "").toLowerCase().startsWith("en");
+	    const imageHint = includeImagesInPrompt ? langIsEn ? "\n\nIf images are attached, identify the object/equipment and extract visible nameplate fields (manufacturer, model, serial, ratings). Only state what you can see; if a field is unreadable, say so." : "\n\nSe houver imagens anexadas, identifique o objeto/equipamento e extraia os campos visíveis da placa (fabricante, modelo, nº de série, tensões/correntes/potência). Só afirme o que estiver visível; se algo estiver ilegível, diga que não dá para ler." : "";
+	    const qualityHint = qualityKey === "thinking" ? langIsEn ? "\n\nMode: Thinking (more detail). Provide a complete, structured answer, but avoid repetition." : "\n\nModo: Thinking (mais detalhado). Entregue uma resposta completa e estruturada, evitando repetição." : qualityKey === "instant" ? langIsEn ? "\n\nMode: Instant (fast). Keep it short and practical: direct answer + checklist. Do not ramble." : "\n\nModo: Instant (rápido). Seja curto e prático: resposta direta + checklist. Não se estenda." : langIsEn ? "\n\nMode: Auto (balanced). Balance speed and completeness with a practical checklist." : "\n\nModo: Auto (equilibrado). Equilibre rapidez e completude com um checklist prático.";
+	    const webListRequest = (() => {
+	      if (!use_web || mode !== "chat") return false;
+	      const normalized = normalizeForMatch(lastUserText || "");
+	      if (!normalized) return false;
+	      const wantsTop = /\b(top|ranking|maiores|melhores|piores|lista)\b/.test(normalized);
+	      const wantsCompanies = /\b(empresas?)\b/.test(normalized);
+	      const wantsSectors = /\b(setores?|segmentos?|industrias?|comercio)\b/.test(normalized);
+	      return wantsTop && wantsCompanies && wantsSectors;
+	    })();
+	    const webHint = (() => {
+	      if (!use_web || mode !== "chat") return "";
+	      if (langIsEn) {
+	        const base = "\n\nWeb research: if a web research summary is provided above, treat it as evidence and use it.\n- If the question asks for a ranking/top list (e.g., “Top 5 sectors and 3 companies each”), DELIVER the list.\n- If there is no official public ranking, give the best proxy-based approximation and be explicit about criteria/limits.\n- Be concise. Avoid long methodology text.\n- Do not ask clarifying questions; proceed with explicit assumptions.\n- Always include a 'Sources (web)' section with the links used.\n- Do not say you cannot browse.";
+	        const extra = webListRequest ? "\n\nRequired format:\n1) Top 5 sectors (ranked)\n2) For each sector: 3 companies (each with 1 short justification + at least 1 source link)\n3) Sources (web)" : "";
+	        return base + extra;
+	      }
+	      const base = "\n\nPesquisa web: se existir um resumo de pesquisa web acima, trate como evidência e use-o.\n- Se a pergunta pedir ranking/top/lista (ex.: “Top 5 setores e 3 empresas em cada”), ENTREGUE a lista.\n- Se não existir ranking oficial público, faça a melhor aproximação possível (proxy) e deixe claro o critério/limitações.\n- Seja conciso. Evite texto longo de metodologia.\n- Não faça perguntas de esclarecimento; siga com suposições explícitas.\n- Sempre inclua uma seção 'Fontes (web)' com os links utilizados.\n- Não diga que “não tem acesso à web”.";
+	      const extra = webListRequest ? "\n\nFormato obrigatório:\n1) Top 5 setores/segmentos (ordenado)\n2) Para cada setor: 3 empresas (cada uma com 1 justificativa curta + pelo menos 1 link de fonte)\n3) Fontes (web)" : "";
+	      return base + extra;
+	    })();
     const system = mode === "oracle" ? langIsEn ? `You are DJT Quest's Knowledge Catalog and training monitor.
 You help collaborators find answers using the available internal base (published org catalog + the user's materials + approved compendium). When the base is insufficient, rely on the automated web summary (when present).
 
