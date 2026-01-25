@@ -554,18 +554,30 @@ const runWebSearchOnce = async (query, opts) => {
       const title = match ? String(match?.title || "").trim() : (toolSources || []).find((s) => s.url === url)?.title;
       return title ? { title, url } : { url };
     });
-    const keyFactsRaw = Array.isArray(parsed?.key_facts) ? parsed.key_facts : [];
-    const key_facts = keyFactsRaw.map((f) => String(f || "").trim()).filter(Boolean).slice(0, 14);
-    if (!sources.length) return null;
-    return {
-      model,
-      tool,
-      query,
-      key_facts,
-      sources,
-      raw: rawText ? rawText.slice(0, 2400) : ""
-    };
-  };
+	    const keyFactsRaw = Array.isArray(parsed?.key_facts) ? parsed.key_facts : [];
+	    const key_facts = keyFactsRaw.map((f) => String(f || "").trim()).filter(Boolean).slice(0, 14);
+	    const entitiesRaw = Array.isArray(parsed?.entities) ? parsed.entities : [];
+	    const entities = entitiesRaw.map((e) => {
+	      const name = String(e?.name || "").trim();
+	      if (!name) return null;
+	      const rawType = String(e?.type || "").trim();
+	      const type = rawType && /^(company|sector|org|dataset|report)$/i.test(rawType) ? rawType.toLowerCase() : rawType.toLowerCase() || void 0;
+	      const rawUrls = Array.isArray(e?.source_urls) ? e.source_urls : Array.isArray(e?.sources) ? e.sources : [];
+	      const source_urls = uniqueStrings(rawUrls.map((u) => String(u || "").trim())).filter((u) => /^https?:\/\//i.test(u)).slice(0, 4);
+	      const notes = String(e?.notes || e?.note || "").trim();
+	      return { name, type, notes: notes || void 0, source_urls };
+	    }).filter(Boolean).slice(0, 18);
+	    if (!sources.length) return null;
+	    return {
+	      model,
+	      tool,
+	      query,
+	      key_facts,
+	      entities,
+	      sources,
+	      raw: rawText ? rawText.slice(0, 2400) : ""
+	    };
+	  };
   for (const model of opts?.modelCandidates || []) {
     const remaining = timeLeft();
     if (remaining < 900) return null;
@@ -712,6 +724,7 @@ const synthesizeWebBrief = async (question, research, opts) => {
   const compactResearch = (research || []).map((r) => ({
     query: String(r?.query || "").slice(0, 220),
     key_facts: Array.isArray(r?.key_facts) ? r.key_facts.slice(0, 12) : [],
+    entities: Array.isArray(r?.entities) ? r.entities.slice(0, 12) : [],
     sources: Array.isArray(r?.sources) ? r.sources.slice(0, 12) : []
   })).slice(0, 6);
   const input = [
@@ -830,9 +843,25 @@ const fetchWebSearchSummary = async (query, opts) => {
   ).filter(Boolean).slice(0, 16);
   const fallbackText = (() => {
     const facts = uniqueStrings(research.flatMap((r) => Array.isArray(r?.key_facts) ? r.key_facts : [])).slice(0, 14);
+    const entityLines = uniqueStrings(
+      research.flatMap((r) => Array.isArray(r?.entities) ? r.entities : []).map((e) => {
+        const name = String(e?.name || "").trim();
+        if (!name) return "";
+        const type = String(e?.type || "").trim();
+        const rawUrls = Array.isArray(e?.source_urls) ? e.source_urls : [];
+        const url = rawUrls.map((u) => String(u || "").trim()).find((u) => /^https?:\/\//i.test(u)) || "";
+        const prefix = type ? `${type}: ` : "";
+        return `${prefix}${name}${url ? ` — ${url}` : ""}`.trim();
+      }).filter(Boolean)
+    ).slice(0, 18);
     const lines = [];
     lines.push("Pesquisa web (notas):");
     for (const f of facts) lines.push(`- ${String(f).trim()}`);
+    if (entityLines.length) {
+      lines.push("");
+      lines.push("Entidades (web):");
+      for (const line of entityLines) lines.push(`- ${line}`);
+    }
     if (sources.length) {
       lines.push("");
       lines.push("Fontes (web):");
@@ -2359,7 +2388,8 @@ ${context}`
       let modelMaxTokens = maxTokensBase;
       for (let attempt = 0; attempt < 2; attempt += 1) {
         // Avoid stacking multiple long attempts (can exceed serverless max duration).
-        if (attempts >= (usedWebSummary ? 2 : 3)) break;
+        const attemptLimit = usedWebSummary && mode === "chat" ? 3 : usedWebSummary ? 2 : 3;
+        if (attempts >= attemptLimit) break;
         let resp = null;
         try {
 	          attempts += 1;
