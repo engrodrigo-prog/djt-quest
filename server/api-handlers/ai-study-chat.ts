@@ -2451,87 +2451,103 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
 	        addKeyword(match[0]);
 	      }
 	      // Model codes (e.g. SEL-421, 7SJ62, etc.)
-	      for (const match of text.matchAll(/\b[A-Za-z]{2,6}[-_ ]?\d{2,6}[A-Za-z0-9]{0,4}\b/g)) {
-	        addKeyword(match[0]);
-	      }
-	      const keywords = Array.from(keywordSet).slice(0, 12);
+		      for (const match of text.matchAll(/\b[A-Za-z]{2,6}[-_ ]?\d{2,6}[A-Za-z0-9]{0,4}\b/g)) {
+		        addKeyword(match[0]);
+		      }
+		      const keywords = Array.from(keywordSet).slice(0, 12);
 
-        // 0) Semantic retrieval (pgvector chunks) — best-effort, falls back to keyword ranking.
-        let semanticSources: Array<{ source_id: string; title: string; summary: string; url: string; best: number; chunks: string[] }> = [];
-        let bestSemanticSim = 0;
-        try {
-          const left = timeLeftMs();
-          if (left > 3500) {
-            const embeddings = await embedTexts([text], { timeoutMs: Math.min(9000, Math.max(2500, left - 500)) });
-            const queryEmbedding = embeddings?.[0];
-            if (Array.isArray(queryEmbedding) && queryEmbedding.length) {
-              const { data, error } = await admin.rpc("match_study_source_chunks", {
-                query_embedding: queryEmbedding,
-                match_count: 12,
-                match_threshold: 0.32,
-              });
-              if (!error && Array.isArray(data) && data.length) {
-                const byId = new Map<string, any>();
-                for (const row of data) {
-                  const sid = String(row?.source_id || "").trim();
-                  if (!sid) continue;
-                  const entry =
-                    byId.get(sid) ||
-                    ({
-                      source_id: sid,
-                      title: String(row?.source_title || "").trim(),
-                      summary: String(row?.source_summary || "").trim(),
-                      url: String(row?.source_url || "").trim(),
-                      best: 0,
-                      chunks: [],
-                    } as any);
-                  const sim = Number(row?.similarity || 0);
-                  if (Number.isFinite(sim) && sim > entry.best) entry.best = sim;
-                  const chunkText = String(row?.chunk_content || "").trim();
-                  if (chunkText && entry.chunks.length < 2) entry.chunks.push(chunkText);
-                  byId.set(sid, entry);
-                }
-                semanticSources = Array.from(byId.values())
-                  .filter((x) => x?.chunks?.length)
-                  .sort((a: any, b: any) => (b.best || 0) - (a.best || 0))
-                  .slice(0, 3);
-                bestSemanticSim = Number(semanticSources[0]?.best || 0) || 0;
-              }
-            }
-          }
-        } catch {
-          semanticSources = [];
-          bestSemanticSim = 0;
-        }
+	      // Fast path: external/local “data lookup” queries should skip heavy catalog retrieval
+	      // (embeddings + large source scans) to avoid Vercel function invocation timeouts.
+	      const skipOracleRetrieval = (() => {
+	        if (!use_web) return false;
+	        if (incidentLikely) return false;
+	        const looksLocal = /\b(sorocaba|regiao metropolitana|rms|sao paulo|sp)\b/.test(normalizedQuery);
+	        const wantsTop = /\b(top|ranking|maiores|melhores|piores|lista)\b/.test(normalizedQuery);
+	        const wantsEntities = /\b(setores?|segmentos?|industrias?|comercio|empresas?|negocios?)\b/.test(normalizedQuery);
+	        const wantsEnergy = /\b(consumo|energia|mwh|kwh|demanda|carga)\b/.test(normalizedQuery);
+	        return looksLocal && wantsTop && wantsEntities && wantsEnergy;
+	      })();
+	
+	        // 0) Semantic retrieval (pgvector chunks) — best-effort, falls back to keyword ranking.
+	        let semanticSources: Array<{ source_id: string; title: string; summary: string; url: string; best: number; chunks: string[] }> = [];
+	        let bestSemanticSim = 0;
+	        if (!skipOracleRetrieval) {
+	          try {
+	            const left = timeLeftMs();
+	            if (left > 3500) {
+	              const embeddings = await embedTexts([text], { timeoutMs: Math.min(7000, Math.max(2200, left - 500)) });
+	              const queryEmbedding = embeddings?.[0];
+	              if (Array.isArray(queryEmbedding) && queryEmbedding.length) {
+	                const { data, error } = await admin.rpc("match_study_source_chunks", {
+	                  query_embedding: queryEmbedding,
+	                  match_count: 12,
+	                  match_threshold: 0.32,
+	                });
+	                if (!error && Array.isArray(data) && data.length) {
+	                  const byId = new Map<string, any>();
+	                  for (const row of data) {
+	                    const sid = String(row?.source_id || "").trim();
+	                    if (!sid) continue;
+	                    const entry =
+	                      byId.get(sid) ||
+	                      ({
+	                        source_id: sid,
+	                        title: String(row?.source_title || "").trim(),
+	                        summary: String(row?.source_summary || "").trim(),
+	                        url: String(row?.source_url || "").trim(),
+	                        best: 0,
+	                        chunks: [],
+	                      } as any);
+	                    const sim = Number(row?.similarity || 0);
+	                    if (Number.isFinite(sim) && sim > entry.best) entry.best = sim;
+	                    const chunkText = String(row?.chunk_content || "").trim();
+	                    if (chunkText && entry.chunks.length < 2) entry.chunks.push(chunkText);
+	                    byId.set(sid, entry);
+	                  }
+	                  semanticSources = Array.from(byId.values())
+	                    .filter((x) => x?.chunks?.length)
+	                    .sort((a: any, b: any) => (b.best || 0) - (a.best || 0))
+	                    .slice(0, 3);
+	                  bestSemanticSim = Number(semanticSources[0]?.best || 0) || 0;
+	                }
+	              }
+	            }
+	          } catch {
+	            semanticSources = [];
+	            bestSemanticSim = 0;
+	          }
+	        }
 
-	      // 1) Study sources (org + user)
-	      let sourcesForOracle: any[] = [];
-	      try {
-	        const selectV2 = "id, user_id, title, summary, url, storage_path, topic, category, scope, published, metadata, created_at";
-	        const selectV1 = "id, user_id, title, summary, url, storage_path, topic, created_at";
-	        const buildQuery = (select: string) => {
-	          const q = admin.from("study_sources").select(select).order("created_at", { ascending: false }).limit(250);
-	          if (uid) {
-	            if (isLeaderOrStaff) q.or(`user_id.eq.${uid},scope.eq.org`);
-	            else q.or(`user_id.eq.${uid},and(scope.eq.org,published.eq.true)`);
-	          } else {
-            q.eq("scope", "org").eq("published", true);
-          }
-          return q;
-        };
-        let resp = await buildQuery(selectV2);
-        let data = resp?.data;
-        let error = resp?.error;
-        if (error && /column .*?(category|scope|published|metadata)/i.test(String(error.message || error))) {
-          resp = await buildQuery(selectV1);
-          data = resp?.data;
-          error = resp?.error;
-        }
-        if (error) throw error;
-        sourcesForOracle = Array.isArray(data) ? data : [];
-	      } catch {
-	        sourcesForOracle = [];
-	      }
+		      // 1) Study sources (org + user)
+		      let sourcesForOracle: any[] = [];
+		      if (!skipOracleRetrieval) {
+		        try {
+		          const selectV2 = "id, user_id, title, summary, url, storage_path, topic, category, scope, published, metadata, created_at";
+		          const selectV1 = "id, user_id, title, summary, url, storage_path, topic, created_at";
+		          const buildQuery = (select: string) => {
+		            const q = admin.from("study_sources").select(select).order("created_at", { ascending: false }).limit(250);
+		            if (uid) {
+		              if (isLeaderOrStaff) q.or(`user_id.eq.${uid},scope.eq.org`);
+		              else q.or(`user_id.eq.${uid},and(scope.eq.org,published.eq.true)`);
+		            } else {
+		              q.eq("scope", "org").eq("published", true);
+		            }
+		            return q;
+		          };
+		          let resp = await buildQuery(selectV2);
+		          let data = resp?.data;
+		          let error = resp?.error;
+		          if (error && /column .*?(category|scope|published|metadata)/i.test(String(error.message || error))) {
+		            resp = await buildQuery(selectV1);
+		            data = resp?.data;
+		            error = resp?.error;
+		          }
+		          if (error) throw error;
+		          sourcesForOracle = Array.isArray(data) ? data : [];
+		        } catch {
+		          sourcesForOracle = [];
+		        }
+		      }
 
 	      const scoreText = (s: string, kws: string[]) => {
 	        const hay = normalizeForMatch(String(s || ""));
@@ -2650,12 +2666,12 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
       const bestCompendiumScore = rankedCompendium[0]?.score || 0;
       usedOracleCompendiumCount = rankedCompendium.length;
 
-      // 3) Fórum (base por hashtags)
-      let forumKbRows: any[] = [];
-      if (forumKbTags.length) {
-        try {
-          const { data, error } = await admin
-            .from("knowledge_base")
+	      // 3) Fórum (base por hashtags)
+	      let forumKbRows: any[] = [];
+	      if (!skipOracleRetrieval && forumKbTags.length) {
+	        try {
+	          const { data, error } = await admin
+	            .from("knowledge_base")
             .select("source_type, title, post_id, source_id, content, content_html, hashtags, likes_count, is_solution, is_featured, kind, url")
             .overlaps("hashtags", forumKbTags as any)
             .order("is_solution", { ascending: false })
@@ -3093,10 +3109,10 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
           const inputPayload = forceTextOnly
             ? toResponsesTextMessages(promptMessages)
             : toResponsesInputMessages(promptMessages);
-		          let openAiTimeout = Math.max(5000, Math.min(STUDYLAB_OPENAI_TIMEOUT_MS, timeLeftMs() - 1200));
-		          if (mode === "chat" && attemptedWebSummary) {
-		            openAiTimeout = Math.min(openAiTimeout, 35000);
-		          }
+			          let openAiTimeout = Math.max(5000, Math.min(STUDYLAB_OPENAI_TIMEOUT_MS, timeLeftMs() - 1200));
+			          if (attemptedWebSummary) {
+			            openAiTimeout = Math.min(openAiTimeout, mode === "oracle" ? 30000 : 35000);
+			          }
 	          const payload = {
 	            model,
 	            input: inputPayload,
@@ -3228,10 +3244,10 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
         const inputPayload = forceTextOnly
           ? toResponsesTextMessages(continueMessages)
           : toResponsesInputMessages(continueMessages);
-	        let openAiTimeout = Math.max(5000, Math.min(STUDYLAB_OPENAI_TIMEOUT_MS, timeLeftMs() - 1200));
-	        if (mode === "chat" && attemptedWebSummary) {
-	          openAiTimeout = Math.min(openAiTimeout, 20000);
-	        }
+		        let openAiTimeout = Math.max(5000, Math.min(STUDYLAB_OPENAI_TIMEOUT_MS, timeLeftMs() - 1200));
+		        if (attemptedWebSummary) {
+		          openAiTimeout = Math.min(openAiTimeout, mode === "oracle" ? 15000 : 20000);
+		        }
         const resp = await callOpenAiResponse(
           {
             model: usedModel,

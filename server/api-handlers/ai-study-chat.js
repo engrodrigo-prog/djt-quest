@@ -1963,78 +1963,91 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
 	      for (const match of text.matchAll(/\b[A-Z]{2,6}\b/g)) {
 	        addKeyword(match[0]);
 	      }
-	      for (const match of text.matchAll(/\b[A-Za-z]{2,6}[-_ ]?\d{2,6}[A-Za-z0-9]{0,4}\b/g)) {
-	        addKeyword(match[0]);
-	      }
-	      const keywords = Array.from(keywordSet).slice(0, 12);
-        let semanticSources = [];
-        let bestSemanticSim = 0;
-        try {
-          const left = timeLeftMs();
-          if (left > 3500) {
-            const embeddings = await embedTexts([text], { timeoutMs: Math.min(9e3, Math.max(2500, left - 500)) });
-            const queryEmbedding = embeddings?.[0];
-            if (Array.isArray(queryEmbedding) && queryEmbedding.length) {
-              const { data: semData, error: semErr } = await admin.rpc("match_study_source_chunks", {
-                query_embedding: queryEmbedding,
-                match_count: 12,
-                match_threshold: 0.32
-              });
-              if (!semErr && Array.isArray(semData) && semData.length) {
-                const byId = /* @__PURE__ */ new Map();
-                for (const row of semData) {
-                  const sid = String(row?.source_id || "").trim();
-                  if (!sid) continue;
-                  const entry = byId.get(sid) || {
-                    source_id: sid,
-                    title: String(row?.source_title || "").trim(),
-                    summary: String(row?.source_summary || "").trim(),
-                    url: String(row?.source_url || "").trim(),
-                    best: 0,
-                    chunks: []
-                  };
-                  const sim = Number(row?.similarity || 0);
-                  if (Number.isFinite(sim) && sim > entry.best) entry.best = sim;
-                  const chunkText = String(row?.chunk_content || "").trim();
-                  if (chunkText && entry.chunks.length < 2) entry.chunks.push(chunkText);
-                  byId.set(sid, entry);
-                }
-                semanticSources = Array.from(byId.values()).filter((x) => x?.chunks?.length).sort((a, b) => (b.best || 0) - (a.best || 0)).slice(0, 3);
-                bestSemanticSim = Number(semanticSources[0]?.best || 0) || 0;
-              }
-            }
-          }
-        } catch {
-          semanticSources = [];
-          bestSemanticSim = 0;
-        }
-	      let sourcesForOracle = [];
-	      try {
-	        const selectV2 = "id, user_id, title, summary, url, storage_path, topic, category, scope, published, metadata, created_at";
-	        const selectV1 = "id, user_id, title, summary, url, storage_path, topic, created_at";
-	        const buildQuery = (select) => {
-	          const q = admin.from("study_sources").select(select).order("created_at", { ascending: false }).limit(250);
-	          if (uid) {
-	            if (isLeaderOrStaff) q.or(`user_id.eq.${uid},scope.eq.org`);
-	            else q.or(`user_id.eq.${uid},and(scope.eq.org,published.eq.true)`);
-          } else {
-            q.eq("scope", "org").eq("published", true);
-          }
-          return q;
-        };
-        let resp2 = await buildQuery(selectV2);
-        let data2 = resp2?.data;
-        let error = resp2?.error;
-        if (error && /column .*?(category|scope|published|metadata)/i.test(String(error.message || error))) {
-          resp2 = await buildQuery(selectV1);
-          data2 = resp2?.data;
-          error = resp2?.error;
-        }
-        if (error) throw error;
-        sourcesForOracle = Array.isArray(data2) ? data2 : [];
-	      } catch {
-	        sourcesForOracle = [];
-	      }
+		      for (const match of text.matchAll(/\b[A-Za-z]{2,6}[-_ ]?\d{2,6}[A-Za-z0-9]{0,4}\b/g)) {
+		        addKeyword(match[0]);
+		      }
+		      const keywords = Array.from(keywordSet).slice(0, 12);
+	      const skipOracleRetrieval = (() => {
+	        if (!use_web) return false;
+	        if (incidentLikely) return false;
+	        const looksLocal = /\b(sorocaba|regiao metropolitana|rms|sao paulo|sp)\b/.test(normalizedQuery);
+	        const wantsTop = /\b(top|ranking|maiores|melhores|piores|lista)\b/.test(normalizedQuery);
+	        const wantsEntities = /\b(setores?|segmentos?|industrias?|comercio|empresas?|negocios?)\b/.test(normalizedQuery);
+	        const wantsEnergy = /\b(consumo|energia|mwh|kwh|demanda|carga)\b/.test(normalizedQuery);
+	        return looksLocal && wantsTop && wantsEntities && wantsEnergy;
+	      })();
+	        let semanticSources = [];
+	        let bestSemanticSim = 0;
+	        if (!skipOracleRetrieval) {
+	          try {
+	            const left = timeLeftMs();
+	            if (left > 3500) {
+	              const embeddings = await embedTexts([text], { timeoutMs: Math.min(7e3, Math.max(2200, left - 500)) });
+	              const queryEmbedding = embeddings?.[0];
+	              if (Array.isArray(queryEmbedding) && queryEmbedding.length) {
+	                const { data: semData, error: semErr } = await admin.rpc("match_study_source_chunks", {
+	                  query_embedding: queryEmbedding,
+	                  match_count: 12,
+	                  match_threshold: 0.32
+	                });
+	                if (!semErr && Array.isArray(semData) && semData.length) {
+	                  const byId = /* @__PURE__ */ new Map();
+	                  for (const row of semData) {
+	                    const sid = String(row?.source_id || "").trim();
+	                    if (!sid) continue;
+	                    const entry = byId.get(sid) || {
+	                      source_id: sid,
+	                      title: String(row?.source_title || "").trim(),
+	                      summary: String(row?.source_summary || "").trim(),
+	                      url: String(row?.source_url || "").trim(),
+	                      best: 0,
+	                      chunks: []
+	                    };
+	                    const sim = Number(row?.similarity || 0);
+	                    if (Number.isFinite(sim) && sim > entry.best) entry.best = sim;
+	                    const chunkText = String(row?.chunk_content || "").trim();
+	                    if (chunkText && entry.chunks.length < 2) entry.chunks.push(chunkText);
+	                    byId.set(sid, entry);
+	                  }
+	                  semanticSources = Array.from(byId.values()).filter((x) => x?.chunks?.length).sort((a, b) => (b.best || 0) - (a.best || 0)).slice(0, 3);
+	                  bestSemanticSim = Number(semanticSources[0]?.best || 0) || 0;
+	                }
+	              }
+	            }
+	          } catch {
+	            semanticSources = [];
+	            bestSemanticSim = 0;
+	          }
+	        }
+		      let sourcesForOracle = [];
+		      if (!skipOracleRetrieval) {
+		        try {
+		          const selectV2 = "id, user_id, title, summary, url, storage_path, topic, category, scope, published, metadata, created_at";
+		          const selectV1 = "id, user_id, title, summary, url, storage_path, topic, created_at";
+		          const buildQuery = (select) => {
+		            const q = admin.from("study_sources").select(select).order("created_at", { ascending: false }).limit(250);
+		            if (uid) {
+		              if (isLeaderOrStaff) q.or(`user_id.eq.${uid},scope.eq.org`);
+		              else q.or(`user_id.eq.${uid},and(scope.eq.org,published.eq.true)`);
+		            } else {
+		              q.eq("scope", "org").eq("published", true);
+		            }
+		            return q;
+		          };
+		          let resp2 = await buildQuery(selectV2);
+		          let data2 = resp2?.data;
+		          let error = resp2?.error;
+		          if (error && /column .*?(category|scope|published|metadata)/i.test(String(error.message || error))) {
+		            resp2 = await buildQuery(selectV1);
+		            data2 = resp2?.data;
+		            error = resp2?.error;
+		          }
+		          if (error) throw error;
+		          sourcesForOracle = Array.isArray(data2) ? data2 : [];
+		        } catch {
+		          sourcesForOracle = [];
+		        }
+		      }
 	      const scoreText = (s, kws) => {
 	        const hay = normalizeForMatch(String(s || ""));
 	        let score = 0;
@@ -2127,7 +2140,7 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
       const bestCompendiumScore = rankedCompendium[0]?.score || 0;
       usedOracleCompendiumCount = rankedCompendium.length;
       let forumKbRows = [];
-      if (forumKbTags.length) {
+	      if (!skipOracleRetrieval && forumKbTags.length) {
         try {
           const { data: data2, error } = await admin.from("knowledge_base").select("source_type, title, post_id, source_id, content, content_html, hashtags, likes_count, is_solution, is_featured, kind, url").overlaps("hashtags", forumKbTags).order("is_solution", { ascending: false }).order("likes_count", { ascending: false }).limit(120);
           if (error) throw error;
@@ -2463,10 +2476,10 @@ ${context}`
 	          attempts += 1;
 	          const promptMessages = useMinimalPrompt ? minimalOpenAiMessages : openaiMessages;
 	          const inputPayload = forceTextOnly ? toResponsesTextMessages(promptMessages) : toResponsesInputMessages(promptMessages);
-	          let openAiTimeout = Math.max(5e3, Math.min(STUDYLAB_OPENAI_TIMEOUT_MS, timeLeftMs() - 1200));
-	          if (mode === "chat" && attemptedWebSummary) {
-		            openAiTimeout = Math.min(openAiTimeout, 35e3);
-	          }
+		          let openAiTimeout = Math.max(5e3, Math.min(STUDYLAB_OPENAI_TIMEOUT_MS, timeLeftMs() - 1200));
+		          if (attemptedWebSummary) {
+			            openAiTimeout = Math.min(openAiTimeout, mode === "oracle" ? 3e4 : 35e3);
+		          }
 	          const payload = {
 	            model,
 	            input: inputPayload,
@@ -2582,10 +2595,10 @@ ${context}`
           { role: "user", content: continuePrompt }
         ];
         const inputPayload = forceTextOnly ? toResponsesTextMessages(continueMessages) : toResponsesInputMessages(continueMessages);
-        let openAiTimeout = Math.max(5e3, Math.min(STUDYLAB_OPENAI_TIMEOUT_MS, timeLeftMs() - 1200));
-        if (mode === "chat" && attemptedWebSummary) {
-	          openAiTimeout = Math.min(openAiTimeout, 2e4);
-        }
+	        let openAiTimeout = Math.max(5e3, Math.min(STUDYLAB_OPENAI_TIMEOUT_MS, timeLeftMs() - 1200));
+	        if (attemptedWebSummary) {
+		          openAiTimeout = Math.min(openAiTimeout, mode === "oracle" ? 15e3 : 2e4);
+	        }
         const resp = await callOpenAiChatCompletion(
           {
             model: usedModel,
