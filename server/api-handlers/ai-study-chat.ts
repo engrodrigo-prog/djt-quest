@@ -28,7 +28,7 @@ const STUDYLAB_MAX_COMPLETION_TOKENS = Math.max(
 );
 const STUDYLAB_WEB_SEARCH_TIMEOUT_MS = Math.max(
   1500,
-  Math.min(30000, Number(process.env.STUDYLAB_WEB_SEARCH_TIMEOUT_MS || 12000)),
+  Math.min(30000, Number(process.env.STUDYLAB_WEB_SEARCH_TIMEOUT_MS || 18000)),
 );
 const STUDYLAB_OPENAI_TIMEOUT_MS = Math.max(
   5000,
@@ -1022,14 +1022,24 @@ const fetchWebSearchSummary = async (query: string, opts?: { timeoutMs?: number;
 
   const heuristicQueries = (() => {
     const out: string[] = [];
+    if (looksLikeDataQuery && looksLocal) {
+      // Split the job: (a) find major local companies/industry profile, (b) find energy-by-class/sector references.
+      out.push("principais empresas industriais Sorocaba SP");
+      out.push("consumo de energia Sorocaba SP por classe industrial comercial");
+      out.push("Sorocaba SP principais setores industriais economia");
+      out.push("ANEEL consumo de energia Sorocaba por classe");
+      out.push("EPE consumo final de energia por setor Brasil");
+      return out;
+    }
+
     out.push(query);
-    if (/\b(sorocaba|regiao metropolitana|rms|sao paulo|sp)\b/.test(normalized)) {
+    if (looksLocal) {
       out.push(`${query} dados oficiais`);
       out.push(`${query} ibge seade aneel epe`);
     } else {
       out.push(`${query} fontes oficiais`);
     }
-    if (/\b(consumo|energia|mwh|kwh|demanda|carga)\b/.test(normalized)) {
+    if (wantsEnergy) {
       out.push(`${query} consumo de energia por setor`);
       out.push(`${query} concessionaria distribuicao consumo por classe`);
     }
@@ -1367,7 +1377,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!OPENAI_API_KEY) return res.status(500).json({ error: "Missing OPENAI_API_KEY" });
     const requestDeadlineMs = Math.max(45000, Math.min(59000, Number(process.env.STUDYLAB_REQUEST_DEADLINE_MS || 58000)));
     const timeLeftMs = () => Math.max(0, requestDeadlineMs - (Date.now() - t0));
-    const WEB_RESERVE_FOR_OPENAI_MS = 42000;
+    // Keep enough headroom for the main answer (Vercel functions have hard invocation limits).
+    const WEB_RESERVE_FOR_OPENAI_MS = 32000;
 
     const admin =
       SUPABASE_URL && SERVICE_KEY
@@ -3054,12 +3065,17 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
         const preferred = "gpt-5-2025-08-07";
         return uniqueStrings([preferred, ...baseCandidates]);
       }
-      if (includeImagesInPrompt) {
-        const preferred = "gpt-5-2025-08-07";
-        return uniqueStrings([preferred, ...baseCandidates]);
-      }
-      return baseCandidates;
-    })();
+	      if (includeImagesInPrompt) {
+	        const preferred = "gpt-5-2025-08-07";
+	        return uniqueStrings([preferred, ...baseCandidates]);
+	      }
+	      if (mode === "oracle" && (usedWebSummary || attemptedWebSummary)) {
+	        // Oracle + web research benefits from a slightly stronger default than nano.
+	        const preferred = "gpt-4.1-mini";
+	        return uniqueStrings([preferred, ...baseCandidates]);
+	      }
+	      return baseCandidates;
+	    })();
 	    let maxTokensBase =
 	      qualityKey === "thinking"
 	        ? Math.max(STUDYLAB_MAX_COMPLETION_TOKENS, 1200)

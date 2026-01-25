@@ -22,7 +22,7 @@ const STUDYLAB_MAX_COMPLETION_TOKENS = Math.max(
 );
 const STUDYLAB_WEB_SEARCH_TIMEOUT_MS = Math.max(
   1500,
-  Math.min(3e4, Number(process.env.STUDYLAB_WEB_SEARCH_TIMEOUT_MS || 12e3))
+  Math.min(3e4, Number(process.env.STUDYLAB_WEB_SEARCH_TIMEOUT_MS || 18e3))
 );
 const STUDYLAB_OPENAI_TIMEOUT_MS = Math.max(
   5e3,
@@ -791,22 +791,30 @@ const fetchWebSearchSummary = async (query, opts) => {
     timeoutMs: Math.min(2500, Math.max(900, timeLeft() - 500)),
     maxQueries: Math.max(2, maxQueries),
     modelCandidates
-  }) : [];
-  const heuristicQueries = (() => {
-    const out = [];
-    out.push(query);
-    if (/\b(sorocaba|regiao metropolitana|rms|sao paulo|sp)\b/.test(normalized)) {
-      out.push(`${query} dados oficiais`);
-      out.push(`${query} ibge seade aneel epe`);
-    } else {
-      out.push(`${query} fontes oficiais`);
-    }
-    if (/\b(consumo|energia|mwh|kwh|demanda|carga)\b/.test(normalized)) {
-      out.push(`${query} consumo de energia por setor`);
-      out.push(`${query} concessionaria distribuicao consumo por classe`);
-    }
-    return out;
-  })();
+	  }) : [];
+	  const heuristicQueries = (() => {
+	    const out = [];
+	    if (looksLikeDataQuery && looksLocal) {
+	      out.push("principais empresas industriais Sorocaba SP");
+	      out.push("consumo de energia Sorocaba SP por classe industrial comercial");
+	      out.push("Sorocaba SP principais setores industriais economia");
+	      out.push("ANEEL consumo de energia Sorocaba por classe");
+	      out.push("EPE consumo final de energia por setor Brasil");
+	      return out;
+	    }
+	    out.push(query);
+	    if (looksLocal) {
+	      out.push(`${query} dados oficiais`);
+	      out.push(`${query} ibge seade aneel epe`);
+	    } else {
+	      out.push(`${query} fontes oficiais`);
+	    }
+	    if (wantsEnergy) {
+	      out.push(`${query} consumo de energia por setor`);
+	      out.push(`${query} concessionaria distribuicao consumo por classe`);
+	    }
+	    return out;
+	  })();
   const queries = uniqueStrings([...planned, ...heuristicQueries]).slice(0, maxQueries);
   const research = [];
   const debugAttempts = [];
@@ -1068,7 +1076,7 @@ async function handler(req, res) {
     if (!OPENAI_API_KEY) return res.status(500).json({ error: "Missing OPENAI_API_KEY" });
     const requestDeadlineMs = Math.max(45e3, Math.min(59e3, Number(process.env.STUDYLAB_REQUEST_DEADLINE_MS || 58e3)));
     const timeLeftMs = () => Math.max(0, requestDeadlineMs - (Date.now() - t0));
-    const WEB_RESERVE_FOR_OPENAI_MS = 42e3;
+    const WEB_RESERVE_FOR_OPENAI_MS = 32e3;
     const admin = SUPABASE_URL && SERVICE_KEY ? createClient(SUPABASE_URL, SERVICE_KEY, { auth: { autoRefreshToken: false, persistSession: false } }) : null;
     const {
       messages = [],
@@ -2437,12 +2445,16 @@ ${context}`
         const preferred = "gpt-5-2025-08-07";
         return uniqueStrings([preferred, ...baseCandidates]);
       }
-      if (includeImagesInPrompt) {
-        const preferred = "gpt-5-2025-08-07";
-        return uniqueStrings([preferred, ...baseCandidates]);
-      }
-      return baseCandidates;
-    })();
+	      if (includeImagesInPrompt) {
+	        const preferred = "gpt-5-2025-08-07";
+	        return uniqueStrings([preferred, ...baseCandidates]);
+	      }
+	      if (mode === "oracle" && (usedWebSummary || attemptedWebSummary)) {
+	        const preferred = "gpt-4.1-mini";
+	        return uniqueStrings([preferred, ...baseCandidates]);
+	      }
+	      return baseCandidates;
+	    })();
     let maxTokensBase = qualityKey === "thinking" ? Math.max(STUDYLAB_MAX_COMPLETION_TOKENS, 1200) : usedWebSummary || attemptedWebSummary ? Math.max(STUDYLAB_MAX_COMPLETION_TOKENS, 900) : STUDYLAB_MAX_COMPLETION_TOKENS;
     if (mode === "oracle") {
       const oracleFloor = qualityKey === "thinking" ? 1800 : qualityKey === "auto" ? 1400 : 1200;
