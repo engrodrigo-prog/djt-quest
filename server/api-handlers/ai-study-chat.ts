@@ -2203,7 +2203,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           "- Always include a 'Sources (web)' section with the links used.\n" +
           "- Do not say you cannot browse.";
         const extra = webListRequest
-          ? "\n\nRequired format (be VERY concise; no methodology text):\n1) Top 5 sectors (ranked) — 1 line each\n2) For each sector: 3 companies — only Name (Sorocaba/RMS) + 1 source link\n3) Sources (web) — single list (do not repeat links in the body)\nLimit: ~25 lines total."
+          ? "\n\nRequired format (be VERY concise; no methodology text; no Markdown):\n1) Top 5 sectors (ranked) — 1 line each\n2) For each sector: 3 companies — Name (Sorocaba/RMS) — 1 source URL (plain text)\n3) Sources (web) — single list of URLs (do not repeat in the body)\nIf you can't find 3 companies with sources, write \"not found\".\nLimit: ~25 lines total."
           : "";
         return base + extra;
       }
@@ -2217,7 +2217,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         "- Sempre inclua uma seção 'Fontes (web)' com os links utilizados.\n" +
         "- Não diga que “não tem acesso à web”.";
       const extra = webListRequest
-        ? "\n\nFormato obrigatório (seja MUITO conciso; sem metodologia/passo-a-passo):\n1) Top 5 setores/segmentos (ordenado) — 1 linha por setor\n2) Para cada setor: 3 empresas — apenas Nome (Sorocaba/RMS) + 1 link de fonte\n3) Fontes (web) — lista única (não repita links no corpo)\nLimite: ~25 linhas no total."
+        ? "\n\nFormato obrigatório (seja MUITO conciso; sem metodologia/passo-a-passo; sem Markdown):\n1) Top 5 setores/segmentos (ordenado) — 1 linha por setor\n2) Para cada setor: 3 empresas — Nome (Sorocaba/RMS) — 1 URL de fonte (texto puro)\n3) Fontes (web) — lista única de URLs (não repita no corpo)\nSe não achar 3 empresas com fonte, escreva \"não encontrado\".\nLimite: ~25 linhas no total."
         : "";
       return base + extra;
     })();
@@ -2240,7 +2240,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           "- If a web research summary is provided above, treat it as evidence and include a 'Sources (web)' section with links.\n" +
           "- If there is no web summary and the internal base is insufficient, still answer with best-effort assumptions + limitations (do NOT respond with only a plan).\n";
         const extra = oracleListRequest
-          ? "\nRequired format (be VERY concise; no methodology text):\n1) Top 5 sectors (ranked) — 1 line each\n2) For each sector: 3 companies — only Name (Sorocaba/RMS) + 1 source link\n3) Sources (web) — single list (do not repeat links in the body)\nLimit: ~25 lines total."
+          ? "\nRequired format (be VERY concise; no methodology text; no Markdown):\n1) Top 5 sectors (ranked) — 1 line each\n2) For each sector: 3 companies — Name (Sorocaba/RMS) — 1 source URL (plain text)\n3) Sources (web) — single list of URLs (do not repeat in the body)\nIf you can't find 3 companies with sources, write \"not found\".\nLimit: ~25 lines total."
           : "";
         return base + extra;
       }
@@ -2251,7 +2251,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         "- Se existir um resumo de pesquisa web acima, trate como evidência e inclua uma seção 'Fontes (web)' com links.\n" +
         "- Se NÃO houver resumo web e a base interna for insuficiente, responda com a melhor aproximação (proxy) + limitações (NÃO devolva apenas um plano).\n";
       const extra = oracleListRequest
-        ? "\n\nFormato obrigatório (seja MUITO conciso; sem metodologia/passo-a-passo):\n1) Top 5 setores/segmentos (ordenado) — 1 linha por setor\n2) Para cada setor: 3 empresas — apenas Nome (Sorocaba/RMS) + 1 link de fonte\n3) Fontes (web) — lista única (não repita links no corpo)\nLimite: ~25 linhas no total."
+        ? "\n\nFormato obrigatório (seja MUITO conciso; sem metodologia/passo-a-passo; sem Markdown):\n1) Top 5 setores/segmentos (ordenado) — 1 linha por setor\n2) Para cada setor: 3 empresas — Nome (Sorocaba/RMS) — 1 URL de fonte (texto puro)\n3) Fontes (web) — lista única de URLs (não repita no corpo)\nSe não achar 3 empresas com fonte, escreva \"não encontrado\".\nLimite: ~25 linhas no total."
         : "";
       return base + extra;
     })();
@@ -2261,12 +2261,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return langIsEn
           ? `Output format (plain text, no JSON):
 1) Top 5 sectors (ranked) — 1 line each
-2) For each sector: 3 companies — Name (Sorocaba/RMS) + 1 source link
-3) Sources (web) — single list`
+2) For each sector: 3 companies — Name (Sorocaba/RMS) — 1 source URL (plain text; no Markdown)
+3) Sources (web) — single list of URLs`
           : `Formato da resposta (texto livre, sem JSON):
 1) Top 5 setores/segmentos (ordenado) — 1 linha por setor
-2) Para cada setor: 3 empresas — Nome (Sorocaba/RMS) + 1 link de fonte
-3) Fontes (web) — lista única`;
+2) Para cada setor: 3 empresas — Nome (Sorocaba/RMS) — 1 URL de fonte (texto puro; sem Markdown)
+3) Fontes (web) — lista única de URLs`;
       }
       return langIsEn
         ? `Output format (plain text, no JSON):

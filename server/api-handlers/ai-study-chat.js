@@ -1762,11 +1762,11 @@ Foco do usuário (temas da base de conhecimento): ${forumKbFocus}
 	      if (!useWebForPrompt || mode !== "chat") return "";
 	      if (langIsEn) {
 	        const base = "\n\nWeb research: if a web research summary is provided above, treat it as evidence and use it.\n- If the question asks for a ranking/top list (e.g., “Top 5 sectors and 3 companies each”), DELIVER the list.\n- If there is no official public ranking, give the best proxy-based approximation and be explicit about criteria/limits.\n- Be concise. Avoid long methodology text.\n- Do not ask clarifying questions; proceed with explicit assumptions.\n- Do not ask for permission/confirmation to browse or proceed.\n- Always include a 'Sources (web)' section with the links used.\n- Do not say you cannot browse.";
-	        const extra = webListRequest ? "\n\nRequired format (be VERY concise; no methodology text):\n1) Top 5 sectors (ranked) — 1 line each\n2) For each sector: 3 companies — only Name (Sorocaba/RMS) + 1 source link\n3) Sources (web) — single list (do not repeat links in the body)\nLimit: ~25 lines total." : "";
+	        const extra = webListRequest ? "\n\nRequired format (be VERY concise; no methodology text; no Markdown):\n1) Top 5 sectors (ranked) — 1 line each\n2) For each sector: 3 companies — Name (Sorocaba/RMS) — 1 source URL (plain text)\n3) Sources (web) — single list of URLs (do not repeat in the body)\nIf you can't find 3 companies with sources, write \"not found\".\nLimit: ~25 lines total." : "";
 	        return base + extra;
 	      }
 	      const base = "\n\nPesquisa web: se existir um resumo de pesquisa web acima, trate como evidência e use-o.\n- Se a pergunta pedir ranking/top/lista (ex.: “Top 5 setores e 3 empresas em cada”), ENTREGUE a lista.\n- Se não existir ranking oficial público, faça a melhor aproximação possível (proxy) e deixe claro o critério/limitações.\n- Seja conciso. Evite texto longo de metodologia.\n- Não faça perguntas de esclarecimento; siga com suposições explícitas.\n- Não peça confirmação/permissão para pesquisar ou continuar.\n- Sempre inclua uma seção 'Fontes (web)' com os links utilizados.\n- Não diga que “não tem acesso à web”.";
-	      const extra = webListRequest ? "\n\nFormato obrigatório (seja MUITO conciso; sem metodologia/passo-a-passo):\n1) Top 5 setores/segmentos (ordenado) — 1 linha por setor\n2) Para cada setor: 3 empresas — apenas Nome (Sorocaba/RMS) + 1 link de fonte\n3) Fontes (web) — lista única (não repita links no corpo)\nLimite: ~25 linhas no total." : "";
+	      const extra = webListRequest ? "\n\nFormato obrigatório (seja MUITO conciso; sem metodologia/passo-a-passo; sem Markdown):\n1) Top 5 setores/segmentos (ordenado) — 1 linha por setor\n2) Para cada setor: 3 empresas — Nome (Sorocaba/RMS) — 1 URL de fonte (texto puro)\n3) Fontes (web) — lista única de URLs (não repita no corpo)\nSe não achar 3 empresas com fonte, escreva \"não encontrado\".\nLimite: ~25 linhas no total." : "";
 	      return base + extra;
 	    })();
 	    const oracleListRequest = (() => {
@@ -1782,11 +1782,11 @@ Foco do usuário (temas da base de conhecimento): ${forumKbFocus}
 	      if (mode !== "oracle") return "";
 	      if (langIsEn) {
 	        const base = "\n\nExtra rules (speed):\n- Do NOT ask for permission/confirmation to browse or proceed.\n- Deliver the answer first. Only include step-by-step if the user explicitly asked.\n- If a web research summary is provided above, treat it as evidence and include a 'Sources (web)' section with links.\n- If there is no web summary and the internal base is insufficient, still answer with best-effort assumptions + limitations (do NOT respond with only a plan).\n";
-	        const extra = oracleListRequest ? "\nRequired format (be VERY concise; no methodology text):\n1) Top 5 sectors (ranked) — 1 line each\n2) For each sector: 3 companies — only Name (Sorocaba/RMS) + 1 source link\n3) Sources (web) — single list (do not repeat links in the body)\nLimit: ~25 lines total." : "";
+	        const extra = oracleListRequest ? "\nRequired format (be VERY concise; no methodology text; no Markdown):\n1) Top 5 sectors (ranked) — 1 line each\n2) For each sector: 3 companies — Name (Sorocaba/RMS) — 1 source URL (plain text)\n3) Sources (web) — single list of URLs (do not repeat in the body)\nIf you can't find 3 companies with sources, write \"not found\".\nLimit: ~25 lines total." : "";
 	        return base + extra;
 	      }
 	      const base = "\n\nRegras extras (rapidez):\n- NÃO peça confirmação/permissão para pesquisar ou continuar.\n- Entregue a resposta primeiro. Só faça passo-a-passo se o usuário pedir explicitamente.\n- Se existir um resumo de pesquisa web acima, trate como evidência e inclua uma seção 'Fontes (web)' com links.\n- Se NÃO houver resumo web e a base interna for insuficiente, responda com a melhor aproximação (proxy) + limitações (NÃO devolva apenas um plano).\n";
-	      const extra = oracleListRequest ? "\n\nFormato obrigatório (seja MUITO conciso; sem metodologia/passo-a-passo):\n1) Top 5 setores/segmentos (ordenado) — 1 linha por setor\n2) Para cada setor: 3 empresas — apenas Nome (Sorocaba/RMS) + 1 link de fonte\n3) Fontes (web) — lista única (não repita links no corpo)\nLimite: ~25 linhas no total." : "";
+	      const extra = oracleListRequest ? "\n\nFormato obrigatório (seja MUITO conciso; sem metodologia/passo-a-passo; sem Markdown):\n1) Top 5 setores/segmentos (ordenado) — 1 linha por setor\n2) Para cada setor: 3 empresas — Nome (Sorocaba/RMS) — 1 URL de fonte (texto puro)\n3) Fontes (web) — lista única de URLs (não repita no corpo)\nSe não achar 3 empresas com fonte, escreva \"não encontrado\".\nLimite: ~25 linhas no total." : "";
 	      return base + extra;
 	    })();
 	    const oracleOutputFormat = (() => {
@@ -1794,11 +1794,11 @@ Foco do usuário (temas da base de conhecimento): ${forumKbFocus}
 	      if (oracleListRequest) {
 	        return langIsEn ? `Output format (plain text, no JSON):
 1) Top 5 sectors (ranked) — 1 line each
-2) For each sector: 3 companies — Name (Sorocaba/RMS) + 1 source link
-3) Sources (web) — single list` : `Formato da resposta (texto livre, sem JSON):
+2) For each sector: 3 companies — Name (Sorocaba/RMS) — 1 source URL (plain text; no Markdown)
+3) Sources (web) — single list of URLs` : `Formato da resposta (texto livre, sem JSON):
 1) Top 5 setores/segmentos (ordenado) — 1 linha por setor
-2) Para cada setor: 3 empresas — Nome (Sorocaba/RMS) + 1 link de fonte
-3) Fontes (web) — lista única`;
+2) Para cada setor: 3 empresas — Nome (Sorocaba/RMS) — 1 URL de fonte (texto puro; sem Markdown)
+3) Fontes (web) — lista única de URLs`;
 	      }
 	      return langIsEn ? `Output format (plain text, no JSON):
 1) Direct answer (short)
