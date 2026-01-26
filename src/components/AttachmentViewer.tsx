@@ -88,6 +88,7 @@ export const AttachmentViewer = ({
                   key={url}
                   src={url}
                   controls
+                  loop
                   className="w-full max-h-[70vh] bg-black"
                   preload="metadata"
                   playsInline
@@ -247,8 +248,10 @@ export const AttachmentViewer = ({
             <div key={url} className="relative group">
               <video
                 controls
+                loop
                 className="w-full rounded-lg"
                 preload="metadata"
+                playsInline
               >
                 <source src={url} />
                 Seu navegador não suporta vídeo.

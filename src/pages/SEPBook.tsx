@@ -1182,47 +1182,14 @@ export default function SEPBook() {
 	        (attachmentItems || [])
 	          .map((it) => it?.meta?.exifGps || null)
 	          .find((g) => g && typeof g.lat === "number" && typeof g.lng === "number") || null;
-	      let finalCoords = exifGps ? { lat: exifGps.lat, lng: exifGps.lng } : coords;
-	      let finalLocationLabel = exifGps ? "GPS da foto" : locationLabel;
-
-	      // If no EXIF GPS and no stored coords, best-effort: try device location.
-	      if (!finalCoords && attachments.length > 0 && typeof navigator !== "undefined" && navigator.geolocation) {
-	        try {
-	          const device = await new Promise<{ lat: number; lng: number } | null>((resolve) => {
-	            let settled = false;
-	            const finish = (v: { lat: number; lng: number } | null) => {
-	              if (settled) return;
-	              settled = true;
-	              resolve(v);
-	            };
-	            try {
-	              navigator.geolocation.getCurrentPosition(
-	                (pos) => finish({ lat: Number(pos.coords.latitude), lng: Number(pos.coords.longitude) }),
-	                () => finish(null),
-	                { enableHighAccuracy: true, timeout: 15000, maximumAge: 10 * 60_000 },
-	              );
-	            } catch {
-	              finish(null);
-	            }
-	            try {
-	              window.setTimeout(() => finish(null), 15_500);
-	            } catch {}
-	          });
-	          if (device && Number.isFinite(device.lat) && Number.isFinite(device.lng)) {
-	            finalCoords = device;
-	            finalLocationLabel = "Local atual";
-	          }
-	        } catch {
-	          // ignore
-	        }
-	      }
+	      const finalCoords = exifGps ? { lat: exifGps.lat, lng: exifGps.lng } : null;
+	      const finalLocationLabel = exifGps ? "GPS da foto" : null;
 
 	      const gpsMeta = (attachments || []).map((url) => {
 	        const u = String(url || "").trim();
 	        const it = (attachmentItems || []).find((x) => String((x as any)?.url || "") === u) as any;
 	        const g = it?.meta?.exifGps;
 	        if (g && typeof g.lat === "number" && typeof g.lng === "number") return { url: u, source: "exif", lat: g.lat, lng: g.lng };
-	        if (finalCoords) return { url: u, source: "device", lat: finalCoords.lat, lng: finalCoords.lng };
 	        return { url: u, source: "unavailable" };
 	      });
 
@@ -2117,6 +2084,8 @@ export default function SEPBook() {
                               key={idx}
                               src={url}
                               controls
+                              loop
+                              playsInline
                               className="w-full h-24 rounded-md border border-border/60 object-cover bg-black"
                             />
                           ) : (

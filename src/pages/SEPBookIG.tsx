@@ -341,7 +341,7 @@ const clampLatLng = (lat: number, lng: number) => {
   return { lat: la, lng: ln };
 };
 
-const readFileAsArrayBuffer = async (file: File): Promise<ArrayBuffer | null> => {
+const readFileAsArrayBuffer = async (file: Blob): Promise<ArrayBuffer | null> => {
   try {
     if (typeof (file as any)?.arrayBuffer === "function") {
       return await (file as any).arrayBuffer();
@@ -360,6 +360,23 @@ const readFileAsArrayBuffer = async (file: File): Promise<ArrayBuffer | null> =>
       resolve(null);
     }
   });
+};
+
+const decodeLatin1 = (buf: ArrayBuffer): string => {
+  try {
+    if (typeof TextDecoder !== "undefined") {
+      return new TextDecoder("iso-8859-1").decode(new Uint8Array(buf));
+    }
+  } catch {
+    // fall back
+  }
+  const arr = new Uint8Array(buf);
+  let out = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < arr.length; i += chunk) {
+    out += String.fromCharCode(...arr.subarray(i, i + chunk));
+  }
+  return out;
 };
 
 const geoKeyFor = (lat: number, lng: number) => `${Number(lat).toFixed(5)},${Number(lng).toFixed(5)}`;
@@ -395,6 +412,36 @@ async function extractGpsFromImage(file: File): Promise<{ lat: number; lng: numb
     const lat = gps?.latitude ?? gps?.lat;
     const lng = gps?.longitude ?? gps?.lon ?? gps?.lng;
     return clampLatLng(Number(lat), Number(lng));
+  } catch {
+    return null;
+  }
+}
+
+async function extractGpsFromVideo(file: File): Promise<{ lat: number; lng: number } | null> {
+  try {
+    const t = String(file?.type || "");
+    if (!t.startsWith("video/")) return null;
+
+    const scanBytes = Math.min(2_000_000, Math.max(128_000, file.size));
+    const head = await readFileAsArrayBuffer(file.slice(0, scanBytes));
+    const tail = file.size > scanBytes ? await readFileAsArrayBuffer(file.slice(Math.max(0, file.size - scanBytes))) : null;
+    const text = `${head ? decodeLatin1(head) : ""}\n${tail ? decodeLatin1(tail) : ""}`;
+    if (!text) return null;
+
+    // iPhone videos commonly store location in `com.apple.quicktime.location.ISO6709` using ISO 6709 coordinates:
+    // Example: "+37.33182-122.03118+000.000/"
+    const isoWindow = (() => {
+      const idx = text.indexOf("ISO6709");
+      if (idx < 0) return text;
+      return text.slice(Math.max(0, idx - 240), Math.min(text.length, idx + 520));
+    })();
+
+    const m =
+      isoWindow.match(/([+-]\d{1,2}\.\d+)([+-]\d{1,3}\.\d+)(?:[+-]\d+(?:\.\d+)?)?\/?/) ||
+      isoWindow.match(/([+-]\d{1,2})([+-]\d{1,3})(?:[+-]\d+)?\/?/);
+    if (!m) return null;
+
+    return clampLatLng(Number(m[1]), Number(m[2]));
   } catch {
     return null;
   }
@@ -817,7 +864,7 @@ export default function SEPBookIG() {
   const translationInFlightRef = useRef(0);
 
   const composerGpsSource = useMemo(() => {
-    const items = composerMedia.filter((m) => m.kind === "image");
+    const items = composerMedia.filter((m) => m.kind === "image" || m.kind === "video");
     for (const it of items) {
       if (it.gps && typeof it.gps.lat === "number" && typeof it.gps.lng === "number") {
         return { gps: it.gps, url: it.url || null, id: it.id };
@@ -827,7 +874,7 @@ export default function SEPBookIG() {
   }, [composerMedia]);
 
   const commentGpsSource = useMemo(() => {
-    const items = commentMedia.filter((m) => m.kind === "image");
+    const items = commentMedia.filter((m) => m.kind === "image" || m.kind === "video");
     for (const it of items) {
       if (it.gps && typeof it.gps.lat === "number" && typeof it.gps.lng === "number") {
         return { gps: it.gps, url: it.url || null, id: it.id };
@@ -1223,58 +1270,8 @@ export default function SEPBookIG() {
     })();
   }, [commentsByPost, commentsOpenFor, locale, visiblePosts]);
 
-  const deviceGpsCacheRef = useRef<{ coords: { lat: number; lng: number }; ts: number } | null>(null);
-  const deviceGpsInFlightRef = useRef<Promise<{ lat: number; lng: number } | null> | null>(null);
-
-  const getDeviceGps = useCallback(async (opts?: { maxAgeMs?: number; timeoutMs?: number; highAccuracy?: boolean }) => {
-    const maxAgeMs = Math.max(0, Math.floor(Number(opts?.maxAgeMs ?? 10 * 60_000)));
-    const timeoutMs = Math.max(500, Math.floor(Number(opts?.timeoutMs ?? 15_000)));
-    const highAccuracy = Boolean(opts?.highAccuracy ?? true);
-
-    const cached = deviceGpsCacheRef.current;
-    if (cached && Date.now() - cached.ts < maxAgeMs) return cached.coords;
-    if (deviceGpsInFlightRef.current) return await deviceGpsInFlightRef.current;
-
-    if (typeof navigator === "undefined") return null;
-    const geo = (navigator as any).geolocation;
-    if (!geo || typeof geo.getCurrentPosition !== "function") return null;
-
-    deviceGpsInFlightRef.current = new Promise((resolve) => {
-      let settled = false;
-      const finish = (coords: { lat: number; lng: number } | null) => {
-        if (settled) return;
-        settled = true;
-        resolve(coords);
-      };
-
-      try {
-        geo.getCurrentPosition(
-          (pos: any) => {
-            const coords = clampLatLng(Number(pos?.coords?.latitude), Number(pos?.coords?.longitude));
-            finish(coords);
-          },
-          () => finish(null),
-          { enableHighAccuracy: highAccuracy, timeout: timeoutMs, maximumAge: maxAgeMs },
-        );
-      } catch {
-        finish(null);
-      }
-
-      try {
-        globalThis.setTimeout(() => finish(null), timeoutMs + 400);
-      } catch {
-        // ignore
-      }
-    });
-
-    const coords = await deviceGpsInFlightRef.current;
-    deviceGpsInFlightRef.current = null;
-    if (coords) deviceGpsCacheRef.current = { coords, ts: Date.now() };
-    return coords;
-  }, []);
-
   const resolveLocationForNewPost = useCallback(async () => {
-    // Prefer EXIF GPS from the image, if present.
+    // Prefer GPS embedded in the media (EXIF for images; ISO6709 metadata for videos).
     if (composerGpsSource?.gps && composerGpsSource.url) {
       return {
         location_lat: composerGpsSource.gps.lat,
@@ -1284,12 +1281,8 @@ export default function SEPBookIG() {
         __gps_url: composerGpsSource.url || null,
       };
     }
-    const hasMedia = composerMedia.some((m) => m.kind === "image" || m.kind === "video");
-    if (!hasMedia) return null;
-    const device = await getDeviceGps({ highAccuracy: true, timeoutMs: 15_000 });
-    if (!device) return null;
-    return { location_lat: device.lat, location_lng: device.lng, location_label: null, __gps_url: null };
-  }, [composerGpsSource, composerMedia, getDeviceGps]);
+    return null;
+  }, [composerGpsSource]);
 
   const resolveLocationForNewComment = useCallback(async () => {
     if (commentGpsSource?.gps && commentGpsSource.url) {
@@ -1301,12 +1294,8 @@ export default function SEPBookIG() {
         __gps_url: commentGpsSource.url || null,
       };
     }
-    const hasMedia = commentMedia.some((m) => m.kind === "image" || m.kind === "video");
-    if (!hasMedia) return null;
-    const device = await getDeviceGps({ highAccuracy: true, timeoutMs: 15_000 });
-    if (!device) return null;
-    return { location_lat: device.lat, location_lng: device.lng, location_label: null, __gps_url: null };
-  }, [commentGpsSource, commentMedia, getDeviceGps]);
+    return null;
+  }, [commentGpsSource]);
 
   const geoLabelCacheRef = useRef<Record<string, string>>({});
   const geoInFlightRef = useRef<Set<string>>(new Set());
@@ -2105,10 +2094,6 @@ export default function SEPBookIG() {
       const list = opts.files ? Array.from(opts.files) : [];
       if (!list.length) return;
 
-      // Warm up device GPS early (best-effort) for camera captures / videos,
-      // since many mobile browsers strip EXIF GPS from camera-captured files.
-      if (opts.source === "camera") void getDeviceGps({ highAccuracy: true, timeoutMs: 15_000 });
-
       const isComposerPost = opts.context === "post";
       const isEditPost = opts.context === "edit-post";
       const isPost = isComposerPost || isEditPost;
@@ -2169,8 +2154,7 @@ export default function SEPBookIG() {
 
         const id = randomId();
         const previewUrl = URL.createObjectURL(file);
-        const gps = kind === "image" ? await extractGpsFromImage(file) : null;
-        if (!gps && (kind === "image" || kind === "video")) void getDeviceGps({ highAccuracy: true, timeoutMs: 15_000 });
+        const gps = kind === "image" ? await extractGpsFromImage(file) : await extractGpsFromVideo(file);
         const item: MediaItem = { id, file, kind, previewUrl, gps, uploading: true, progress: 30 };
         setState((prev: MediaItem[]) => [...prev, item]);
 
@@ -2214,7 +2198,7 @@ export default function SEPBookIG() {
         /* ignore */
       }
     },
-    [commentMedia, composerMedia, editingPostMedia, getDeviceGps, toast],
+    [commentMedia, composerMedia, editingPostMedia, toast],
   );
 
   const handleCleanupComposer = useCallback(async () => {
@@ -2480,9 +2464,10 @@ export default function SEPBookIG() {
       const gpsMeta = orderedAttachments.map((url) => {
         const u = String(url || "").trim();
         const item = composerMedia.find((m) => String(m.url || "") === u) || null;
-        if (item?.kind === "image" && item.gps) return { url: u, source: "exif", lat: item.gps.lat, lng: item.gps.lng };
-        const coords = clampLatLng(Number((locationFields as any)?.location_lat), Number((locationFields as any)?.location_lng));
-        if (coords) return { url: u, source: "device", lat: coords.lat, lng: coords.lng };
+        if (item?.gps) {
+          const source = item.kind === "image" ? "exif" : "video_meta";
+          return { url: u, source, lat: item.gps.lat, lng: item.gps.lng };
+        }
         return { url: u, source: "unavailable" };
       });
       const resp = await apiFetch("/api/sepbook-post", {
@@ -2862,6 +2847,7 @@ export default function SEPBookIG() {
                 className={cn("h-full w-full object-cover", m.uploading && "opacity-60")}
                 muted
                 playsInline
+                loop
               />
             )}
             {m.uploading && (

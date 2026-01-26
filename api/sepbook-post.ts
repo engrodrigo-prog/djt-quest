@@ -342,26 +342,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       } catch {}
     }
 
-    // Fallback 2: if there's media and no coords, reuse the user's last known SEPBook location (best-effort).
-    if (!coords && atts.length > 0) {
-      try {
-        const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
-        const reader = SERVICE_ROLE_KEY ? admin : authed;
-        const { data: last } = await reader
-          .from("sepbook_posts")
-          .select("location_lat,location_lng,created_at")
-          .eq("user_id", uid)
-          .not("location_lat", "is", null)
-          .not("location_lng", "is", null)
-          .gte("created_at", since)
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-        const fallback = normalizeLatLng((last as any)?.location_lat, (last as any)?.location_lng);
-        if (fallback) coords = fallback;
-      } catch {}
-    }
-
     const computedLocationLabel = coords ? await reverseGeocodeCityLabel(coords.lat, coords.lng) : null;
 
     // Resolve campaign by explicit campaign_id or by &"Nome"

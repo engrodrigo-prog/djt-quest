@@ -29,7 +29,7 @@ type CampaignLite = {
 
 type UploadedItem = { url: string; meta?: { exifGps?: { lat: number; lng: number } | null } };
 
-type GpsPoint = { lat: number; lng: number; accuracy?: number | null; timestamp?: string | null; source: "exif" | "device" | "unavailable" };
+type GpsPoint = { lat: number; lng: number; accuracy?: number | null; timestamp?: string | null; source: "exif" | "unavailable" };
 
 const GUEST_TEAM_ID = "CONVIDADOS";
 
@@ -108,8 +108,6 @@ export function CampaignEvidenceWizard({
   const [tagsLoading, setTagsLoading] = useState(false);
 
   const [sapNote, setSapNote] = useState<string>("");
-  const [deviceLocation, setDeviceLocation] = useState<{ lat: number; lng: number; accuracy?: number | null; timestamp?: string | null } | null>(null);
-  const [gpsLoading, setGpsLoading] = useState(false);
 
   const [submitting, setSubmitting] = useState(false);
   const [publishPromptOpen, setPublishPromptOpen] = useState(false);
@@ -369,56 +367,6 @@ export function CampaignEvidenceWizard({
     [campaign.id, currentUserId, toast],
   );
 
-  const requestDeviceLocation = useCallback(async () => {
-    setGpsLoading(true);
-    try {
-      if (!navigator.geolocation) throw new Error("Geolocalização indisponível neste dispositivo.");
-      const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
-        navigator.geolocation.getCurrentPosition(resolve, reject, {
-          enableHighAccuracy: true,
-          timeout: 15000,
-          maximumAge: 10 * 60_000,
-        });
-      });
-      const { latitude, longitude, accuracy } = pos.coords;
-      const next = {
-        lat: Number(latitude),
-        lng: Number(longitude),
-        accuracy: Number.isFinite(accuracy) ? Number(accuracy) : null,
-        timestamp: new Date(pos.timestamp || Date.now()).toISOString(),
-      };
-      setDeviceLocation(next);
-    } catch (e: any) {
-      setDeviceLocation(null);
-      throw e;
-    } finally {
-      setGpsLoading(false);
-    }
-  }, []);
-
-  // Auto-capture device GPS when needed (EXIF is preferred; device GPS is fallback).
-  useEffect(() => {
-    if (step !== 4) return;
-    const needsDevice = imageItems.some((it) => {
-      const g = it?.meta?.exifGps;
-      return !(g && typeof g.lat === "number" && typeof g.lng === "number");
-    });
-    if (!needsDevice) return;
-    if (deviceLocation || gpsLoading) return;
-    void requestDeviceLocation().catch(() => {
-      // Permission denied / unavailable: keep GPS as unavailable.
-    });
-  }, [deviceLocation, gpsLoading, imageItems, requestDeviceLocation, step]);
-
-  const retryDeviceLocation = useCallback(async () => {
-    try {
-      await requestDeviceLocation();
-    } catch (e: any) {
-      toast({ title: "GPS indisponível", description: e?.message || "Permissão negada.", variant: "destructive" });
-      setDeviceLocation(null);
-    }
-  }, [requestDeviceLocation, toast]);
-
   const gpsByUrl = useMemo(() => {
     const map = new Map<string, GpsPoint>();
     for (const item of imageItems) {
@@ -429,27 +377,16 @@ export function CampaignEvidenceWizard({
         map.set(u, { lat: exif.lat, lng: exif.lng, source: "exif", timestamp: null, accuracy: null });
         continue;
       }
-      if (deviceLocation) {
-        map.set(u, {
-          lat: deviceLocation.lat,
-          lng: deviceLocation.lng,
-          source: "device",
-          accuracy: deviceLocation.accuracy ?? null,
-          timestamp: deviceLocation.timestamp ?? null,
-        });
-        continue;
-      }
       map.set(u, { lat: 0, lng: 0, source: "unavailable", accuracy: null, timestamp: null });
     }
     return map;
-  }, [deviceLocation, imageItems]);
+  }, [imageItems]);
 
   const gpsSummary = useMemo(() => {
     const items = Array.from(gpsByUrl.values());
     const exif = items.filter((x) => x.source === "exif").length;
-    const dev = items.filter((x) => x.source === "device").length;
     const none = items.filter((x) => x.source === "unavailable").length;
-    return { exif, dev, none, total: items.length };
+    return { exif, none, total: items.length };
   }, [gpsByUrl]);
 
   const evidenceText = useMemo(() => String(text || "").trim(), [text]);
@@ -633,7 +570,7 @@ export function CampaignEvidenceWizard({
       });
 
       const gpsFirst = gpsItems.find((g: any) => g && g.source !== "unavailable" && typeof g.lat === "number" && typeof g.lng === "number") || null;
-      const locationLabel = gpsFirst ? (gpsFirst.source === "exif" ? "GPS da foto" : "Local atual") : null;
+      const locationLabel = gpsFirst ? "GPS da foto" : null;
 
       const attachments = [...attachmentUrls, ...(audioUrl ? [audioUrl] : [])];
       const resp = await apiFetch("/api/campaign-evidence-submit", {
@@ -960,34 +897,15 @@ export function CampaignEvidenceWizard({
                   <div>
                     <p className="text-sm font-semibold">Localização (GPS)</p>
                     <p className="text-[11px] text-muted-foreground">
-                      Preferimos GPS do EXIF das fotos; se não existir, tentamos usar o GPS do dispositivo (permissão do navegador).
+                      Usamos apenas o GPS embutido no arquivo (EXIF). Se a foto não tiver GPS, a evidência fica sem localização.
                     </p>
                   </div>
                 </div>
 
                 <div className="text-[11px] text-muted-foreground flex flex-wrap gap-2">
                   <span>EXIF: {gpsSummary.exif}/{gpsSummary.total}</span>
-                  <span>Device: {gpsSummary.dev}/{gpsSummary.total}</span>
                   <span>Sem GPS: {gpsSummary.none}/{gpsSummary.total}</span>
                 </div>
-
-                {deviceLocation && (
-                  <div className="text-[11px] text-muted-foreground">
-                    Local atual capturado{deviceLocation.accuracy ? ` (±${Math.round(deviceLocation.accuracy)}m)` : ""}
-                  </div>
-                )}
-
-                {gpsLoading && <div className="text-xs text-muted-foreground">Obtendo localização…</div>}
-                {!deviceLocation && !gpsLoading && (
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="text-xs text-muted-foreground">
-                      Se você negar a permissão do navegador, as fotos sem EXIF ficarão como “GPS indisponível”.
-                    </div>
-                    <Button type="button" variant="outline" size="sm" onClick={() => void retryDeviceLocation()} disabled={gpsLoading}>
-                      Tentar novamente
-                    </Button>
-                  </div>
-                )}
               </div>
             </div>
           )}
