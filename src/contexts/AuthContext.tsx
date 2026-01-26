@@ -46,6 +46,15 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 const CACHE_KEY = 'auth_user_cache';
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 const ROLE_OVERRIDE_KEY = 'auth_role_override';
+const supabaseUrl = typeof import.meta !== 'undefined' ? (import.meta as any)?.env?.VITE_SUPABASE_URL : undefined;
+const supabaseHealthUrl = (() => {
+  if (!supabaseUrl) return '';
+  try {
+    return new URL('/auth/v1/health', supabaseUrl).toString();
+  } catch {
+    return '';
+  }
+})();
 
 const getCachedAuth = () => {
   try {
@@ -431,9 +440,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!msg) return 'Falha de rede ao acessar o Supabase.';
       const lower = msg.toLowerCase();
       if (lower.includes('failed to fetch') || lower.includes('networkerror') || lower.includes('network error')) {
+        const healthHint = supabaseHealthUrl ? ` Teste acesso em ${supabaseHealthUrl}.` : '';
         return (
           'Falha de rede ao acessar o Supabase. Verifique conexão, VPN/firewall, DNS e se ' +
-          'a rede permite acesso a *.supabase.co.'
+          `a rede permite acesso a *.supabase.co.${healthHint}`
         );
       }
       return msg;
