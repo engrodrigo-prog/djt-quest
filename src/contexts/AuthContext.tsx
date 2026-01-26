@@ -426,12 +426,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signIn = async (email: string, password: string) => {
+    const normalizeNetworkMessage = (raw: string) => {
+      const msg = String(raw || '').trim();
+      if (!msg) return 'Falha de rede ao acessar o Supabase.';
+      const lower = msg.toLowerCase();
+      if (lower.includes('failed to fetch') || lower.includes('networkerror') || lower.includes('network error')) {
+        return (
+          'Falha de rede ao acessar o Supabase. Verifique conexão, VPN/firewall, DNS e se ' +
+          'a rede permite acesso a *.supabase.co.'
+        );
+      }
+      return msg;
+    };
+
     try {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error?.message) {
+        const normalized = normalizeNetworkMessage(error.message);
+        return { error: { ...error, message: normalized } };
+      }
       return { error };
     } catch (e: any) {
       // Network/storage exceptions should not crash the login flow.
-      const msg = String(e?.message || e || 'Erro inesperado');
+      const msg = normalizeNetworkMessage(e?.message || e || 'Erro inesperado');
       return { error: { message: msg } };
     }
   };
