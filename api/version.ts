@@ -12,7 +12,9 @@ export default async function handler(_req: VercelRequest, res: VercelResponse) 
     "";
   return res.status(200).json({
     version,
+    node: process.version,
+    runtime: process.release?.name || "node",
+    vercelEnv: process.env.VERCEL_ENV || "",
     timestamp: new Date().toISOString(),
   });
 }
-
