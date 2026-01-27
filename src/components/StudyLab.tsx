@@ -248,9 +248,9 @@ export const StudyLab = () => {
   const chatViewportRef = useRef<HTMLDivElement | null>(null);
   const chatInputRef = useRef<HTMLTextAreaElement | null>(null);
 
-  const [oracleMode, setOracleMode] = useState(true);
-  const [useWeb, setUseWeb] = useState(true);
-  const [chatQuality, setChatQuality] = useState<"auto" | "instant" | "thinking">("auto");
+  const [oracleMode, setOracleMode] = useState(false);
+  const [useWeb, setUseWeb] = useState(false);
+  const [chatQuality, setChatQuality] = useState<"auto" | "instant" | "thinking">("instant");
   const [kbEnabled, setKbEnabled] = useState(false);
   const [kbSelection, setKbSelection] = useState<ForumKbSelection | null>(null);
   const chatAbortRef = useRef<AbortController | null>(null);
@@ -1240,6 +1240,7 @@ export const StudyLab = () => {
                 checked={oracleMode}
                 onCheckedChange={(checked) => {
                   setOracleMode(checked);
+                  if (!checked) setUseWeb(false);
                   if (!checked && (!selectedSourceId || selectedSourceId === FIXED_RULES_ID)) {
                     setCatalogOpen(true);
                   }
