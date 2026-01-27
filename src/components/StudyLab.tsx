@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { ChevronLeft, ChevronRight, LibraryBig, MessageCircle, Plus, Trash2 } from "lucide-react";
@@ -279,6 +279,7 @@ export const StudyLab = () => {
   const [chatSessionId, setChatSessionId] = useState<string>(() => createChatSessionId());
   const [chatAttachmentsOpen, setChatAttachmentsOpen] = useState(false);
   const chatViewportRef = useRef<HTMLDivElement | null>(null);
+  const chatInputRef = useRef<HTMLTextAreaElement | null>(null);
 
   const [oracleMode, setOracleMode] = useState(() => readStoredBool(STUDYLAB_PREFS.oracleMode, true));
   const [useWeb, setUseWeb] = useState(() => readStoredBool(STUDYLAB_PREFS.useWeb, true));
@@ -380,6 +381,50 @@ export const StudyLab = () => {
       if (raf) window.cancelAnimationFrame(raf);
     };
   }, [chatMessages.length, chatLoading]);
+
+  const resizeChatTextarea = useCallback(() => {
+    if (typeof window === "undefined") return;
+    const el = chatInputRef.current;
+    if (!el) return;
+
+    const vv = window.visualViewport;
+    const viewportH = Math.max(0, Math.round(vv?.height || window.innerHeight || 0));
+    const isMobile = window.matchMedia?.("(max-width: 768px)")?.matches ?? false;
+    const maxH = Math.max(140, Math.min(360, Math.round(viewportH * (isMobile ? 0.42 : 0.32))));
+
+    try {
+      el.style.height = "auto";
+      const next = Math.min(el.scrollHeight || 0, maxH);
+      el.style.height = `${next}px`;
+      el.style.overflowY = (el.scrollHeight || 0) > maxH ? "auto" : "hidden";
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
+    let raf = 0;
+    raf = window.requestAnimationFrame(() => resizeChatTextarea());
+    return () => {
+      if (raf) window.cancelAnimationFrame(raf);
+    };
+  }, [chatInput, chatInputFocused, resizeChatTextarea]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const vv = window.visualViewport;
+    const onResize = () => resizeChatTextarea();
+    vv?.addEventListener("resize", onResize);
+    vv?.addEventListener("scroll", onResize);
+    window.addEventListener("orientationchange", onResize);
+    window.addEventListener("resize", onResize);
+    return () => {
+      vv?.removeEventListener("resize", onResize);
+      vv?.removeEventListener("scroll", onResize);
+      window.removeEventListener("orientationchange", onResize);
+      window.removeEventListener("resize", onResize);
+    };
+  }, [resizeChatTextarea]);
 
   const isFixedSource = (s: StudySource) => s.id === FIXED_RULES_ID;
   const isPublicSource = (s: StudySource) => normalizeScope(s.scope) === "org" && s.published !== false;
@@ -1203,7 +1248,7 @@ export const StudyLab = () => {
         </Card>
       )}
 
-      <Card>
+      <Card className="-mx-3 rounded-none sm:mx-0 sm:rounded-lg">
         <CardHeader className="space-y-2">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="space-y-0.5">
@@ -1221,8 +1266,8 @@ export const StudyLab = () => {
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="flex items-center gap-1 rounded-full border p-1">
+          <div className="flex flex-nowrap items-center gap-2 overflow-x-auto pb-1 [-webkit-overflow-scrolling:touch] sm:flex-wrap sm:overflow-visible sm:pb-0">
+            <div className="flex shrink-0 items-center gap-1 rounded-full border p-1">
               <span className="pl-2 pr-1 text-[11px] font-medium text-muted-foreground">
                 {t("studylab.gptModelLabel")}
               </span>
@@ -1259,28 +1304,28 @@ export const StudyLab = () => {
                 {t("studylab.gptModelExtended")}
               </Button>
             </div>
-            <div className="flex items-center gap-2 rounded-full border px-3 py-1.5">
-                <Switch
-                  id="studylab-catalog-toggle"
-                  checked={oracleMode}
-                  onCheckedChange={(checked) => {
-                    setOracleMode(checked);
-                    // Leaving Catalog mode should allow ChatGPT-style chat without forcing a material selection.
-                    // Avoid surprising "single material" mode by clearing any stale selection when switching off.
-                    if (!checked) setSelectedSourceId(null);
-                  }}
-                />
-                <Label htmlFor="studylab-catalog-toggle" className="text-xs font-medium">
-                  Modo Catálogo
-                </Label>
+            <div className="flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5">
+              <Switch
+                id="studylab-catalog-toggle"
+                checked={oracleMode}
+                onCheckedChange={(checked) => {
+                  setOracleMode(checked);
+                  // Leaving Catalog mode should allow ChatGPT-style chat without forcing a material selection.
+                  // Avoid surprising "single material" mode by clearing any stale selection when switching off.
+                  if (!checked) setSelectedSourceId(null);
+                }}
+              />
+              <Label htmlFor="studylab-catalog-toggle" className="text-xs font-medium">
+                Modo Catálogo
+              </Label>
             </div>
-            <div className="flex items-center gap-2 rounded-full border px-3 py-1.5">
+            <div className="flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5">
               <Switch id="studylab-web-toggle" checked={useWeb} onCheckedChange={setUseWeb} disabled={chatLoading} />
               <Label htmlFor="studylab-web-toggle" className="text-xs font-medium">
                 Pesquisa web
               </Label>
             </div>
-            <div className="flex items-center gap-2 rounded-full border px-3 py-1.5">
+            <div className="flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5">
               <Switch id="studylab-kb-toggle" checked={kbEnabled} onCheckedChange={setKbEnabled} />
               <Label htmlFor="studylab-kb-toggle" className="text-xs font-medium">
                 {t("studylab.hashtagFocus")}
@@ -1288,21 +1333,21 @@ export const StudyLab = () => {
             </div>
             {!oracleMode && (
               <>
-                <Button type="button" variant="outline" size="sm" onClick={() => setCatalogOpen(true)}>
+                <Button type="button" variant="outline" size="sm" className="shrink-0" onClick={() => setCatalogOpen(true)}>
                   Opcional: escolher material
                 </Button>
                 {selectedSource && (
-                  <Button type="button" variant="ghost" size="sm" onClick={() => setSelectedSourceId(null)}>
+                  <Button type="button" variant="ghost" size="sm" className="shrink-0" onClick={() => setSelectedSourceId(null)}>
                     Limpar material
                   </Button>
                 )}
               </>
             )}
-            <Button type="button" variant="outline" size="sm" onClick={handleNewChat}>
+            <Button type="button" variant="outline" size="sm" className="shrink-0" onClick={handleNewChat}>
               Nova conversa
             </Button>
             {chatLoading && (
-              <Button type="button" variant="outline" size="sm" onClick={stopGenerating}>
+              <Button type="button" variant="outline" size="sm" className="shrink-0" onClick={stopGenerating}>
                 Parar
               </Button>
             )}
@@ -1318,8 +1363,11 @@ export const StudyLab = () => {
           )}
         </CardHeader>
 
-        <CardContent className="flex flex-col gap-3">
-          <div ref={chatViewportRef} className="min-h-[55vh] overflow-y-auto rounded-md border bg-muted/30 p-3">
+        <CardContent className="flex flex-col gap-3 p-3 pt-0 sm:p-6 sm:pt-0">
+          <div
+            ref={chatViewportRef}
+            className="min-h-[42vh] [@media(orientation:landscape)]:min-h-[32vh] sm:min-h-[55vh] overflow-y-auto rounded-md border bg-muted/30 p-2 sm:p-3"
+          >
             {chatMessages.length === 0 && (
               <p className="text-sm text-muted-foreground">
                 {oracleMode
@@ -1374,80 +1422,9 @@ export const StudyLab = () => {
             )}
           </div>
 
-          <div className="flex gap-2 items-end">
-            <Dialog open={chatAttachmentsOpen} onOpenChange={setChatAttachmentsOpen}>
-              <DialogTrigger asChild>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  className="relative shrink-0"
-                  aria-label="Anexar arquivos"
-                  title="Anexar arquivos"
-                  disabled={chatLoading}
-                >
-                  <Plus className="h-4 w-4" />
-                  {chatUploading && (
-                    <span
-                      className="absolute -bottom-1 -right-1 inline-flex h-3 w-3 rounded-full bg-amber-400"
-                      aria-label="Enviando anexos"
-                      title="Enviando…"
-                    />
-                  )}
-                  {chatAttachments.length > 0 && (
-                    <Badge className="absolute -top-2 -right-2 h-5 min-w-[20px] justify-center px-1 text-[10px]">
-                      {chatAttachments.length}
-                    </Badge>
-                  )}
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="max-w-2xl">
-                <DialogHeader>
-                  <DialogTitle>Anexos</DialogTitle>
-                  <DialogDescription>
-                    Imagens, desenhos, PDFs e documentos ajudam o Catálogo a aprofundar a resposta. O StudyLab mantém um histórico de uso para consultas futuras.
-                  </DialogDescription>
-                </DialogHeader>
-                <div className="space-y-3">
-                  <AttachmentUploader
-                    key={chatUploadKey}
-                    onAttachmentsChange={setChatAttachments}
-                    onUploadingChange={setChatUploading}
-                    maxFiles={4}
-                    maxSizeMB={20}
-                    bucket="evidence"
-                    pathPrefix="study-chat"
-                    capture="environment"
-                    acceptMimeTypes={[
-                      "application/pdf",
-                      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                      "application/vnd.ms-excel",
-                      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                      "text/plain",
-                      "application/json",
-                      "text/csv",
-                      "image/heic",
-                      "image/heif",
-                      "image/jpeg",
-                      "image/png",
-                      "image/avif",
-                      "image/webp",
-                    ]}
-                    maxVideoSeconds={0}
-                  />
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-xs text-muted-foreground">
-                      {chatAttachments.length ? `${chatAttachments.length} anexo(s) selecionado(s).` : "Nenhum anexo selecionado."}
-                    </p>
-                    <Button type="button" variant="ghost" size="sm" onClick={resetChatAttachments} disabled={!chatAttachments.length && !chatUploading}>
-                      Limpar
-                    </Button>
-                  </div>
-                </div>
-              </DialogContent>
-            </Dialog>
-
+          <div className="-mx-3 rounded-none border-x-0 border-t bg-background/60 px-3 py-2 sm:mx-0 sm:rounded-md sm:border-0 sm:bg-transparent sm:px-0 sm:py-0">
             <Textarea
+              ref={chatInputRef}
               value={chatInput}
               onChange={(e) => setChatInput(e.target.value)}
               onFocus={() => setChatInputFocused(true)}
@@ -1459,26 +1436,119 @@ export const StudyLab = () => {
                     ? `Pergunte sobre: ${selectedSource.title}`
                     : "Digite sua pergunta… (opcional: escolha um material)"
               }
-              rows={2}
+              rows={3}
+              enterKeyHint="send"
+              className="min-h-[120px] sm:min-h-[80px]"
               onKeyDown={(e) => {
+                if ((e.nativeEvent as any)?.isComposing) return;
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
                   handleChatSend();
                 }
               }}
             />
-            <VoiceRecorderButton
-              size="sm"
-              label="Falar"
-              onText={(text) => setChatInput((prev) => [prev, text].filter(Boolean).join("\n\n"))}
-            />
-            <Button
-              type="button"
-              onClick={handleChatSend}
-              disabled={chatLoading || chatUploading || (!chatInput.trim() && chatAttachments.length === 0)}
-            >
-              {chatLoading ? "Pensando..." : "Enviar"}
-            </Button>
+
+            <div className="mt-2 flex items-center gap-2">
+              <Dialog open={chatAttachmentsOpen} onOpenChange={setChatAttachmentsOpen}>
+                <DialogTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    className="relative h-11 w-11 shrink-0"
+                    aria-label="Anexar arquivos"
+                    title="Anexar arquivos"
+                    disabled={chatLoading}
+                  >
+                    <Plus className="h-4 w-4" />
+                    {chatUploading && (
+                      <span
+                        className="absolute -bottom-1 -right-1 inline-flex h-3 w-3 rounded-full bg-amber-400"
+                        aria-label="Enviando anexos"
+                        title="Enviando…"
+                      />
+                    )}
+                    {chatAttachments.length > 0 && (
+                      <Badge className="absolute -top-2 -right-2 h-5 min-w-[20px] justify-center px-1 text-[10px]">
+                        {chatAttachments.length}
+                      </Badge>
+                    )}
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="max-w-2xl">
+                  <DialogHeader>
+                    <DialogTitle>Anexos</DialogTitle>
+                    <DialogDescription>
+                      Imagens, desenhos, PDFs e documentos ajudam o Catálogo a aprofundar a resposta. O StudyLab mantém um histórico de uso para consultas futuras.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-3">
+                    <AttachmentUploader
+                      key={chatUploadKey}
+                      onAttachmentsChange={setChatAttachments}
+                      onUploadingChange={setChatUploading}
+                      maxFiles={4}
+                      maxSizeMB={20}
+                      bucket="evidence"
+                      pathPrefix="study-chat"
+                      capture="environment"
+                      acceptMimeTypes={[
+                        "application/pdf",
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        "application/vnd.ms-excel",
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        "text/plain",
+                        "application/json",
+                        "text/csv",
+                        "image/heic",
+                        "image/heif",
+                        "image/jpeg",
+                        "image/png",
+                        "image/avif",
+                        "image/webp",
+                      ]}
+                      maxVideoSeconds={0}
+                    />
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs text-muted-foreground">
+                        {chatUploading
+                          ? "Enviando…"
+                          : chatAttachments.length
+                            ? `${chatAttachments.length} anexo(s) selecionado(s).`
+                            : "Nenhum anexo selecionado."}
+                      </p>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={resetChatAttachments}
+                        disabled={!chatAttachments.length && !chatUploading}
+                      >
+                        Limpar
+                      </Button>
+                    </div>
+                  </div>
+                </DialogContent>
+              </Dialog>
+
+              <VoiceRecorderButton
+                size="sm"
+                label="Falar"
+                className="shrink-0 [&_span]:hidden sm:[&_span]:inline"
+                onText={(text) => setChatInput((prev) => [prev, text].filter(Boolean).join("\n\n"))}
+              />
+
+              <Button
+                type="button"
+                className="h-11 flex-1 sm:flex-none"
+                onClick={handleChatSend}
+                disabled={chatLoading || chatUploading || (!chatInput.trim() && chatAttachments.length === 0)}
+              >
+                {chatLoading ? "Pensando..." : "Enviar"}
+              </Button>
+            </div>
+
+            <p className="mt-1 text-[11px] text-muted-foreground sm:hidden">Enter envia • Shift+Enter quebra linha</p>
           </div>
           {chatError && <p className="text-sm text-destructive">Erro: {chatError}</p>}
         </CardContent>
