@@ -1031,17 +1031,16 @@ export const StudyLab = () => {
       return;
     }
 
-    if (!oracleMode) {
-      if (!selectedSourceId) {
-        toast.error("Selecione um material no catálogo para conversar sobre ele.");
-        setCatalogOpen(true);
-        return;
-      }
-      if (selectedSourceId === FIXED_RULES_ID) {
-        toast.error("Use o Catálogo para perguntar sobre o artigo fixo.");
-        return;
-      }
-      const sel = sources.find((s) => s.id === selectedSourceId);
+    const effectiveSourceId =
+      !oracleMode && selectedSourceId && selectedSourceId !== FIXED_RULES_ID ? selectedSourceId : null;
+
+    if (!oracleMode && selectedSourceId === FIXED_RULES_ID) {
+      toast.error("Use o Catálogo para perguntar sobre o artigo fixo.");
+      setSelectedSourceId(null);
+    }
+
+    if (!oracleMode && effectiveSourceId) {
+      const sel = sources.find((s) => s.id === effectiveSourceId);
       if (sel && sel.ingest_status === "failed") {
         toast.error("Curadoria do material falhou. Tente catalogar novamente no Catálogo.");
         return;
@@ -1075,7 +1074,7 @@ export const StudyLab = () => {
         signal: controller.signal,
         body: JSON.stringify({
           mode: oracleMode ? "oracle" : "study",
-          ...(oracleMode ? {} : { source_id: selectedSourceId }),
+          ...(oracleMode ? {} : effectiveSourceId ? { source_id: effectiveSourceId } : {}),
           session_id: chatSessionId,
           attachments: attachmentsForMessage.map((url) => ({ url })),
           language: getActiveLocale(),
@@ -1241,9 +1240,6 @@ export const StudyLab = () => {
                 onCheckedChange={(checked) => {
                   setOracleMode(checked);
                   if (!checked) setUseWeb(false);
-                  if (!checked && (!selectedSourceId || selectedSourceId === FIXED_RULES_ID)) {
-                    setCatalogOpen(true);
-                  }
                 }}
               />
               <Label htmlFor="studylab-catalog-toggle" className="text-xs font-medium">
