@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import { toast } from 'sonner'
 import { supabase } from '@/integrations/supabase/client'
 import { apiFetch } from '@/lib/api'
@@ -131,6 +132,7 @@ const createEmptyDraft = (level: number, difficulty: DifficultyKey, xp: number):
 })
 
 export const AiQuizGenerator = ({ defaultChallengeId }: { defaultChallengeId?: string }) => {
+  const location = useLocation()
   const [step, setStep] = useState<WizardStep>('type')
   const [flow, setFlow] = useState<QuizFlow | null>(null)
   const [difficulty, setDifficulty] = useState<DifficultyKey>('intermediario')
@@ -179,6 +181,24 @@ export const AiQuizGenerator = ({ defaultChallengeId }: { defaultChallengeId?: s
   const [busy, setBusy] = useState(false)
   const [generationProgress, setGenerationProgress] = useState(0)
   const [generationStatus, setGenerationStatus] = useState<string | null>(null)
+
+  const urlParams = useMemo(() => new URLSearchParams(location.search), [location.search])
+  const urlFlow = String(urlParams.get('flow') || '').trim().toLowerCase()
+  const urlTargetQuizId = String(urlParams.get('targetQuizId') || urlParams.get('targetChallengeId') || '').trim()
+
+  // Deep-link support: /studio?module=ai-quiz&flow=milhao&targetQuizId=<quizId>
+  useEffect(() => {
+    if (flow) return
+    if (!urlFlow) return
+    if (urlFlow !== 'single' && urlFlow !== 'multi' && urlFlow !== 'milhao') return
+    setFlow(urlFlow as QuizFlow)
+    setStep('content')
+  }, [flow, urlFlow])
+
+  useEffect(() => {
+    if (!urlTargetQuizId) return
+    setTargetChallengeId((prev) => (prev ? prev : urlTargetQuizId))
+  }, [urlTargetQuizId])
 
   const totalQuestions = useMemo(() => {
     if (flow === 'milhao') return 10

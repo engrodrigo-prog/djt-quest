@@ -11,16 +11,25 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { HelpCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { QuizQuestionForm } from './QuizQuestionForm';
 import { QuizQuestionsList } from './QuizQuestionsList';
-import { AiQuizGenerator } from './AiQuizGenerator';
 import { apiFetch } from '@/lib/api';
 import { CompendiumPicker } from '@/components/CompendiumPicker';
 import { getActiveLocale } from '@/lib/i18n/activeLocale';
 import { localeToOpenAiLanguageTag } from '@/lib/i18n/language';
+
+const inferQuestionCountFromText = (raw: string) => {
+  const text = String(raw || '').replace(/\r\n/g, '\n');
+  // Matches headers like: "Questão 1", "Pergunta 2", "Q3", "Questao 4"
+  const matches = text.match(/^\s*(?:Q(?:uest[aã]o)?|Quest[aã]o|Questao|Pergunta)\s*\d+\b/gim) || [];
+  const count = matches.length;
+  if (!Number.isFinite(count) || count <= 0) return 0;
+  return Math.min(50, count);
+};
 
 const quizSchema = z.object({
   title: z.string().min(3, "Título deve ter no mínimo 3 caracteres"),
@@ -216,13 +225,14 @@ export function QuizCreationWizard() {
     }
     setTextImportParsing(true);
     try {
+      const inferredMax = inferQuestionCountFromText(raw);
       const resp = await apiFetch('/api/ai?handler=parse-quiz-text', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           text: raw,
           language: localeToOpenAiLanguageTag(getActiveLocale()),
-          maxQuestions: 50,
+          maxQuestions: inferredMax || 50,
           defaultDifficulty: textImportDefaultDifficulty,
         }),
       });
@@ -686,37 +696,6 @@ export function QuizCreationWizard() {
               )}
             </div>
 
-            <div className="rounded-lg border border-dashed border-border bg-muted/20 p-4 space-y-3">
-              <div className="flex items-start justify-between gap-3 flex-wrap">
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold">Base do StudyLab (opcional)</p>
-                  <p className="text-[11px] text-muted-foreground">
-                    Selecione um material que você subiu (URL PDF, arquivo, etc.) para pré-preencher e usar como base na geração de perguntas.
-                  </p>
-                </div>
-                <Button type="button" variant="outline" size="sm" disabled={!baseSourceId} onClick={applyBaseSource}>
-                  Aplicar
-                </Button>
-              </div>
-
-              <Select value={baseSourceId} onValueChange={setBaseSourceId}>
-                <SelectTrigger>
-                  <SelectValue placeholder={studySources.length ? "Selecionar fonte do StudyLab" : "Nenhuma fonte disponível"} />
-                </SelectTrigger>
-                <SelectContent>
-                  {studySources.map((s: any) => (
-                    <SelectItem key={s.id} value={s.id}>
-                      {String(s.title || '').trim() || 'Fonte sem título'}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-
-              <p className="text-[11px] text-muted-foreground">
-                Dica: após criar o quiz, use a seção “Gerar perguntas (IA) a partir do StudyLab” para inserir perguntas automaticamente.
-              </p>
-            </div>
-
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label htmlFor="description">Descrição (opcional)</Label>
@@ -753,39 +732,6 @@ export function QuizCreationWizard() {
               <p className="text-xs text-muted-foreground">
                 Este valor define o XP de cada pergunta do quiz (a dificuldade é ajustada automaticamente para bater 5/10/20/50).
               </p>
-            </div>
-
-            <div className="space-y-2">
-              <Label>Especialidades Relacionadas</Label>
-              <div className="grid sm:grid-cols-2 gap-2 text-sm">
-                {[
-                  { id: 'seguranca', label: 'Segurança' },
-                  { id: 'protecao_automacao', label: 'Proteção & Automação' },
-                  { id: 'telecom', label: 'Telecom' },
-                  { id: 'equipamentos_manobras', label: 'Equipamentos & Manobras' },
-                  { id: 'instrumentacao', label: 'Instrumentação' },
-                  { id: 'gerais', label: 'Gerais' },
-                ].map(s => (
-                  <label key={s.id} className="inline-flex items-center gap-2">
-                    <input type="checkbox" value={s.id} {...register('quiz_specialties')} />
-                    <span>{s.label}</span>
-                  </label>
-                ))}
-              </div>
-              <p className="text-xs text-muted-foreground">Essas tags ajudam a classificar e buscar quizzes por domínio.</p>
-            </div>
-
-            <div className="space-y-2">
-              <Label>Dimensão CHAS</Label>
-              <select className="w-full h-9 rounded-md bg-transparent border px-2" {...register('chas_dimension')}>
-                <option value="C">C — Conhecimento</option>
-                <option value="H">H — Habilidade</option>
-                <option value="A">A — Atitude</option>
-                <option value="S">S — Segurança</option>
-              </select>
-              {errors.chas_dimension && (
-                <p className="text-sm text-destructive">Dimensão inválida</p>
-              )}
             </div>
 
             <div className="rounded-lg border border-dashed border-border bg-muted/10 p-4 space-y-3">
@@ -874,6 +820,73 @@ export function QuizCreationWizard() {
               ) : null}
             </div>
 
+            <Accordion type="single" collapsible>
+              <AccordionItem value="advanced">
+                <AccordionTrigger>Avançado (opcional)</AccordionTrigger>
+                <AccordionContent>
+                  <div className="space-y-4 pt-2">
+                    <div className="rounded-lg border border-dashed border-border bg-muted/10 p-4 space-y-3">
+                      <div className="flex items-start justify-between gap-3 flex-wrap">
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold">Base do StudyLab</p>
+                          <p className="text-[11px] text-muted-foreground">
+                            Selecione um material que você subiu (URL PDF, arquivo, etc.) para pré-preencher e usar como base na geração de perguntas.
+                          </p>
+                        </div>
+                        <Button type="button" variant="outline" size="sm" disabled={!baseSourceId} onClick={applyBaseSource}>
+                          Aplicar
+                        </Button>
+                      </div>
+
+                      <Select value={baseSourceId} onValueChange={setBaseSourceId}>
+                        <SelectTrigger>
+                          <SelectValue placeholder={studySources.length ? "Selecionar fonte do StudyLab" : "Nenhuma fonte disponível"} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {studySources.map((s: any) => (
+                            <SelectItem key={s.id} value={s.id}>
+                              {String(s.title || '').trim() || 'Fonte sem título'}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Especialidades Relacionadas</Label>
+                      <div className="grid sm:grid-cols-2 gap-2 text-sm">
+                        {[
+                          { id: 'seguranca', label: 'Segurança' },
+                          { id: 'protecao_automacao', label: 'Proteção & Automação' },
+                          { id: 'telecom', label: 'Telecom' },
+                          { id: 'equipamentos_manobras', label: 'Equipamentos & Manobras' },
+                          { id: 'instrumentacao', label: 'Instrumentação' },
+                          { id: 'gerais', label: 'Gerais' },
+                        ].map((s) => (
+                          <label key={s.id} className="inline-flex items-center gap-2">
+                            <input type="checkbox" value={s.id} {...register('quiz_specialties')} />
+                            <span>{s.label}</span>
+                          </label>
+                        ))}
+                      </div>
+                      <p className="text-xs text-muted-foreground">Essas tags ajudam a classificar e buscar quizzes por domínio.</p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Dimensão CHAS</Label>
+                      <select className="w-full h-9 rounded-md bg-transparent border px-2" {...register('chas_dimension')}>
+                        <option value="C">C — Conhecimento</option>
+                        <option value="H">H — Habilidade</option>
+                        <option value="A">A — Atitude</option>
+                        <option value="S">S — Segurança</option>
+                      </select>
+                      {errors.chas_dimension && <p className="text-sm text-destructive">Dimensão inválida</p>}
+                    </div>
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
+
             <Button type="submit" disabled={isSubmitting} className="w-full" size="lg">
               {isSubmitting ? "Criando..." : "Criar Quiz e Adicionar Perguntas"}
             </Button>
@@ -892,7 +905,12 @@ export function QuizCreationWizard() {
             Adicionar Perguntas ao Quiz
           </CardTitle>
           <CardDescription className="flex items-center justify-between gap-2 flex-wrap">
-            <span>Quando terminar, submeta para curadoria.</span>
+            <div className="min-w-0">
+              <div>Quando terminar, submeta para curadoria.</div>
+              <div className="text-[11px] text-muted-foreground">
+                XP por pergunta: {quizXpReward ?? '—'} • Dificuldade: {quizForcedDifficulty === 'basico' ? 'Básico' : quizForcedDifficulty === 'intermediario' ? 'Intermediário' : quizForcedDifficulty === 'avancado' ? 'Avançado' : 'Especialista'}
+              </div>
+            </div>
             <div className="flex items-center gap-2">
               <Button variant="outline" onClick={() => navigate('/studio/curadoria')}>
                 Abrir Hub de Curadoria
@@ -905,310 +923,334 @@ export function QuizCreationWizard() {
         </CardHeader>
       </Card>
 
-      <QuizQuestionsList key={refreshKey} challengeId={quizId} onUpdate={handleQuestionAdded} />
-      
-      <QuizQuestionForm challengeId={quizId} onQuestionAdded={handleQuestionAdded} />
-
-      <Card className="border-indigo-500/30 bg-indigo-500/5">
+      <Card className="border-primary/10">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <HelpCircle className="h-5 w-5 text-indigo-300" />
-            Importar Perguntas por Texto (IA)
-          </CardTitle>
-          <p className="text-sm text-muted-foreground">
-            Cole perguntas (com A-D ou só a resposta correta) e importe automaticamente neste quiz (1 correta + 3 erradas por pergunta).
-          </p>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="flex items-center justify-between gap-3 flex-wrap">
-            <div className="w-full sm:w-60 space-y-2">
-              <Label>Dificuldade padrão</Label>
-              <Select value={textImportDefaultDifficulty} onValueChange={(v: any) => setTextImportDefaultDifficulty(v)}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Intermediário" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="basico">Básico</SelectItem>
-                  <SelectItem value="intermediario">Intermediário</SelectItem>
-                  <SelectItem value="avancado">Avançado</SelectItem>
-                  <SelectItem value="especialista">Especialista</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button type="button" variant="outline" disabled={textImportParsing || !String(textImport || '').trim()} onClick={() => void parseTextImportPreview()}>
-                {textImportParsing ? 'Analisando…' : 'Pré-visualizar'}
-              </Button>
-              <Button type="button" disabled={textImportImporting || textImportParsing || !String(textImport || '').trim()} onClick={() => void importTextQuestionsToQuiz(quizId as string)}>
-                {textImportImporting ? 'Importando…' : 'Importar neste quiz'}
-              </Button>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <Label>Texto</Label>
-            <Textarea
-              value={textImport}
-              onChange={(e) => setTextImport(e.target.value)}
-              placeholder={`Pergunta 1: ...?\nResposta correta: ...\n\nPergunta 2: ...?\nA) ...\nB) ...\nC) ...\nD) ...\nCorreta: B`}
-              rows={8}
-            />
-          </div>
-
-          {Array.isArray(textImportPreview) ? (
-            <div className="space-y-2">
-              <div className="text-[12px]">
-                <span className="font-medium">Pré-visualização:</span> {textImportPreview.length} pergunta(s)
-                {textImportIssues.length ? (
-                  <span className="text-muted-foreground"> • {textImportIssues.length} aviso(s)</span>
-                ) : null}
-              </div>
-              {textImportIssues.length ? (
-                <div className="text-[11px] text-muted-foreground">
-                  {textImportIssues.slice(0, 6).map((m, idx) => (<div key={`issue2-${idx}`}>- {m}</div>))}
-                  {textImportIssues.length > 6 ? <div>…</div> : null}
-                </div>
-              ) : null}
-              <Accordion type="single" collapsible>
-                <AccordionItem value="preview2">
-                  <AccordionTrigger className="text-[12px]">Ver perguntas</AccordionTrigger>
-                  <AccordionContent>
-                    <div className="space-y-2">
-                      {textImportPreview.slice(0, 10).map((q: any, idx: number) => (
-                        <div key={`qprev2-${idx}`} className="rounded-md border p-2 bg-background/40">
-                          <div className="text-[12px] font-medium">Q{idx + 1}</div>
-                          <div className="text-[12px] text-muted-foreground whitespace-pre-wrap">{String(q?.question_text || '').trim()}</div>
-                        </div>
-                      ))}
-                      {textImportPreview.length > 10 ? (
-                        <div className="text-[11px] text-muted-foreground">Mostrando 10 de {textImportPreview.length}.</div>
-                      ) : null}
-                    </div>
-                  </AccordionContent>
-                </AccordionItem>
-              </Accordion>
-            </div>
-          ) : null}
-        </CardContent>
-      </Card>
-
-      <Card className="border-emerald-500/30 bg-emerald-500/5">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <HelpCircle className="h-5 w-5 text-emerald-400" />
-            Gerar Perguntas (IA) a partir do StudyLab
-          </CardTitle>
-          <p className="text-sm text-muted-foreground">
-            Use materiais enviados (ex.: manual em PDF via URL) como base. As perguntas são inseridas automaticamente neste quiz para revisão e curadoria.
-          </p>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Label>Buscar fonte</Label>
-            <Input value={sourceSearch} onChange={(e) => setSourceSearch(e.target.value)} placeholder="Filtrar por título/URL…" />
-          </div>
-
-          <div className="space-y-2 rounded-md border border-border p-3 bg-muted/30">
-            <p className="text-[11px] text-muted-foreground">Selecione uma ou mais fontes do StudyLab.</p>
-            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 max-h-56 overflow-y-auto">
-              {studySources
-                .filter((s: any) => {
-                  const q = sourceSearch.trim().toLowerCase();
-                  if (!q) return true;
-                  const hay = [s?.title, s?.url, s?.summary].filter(Boolean).join(" ").toLowerCase();
-                  return hay.includes(q);
-                })
-                .map((s: any) => {
-                  const checked = selectedSourceIds.includes(s.id);
-                  const ingest = String(s.ingest_status || "").toLowerCase();
-                  const ingestLabel = ingest === "pending" ? "analisando…" : ingest === "failed" ? "falhou" : "";
-                  return (
-                    <label
-                      key={s.id}
-                      className={`flex items-start gap-2 text-sm cursor-pointer rounded-md border px-3 py-2 transition ${
-                        checked ? 'border-primary bg-primary/10 text-primary-foreground' : 'border-border bg-background'
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        className="accent-primary mt-1"
-                        checked={checked}
-                        onChange={(e) => {
-                          setSelectedSourceIds((prev) =>
-                            e.target.checked ? Array.from(new Set([...prev, s.id])) : prev.filter((id) => id !== s.id)
-                          );
-                        }}
-                      />
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium line-clamp-2">{String(s.title || '').trim() || 'Fonte sem título'}</p>
-                        <p className="text-[11px] text-muted-foreground line-clamp-1">
-                          {s.kind ? String(s.kind).toUpperCase() : 'FONTE'}{ingestLabel ? ` • ${ingestLabel}` : ''}
-                        </p>
-                      </div>
-                    </label>
-                  );
-                })}
-
-              {studySources.length === 0 && (
-                <p className="text-xs text-muted-foreground col-span-full">
-                  Nenhuma fonte encontrada. Envie materiais no StudyLab (URL ou arquivo) e tente novamente.
-                </p>
-              )}
-            </div>
-
-            {selectedSourceIds.length > 0 && (
-              <Button type="button" variant="outline" size="sm" className="text-xs" onClick={() => setSelectedSourceIds([])}>
-                Limpar seleção ({selectedSourceIds.length})
-              </Button>
-            )}
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
-            <div className="space-y-2">
-              <Label>Quantidade</Label>
-              <Input
-                type="number"
-                min={3}
-                max={20}
-                value={autoQuestionCount}
-                onChange={(e) => setAutoQuestionCount(Number(e.target.value) || 10)}
-              />
-              <p className="text-[11px] text-muted-foreground">Sugestão: 5 a 15 perguntas por manual.</p>
-            </div>
-            <div className="space-y-2 md:col-span-1">
-              <Label>Revisão (PT-BR)</Label>
-              <div className="flex items-center justify-between rounded-md border border-border bg-background/50 px-3 py-2">
-                <p className="text-[11px] text-muted-foreground">Corrigir escrita/acentos</p>
-                <Switch checked={autoProofread} onCheckedChange={setAutoProofread} />
-              </div>
-              <p className="text-[11px] text-muted-foreground">Desative para inglês/zh-CN ou para acelerar.</p>
-            </div>
-            <div className="md:col-span-1">
-              <Button
-                type="button"
-                className="w-full"
-                disabled={autoGenerating || selectedSourceIds.length === 0}
-                onClick={handleGenerateFromStudyLab}
-              >
-                {autoGenerating ? "Gerando e inserindo..." : "Gerar e inserir perguntas"}
-              </Button>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card className="border-sky-500/30 bg-sky-500/5">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <HelpCircle className="h-5 w-5 text-sky-400" />
-            Sugestoes do StudyLab (compendio)
-          </CardTitle>
+          <CardTitle>Adicionar perguntas</CardTitle>
           <CardDescription>
-            Use perguntas sugeridas na catalogacao para acelerar a criacao. Filtre por tema, mais acessadas ou mais recentes.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-3 sm:grid-cols-3">
-            <div className="space-y-1">
-              <Label>Buscar</Label>
-              <Input
-                value={questionSearch}
-                onChange={(e) => setQuestionSearch(e.target.value)}
-                placeholder="Buscar por pergunta, tema ou fonte..."
-              />
-            </div>
-            <div className="space-y-1">
-              <Label>Categoria</Label>
-              <Select value={questionCategory} onValueChange={(v) => setQuestionCategory(v as any)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {STUDYLAB_CATEGORIES.map((c) => (
-                    <SelectItem key={c} value={c}>
-                      {STUDYLAB_CATEGORY_LABELS[c]}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1">
-              <Label>Ordenar</Label>
-              <Select value={questionSort} onValueChange={(v) => setQuestionSort(v as any)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="recent">Mais recentes</SelectItem>
-                  <SelectItem value="access">Mais acessadas</SelectItem>
-                  <SelectItem value="relevance">Mais relevantes</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <div className="space-y-2 max-h-80 overflow-y-auto">
-            {filteredSuggestedQuestions.length === 0 && (
-              <p className="text-sm text-muted-foreground">
-                Nenhuma sugestao encontrada. Envie materiais no StudyLab para gerar perguntas sugeridas.
-              </p>
-            )}
-            {filteredSuggestedQuestions.map((item: any) => {
-              const source = item?.study_sources || {};
-              const tags = Array.isArray(item?.tags) ? item.tags : [];
-              return (
-                <div key={item.id} className="rounded-md border border-border bg-background/60 p-3 space-y-2">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold leading-snug">{String(item?.question_text || '').trim()}</p>
-                      <p className="text-[11px] text-muted-foreground">
-                        Fonte: {String(source?.title || 'Sem titulo').slice(0, 80)}
-                        {source?.category ? ` • ${source.category}` : ''}
-                        {source?.topic ? ` • ${source.topic}` : ''}
-                      </p>
-                      <p className="text-[11px] text-muted-foreground">
-                        {Array.isArray(item?.options) ? `${item.options.length} alternativas` : 'Alternativas geradas na curadoria'}
-                      </p>
-                    </div>
-                    <Button type="button" size="sm" variant="outline" disabled={!quizId} onClick={() => handleAddSuggestedQuestion(item)}>
-                      Adicionar
-                    </Button>
-                  </div>
-                  {tags.length > 0 && (
-                    <div className="flex flex-wrap gap-1">
-                      {tags.slice(0, 8).map((t: string) => (
-                        <span key={t} className="text-[10px] rounded-full border border-border px-2 py-0.5 text-muted-foreground">
-                          #{t}
-                        </span>
-                      ))}
-                      {tags.length > 8 && (
-                        <span className="text-[10px] rounded-full border border-border px-2 py-0.5 text-muted-foreground">
-                          +{tags.length - 8}
-                        </span>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card className="border-purple-500/30 bg-purple-500/5">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <HelpCircle className="h-5 w-5 text-purple-400" />
-            Quiz Especial • Milhão (IA)
-          </CardTitle>
-          <CardDescription>
-            Use IA para gerar perguntas especiais ou um Quiz do Milhão completo (10 níveis) diretamente para este quiz.
+            Crie uma pergunta por vez (IA), cole várias de uma vez (texto), gere via StudyLab, use sugestões, ou abra o fluxo do Milhão.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <AiQuizGenerator defaultChallengeId={quizId} />
+          <Tabs defaultValue="single" className="w-full">
+            <TabsList className="flex flex-wrap h-auto">
+              <TabsTrigger value="single">Uma questão (IA)</TabsTrigger>
+              <TabsTrigger value="paste">Colar várias</TabsTrigger>
+              <TabsTrigger value="milhao">Milhão</TabsTrigger>
+              <TabsTrigger value="studylab">StudyLab</TabsTrigger>
+              <TabsTrigger value="suggestions">Sugestões</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="single" className="mt-4">
+              <QuizQuestionForm challengeId={quizId} onQuestionAdded={handleQuestionAdded} />
+            </TabsContent>
+
+            <TabsContent value="paste" className="mt-4">
+              <div className="space-y-3">
+                <p className="text-sm text-muted-foreground">
+                  Cole perguntas (com A-D ou só a resposta correta). Para “Questão 1 … - resposta correta”, o sistema mantém a quantidade e cria 3 erradas.
+                </p>
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <div className="w-full sm:w-60 space-y-2">
+                    <Label>Dificuldade padrão</Label>
+                    <Select value={textImportDefaultDifficulty} onValueChange={(v: any) => setTextImportDefaultDifficulty(v)}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Intermediário" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="basico">Básico</SelectItem>
+                        <SelectItem value="intermediario">Intermediário</SelectItem>
+                        <SelectItem value="avancado">Avançado</SelectItem>
+                        <SelectItem value="especialista">Especialista</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={textImportParsing || !String(textImport || '').trim()}
+                      onClick={() => void parseTextImportPreview()}
+                    >
+                      {textImportParsing ? 'Analisando…' : 'Pré-visualizar'}
+                    </Button>
+                    <Button
+                      type="button"
+                      disabled={textImportImporting || textImportParsing || !String(textImport || '').trim()}
+                      onClick={() => void importTextQuestionsToQuiz(quizId as string)}
+                    >
+                      {textImportImporting ? 'Importando…' : 'Importar neste quiz'}
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Texto</Label>
+                  <Textarea
+                    value={textImport}
+                    onChange={(e) => setTextImport(e.target.value)}
+                    placeholder={`Questão 1\n...\n\n- resposta correta\n\nQuestão 2\n...\n\n- resposta correta\n\n(ou)\n\nPergunta 1: ...?\nResposta correta: ...\n\nPergunta 2: ...?\nA) ...\nB) ...\nC) ...\nD) ...\nCorreta: B`}
+                    rows={10}
+                  />
+                </div>
+
+                {Array.isArray(textImportPreview) ? (
+                  <div className="space-y-2">
+                    <div className="text-[12px]">
+                      <span className="font-medium">Pré-visualização:</span> {textImportPreview.length} pergunta(s)
+                      {textImportIssues.length ? (
+                        <span className="text-muted-foreground"> • {textImportIssues.length} aviso(s)</span>
+                      ) : null}
+                    </div>
+                    {textImportIssues.length ? (
+                      <div className="text-[11px] text-muted-foreground">
+                        {textImportIssues.slice(0, 6).map((m, idx) => (<div key={`issue2-${idx}`}>- {m}</div>))}
+                        {textImportIssues.length > 6 ? <div>…</div> : null}
+                      </div>
+                    ) : null}
+                    <Accordion type="single" collapsible>
+                      <AccordionItem value="preview2">
+                        <AccordionTrigger className="text-[12px]">Ver perguntas</AccordionTrigger>
+                        <AccordionContent>
+                          <div className="space-y-2">
+                            {textImportPreview.slice(0, 10).map((q: any, idx: number) => (
+                              <div key={`qprev2-${idx}`} className="rounded-md border p-2 bg-background/40">
+                                <div className="text-[12px] font-medium">Q{idx + 1}</div>
+                                <div className="text-[12px] text-muted-foreground whitespace-pre-wrap">{String(q?.question_text || '').trim()}</div>
+                              </div>
+                            ))}
+                            {textImportPreview.length > 10 ? (
+                              <div className="text-[11px] text-muted-foreground">Mostrando 10 de {textImportPreview.length}.</div>
+                            ) : null}
+                          </div>
+                        </AccordionContent>
+                      </AccordionItem>
+                    </Accordion>
+                  </div>
+                ) : null}
+              </div>
+            </TabsContent>
+
+            <TabsContent value="milhao" className="mt-4">
+              <div className="rounded-lg border border-dashed border-border bg-muted/10 p-4 space-y-3">
+                <p className="text-sm font-semibold">Quiz do Milhão (10 níveis)</p>
+                <p className="text-sm text-muted-foreground">
+                  Abra o gerador avançado para criar o Milhão completo (com progressão por nível) e inserir direto neste quiz.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    onClick={() => navigate(`/studio?module=ai-quiz&flow=milhao&targetQuizId=${encodeURIComponent(quizId)}`)}
+                  >
+                    Abrir gerador do Milhão
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => navigate(`/studio?module=ai-quiz&flow=multi&targetQuizId=${encodeURIComponent(quizId)}`)}
+                  >
+                    Abrir gerador (várias perguntas)
+                  </Button>
+                </div>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="studylab" className="mt-4">
+              <div className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  Use materiais enviados (ex.: manual em PDF via URL) como base. As perguntas são inseridas automaticamente neste quiz para revisão e curadoria.
+                </p>
+
+                <div className="space-y-2">
+                  <Label>Buscar fonte</Label>
+                  <Input value={sourceSearch} onChange={(e) => setSourceSearch(e.target.value)} placeholder="Filtrar por título/URL…" />
+                </div>
+
+                <div className="space-y-2 rounded-md border border-border p-3 bg-muted/30">
+                  <p className="text-[11px] text-muted-foreground">Selecione uma ou mais fontes do StudyLab.</p>
+                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 max-h-56 overflow-y-auto">
+                    {studySources
+                      .filter((s: any) => {
+                        const q = sourceSearch.trim().toLowerCase();
+                        if (!q) return true;
+                        const hay = [s?.title, s?.url, s?.summary].filter(Boolean).join(" ").toLowerCase();
+                        return hay.includes(q);
+                      })
+                      .map((s: any) => {
+                        const checked = selectedSourceIds.includes(s.id);
+                        const ingest = String(s.ingest_status || "").toLowerCase();
+                        const ingestLabel = ingest === "pending" ? "analisando…" : ingest === "failed" ? "falhou" : "";
+                        return (
+                          <label
+                            key={s.id}
+                            className={`flex items-start gap-2 text-sm cursor-pointer rounded-md border px-3 py-2 transition ${
+                              checked ? 'border-primary bg-primary/10 text-primary-foreground' : 'border-border bg-background'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              className="accent-primary mt-1"
+                              checked={checked}
+                              onChange={(e) => {
+                                setSelectedSourceIds((prev) =>
+                                  e.target.checked ? Array.from(new Set([...prev, s.id])) : prev.filter((id) => id !== s.id)
+                                );
+                              }}
+                            />
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium line-clamp-2">{String(s.title || '').trim() || 'Fonte sem título'}</p>
+                              <p className="text-[11px] text-muted-foreground line-clamp-1">
+                                {s.kind ? String(s.kind).toUpperCase() : 'FONTE'}{ingestLabel ? ` • ${ingestLabel}` : ''}
+                              </p>
+                            </div>
+                          </label>
+                        );
+                      })}
+
+                    {studySources.length === 0 && (
+                      <p className="text-xs text-muted-foreground col-span-full">
+                        Nenhuma fonte encontrada. Envie materiais no StudyLab (URL ou arquivo) e tente novamente.
+                      </p>
+                    )}
+                  </div>
+
+                  {selectedSourceIds.length > 0 && (
+                    <Button type="button" variant="outline" size="sm" className="text-xs" onClick={() => setSelectedSourceIds([])}>
+                      Limpar seleção ({selectedSourceIds.length})
+                    </Button>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+                  <div className="space-y-2">
+                    <Label>Quantidade</Label>
+                    <Input
+                      type="number"
+                      min={3}
+                      max={20}
+                      value={autoQuestionCount}
+                      onChange={(e) => setAutoQuestionCount(Number(e.target.value) || 10)}
+                    />
+                    <p className="text-[11px] text-muted-foreground">Sugestão: 5 a 15 perguntas por manual.</p>
+                  </div>
+                  <div className="space-y-2 md:col-span-1">
+                    <Label>Revisão (PT-BR)</Label>
+                    <div className="flex items-center justify-between rounded-md border border-border bg-background/50 px-3 py-2">
+                      <p className="text-[11px] text-muted-foreground">Corrigir escrita/acentos</p>
+                      <Switch checked={autoProofread} onCheckedChange={setAutoProofread} />
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">Desative para inglês/zh-CN ou para acelerar.</p>
+                  </div>
+                  <div className="md:col-span-1">
+                    <Button
+                      type="button"
+                      className="w-full"
+                      disabled={autoGenerating || selectedSourceIds.length === 0}
+                      onClick={handleGenerateFromStudyLab}
+                    >
+                      {autoGenerating ? "Gerando e inserindo..." : "Gerar e inserir perguntas"}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="suggestions" className="mt-4">
+              <div className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  Use perguntas sugeridas na catalogação para acelerar a criação. Filtre por tema, mais acessadas ou mais recentes.
+                </p>
+
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="space-y-1">
+                    <Label>Buscar</Label>
+                    <Input
+                      value={questionSearch}
+                      onChange={(e) => setQuestionSearch(e.target.value)}
+                      placeholder="Buscar por pergunta, tema ou fonte..."
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Categoria</Label>
+                    <Select value={questionCategory} onValueChange={(v) => setQuestionCategory(v as any)}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {STUDYLAB_CATEGORIES.map((c) => (
+                          <SelectItem key={c} value={c}>
+                            {STUDYLAB_CATEGORY_LABELS[c]}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Ordenar</Label>
+                    <Select value={questionSort} onValueChange={(v) => setQuestionSort(v as any)}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="recent">Mais recentes</SelectItem>
+                        <SelectItem value="access">Mais acessadas</SelectItem>
+                        <SelectItem value="relevance">Mais relevantes</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="space-y-2 max-h-80 overflow-y-auto">
+                  {filteredSuggestedQuestions.length === 0 && (
+                    <p className="text-sm text-muted-foreground">
+                      Nenhuma sugestão encontrada. Envie materiais no StudyLab para gerar perguntas sugeridas.
+                    </p>
+                  )}
+                  {filteredSuggestedQuestions.map((item: any) => {
+                    const source = item?.study_sources || {};
+                    const tags = Array.isArray(item?.tags) ? item.tags : [];
+                    return (
+                      <div key={item.id} className="rounded-md border border-border bg-background/60 p-3 space-y-2">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold leading-snug">{String(item?.question_text || '').trim()}</p>
+                            <p className="text-[11px] text-muted-foreground">
+                              Fonte: {String(source?.title || 'Sem título').slice(0, 80)}
+                              {source?.category ? ` • ${source.category}` : ''}
+                              {source?.topic ? ` • ${source.topic}` : ''}
+                            </p>
+                            <p className="text-[11px] text-muted-foreground">
+                              {Array.isArray(item?.options) ? `${item.options.length} alternativas` : 'Alternativas geradas na curadoria'}
+                            </p>
+                          </div>
+                          <Button type="button" size="sm" variant="outline" disabled={!quizId} onClick={() => handleAddSuggestedQuestion(item)}>
+                            Adicionar
+                          </Button>
+                        </div>
+                        {tags.length > 0 && (
+                          <div className="flex flex-wrap gap-1">
+                            {tags.slice(0, 8).map((t: string) => (
+                              <span key={t} className="text-[10px] rounded-full border border-border px-2 py-0.5 text-muted-foreground">
+                                #{t}
+                              </span>
+                            ))}
+                            {tags.length > 8 && (
+                              <span className="text-[10px] rounded-full border border-border px-2 py-0.5 text-muted-foreground">
+                                +{tags.length - 8}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </TabsContent>
+          </Tabs>
         </CardContent>
       </Card>
+
+      <QuizQuestionsList key={refreshKey} challengeId={quizId} onUpdate={handleQuestionAdded} />
     </div>
   );
 }
