@@ -26,7 +26,7 @@ export const quizQuestionSchema = z.object({
   options: z
     .array(quizOptionSchema)
     .min(1, "Inclua pelo menos a alternativa correta")
-    .max(5, "Máximo 5 alternativas")
+    .max(4, "Máximo 4 alternativas")
     .refine(
       (opts) => opts.filter((o) => o.is_correct).length === 1,
       "Deve haver exatamente 1 alternativa correta"

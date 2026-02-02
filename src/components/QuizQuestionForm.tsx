@@ -25,8 +25,8 @@ interface QuizQuestionFormProps {
 export function QuizQuestionForm({ challengeId, onQuestionAdded }: QuizQuestionFormProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedDifficulty, setSelectedDifficulty] = useState<DifficultyLevel>("basico");
-  const MIN_WRONG_OPTIONS = 3;
-  const MAX_OPTIONS = 5;
+  const TARGET_WRONG_OPTIONS = 3;
+  const MAX_OPTIONS = 4;
 
   const {
     register,
@@ -89,7 +89,7 @@ export function QuizQuestionForm({ challengeId, onQuestionAdded }: QuizQuestionF
     }
 
     const wrongOptions = sanitized.filter((opt) => !opt.is_correct);
-    const missing = Math.max(0, 4 - wrongOptions.length); // queremos 4 erradas, total 5
+    const missing = Math.max(0, TARGET_WRONG_OPTIONS - wrongOptions.length); // 3 erradas + 1 correta (total 4)
     if (missing <= 0) {
       return { ...payload, options: sanitized.slice(0, MAX_OPTIONS) };
     }
@@ -114,7 +114,7 @@ export function QuizQuestionForm({ challengeId, onQuestionAdded }: QuizQuestionF
 
     const aiCandidates = Array.isArray(json?.wrong) ? json.wrong : [];
     for (const candidate of aiCandidates) {
-      if (wrongOptions.length >= 4) break;
+      if (wrongOptions.length >= TARGET_WRONG_OPTIONS) break;
       const text = String(candidate?.text || "").trim();
       if (!text) continue;
       if (text.toLowerCase() === correct.option_text.toLowerCase()) continue;
@@ -126,7 +126,7 @@ export function QuizQuestionForm({ challengeId, onQuestionAdded }: QuizQuestionF
       });
     }
 
-    if (wrongOptions.length < 4) {
+    if (wrongOptions.length < TARGET_WRONG_OPTIONS) {
       throw new Error("Não foi possível gerar alternativas erradas suficientes. Adicione mais algumas manualmente e tente novamente.");
     }
 
@@ -151,9 +151,9 @@ export function QuizQuestionForm({ challengeId, onQuestionAdded }: QuizQuestionF
         .map((opt) => ({ ...opt, option_text: opt.option_text.trim(), explanation: opt.explanation?.trim() || '' }))
         .filter((opt) => opt.is_correct || opt.option_text.length > 0);
       const wrong = sanitized.filter((o) => !o.is_correct);
-      const missing = Math.max(0, 4 - wrong.length);
+      const missing = Math.max(0, TARGET_WRONG_OPTIONS - wrong.length);
       if (missing <= 0) {
-        toast.info('Você já tem 4 alternativas erradas.');
+        toast.info('Você já tem 3 alternativas erradas.');
         return;
       }
 
@@ -173,7 +173,7 @@ export function QuizQuestionForm({ challengeId, onQuestionAdded }: QuizQuestionF
       if (!resp.ok) throw new Error(json?.error || 'Falha ao gerar alternativas erradas');
       const aiCandidates = Array.isArray(json?.wrong) ? json.wrong : [];
       for (const candidate of aiCandidates) {
-        if (wrong.length >= 4 || fields.length >= MAX_OPTIONS) break;
+        if (wrong.length >= TARGET_WRONG_OPTIONS || fields.length >= MAX_OPTIONS) break;
         const txt = String(candidate?.text || '').trim();
         if (!txt) continue;
         if (txt.toLowerCase() === correct.option_text.toLowerCase()) continue;
@@ -181,7 +181,7 @@ export function QuizQuestionForm({ challengeId, onQuestionAdded }: QuizQuestionF
         append({ option_text: txt, is_correct: false, explanation: String(candidate?.explanation || '') });
         wrong.push({ option_text: txt, is_correct: false, explanation: String(candidate?.explanation || '') } as any);
       }
-      if (wrong.length < 4) {
+      if (wrong.length < TARGET_WRONG_OPTIONS) {
         toast.warning('Geradas menos alternativas do que o necessário. Complete manualmente.');
       } else {
         toast.success('Alternativas geradas!');
@@ -337,7 +337,7 @@ export function QuizQuestionForm({ challengeId, onQuestionAdded }: QuizQuestionF
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <div className="text-sm text-muted-foreground">
-                Combo completo: 1 correta com explicação + 4 alternativas incorretas para desafiar o jogador.
+                Combo completo: 1 correta com explicação + 3 alternativas incorretas verossímeis para desafiar o jogador.
               </div>
               <Button type="button" size="sm" variant="outline" onClick={handleGenerateWrongsClick}>
                 Gerar alternativas para revisar
@@ -355,7 +355,7 @@ export function QuizQuestionForm({ challengeId, onQuestionAdded }: QuizQuestionF
                 variant="outline"
                 size="sm"
                 onClick={() => append({ option_text: "", is_correct: false, explanation: "" })}
-                disabled={fields.length >= 5}
+                disabled={fields.length >= MAX_OPTIONS}
               >
                 <Plus className="h-4 w-4 mr-2" />
                 Adicionar
