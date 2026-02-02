@@ -33,15 +33,30 @@ const normalizeLetter = (raw: any) => {
 
 const heuristicParse = (text: any) => {
   const raw = String(text || '').replace(/\r\n/g, '\n')
-  const blocks = raw
-    .split(/\n(?=(?:\s*(?:Q(?:uest[aã]o)?\s*\d+|Pergunta(?:\s*\d+)?)\s*[:.)]))/i)
-    .map((b) => b.trim())
-    .filter(Boolean)
+  const headerRe = /^\s*(?:Q(?:uest[aã]o)?|Quest[aã]o|Pergunta)\s*\d+\b/i
+
+  const linesAll = raw.split('\n')
+  const blocks: string[] = []
+  let cur: string[] = []
+  for (const line of linesAll) {
+    if (headerRe.test(line) && cur.length) {
+      blocks.push(cur.join('\n').trim())
+      cur = [line]
+      continue
+    }
+    if (headerRe.test(line) && !cur.length) {
+      cur.push(line)
+      continue
+    }
+    cur.push(line)
+  }
+  if (cur.length) blocks.push(cur.join('\n').trim())
+  const normalizedBlocks = blocks.map((b) => b.trim()).filter(Boolean)
 
   /** @type {any[]} */
   const out: any[] = []
 
-  for (const block of blocks) {
+  for (const block of normalizedBlocks) {
     const lines = block.split('\n').map((l) => l.trim()).filter(Boolean)
     if (!lines.length) continue
 
@@ -50,6 +65,7 @@ const heuristicParse = (text: any) => {
     let questionLines: string[] = []
     let correctAnswerText = ''
     for (const line of lines) {
+      if (headerRe.test(line)) continue
       const m = line.match(optionRe)
       if (m) {
         options.push({ letter: m[1].toUpperCase(), text: String(m[2] || '').trim() })
@@ -60,9 +76,18 @@ const heuristicParse = (text: any) => {
         questionLines.push(line)
       }
     }
+
+    if (!correctAnswerText) {
+      const bulletRe = /^\s*[-•–]\s*(.+)$/
+      const bullets = questionLines.map((l) => l.match(bulletRe)).filter(Boolean) as any[]
+      if (bullets.length) {
+        correctAnswerText = String(bullets[0][1] || '').trim()
+        questionLines = questionLines.filter((l) => !bulletRe.test(l))
+      }
+    }
+
     const qText = questionLines
       .join(' ')
-      .replace(/^(Q(?:uest[aã]o)?|Pergunta)(?:\s*\d+)?\s*[:.)]\s*/i, '')
       .trim()
 
     const correctLine = lines.find((l) => /^correta\b|^resposta\b/i.test(l)) || ''
@@ -257,7 +282,8 @@ Regras:
 - Se o texto do usuário não trouxer 3 erradas, gere erradas verossímeis e factíveis (mas ERRADAS).
 - O input pode vir como:
   (a) A) B) C) D) + "Correta: B" ou
-  (b) "Pergunta: ..." + "Resposta correta: <texto>" (sem alternativas).
+  (b) "Questão/Pergunta: ..." + "Resposta correta: <texto>" (sem alternativas) ou
+  (c) "Questão/Pergunta: ..." seguido de 1 bullet (ex.: "- <texto>") representando a resposta correta.
   Em (b), use a resposta correta como alternativa correta e gere 3 erradas.
 - Se o texto marcar a correta por letra (ex.: "Correta: B", "*" na alternativa, "(correta)"), preserve essa correta; não invente outra.
 - Explicação: 1 a 3 frases, direta, sem inventar normas internas; se não houver, use "".

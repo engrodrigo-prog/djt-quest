@@ -793,7 +793,7 @@ export function QuizCreationWizard() {
                 <div className="min-w-0">
                   <p className="text-sm font-semibold">Importar perguntas por texto (IA)</p>
                   <p className="text-[11px] text-muted-foreground">
-                    Cole perguntas em linguagem natural. Você pode colar (A-D + “Correta: B”) ou apenas “Pergunta + Resposta correta” e a IA gera as 3 erradas.
+                    Cole perguntas em linguagem natural. Você pode colar (A-D + “Correta: B”), ou “Pergunta + Resposta correta”, ou ainda um bullet único com a resposta correta (ex.: “- …”).
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
