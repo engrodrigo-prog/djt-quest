@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { HelpCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
@@ -77,6 +78,17 @@ export function QuizCreationWizard() {
   const [questionSearch, setQuestionSearch] = useState('');
   const [questionSort, setQuestionSort] = useState<'recent' | 'access' | 'relevance'>('recent');
   const [questionCategory, setQuestionCategory] = useState<(typeof STUDYLAB_CATEGORIES)[number]>('ALL');
+
+  const [textImport, setTextImport] = useState<string>('');
+  const [textImportDefaultDifficulty, setTextImportDefaultDifficulty] = useState<'basico' | 'intermediario' | 'avancado' | 'especialista'>(
+    'intermediario',
+  );
+  const [textImportAuto, setTextImportAuto] = useState(true);
+  const [textImportParsing, setTextImportParsing] = useState(false);
+  const [textImportImporting, setTextImportImporting] = useState(false);
+  const [textImportPreview, setTextImportPreview] = useState<any[] | null>(null);
+  const [textImportIssues, setTextImportIssues] = useState<string[]>([]);
+
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -174,6 +186,109 @@ export function QuizCreationWizard() {
     setSelectedSourceIds((prev) => (prev.includes(seed) ? prev : [seed, ...prev].slice(0, 12)));
   }, [location.search]);
 
+  // Avoid importing a stale preview after editing the text.
+  useEffect(() => {
+    setTextImportPreview(null);
+    setTextImportIssues([]);
+  }, [textImport]);
+
+  const parseTextImportPreview = async (opts?: { silent?: boolean }) => {
+    const raw = String(textImport || '').trim();
+    if (!raw) {
+      if (!opts?.silent) toast.error('Cole o texto das perguntas antes de pré-visualizar.');
+      return [];
+    }
+    setTextImportParsing(true);
+    try {
+      const resp = await apiFetch('/api/ai?handler=parse-quiz-text', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: raw,
+          language: localeToOpenAiLanguageTag(getActiveLocale()),
+          maxQuestions: 50,
+          defaultDifficulty: textImportDefaultDifficulty,
+        }),
+      });
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(String(json?.error || 'Falha ao interpretar texto'));
+      const questions = Array.isArray((json as any)?.questions) ? (json as any).questions : [];
+      const issues = Array.isArray((json as any)?.issues) ? (json as any).issues : [];
+      setTextImportPreview(questions);
+      setTextImportIssues(issues);
+      if (!opts?.silent) {
+        const usedAi = Boolean((json as any)?.meta?.usedAi);
+        toast.success(`Pré-visualização pronta: ${questions.length} pergunta(s)${usedAi ? ' (IA)' : ''}.`);
+      }
+      return questions;
+    } catch (e: any) {
+      setTextImportPreview(null);
+      setTextImportIssues([]);
+      if (!opts?.silent) toast.error(e?.message || 'Falha ao interpretar texto');
+      return [];
+    } finally {
+      setTextImportParsing(false);
+    }
+  };
+
+  const importTextQuestionsToQuiz = async (targetQuizId: string) => {
+    const id = String(targetQuizId || '').trim();
+    if (!id) return { ok: false, inserted: 0, failed: 0 };
+    const raw = String(textImport || '').trim();
+    if (!raw) {
+      toast.error('Cole o texto das perguntas antes de importar.');
+      return { ok: false, inserted: 0, failed: 0 };
+    }
+
+    setTextImportImporting(true);
+    try {
+      const questions = (Array.isArray(textImportPreview) && textImportPreview.length)
+        ? textImportPreview
+        : await parseTextImportPreview({ silent: true });
+
+      if (!questions.length) throw new Error('Nenhuma pergunta válida foi encontrada no texto.');
+
+      let inserted = 0;
+      let failed = 0;
+      for (let i = 0; i < questions.length; i += 1) {
+        const q = questions[i] || {};
+        try {
+          const resp = await apiFetch('/api/admin?handler=studio-create-quiz-question', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              challengeId: id,
+              question_text: String(q?.question_text || '').trim(),
+              difficulty_level: String(q?.difficulty_level || textImportDefaultDifficulty || 'intermediario'),
+              options: Array.isArray(q?.options)
+                ? q.options.map((o: any) => ({
+                    option_text: String(o?.text || o?.option_text || '').trim(),
+                    is_correct: Boolean(o?.is_correct),
+                    explanation: String(o?.explanation || '').trim(),
+                  }))
+                : [],
+            }),
+          });
+          const json = await resp.json().catch(() => ({}));
+          if (!resp.ok) throw new Error(String(json?.error || 'Falha ao inserir pergunta'));
+          inserted += 1;
+        } catch (e: any) {
+          failed += 1;
+          console.warn('Falha ao importar pergunta', { index: i, error: e?.message || e });
+        }
+      }
+
+      setRefreshKey((prev) => prev + 1);
+      toast.success(`Importação concluída: ${inserted} inserida(s)${failed ? ` • ${failed} falharam` : ''}.`);
+      return { ok: inserted > 0, inserted, failed };
+    } catch (e: any) {
+      toast.error(e?.message || 'Falha ao importar perguntas');
+      return { ok: false, inserted: 0, failed: 0 };
+    } finally {
+      setTextImportImporting(false);
+    }
+  };
+
   const onSubmit = async (data: QuizFormData) => {
     setIsSubmitting(true);
     try {
@@ -196,7 +311,11 @@ export function QuizCreationWizard() {
         if (!created?.id) throw new Error("Resposta inesperada ao criar quiz");
         setQuizMeta({ title: data.title, description: data.description || '' });
         setQuizId(created.id);
-        toast.success("Quiz criado! Agora adicione as perguntas.");
+        if (textImportAuto && String(textImport || '').trim()) {
+          await importTextQuestionsToQuiz(created.id);
+        } else {
+          toast.success("Quiz criado! Agora adicione as perguntas.");
+        }
         return;
       } catch (e) {
         console.warn("curation-create-quiz failed; falling back to direct insert", e);
@@ -235,7 +354,11 @@ export function QuizCreationWizard() {
 
       setQuizId(challenge.id);
       setQuizMeta({ title: data.title, description: data.description || '' });
-      toast.success("Quiz criado! Agora adicione as perguntas.");
+      if (textImportAuto && String(textImport || '').trim()) {
+        await importTextQuestionsToQuiz(challenge.id);
+      } else {
+        toast.success("Quiz criado! Agora adicione as perguntas.");
+      }
     } catch (error) {
       console.error("Error creating quiz:", error);
       toast.error("Erro ao criar quiz");
@@ -629,6 +752,92 @@ export function QuizCreationWizard() {
               )}
             </div>
 
+            <div className="rounded-lg border border-dashed border-border bg-muted/10 p-4 space-y-3">
+              <div className="flex items-start justify-between gap-3 flex-wrap">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold">Importar perguntas por texto (IA)</p>
+                  <p className="text-[11px] text-muted-foreground">
+                    Cole perguntas e alternativas em linguagem natural. Exemplo: “Pergunta 1… A) … B) … C) … D) … Correta: B”.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] text-muted-foreground">Importar ao criar</span>
+                  <Switch checked={textImportAuto} onCheckedChange={(v) => setTextImportAuto(Boolean(v))} />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <Label>Dificuldade padrão</Label>
+                  <Select value={textImportDefaultDifficulty} onValueChange={(v: any) => setTextImportDefaultDifficulty(v)}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Intermediário" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="basico">Básico</SelectItem>
+                      <SelectItem value="intermediario">Intermediário</SelectItem>
+                      <SelectItem value="avancado">Avançado</SelectItem>
+                      <SelectItem value="especialista">Especialista</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Ações</Label>
+                  <Button type="button" variant="outline" disabled={textImportParsing || !String(textImport || '').trim()} onClick={() => void parseTextImportPreview()}>
+                    {textImportParsing ? 'Analisando…' : 'Pré-visualizar'}
+                  </Button>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Texto</Label>
+                <Textarea
+                  value={textImport}
+                  onChange={(e) => setTextImport(e.target.value)}
+                  placeholder={`Pergunta 1: ...?\nA) ...\nB) ...\nC) ...\nD) ...\nCorreta: B\n\nPergunta 2: ...`}
+                  rows={8}
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Dica: quanto mais claro for o marcador da correta (ex.: “Correta: B”), melhor a importação.
+                </p>
+              </div>
+
+              {Array.isArray(textImportPreview) ? (
+                <div className="space-y-2">
+                  <div className="text-[12px]">
+                    <span className="font-medium">Pré-visualização:</span> {textImportPreview.length} pergunta(s)
+                    {textImportIssues.length ? (
+                      <span className="text-muted-foreground"> • {textImportIssues.length} aviso(s)</span>
+                    ) : null}
+                  </div>
+                  {textImportIssues.length ? (
+                    <div className="text-[11px] text-muted-foreground">
+                      {textImportIssues.slice(0, 6).map((m, idx) => (<div key={`issue-${idx}`}>- {m}</div>))}
+                      {textImportIssues.length > 6 ? <div>…</div> : null}
+                    </div>
+                  ) : null}
+                  <Accordion type="single" collapsible>
+                    <AccordionItem value="preview">
+                      <AccordionTrigger className="text-[12px]">Ver perguntas</AccordionTrigger>
+                      <AccordionContent>
+                        <div className="space-y-2">
+                          {textImportPreview.slice(0, 10).map((q: any, idx: number) => (
+                            <div key={`qprev-${idx}`} className="rounded-md border p-2 bg-background/40">
+                              <div className="text-[12px] font-medium">Q{idx + 1}</div>
+                              <div className="text-[12px] text-muted-foreground whitespace-pre-wrap">{String(q?.question_text || '').trim()}</div>
+                            </div>
+                          ))}
+                          {textImportPreview.length > 10 ? (
+                            <div className="text-[11px] text-muted-foreground">Mostrando 10 de {textImportPreview.length}.</div>
+                          ) : null}
+                        </div>
+                      </AccordionContent>
+                    </AccordionItem>
+                  </Accordion>
+                </div>
+              ) : null}
+            </div>
+
             <Button type="submit" disabled={isSubmitting} className="w-full" size="lg">
               {isSubmitting ? "Criando..." : "Criar Quiz e Adicionar Perguntas"}
             </Button>
@@ -663,6 +872,89 @@ export function QuizCreationWizard() {
       <QuizQuestionsList key={refreshKey} challengeId={quizId} onUpdate={handleQuestionAdded} />
       
       <QuizQuestionForm challengeId={quizId} onQuestionAdded={handleQuestionAdded} />
+
+      <Card className="border-indigo-500/30 bg-indigo-500/5">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <HelpCircle className="h-5 w-5 text-indigo-300" />
+            Importar Perguntas por Texto (IA)
+          </CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Cole perguntas + alternativas e importe automaticamente neste quiz (1 correta + 3 erradas por pergunta).
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="w-full sm:w-60 space-y-2">
+              <Label>Dificuldade padrão</Label>
+              <Select value={textImportDefaultDifficulty} onValueChange={(v: any) => setTextImportDefaultDifficulty(v)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Intermediário" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="basico">Básico</SelectItem>
+                  <SelectItem value="intermediario">Intermediário</SelectItem>
+                  <SelectItem value="avancado">Avançado</SelectItem>
+                  <SelectItem value="especialista">Especialista</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button type="button" variant="outline" disabled={textImportParsing || !String(textImport || '').trim()} onClick={() => void parseTextImportPreview()}>
+                {textImportParsing ? 'Analisando…' : 'Pré-visualizar'}
+              </Button>
+              <Button type="button" disabled={textImportImporting || textImportParsing || !String(textImport || '').trim()} onClick={() => void importTextQuestionsToQuiz(quizId as string)}>
+                {textImportImporting ? 'Importando…' : 'Importar neste quiz'}
+              </Button>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Texto</Label>
+            <Textarea
+              value={textImport}
+              onChange={(e) => setTextImport(e.target.value)}
+              placeholder={`Pergunta 1: ...?\nA) ...\nB) ...\nC) ...\nD) ...\nCorreta: B\n\nPergunta 2: ...`}
+              rows={8}
+            />
+          </div>
+
+          {Array.isArray(textImportPreview) ? (
+            <div className="space-y-2">
+              <div className="text-[12px]">
+                <span className="font-medium">Pré-visualização:</span> {textImportPreview.length} pergunta(s)
+                {textImportIssues.length ? (
+                  <span className="text-muted-foreground"> • {textImportIssues.length} aviso(s)</span>
+                ) : null}
+              </div>
+              {textImportIssues.length ? (
+                <div className="text-[11px] text-muted-foreground">
+                  {textImportIssues.slice(0, 6).map((m, idx) => (<div key={`issue2-${idx}`}>- {m}</div>))}
+                  {textImportIssues.length > 6 ? <div>…</div> : null}
+                </div>
+              ) : null}
+              <Accordion type="single" collapsible>
+                <AccordionItem value="preview2">
+                  <AccordionTrigger className="text-[12px]">Ver perguntas</AccordionTrigger>
+                  <AccordionContent>
+                    <div className="space-y-2">
+                      {textImportPreview.slice(0, 10).map((q: any, idx: number) => (
+                        <div key={`qprev2-${idx}`} className="rounded-md border p-2 bg-background/40">
+                          <div className="text-[12px] font-medium">Q{idx + 1}</div>
+                          <div className="text-[12px] text-muted-foreground whitespace-pre-wrap">{String(q?.question_text || '').trim()}</div>
+                        </div>
+                      ))}
+                      {textImportPreview.length > 10 ? (
+                        <div className="text-[11px] text-muted-foreground">Mostrando 10 de {textImportPreview.length}.</div>
+                      ) : null}
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
+              </Accordion>
+            </div>
+          ) : null}
+        </CardContent>
+      </Card>
 
       <Card className="border-emerald-500/30 bg-emerald-500/5">
         <CardHeader>
