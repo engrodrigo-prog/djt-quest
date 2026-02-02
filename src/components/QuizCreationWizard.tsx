@@ -43,6 +43,10 @@ const quizSchema = z.object({
   xp_reward: z.coerce
     .number()
     .refine((v) => [5, 10, 20, 50].includes(Number(v)), { message: "Selecione 5 / 10 / 20 / 50" }),
+  due_date: z
+    .string()
+    .trim()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, { message: 'Vigência obrigatória (use AAAA-MM-DD)' }),
   quiz_specialties: z.array(z.string()).optional(),
   chas_dimension: z.enum(['C','H','A','S']).default('C'),
 });
@@ -95,6 +99,8 @@ export function QuizCreationWizard() {
   const [autoGenerating, setAutoGenerating] = useState(false);
   const [quizMeta, setQuizMeta] = useState<{ title: string; description: string }>({ title: '', description: '' });
   const [quizXpReward, setQuizXpReward] = useState<number | null>(null);
+  const [quizDueDate, setQuizDueDate] = useState<string>('');
+  const [savingVigencia, setSavingVigencia] = useState(false);
   const [suggestedQuestions, setSuggestedQuestions] = useState<any[]>([]);
   const [questionSearch, setQuestionSearch] = useState('');
   const [questionSort, setQuestionSort] = useState<'recent' | 'access' | 'relevance'>('recent');
@@ -116,6 +122,13 @@ export function QuizCreationWizard() {
 
   const location = useLocation();
   const navigate = useNavigate();
+  const todayIso = useMemo(() => {
+    const d = new Date();
+    const yyyy = String(d.getFullYear()).padStart(4, '0');
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  }, []);
   const xpToDifficulty = (xp: number): 'basico' | 'intermediario' | 'avancado' | 'especialista' => {
     const n = Number(xp);
     if (n === 5) return 'basico';
@@ -140,10 +153,35 @@ export function QuizCreationWizard() {
       title: '',
       description: '',
       xp_reward: 10,
+      due_date: '',
       quiz_specialties: [],
       chas_dimension: 'C',
     },
   });
+
+  const saveVigencia = async () => {
+    if (!quizId) return;
+    const due = String(quizDueDate || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(due)) {
+      toast.error('Vigência inválida (use AAAA-MM-DD)');
+      return;
+    }
+    setSavingVigencia(true);
+    try {
+      const resp = await apiFetch('/api/admin?handler=studio-update-quiz-vigencia', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ challengeId: quizId, due_date: due }),
+      });
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(json?.error || 'Falha ao salvar vigência');
+      toast.success('Vigência atualizada');
+    } catch (e: any) {
+      toast.error(e?.message || 'Falha ao salvar vigência');
+    } finally {
+      setSavingVigencia(false);
+    }
+  };
 
   // Prefill from Forum Insights draft (if any)
   useEffect(() => {
@@ -158,12 +196,39 @@ export function QuizCreationWizard() {
       if (draft.chas && ['C','H','A','S'].includes(draft.chas)) setValue('chas_dimension', draft.chas);
       // Default XP header suggestion (can be adjusted by user)
       setValue('xp_reward', 20);
+      // Default vigência: 30 dias
+      try {
+        const d = new Date();
+        d.setDate(d.getDate() + 30);
+        const yyyy = String(d.getFullYear()).padStart(4, '0');
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        const dd = String(d.getDate()).padStart(2, '0');
+        setValue('due_date', `${yyyy}-${mm}-${dd}`);
+      } catch {
+        setValue('due_date', '');
+      }
       // Clear so it won't prefill again unexpectedly
       localStorage.removeItem('studio_compendium_draft');
     } catch {
       void 0;
     }
   }, [setValue]);
+
+  // Default due_date if empty (30 days)
+  useEffect(() => {
+    try {
+      const d = new Date();
+      d.setDate(d.getDate() + 30);
+      const yyyy = String(d.getFullYear()).padStart(4, '0');
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      const v = `${yyyy}-${mm}-${dd}`;
+      setValue('due_date', v, { shouldValidate: true });
+    } catch {
+      // ignore
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Load StudyLab sources (best-effort; table may be absent in older DBs)
   useEffect(() => {
@@ -687,6 +752,9 @@ export function QuizCreationWizard() {
   const onSubmit = async (data: QuizFormData) => {
     setIsSubmitting(true);
     try {
+      if (!String((data as any)?.due_date || '').trim()) {
+        throw new Error('Vigência obrigatória');
+      }
       // Prefer backend flow (RBAC + owner_id + workflow status)
       try {
         const resp = await apiFetch("/api/admin?handler=curation-create-quiz", {
@@ -696,6 +764,7 @@ export function QuizCreationWizard() {
             title: data.title,
             description: data.description,
             xp_reward: data.xp_reward,
+            due_date: (data as any).due_date,
             quiz_specialties: data.quiz_specialties || null,
             chas_dimension: data.chas_dimension || "C",
           }),
@@ -706,6 +775,7 @@ export function QuizCreationWizard() {
         if (!created?.id) throw new Error("Resposta inesperada ao criar quiz");
         setQuizMeta({ title: data.title, description: data.description || '' });
         setQuizXpReward(Number(data.xp_reward) || 10);
+        setQuizDueDate(String(created?.due_date || (data as any).due_date || '').trim());
         setQuizId(created.id);
         if (textImportAuto && String(textImport || '').trim()) {
           await importTextQuestionsToQuiz(created.id);
@@ -727,6 +797,7 @@ export function QuizCreationWizard() {
         description: data.description,
         type: "quiz",
         xp_reward: data.xp_reward,
+        due_date: (data as any).due_date,
         evidence_required: false,
         require_two_leader_eval: false,
       };
@@ -751,6 +822,7 @@ export function QuizCreationWizard() {
       setQuizId(challenge.id);
       setQuizMeta({ title: data.title, description: data.description || '' });
       setQuizXpReward(Number(data.xp_reward) || 10);
+      setQuizDueDate(String((data as any).due_date || '').trim());
       if (textImportAuto && String(textImport || '').trim()) {
         await importTextQuestionsToQuiz(challenge.id);
       } else {
@@ -990,10 +1062,12 @@ export function QuizCreationWizard() {
     let cancelled = false;
     (async () => {
       try {
-        const { data } = await supabase.from('challenges').select('xp_reward').eq('id', quizId).maybeSingle();
+        const { data } = await supabase.from('challenges').select('xp_reward, due_date').eq('id', quizId).maybeSingle();
         const xp = Number((data as any)?.xp_reward);
         if (cancelled) return;
         if (Number.isFinite(xp)) setQuizXpReward(xp);
+        const due = String((data as any)?.due_date || '').trim();
+        if (due && /^\d{4}-\d{2}-\d{2}$/.test(due)) setQuizDueDate(due);
       } catch {
         // ignore
       }
@@ -1090,6 +1164,15 @@ export function QuizCreationWizard() {
               {errors.xp_reward && (<p className="text-sm text-destructive">{errors.xp_reward.message}</p>)}
               <p className="text-xs text-muted-foreground">
                 Este valor define o XP de cada pergunta do quiz (a dificuldade é ajustada automaticamente para bater 5/10/20/50).
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Vigência (prazo de coleta)</Label>
+              <Input type="date" min={todayIso} {...register('due_date')} />
+              {errors.due_date && (<p className="text-sm text-destructive">{String((errors as any)?.due_date?.message || 'Vigência inválida')}</p>)}
+              <p className="text-xs text-muted-foreground">
+                Após a vigência, o quiz fica encerrado para novas respostas (mas continua acessível para consulta).
               </p>
             </div>
 
@@ -1267,7 +1350,7 @@ export function QuizCreationWizard() {
             <div className="min-w-0">
               <div>Quando terminar, submeta para curadoria.</div>
               <div className="text-[11px] text-muted-foreground">
-                XP por pergunta: {quizXpReward ?? '—'} • Dificuldade: {quizForcedDifficulty === 'basico' ? 'Básico' : quizForcedDifficulty === 'intermediario' ? 'Intermediário' : quizForcedDifficulty === 'avancado' ? 'Avançado' : 'Especialista'}
+                XP por pergunta: {quizXpReward ?? '—'} • Dificuldade: {quizForcedDifficulty === 'basico' ? 'Básico' : quizForcedDifficulty === 'intermediario' ? 'Intermediário' : quizForcedDifficulty === 'avancado' ? 'Avançado' : 'Especialista'} • Vigência: {quizDueDate || '—'}
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -1280,6 +1363,20 @@ export function QuizCreationWizard() {
             </div>
           </CardDescription>
         </CardHeader>
+        <CardContent className="pt-0">
+          <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2 items-end">
+            <div className="space-y-2">
+              <Label>Vigência (prazo de coleta)</Label>
+              <Input type="date" min={todayIso} value={quizDueDate} onChange={(e) => setQuizDueDate(e.target.value)} />
+              <p className="text-[11px] text-muted-foreground">
+                Líderes/admin podem ajustar a vigência do quiz após publicar/submeter.
+              </p>
+            </div>
+            <Button type="button" disabled={savingVigencia || !quizDueDate} onClick={() => void saveVigencia()}>
+              {savingVigencia ? 'Salvando…' : 'Salvar vigência'}
+            </Button>
+          </div>
+        </CardContent>
       </Card>
 
       <Card className="border-primary/10">

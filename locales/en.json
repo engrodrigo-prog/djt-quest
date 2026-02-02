@@ -309,6 +309,7 @@
     "campaignDetails": "View details and engage",
     "quizCompleted": "Completed",
     "quizShareMessage": "Join this quiz on DJT Quest:\n{title}",
+    "quizDueUntil": "Open until: {date}",
     "quizFallbackDescription": "Progressive challenge with 10 questions (difficulty 1→10).",
     "quizViewAgain": "View again",
     "quizStartNow": "Start now",

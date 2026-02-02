@@ -309,6 +309,7 @@
     "campaignDetails": "查看详情并参与",
     "quizCompleted": "已完成",
     "quizShareMessage": "来参加 DJT Quest 的测验：\n{title}",
+    "quizDueUntil": "有效期至：{date}",
     "quizFallbackDescription": "循序渐进的挑战（10 题，难度 1→10）。",
     "quizViewAgain": "再次查看",
     "quizStartNow": "立即开始",

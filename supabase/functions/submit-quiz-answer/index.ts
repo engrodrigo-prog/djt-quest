@@ -32,6 +32,17 @@ const safeErrMsg = (err: unknown) => {
   }
 };
 
+const isoDate = (s: unknown) => /^\d{4}-\d{2}-\d{2}$/.test(String(s || '').trim());
+
+const dueEndMs = (dueDate: unknown): number | null => {
+  const d = String(dueDate || '').trim();
+  if (!isoDate(d)) return null;
+  // Interpret as end-of-day in Brazil (no DST): 23:59:59.999 -03:00.
+  const dt = new Date(`${d}T23:59:59.999-03:00`);
+  const ms = dt.getTime();
+  return Number.isFinite(ms) ? ms : null;
+};
+
 const parseTier = (tierRaw: unknown): { prefix: TierPrefix; level: number } | null => {
   const tier = (tierRaw ?? '').toString().trim().toUpperCase();
   const match = tier.match(/^(EX|FO|GU)\s*-\s*([1-5])$/);
@@ -90,16 +101,27 @@ serve(async (req) => {
   };
 
   const loadChallengeMeta = async (supabase: any, challengeId: string) => {
+    const selectV3 = 'title, xp_reward, reward_mode, reward_tier_steps, owner_id, created_by, status, due_date';
     const selectV2 = 'title, xp_reward, reward_mode, reward_tier_steps, owner_id, created_by, status';
+    const selectV2b = 'title, xp_reward, reward_mode, reward_tier_steps, owner_id, created_by, due_date';
     const selectV1 = 'title, xp_reward, reward_mode, reward_tier_steps, owner_id, created_by';
 
     let data: any = null;
-    const v2 = await supabase.from('challenges').select(selectV2).eq('id', challengeId).maybeSingle();
-    data = v2.data as any;
-    // Backward-compat: older envs may not have status
-    if (v2.error && /status/i.test(String(v2.error?.message || v2.error))) {
-      const v1 = await supabase.from('challenges').select(selectV1).eq('id', challengeId).maybeSingle();
-      data = v1.data as any;
+    const v3 = await supabase.from('challenges').select(selectV3).eq('id', challengeId).maybeSingle();
+    data = v3.data as any;
+    const v3ErrMsg = v3.error ? safeErrMsg(v3.error) : '';
+    // Backward-compat: environments may not have status and/or due_date.
+    if (v3.error && (/status/i.test(v3ErrMsg) || /due_date/i.test(v3ErrMsg))) {
+      if (/status/i.test(v3ErrMsg) && !/due_date/i.test(v3ErrMsg)) {
+        const v2b = await supabase.from('challenges').select(selectV2b).eq('id', challengeId).maybeSingle();
+        data = v2b.data as any;
+      } else if (/due_date/i.test(v3ErrMsg) && !/status/i.test(v3ErrMsg)) {
+        const v2 = await supabase.from('challenges').select(selectV2).eq('id', challengeId).maybeSingle();
+        data = v2.data as any;
+      } else {
+        const v1 = await supabase.from('challenges').select(selectV1).eq('id', challengeId).maybeSingle();
+        data = v1.data as any;
+      }
     }
     const title = String((data as any)?.title || '');
     const xpRewardRaw = (data as any)?.xp_reward;
@@ -112,6 +134,7 @@ serve(async (req) => {
     const rewardTierSteps =
       typeof rewardTierStepsRaw === 'number' ? Number(rewardTierStepsRaw) : null;
     const status = (data as any)?.status != null ? String((data as any).status) : null;
+    const dueDate = (data as any)?.due_date != null ? String((data as any).due_date) : null;
     return {
       title,
       xpReward: Number.isFinite(xpReward) ? xpReward : 0,
@@ -120,6 +143,7 @@ serve(async (req) => {
       ownerId,
       createdBy,
       status,
+      dueDate,
     };
   };
 
@@ -356,27 +380,47 @@ serve(async (req) => {
     let milhaoConfiguredTotalXp: number | null = null;
     let challengeOwnerId: string | null = null;
     let challengeCreatedBy: string | null = null;
+    let challengeDueDate: string | null = null;
     try {
+      const selectV3 = 'title, xp_reward, reward_mode, reward_tier_steps, owner_id, created_by, status, due_date';
       const selectV2 = 'title, xp_reward, reward_mode, reward_tier_steps, owner_id, created_by, status';
+      const selectV2b = 'title, xp_reward, reward_mode, reward_tier_steps, owner_id, created_by, due_date';
       const selectV1 = 'title, xp_reward, reward_mode, reward_tier_steps, owner_id, created_by';
 
       let ch: any = null;
-      const v2 = await supabase.from('challenges').select(selectV2).eq('id', challengeId).maybeSingle();
-      ch = v2.data as any;
-      // Backward-compat: status column may not exist
-      if (v2.error && /status/i.test(String(v2.error?.message || v2.error))) {
-        const v1 = await supabase.from('challenges').select(selectV1).eq('id', challengeId).maybeSingle();
-        ch = v1.data as any;
+      const v3 = await supabase.from('challenges').select(selectV3).eq('id', challengeId).maybeSingle();
+      ch = v3.data as any;
+      const v3ErrMsg = v3.error ? safeErrMsg(v3.error) : '';
+      // Backward-compat: environments may not have status and/or due_date
+      if (v3.error && (/status/i.test(v3ErrMsg) || /due_date/i.test(v3ErrMsg))) {
+        if (/status/i.test(v3ErrMsg) && !/due_date/i.test(v3ErrMsg)) {
+          const v2b = await supabase.from('challenges').select(selectV2b).eq('id', challengeId).maybeSingle();
+          ch = v2b.data as any;
+        } else if (/due_date/i.test(v3ErrMsg) && !/status/i.test(v3ErrMsg)) {
+          const v2 = await supabase.from('challenges').select(selectV2).eq('id', challengeId).maybeSingle();
+          ch = v2.data as any;
+        } else {
+          const v1 = await supabase.from('challenges').select(selectV1).eq('id', challengeId).maybeSingle();
+          ch = v1.data as any;
+        }
       }
       const title = String(ch?.title || '');
       isMilhao = /milh(ã|a)o/i.test(title);
 
       challengeOwnerId = (ch as any)?.owner_id ? String((ch as any).owner_id) : null;
       challengeCreatedBy = (ch as any)?.created_by ? String((ch as any).created_by) : null;
+      challengeDueDate = (ch as any)?.due_date != null ? String((ch as any).due_date) : null;
       const status = ((ch as any)?.status != null ? String((ch as any).status) : 'active').toLowerCase();
       if (status === 'closed' || status === 'canceled' || status === 'cancelled') {
         return new Response(
           JSON.stringify({ error: 'Quiz encerrado para novas respostas' }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      const endMs = dueEndMs(challengeDueDate);
+      if (endMs != null && Date.now() > endMs) {
+        return new Response(
+          JSON.stringify({ error: 'Prazo de coleta encerrado para este quiz' }),
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }

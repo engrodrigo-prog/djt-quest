@@ -13,6 +13,7 @@ import studioCreateQuizQuestion from '../server/api-handlers/studio-create-quiz-
 import studioGetQuizQuestion from '../server/api-handlers/studio-get-quiz-question.js';
 import studioUpdateQuizQuestion from '../server/api-handlers/studio-update-quiz-question.js';
 import studioLogQuizImportMetrics from '../server/api-handlers/studio-log-quiz-import-metrics.js';
+import studioUpdateQuizVigencia from '../server/api-handlers/studio-update-quiz-vigencia.js';
 import studioPendingCounts from '../server/api-handlers/studio-pending-counts.js';
 import studioListPendingRegistrations from '../server/api-handlers/studio-list-pending-registrations.js';
 import studioCreateUser from '../server/api-handlers/studio-create-user.js';
@@ -73,6 +74,7 @@ const handlers: Record<string, Handler> = {
   'studio-get-quiz-question': studioGetQuizQuestion,
   'studio-update-quiz-question': studioUpdateQuizQuestion,
   'studio-log-quiz-import-metrics': studioLogQuizImportMetrics,
+  'studio-update-quiz-vigencia': studioUpdateQuizVigencia,
   'studio-pending-counts': studioPendingCounts,
   'studio-list-pending-registrations': studioListPendingRegistrations,
   'studio-create-user': studioCreateUser,

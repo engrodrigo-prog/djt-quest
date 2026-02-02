@@ -118,6 +118,8 @@ export default function StudioCuration() {
 
   const [editTitle, setEditTitle] = useState('');
   const [editDescription, setEditDescription] = useState('');
+  const [editDueDate, setEditDueDate] = useState<string>('');
+  const [savingDueDate, setSavingDueDate] = useState(false);
 
   const [decisionNote, setDecisionNote] = useState('');
 
@@ -149,6 +151,8 @@ export default function StudioCuration() {
       setDetail(json);
       setEditTitle(String(json?.quiz?.title || ''));
       setEditDescription(String(json?.quiz?.description || ''));
+      const dd = String(json?.quiz?.due_date || '').trim();
+      setEditDueDate(/^\d{4}-\d{2}-\d{2}$/.test(dd) ? dd : '');
     } catch (e: any) {
       toast.error(e?.message || 'Falha ao carregar quiz');
       setDetail(null);
@@ -228,6 +232,32 @@ export default function StudioCuration() {
       await fetchDetail(selectedId);
     } catch (e: any) {
       toast.error(e?.message || 'Falha ao salvar');
+    }
+  };
+
+  const onSaveVigencia = async () => {
+    if (!selectedId) return;
+    const dd = String(editDueDate || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dd)) {
+      toast.error('Vigência inválida (use AAAA-MM-DD)');
+      return;
+    }
+    setSavingDueDate(true);
+    try {
+      const resp = await apiFetch('/api/admin?handler=studio-update-quiz-vigencia', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ challengeId: selectedId, due_date: dd }),
+      });
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(json?.error || 'Falha ao salvar vigência');
+      toast.success('Vigência salva');
+      await fetchList();
+      await fetchDetail(selectedId);
+    } catch (e: any) {
+      toast.error(e?.message || 'Falha ao salvar vigência');
+    } finally {
+      setSavingDueDate(false);
     }
   };
 
@@ -345,6 +375,7 @@ export default function StudioCuration() {
   const canEditDraft = workflow === 'DRAFT' || (workflow === 'REJECTED' && Boolean(detail?.isOwner));
   const canPublishDirect = Boolean(isLeader || isAdmin) && Boolean(detail?.isOwner) && workflow === 'DRAFT';
   const canSeeAnswerKey = Boolean(detail?.isOwner || detail?.canCurate);
+  const canEditVigencia = Boolean(isAdmin || (isLeader && detail?.isOwner));
   const answerKey = useMemo(() => {
     const qs = Array.isArray(detail?.questions) ? detail.questions : [];
     return qs
@@ -1152,7 +1183,7 @@ export default function StudioCuration() {
                   <span className="text-xs text-muted-foreground">Publicado: {fmt(detail.quiz.published_at)}</span>
                 </div>
 
-                <div className="grid md:grid-cols-2 gap-4">
+                <div className="grid md:grid-cols-3 gap-4">
                   <div className="space-y-2">
                     <Label>Título</Label>
                     <Input value={editTitle} onChange={(e) => setEditTitle(e.target.value)} disabled={!canEditDraft && !canCurate} />
@@ -1161,10 +1192,24 @@ export default function StudioCuration() {
                     <Label>Descrição</Label>
                     <Input value={editDescription} onChange={(e) => setEditDescription(e.target.value)} disabled={!canEditDraft && !canCurate} />
                   </div>
+                  <div className="space-y-2">
+                    <Label>Vigência (prazo de coleta)</Label>
+                    <Input
+                      type="date"
+                      value={editDueDate}
+                      onChange={(e) => setEditDueDate(e.target.value)}
+                      disabled={!canEditVigencia}
+                    />
+                  </div>
                 </div>
 
                 <div className="flex items-center gap-2 flex-wrap">
                   <Button onClick={onSaveMeta} disabled={!selectedId || (!canEditDraft && !canCurate)}>Salvar</Button>
+                  {canEditVigencia && (
+                    <Button variant="outline" onClick={onSaveVigencia} disabled={!selectedId || savingDueDate}>
+                      {savingDueDate ? 'Salvando vigência…' : 'Salvar vigência'}
+                    </Button>
+                  )}
                   {!canCurate && workflow === 'DRAFT' && (
                     <Button variant="secondary" onClick={onSubmitForCuration}>Submeter para curadoria</Button>
                   )}

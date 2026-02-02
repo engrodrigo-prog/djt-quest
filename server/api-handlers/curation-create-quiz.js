@@ -2,6 +2,15 @@ import { createSupabaseAdminClient, requireCallerUser } from '../lib/supabase-ad
 import { rolesToSet, canCurate, canAccessStudio } from '../lib/rbac.js';
 import { tryInsertAuditLog } from '../lib/audit-log.js';
 
+const toIsoDate = (d) => {
+  const x = d instanceof Date ? d : new Date(d);
+  if (!Number.isFinite(x.getTime())) return null;
+  const yyyy = String(x.getFullYear()).padStart(4, '0');
+  const mm = String(x.getMonth() + 1).padStart(2, '0');
+  const dd = String(x.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+};
+
 export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(204).send('');
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
@@ -14,6 +23,14 @@ export default async function handler(req, res) {
     const description = body.description != null ? String(body.description) : null;
     const xpRewardRaw = body.xp_reward;
     const xp_reward = Number.isFinite(Number(xpRewardRaw)) ? Number(xpRewardRaw) : 0;
+    const due_date_input = body.due_date != null ? String(body.due_date).trim() : '';
+    const due_date =
+      /^\d{4}-\d{2}-\d{2}$/.test(due_date_input) ? due_date_input : toIsoDate(due_date_input);
+    const defaultDue = (() => {
+      const d = new Date();
+      d.setDate(d.getDate() + 30);
+      return toIsoDate(d);
+    })();
     const quiz_specialties = Array.isArray(body.quiz_specialties) ? body.quiz_specialties : body.quiz_specialties || null;
     const chasRaw = body.chas_dimension != null ? String(body.chas_dimension).trim().toUpperCase() : null;
     const chas_dimension = chasRaw && ['C', 'H', 'A', 'S'].includes(chasRaw) ? chasRaw : null;
@@ -40,6 +57,7 @@ export default async function handler(req, res) {
       require_two_leader_eval: false,
       evidence_required: false,
       xp_reward,
+      due_date: due_date || defaultDue,
       ...(quiz_specialties !== undefined ? { quiz_specialties } : {}),
       ...(chas_dimension ? { chas_dimension } : {}),
     };
@@ -48,7 +66,7 @@ export default async function handler(req, res) {
     const { data: created1, error: err1 } = await admin
       .from('challenges')
       .insert(insertFull)
-      .select('id, title, description, quiz_workflow_status, owner_id, created_by, created_at')
+      .select('id, title, description, due_date, quiz_workflow_status, owner_id, created_by, created_at')
       .single();
     if (!err1) {
       created = created1;

@@ -42,6 +42,7 @@ interface Challenge {
   require_two_leader_eval: boolean;
    campaign_id?: string | null;
   status?: string | null;
+  due_date?: string | null;
   created_at?: string;
 }
 
@@ -460,7 +461,32 @@ const Dashboard = () => {
     return !['closed', 'canceled', 'cancelled'].includes(status);
   };
 
+  const formatDueDateLabel = useCallback(
+    (dueDate: string | null | undefined) => {
+      const d = String(dueDate || '').trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return '';
+      try {
+        // Avoid timezone shifts by parsing as local date.
+        return new Date(`${d}T00:00:00`).toLocaleDateString(locale || undefined);
+      } catch {
+        return d;
+      }
+    },
+    [locale],
+  );
+
   const isChallengeVigente = (ch: Challenge) => {
+    if (ch?.due_date) {
+      const d = String(ch.due_date || '').trim();
+      if (/^\d{4}-\d{2}-\d{2}$/.test(d)) {
+        try {
+          const end = new Date(`${d}T23:59:59.999`);
+          if (Number.isFinite(end.getTime()) && end < new Date()) return false;
+        } catch {
+          // ignore
+        }
+      }
+    }
     if (!ch.campaign_id) return true;
     const camp = campaigns.find((c) => c.id === ch.campaign_id);
     if (!camp || !camp.end_date) return true;
@@ -948,8 +974,11 @@ const Dashboard = () => {
                       className="h-8 w-8 text-white/90 hover:text-white"
                       onClick={() => {
                         const url = buildAbsoluteAppUrl(`/challenge/${encodeURIComponent(featuredMilhao.id)}`);
+                        const dueLine = featuredMilhao.due_date
+                          ? `\n${tr("dashboard.quizDueUntil", { date: formatDueDateLabel(featuredMilhao.due_date) })}`
+                          : '';
                         openWhatsAppShare({
-                          message: tr("dashboard.quizShareMessage", { title: featuredMilhao.title }),
+                          message: `${tr("dashboard.quizShareMessage", { title: featuredMilhao.title })}${dueLine}`,
                           url,
                         });
                       }}
@@ -987,6 +1016,7 @@ const Dashboard = () => {
               {activeQuizzes.map((quiz) => {
                 const completed = completedChallengeIds.has(quiz.id);
                 const totalQuestions = quizQuestionCounts[quiz.id] || 0;
+                const dueLabel = quiz.due_date ? formatDueDateLabel(quiz.due_date) : '';
                 return (
                   <Card key={quiz.id} className="hover:shadow-lg transition-shadow">
                     <CardHeader className="pb-3">
@@ -1006,6 +1036,22 @@ const Dashboard = () => {
                               ? `+${quiz.reward_tier_steps || 1} patamar(es)`
                               : `+${quiz.xp_reward} XP`}
                           </span>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-8 w-8"
+                            onClick={() => {
+                              const url = buildAbsoluteAppUrl(`/challenge/${encodeURIComponent(quiz.id)}`);
+                              const dueLine = dueLabel ? `\n${tr("dashboard.quizDueUntil", { date: dueLabel })}` : '';
+                              openWhatsAppShare({
+                                message: `${tr("dashboard.quizShareMessage", { title: quiz.title })}${dueLine}`,
+                                url,
+                              });
+                            }}
+                            title={tr("dashboard.shareWhatsApp")}
+                          >
+                            <Share2 className="h-4 w-4" />
+                          </Button>
                         </div>
                       </div>
                       <CardTitle className="text-base leading-tight">{quiz.title}</CardTitle>
@@ -1015,6 +1061,11 @@ const Dashboard = () => {
                       {totalQuestions > 0 && (
                         <p className="text-[10px] text-muted-foreground mb-2">
                           {totalQuestions} perguntas
+                        </p>
+                      )}
+                      {dueLabel && (
+                        <p className="text-[10px] text-muted-foreground mb-2">
+                          {tr("dashboard.quizDueUntil", { date: dueLabel })}
                         </p>
                       )}
                       <Button
