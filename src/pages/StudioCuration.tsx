@@ -249,6 +249,24 @@ export default function StudioCuration() {
     }
   };
 
+  const onUnsubmit = async () => {
+    if (!selectedId) return;
+    try {
+      const resp = await apiFetch('/api/admin?handler=curation-unsubmit-quiz', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ challengeId: selectedId }),
+      });
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(json?.error || 'Falha ao voltar para rascunho');
+      toast.success('Voltamos para rascunho (DRAFT)');
+      await fetchList();
+      await fetchDetail(selectedId);
+    } catch (e: any) {
+      toast.error(e?.message || 'Falha ao voltar para rascunho');
+    }
+  };
+
   const onReview = async (decision: 'APPROVED' | 'REJECTED') => {
     if (!selectedId) return;
     try {
@@ -1149,6 +1167,11 @@ export default function StudioCuration() {
                   <Button onClick={onSaveMeta} disabled={!selectedId || (!canEditDraft && !canCurate)}>Salvar</Button>
                   {!canCurate && workflow === 'DRAFT' && (
                     <Button variant="secondary" onClick={onSubmitForCuration}>Submeter para curadoria</Button>
+                  )}
+                  {!canCurate && Boolean(detail?.isOwner) && workflow === 'SUBMITTED' && (
+                    <Button variant="outline" onClick={onUnsubmit} title="Retorna para DRAFT para você ajustar perguntas e alternativas">
+                      Voltar para rascunho
+                    </Button>
                   )}
                   {canPublishDirect && (
                     <Button onClick={onPublishDirect} title="Publica direto (sem curadoria) e bonifica +100 XP para líderes">

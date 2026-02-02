@@ -11,6 +11,7 @@ const handlers: Record<string, () => Promise<{ default: Handler }>> = {
   // Quiz helpers
   'quiz-draft': () => import('../server/api-handlers/ai-quiz-draft.js'),
   'generate-wrongs': () => import('../server/api-handlers/ai-generate-wrongs.js'),
+  'generate-wrongs-batch': () => import('../server/api-handlers/ai-generate-wrongs-batch.js'),
   'parse-quiz-text': () => import('../server/api-handlers/ai-parse-quiz-text.js'),
   'quiz-milhao': () => import('../server/api-handlers/ai-quiz-milhao.js'),
   'quiz-burini': () => import('../server/api-handlers/ai-quiz-burini.js'),

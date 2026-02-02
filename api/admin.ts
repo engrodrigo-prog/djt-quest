@@ -10,6 +10,9 @@ import reviewPasswordReset from '../server/api-handlers/review-password-reset.js
 import challengesDelete from '../server/api-handlers/challenges-delete.js';
 import challengesUpdateStatus from '../server/api-handlers/challenges-update-status.js';
 import studioCreateQuizQuestion from '../server/api-handlers/studio-create-quiz-question.js';
+import studioGetQuizQuestion from '../server/api-handlers/studio-get-quiz-question.js';
+import studioUpdateQuizQuestion from '../server/api-handlers/studio-update-quiz-question.js';
+import studioLogQuizImportMetrics from '../server/api-handlers/studio-log-quiz-import-metrics.js';
 import studioPendingCounts from '../server/api-handlers/studio-pending-counts.js';
 import studioListPendingRegistrations from '../server/api-handlers/studio-list-pending-registrations.js';
 import studioCreateUser from '../server/api-handlers/studio-create-user.js';
@@ -29,6 +32,7 @@ import curationCreateQuiz from '../server/api-handlers/curation-create-quiz.js';
 import curationGetQuiz from '../server/api-handlers/curation-get-quiz.js';
 import curationUpdateQuiz from '../server/api-handlers/curation-update-quiz.js';
 import curationSubmitQuiz from '../server/api-handlers/curation-submit-quiz.js';
+import curationUnsubmitQuiz from '../server/api-handlers/curation-unsubmit-quiz.js';
 import curationReviewQuiz from '../server/api-handlers/curation-review-quiz.js';
 import curationPublishQuiz from '../server/api-handlers/curation-publish-quiz.js';
 import curationRepublishQuiz from '../server/api-handlers/curation-republish-quiz.js';
@@ -66,6 +70,9 @@ const handlers: Record<string, Handler> = {
   'challenges-delete': challengesDelete,
   'challenges-update-status': challengesUpdateStatus,
   'studio-create-quiz-question': studioCreateQuizQuestion,
+  'studio-get-quiz-question': studioGetQuizQuestion,
+  'studio-update-quiz-question': studioUpdateQuizQuestion,
+  'studio-log-quiz-import-metrics': studioLogQuizImportMetrics,
   'studio-pending-counts': studioPendingCounts,
   'studio-list-pending-registrations': studioListPendingRegistrations,
   'studio-create-user': studioCreateUser,
@@ -85,6 +92,7 @@ const handlers: Record<string, Handler> = {
   'curation-get-quiz': curationGetQuiz,
   'curation-update-quiz': curationUpdateQuiz,
   'curation-submit-quiz': curationSubmitQuiz,
+  'curation-unsubmit-quiz': curationUnsubmitQuiz,
   'curation-review-quiz': curationReviewQuiz,
   'curation-publish-quiz': curationPublishQuiz,
   'curation-republish-quiz': curationRepublishQuiz,

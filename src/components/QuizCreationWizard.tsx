@@ -71,6 +71,15 @@ const STUDYLAB_CATEGORY_LABELS: Record<(typeof STUDYLAB_CATEGORIES)[number], str
   OUTROS: "Outros",
 };
 
+type ImportDifficulty = 'basico' | 'intermediario' | 'avancado' | 'especialista';
+type ImportOptionDraft = { text: string; is_correct: boolean; explanation: string };
+type ImportQuestionDraft = {
+  question_text: string;
+  difficulty_level: ImportDifficulty;
+  options: ImportOptionDraft[];
+  _meta?: { aiImproved?: boolean; regens?: number; edited?: boolean };
+};
+
 export function QuizCreationWizard() {
   const [quizId, setQuizId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -100,6 +109,10 @@ export function QuizCreationWizard() {
   const [textImportImporting, setTextImportImporting] = useState(false);
   const [textImportPreview, setTextImportPreview] = useState<any[] | null>(null);
   const [textImportIssues, setTextImportIssues] = useState<string[]>([]);
+  const [textImportDrafts, setTextImportDrafts] = useState<ImportQuestionDraft[] | null>(null);
+  const [textImportAutoImprove, setTextImportAutoImprove] = useState(true);
+  const [textImportImproving, setTextImportImproving] = useState(false);
+  const [textImportUsedAi, setTextImportUsedAi] = useState<boolean | null>(null);
 
   const location = useLocation();
   const navigate = useNavigate();
@@ -116,6 +129,10 @@ export function QuizCreationWizard() {
     if ([5, 10, 20, 50].includes(xp)) return xpToDifficulty(xp);
     return 'intermediario';
   }, [quizXpReward]);
+
+  const effectiveTextImportDifficulty = useMemo<ImportDifficulty>(() => {
+    return quizId ? quizForcedDifficulty : textImportDefaultDifficulty;
+  }, [quizForcedDifficulty, quizId, textImportDefaultDifficulty]);
 
   const { register, handleSubmit, formState: { errors }, setValue } = useForm<QuizFormData>({
     resolver: zodResolver(quizSchema),
@@ -215,6 +232,8 @@ export function QuizCreationWizard() {
   useEffect(() => {
     setTextImportPreview(null);
     setTextImportIssues([]);
+    setTextImportDrafts(null);
+    setTextImportUsedAi(null);
   }, [textImport]);
 
   const parseTextImportPreview = async (opts?: { silent?: boolean }) => {
@@ -242,6 +261,99 @@ export function QuizCreationWizard() {
       const issues = Array.isArray((json as any)?.issues) ? (json as any).issues : [];
       setTextImportPreview(questions);
       setTextImportIssues(issues);
+      setTextImportUsedAi(Boolean((json as any)?.meta?.usedAi));
+
+      const normalizePreviewToDrafts = (qs: any[]): ImportQuestionDraft[] => {
+        const out: ImportQuestionDraft[] = [];
+        for (const q of Array.isArray(qs) ? qs : []) {
+          const question_text = String(q?.question_text || '').trim();
+          if (question_text.length < 10) continue;
+          const rawOpts = Array.isArray(q?.options) ? q.options : [];
+          const options: ImportOptionDraft[] = rawOpts
+            .map((o: any) => ({
+              text: String(o?.text || o?.option_text || '').trim(),
+              is_correct: Boolean(o?.is_correct),
+              explanation: String(o?.explanation || '').trim(),
+            }))
+            .filter((o: any) => o.text.length > 0)
+            .slice(0, 4);
+          if (options.length !== 4) continue;
+          const correctCount = options.filter((o) => o.is_correct).length;
+          if (correctCount !== 1) continue;
+          out.push({ question_text, difficulty_level: effectiveTextImportDifficulty, options, _meta: { aiImproved: false, regens: 0, edited: false } });
+        }
+        return out;
+      };
+
+      const drafts = normalizePreviewToDrafts(questions);
+      setTextImportDrafts(drafts.length ? drafts : null);
+
+      const isLowQuality = (s: string) =>
+        /\b(procedimento semelhante|conceito relacionado|condi[cç][aã]o parcialmente|alternativa plaus[ií]vel)\b/i.test(String(s || '').trim());
+
+      const shouldImprove = (d: ImportQuestionDraft) => {
+        const wrongs = d.options.filter((o) => !o.is_correct);
+        if (wrongs.length !== 3) return true;
+        return wrongs.some((w) => isLowQuality(w.text));
+      };
+
+      const shuffle = <T,>(arr: T[]) => [...arr].sort(() => Math.random() - 0.5);
+
+      const improveDrafts = async (items: ImportQuestionDraft[]) => {
+        const list = Array.isArray(items) ? items : [];
+        if (!list.length) return;
+        // Only improve questions that look low-quality, unless user wants to force.
+        const toImprove = list.some(shouldImprove);
+        if (!textImportAutoImprove || !toImprove) return;
+        setTextImportImproving(true);
+        try {
+          const payloadItems = list.map((d) => {
+            const correct = d.options.find((o) => o.is_correct);
+            return { question_text: d.question_text, correct_text: correct?.text || '' };
+          });
+          const resp2 = await apiFetch('/api/ai?handler=generate-wrongs-batch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              items: payloadItems,
+              language: localeToOpenAiLanguageTag(getActiveLocale()),
+              difficulty: effectiveTextImportDifficulty,
+              count: 3,
+              maxItems: 30,
+            }),
+          });
+          const json2 = await resp2.json().catch(() => ({}));
+          if (!resp2.ok) throw new Error(String((json2 as any)?.error || 'Falha ao gerar alternativas'));
+          const results = Array.isArray((json2 as any)?.items) ? (json2 as any).items : [];
+          setTextImportUsedAi(Boolean((json2 as any)?.meta?.usedAi) || Boolean((json as any)?.meta?.usedAi));
+
+          const next = list.map((d, idx) => {
+            const correct = d.options.find((o) => o.is_correct) || d.options[0];
+            const wrongFromAi = Array.isArray(results?.[idx]?.wrong) ? results[idx].wrong : [];
+            const wrong = wrongFromAi
+              .map((w: any) => ({
+                text: String(w?.text || '').trim(),
+                is_correct: false,
+                explanation: String(w?.explanation || '').trim(),
+              }))
+              .filter((w: any) => w.text.length > 0)
+              .slice(0, 3);
+            if (wrong.length !== 3) return d;
+            const options = shuffle([{ ...correct, is_correct: true }, ...wrong]);
+            return { ...d, difficulty_level: effectiveTextImportDifficulty, options, _meta: { ...(d._meta || {}), aiImproved: true } };
+          });
+          setTextImportDrafts(next);
+        } catch (e: any) {
+          // Keep drafts as-is; user can regenerate manually.
+          console.warn('Text import: improveDrafts failed', e?.message || e);
+        } finally {
+          setTextImportImproving(false);
+        }
+      };
+
+      // Auto-improve (best-effort) right after parsing.
+      void improveDrafts(drafts);
+
       if (!opts?.silent) {
         const usedAi = Boolean((json as any)?.meta?.usedAi);
         toast.success(`Pré-visualização pronta: ${questions.length} pergunta(s)${usedAi ? ' (IA)' : ''}.`);
@@ -255,6 +367,152 @@ export function QuizCreationWizard() {
     } finally {
       setTextImportParsing(false);
     }
+  };
+
+  const shuffle = <T,>(arr: T[]) => [...arr].sort(() => Math.random() - 0.5);
+
+  const buildGlobalContextForAi = (drafts: ImportQuestionDraft[]) => {
+    const lines = drafts
+      .map((d, idx) => {
+        const q = String(d.question_text || '').trim();
+        const correct = d.options.find((o) => o.is_correct)?.text || '';
+        if (!q || !correct) return null;
+        return `- Q${idx + 1}: ${q.slice(0, 240)}\n  Correta: ${String(correct).trim().slice(0, 240)}`;
+      })
+      .filter(Boolean)
+      .slice(0, 20);
+    return lines.length ? lines.join('\n') : '';
+  };
+
+  const improveTextImportDrafts = async (opts?: { force?: boolean }) => {
+    const list = Array.isArray(textImportDrafts) ? textImportDrafts : [];
+    if (!list.length) return;
+    setTextImportImproving(true);
+    try {
+      const payloadItems = list.map((d) => {
+        const correct = d.options.find((o) => o.is_correct);
+        return { question_text: d.question_text, correct_text: correct?.text || '' };
+      });
+      const resp = await apiFetch('/api/ai?handler=generate-wrongs-batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          items: payloadItems,
+          language: localeToOpenAiLanguageTag(getActiveLocale()),
+          difficulty: effectiveTextImportDifficulty,
+          count: 3,
+          maxItems: 30,
+          context: buildGlobalContextForAi(list),
+        }),
+      });
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(String((json as any)?.error || 'Falha ao gerar alternativas'));
+      const results = Array.isArray((json as any)?.items) ? (json as any).items : [];
+      setTextImportUsedAi(Boolean((json as any)?.meta?.usedAi));
+
+      const next = list.map((d, idx) => {
+        const correct = d.options.find((o) => o.is_correct) || d.options[0];
+        const wrongFromAi = Array.isArray(results?.[idx]?.wrong) ? results[idx].wrong : [];
+        const wrong = wrongFromAi
+          .map((w: any) => ({
+            text: String(w?.text || '').trim(),
+            is_correct: false,
+            explanation: String(w?.explanation || '').trim(),
+          }))
+          .filter((w: any) => w.text.length > 0)
+          .slice(0, 3);
+        if (wrong.length !== 3) return d;
+        const options = shuffle([{ ...correct, is_correct: true }, ...wrong]);
+        return { ...d, difficulty_level: effectiveTextImportDifficulty, options, _meta: { ...(d._meta || {}), aiImproved: true } };
+      });
+      setTextImportDrafts(next);
+      toast.success(`Alternativas atualizadas (IA): ${next.length} pergunta(s).`);
+    } catch (e: any) {
+      toast.error(e?.message || 'Falha ao melhorar alternativas');
+    } finally {
+      setTextImportImproving(false);
+    }
+  };
+
+  const regenerateDraftWrongs = async (index: number) => {
+    const idx = Number(index);
+    const list = Array.isArray(textImportDrafts) ? [...textImportDrafts] : [];
+    if (!Number.isFinite(idx) || idx < 0 || idx >= list.length) return;
+    const d = list[idx];
+    const correct = d.options.find((o) => o.is_correct) || d.options[0];
+    const avoid = d.options.filter((o) => !o.is_correct).map((o) => o.text);
+    try {
+      const resp = await apiFetch('/api/ai?handler=generate-wrongs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          question: d.question_text,
+          correct: correct.text,
+          difficulty: effectiveTextImportDifficulty,
+          language: localeToOpenAiLanguageTag(getActiveLocale()),
+          count: 3,
+          avoid,
+          context: buildGlobalContextForAi(list),
+        }),
+      });
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(String((json as any)?.error || 'Falha ao gerar alternativas'));
+      const wrongFromAi = Array.isArray((json as any)?.wrong) ? (json as any).wrong : [];
+      const wrong = wrongFromAi
+        .map((w: any) => ({
+          text: String(w?.text || '').trim(),
+          is_correct: false,
+          explanation: String(w?.explanation || '').trim(),
+        }))
+        .filter((w: any) => w.text.length > 0)
+        .slice(0, 3);
+      if (wrong.length !== 3) throw new Error('IA não retornou 3 alternativas');
+      list[idx] = {
+        ...d,
+        difficulty_level: effectiveTextImportDifficulty,
+        options: shuffle([{ ...correct, is_correct: true }, ...wrong]),
+        _meta: { ...(d._meta || {}), aiImproved: true, regens: Number(d._meta?.regens || 0) + 1 },
+      };
+      setTextImportDrafts(list);
+      setTextImportUsedAi(Boolean((json as any)?.meta?.usedAi) || textImportUsedAi);
+    } catch (e: any) {
+      toast.error(e?.message || 'Falha ao regenerar alternativas');
+    }
+  };
+
+  const updateDraft = (index: number, updater: (d: ImportQuestionDraft) => ImportQuestionDraft) => {
+    setTextImportDrafts((prev) => {
+      const list = Array.isArray(prev) ? [...prev] : [];
+      if (index < 0 || index >= list.length) return prev;
+      const next = updater(list[index]);
+      list[index] = next;
+      return list;
+    });
+  };
+
+  const setDraftCorrectIndex = (qIndex: number, optIndex: number) => {
+    updateDraft(qIndex, (d) => {
+      const options = d.options.map((o, idx) => ({ ...o, is_correct: idx === optIndex }));
+      return { ...d, options, _meta: { ...(d._meta || {}), edited: true } };
+    });
+  };
+
+  const setDraftOptionText = (qIndex: number, optIndex: number, value: string) => {
+    updateDraft(qIndex, (d) => {
+      const options = d.options.map((o, idx) => (idx === optIndex ? { ...o, text: value } : o));
+      return { ...d, options, _meta: { ...(d._meta || {}), edited: true } };
+    });
+  };
+
+  const setDraftOptionExplanation = (qIndex: number, optIndex: number, value: string) => {
+    updateDraft(qIndex, (d) => {
+      const options = d.options.map((o, idx) => (idx === optIndex ? { ...o, explanation: value } : o));
+      return { ...d, options, _meta: { ...(d._meta || {}), edited: true } };
+    });
+  };
+
+  const setDraftQuestionText = (qIndex: number, value: string) => {
+    updateDraft(qIndex, (d) => ({ ...d, question_text: value, _meta: { ...(d._meta || {}), edited: true } }));
   };
 
   const importTextQuestionsToQuiz = async (targetQuizId: string) => {
@@ -284,10 +542,86 @@ export function QuizCreationWizard() {
 
       if (!questions.length) throw new Error('Nenhuma pergunta válida foi encontrada no texto.');
 
+      const lowQualityRe = /\b(procedimento semelhante|conceito relacionado|condi[cç][aã]o parcialmente|alternativa plaus[ií]vel)\b/i;
+      const normalizeToDrafts = (qs: any[]): ImportQuestionDraft[] => {
+        const out: ImportQuestionDraft[] = [];
+        for (const q of Array.isArray(qs) ? qs : []) {
+          const question_text = String(q?.question_text || '').trim();
+          if (question_text.length < 10) continue;
+          const rawOpts = Array.isArray(q?.options) ? q.options : [];
+          const options: ImportOptionDraft[] = rawOpts
+            .map((o: any) => ({
+              text: String(o?.text || o?.option_text || '').trim(),
+              is_correct: Boolean(o?.is_correct),
+              explanation: String(o?.explanation || '').trim(),
+            }))
+            .filter((o: any) => o.text.length > 0)
+            .slice(0, 4);
+          if (options.length !== 4) continue;
+          const correctCount = options.filter((o) => o.is_correct).length;
+          if (correctCount !== 1) continue;
+          out.push({ question_text, difficulty_level: forcedDifficulty, options, _meta: { aiImproved: false, regens: 0, edited: false } });
+        }
+        return out;
+      };
+
+      let drafts: ImportQuestionDraft[] = Array.isArray(textImportDrafts) && textImportDrafts.length
+        ? textImportDrafts.map((d) => ({ ...d, difficulty_level: forcedDifficulty }))
+        : normalizeToDrafts(questions);
+
+      if (!drafts.length) throw new Error('Não consegui montar perguntas válidas (precisa de 4 alternativas e 1 correta).');
+
+      // Improve low-quality wrong options before inserting (best-effort).
+      if (textImportAutoImprove) {
+        const needs = drafts.some((d) => d.options.filter((o) => !o.is_correct).some((w) => lowQualityRe.test(w.text)));
+        if (needs) {
+          try {
+            const payloadItems = drafts.map((d) => {
+              const correct = d.options.find((o) => o.is_correct);
+              return { question_text: d.question_text, correct_text: correct?.text || '' };
+            });
+            const resp2 = await apiFetch('/api/ai?handler=generate-wrongs-batch', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                items: payloadItems,
+                language: localeToOpenAiLanguageTag(getActiveLocale()),
+                difficulty: forcedDifficulty,
+                count: 3,
+                maxItems: 30,
+                context: buildGlobalContextForAi(drafts),
+              }),
+            });
+            const json2 = await resp2.json().catch(() => ({}));
+            if (resp2.ok) {
+              const results = Array.isArray((json2 as any)?.items) ? (json2 as any).items : [];
+              drafts = drafts.map((d, idx) => {
+                const correct = d.options.find((o) => o.is_correct) || d.options[0];
+                const wrongFromAi = Array.isArray(results?.[idx]?.wrong) ? results[idx].wrong : [];
+                const wrong = wrongFromAi
+                  .map((w: any) => ({
+                    text: String(w?.text || '').trim(),
+                    is_correct: false,
+                    explanation: String(w?.explanation || '').trim(),
+                  }))
+                  .filter((w: any) => w.text.length > 0)
+                  .slice(0, 3);
+                if (wrong.length !== 3) return d;
+                return { ...d, options: shuffle([{ ...correct, is_correct: true }, ...wrong]), _meta: { ...(d._meta || {}), aiImproved: true } };
+              });
+              setTextImportDrafts(drafts);
+              setTextImportUsedAi(Boolean((json2 as any)?.meta?.usedAi));
+            }
+          } catch {
+            // ignore
+          }
+        }
+      }
+
       let inserted = 0;
       let failed = 0;
-      for (let i = 0; i < questions.length; i += 1) {
-        const q = questions[i] || {};
+      for (let i = 0; i < drafts.length; i += 1) {
+        const q = drafts[i] || {};
         try {
           const resp = await apiFetch('/api/admin?handler=studio-create-quiz-question', {
             method: 'POST',
@@ -316,6 +650,31 @@ export function QuizCreationWizard() {
 
       setRefreshKey((prev) => prev + 1);
       toast.success(`Importação concluída: ${inserted} inserida(s)${failed ? ` • ${failed} falharam` : ''}.`);
+
+      // Best-effort metrics to evaluate adherence (audit_log)
+      try {
+        const metaList = Array.isArray(drafts) ? drafts : [];
+        const metrics = {
+          source: 'paste_text',
+          total: metaList.length,
+          inserted,
+          failed,
+          usedAi: textImportUsedAi,
+          aiImproved: metaList.filter((d) => Boolean(d?._meta?.aiImproved)).length,
+          edited: metaList.filter((d) => Boolean(d?._meta?.edited)).length,
+          regens: metaList.reduce((sum, d) => sum + (Number(d?._meta?.regens || 0) || 0), 0),
+          difficulty: forcedDifficulty,
+          locale: getActiveLocale(),
+        };
+        await apiFetch('/api/admin?handler=studio-log-quiz-import-metrics', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ challengeId: id, metrics }),
+        });
+      } catch {
+        // ignore
+      }
+
       return { ok: inserted > 0, inserted, failed };
     } catch (e: any) {
       toast.error(e?.message || 'Falha ao importar perguntas');
@@ -964,6 +1323,12 @@ export function QuizCreationWizard() {
                       </SelectContent>
                     </Select>
                   </div>
+                  <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2 rounded-md border px-3 py-2 bg-muted/10">
+                      <span className="text-[11px] text-muted-foreground">Melhorar erradas (IA)</span>
+                      <Switch checked={textImportAutoImprove} onCheckedChange={(v) => setTextImportAutoImprove(Boolean(v))} />
+                    </div>
+                  </div>
                   <div className="flex items-center gap-2">
                     <Button
                       type="button"
@@ -972,6 +1337,14 @@ export function QuizCreationWizard() {
                       onClick={() => void parseTextImportPreview()}
                     >
                       {textImportParsing ? 'Analisando…' : 'Pré-visualizar'}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={textImportImproving || !Array.isArray(textImportDrafts) || textImportDrafts.length === 0}
+                      onClick={() => void improveTextImportDrafts({ force: true })}
+                    >
+                      {textImportImproving ? 'Melhorando…' : 'Melhorar alternativas'}
                     </Button>
                     <Button
                       type="button"
@@ -1000,6 +1373,9 @@ export function QuizCreationWizard() {
                       {textImportIssues.length ? (
                         <span className="text-muted-foreground"> • {textImportIssues.length} aviso(s)</span>
                       ) : null}
+                      {textImportUsedAi != null ? (
+                        <span className="text-muted-foreground"> • {textImportUsedAi ? 'IA' : 'heurístico'}</span>
+                      ) : null}
                     </div>
                     {textImportIssues.length ? (
                       <div className="text-[11px] text-muted-foreground">
@@ -1007,24 +1383,99 @@ export function QuizCreationWizard() {
                         {textImportIssues.length > 6 ? <div>…</div> : null}
                       </div>
                     ) : null}
-                    <Accordion type="single" collapsible>
-                      <AccordionItem value="preview2">
-                        <AccordionTrigger className="text-[12px]">Ver perguntas</AccordionTrigger>
-                        <AccordionContent>
-                          <div className="space-y-2">
-                            {textImportPreview.slice(0, 10).map((q: any, idx: number) => (
-                              <div key={`qprev2-${idx}`} className="rounded-md border p-2 bg-background/40">
-                                <div className="text-[12px] font-medium">Q{idx + 1}</div>
-                                <div className="text-[12px] text-muted-foreground whitespace-pre-wrap">{String(q?.question_text || '').trim()}</div>
-                              </div>
-                            ))}
-                            {textImportPreview.length > 10 ? (
-                              <div className="text-[11px] text-muted-foreground">Mostrando 10 de {textImportPreview.length}.</div>
-                            ) : null}
-                          </div>
-                        </AccordionContent>
-                      </AccordionItem>
-                    </Accordion>
+                    {Array.isArray(textImportDrafts) && textImportDrafts.length ? (
+                      <Accordion type="single" collapsible>
+                        {textImportDrafts.slice(0, 20).map((d, idx) => {
+                          const correctIdx = Math.max(0, d.options.findIndex((o) => o.is_correct));
+                          const meta = d._meta || {};
+                          return (
+                            <AccordionItem key={`draft-${idx}`} value={`draft-${idx}`}>
+                              <AccordionTrigger className="text-[12px]">
+                                <span className="font-medium">Q{idx + 1}</span>
+                                <span className="text-muted-foreground ml-2 truncate">{String(d.question_text || '').slice(0, 80)}</span>
+                                {meta.aiImproved ? <span className="ml-2 text-[11px] text-muted-foreground">• IA</span> : null}
+                                {meta.edited ? <span className="ml-2 text-[11px] text-muted-foreground">• editado</span> : null}
+                                {meta.regens ? <span className="ml-2 text-[11px] text-muted-foreground">• regen {meta.regens}</span> : null}
+                              </AccordionTrigger>
+                              <AccordionContent>
+                                <div className="space-y-3">
+                                  <div className="space-y-1">
+                                    <Label>Pergunta</Label>
+                                    <Textarea
+                                      value={d.question_text}
+                                      onChange={(e) => setDraftQuestionText(idx, e.target.value)}
+                                      rows={3}
+                                    />
+                                  </div>
+
+                                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                                    <Label>Alternativas (marque a correta)</Label>
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant="outline"
+                                      disabled={textImportImproving}
+                                      onClick={() => void regenerateDraftWrongs(idx)}
+                                    >
+                                      Regenerar erradas (IA)
+                                    </Button>
+                                  </div>
+
+                                  <div className="space-y-2">
+                                    {d.options.map((o, oidx) => (
+                                      <div key={`opt-${idx}-${oidx}`} className="grid grid-cols-[20px_1fr] gap-2 items-start">
+                                        <input
+                                          type="radio"
+                                          name={`correct-${idx}`}
+                                          className="mt-2 accent-primary"
+                                          checked={oidx === correctIdx}
+                                          onChange={() => setDraftCorrectIndex(idx, oidx)}
+                                        />
+                                        <div className="space-y-2">
+                                          <Input
+                                            value={o.text}
+                                            onChange={(e) => setDraftOptionText(idx, oidx, e.target.value)}
+                                            placeholder={`Alternativa ${String.fromCharCode(65 + oidx)}`}
+                                          />
+                                          <Textarea
+                                            value={o.explanation || ''}
+                                            onChange={(e) => setDraftOptionExplanation(idx, oidx, e.target.value)}
+                                            placeholder="Explicação (opcional)"
+                                            rows={2}
+                                          />
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              </AccordionContent>
+                            </AccordionItem>
+                          );
+                        })}
+                      </Accordion>
+                    ) : (
+                      <Accordion type="single" collapsible>
+                        <AccordionItem value="preview2">
+                          <AccordionTrigger className="text-[12px]">Ver perguntas (somente texto)</AccordionTrigger>
+                          <AccordionContent>
+                            <div className="space-y-2">
+                              {textImportPreview.slice(0, 10).map((q: any, idx: number) => (
+                                <div key={`qprev2-${idx}`} className="rounded-md border p-2 bg-background/40">
+                                  <div className="text-[12px] font-medium">Q{idx + 1}</div>
+                                  <div className="text-[12px] text-muted-foreground whitespace-pre-wrap">{String(q?.question_text || '').trim()}</div>
+                                </div>
+                              ))}
+                              {textImportPreview.length > 10 ? (
+                                <div className="text-[11px] text-muted-foreground">Mostrando 10 de {textImportPreview.length}.</div>
+                              ) : null}
+                            </div>
+                          </AccordionContent>
+                        </AccordionItem>
+                      </Accordion>
+                    )}
+                    {Array.isArray(textImportDrafts) && textImportDrafts.length > 20 ? (
+                      <div className="text-[11px] text-muted-foreground">Mostrando 20 de {textImportDrafts.length} para edição.</div>
+                    ) : null}
                   </div>
                 ) : null}
               </div>
