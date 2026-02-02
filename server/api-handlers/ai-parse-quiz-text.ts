@@ -34,7 +34,7 @@ const normalizeLetter = (raw: any) => {
 const heuristicParse = (text: any) => {
   const raw = String(text || '').replace(/\r\n/g, '\n')
   const blocks = raw
-    .split(/\n(?=(?:\s*(?:Q(?:uest[aã]o)?\s*\d+|Pergunta\s*\d+)\s*[:.)]))/i)
+    .split(/\n(?=(?:\s*(?:Q(?:uest[aã]o)?\s*\d+|Pergunta(?:\s*\d+)?)\s*[:.)]))/i)
     .map((b) => b.trim())
     .filter(Boolean)
 
@@ -48,29 +48,74 @@ const heuristicParse = (text: any) => {
     const optionRe = /^([A-D])\s*[\)\.\-:]\s*(.+)$/i
     const options: Array<{ letter: string; text: string }> = []
     let questionLines: string[] = []
+    let correctAnswerText = ''
     for (const line of lines) {
       const m = line.match(optionRe)
-      if (m) options.push({ letter: m[1].toUpperCase(), text: String(m[2] || '').trim() })
-      else if (!/^correta\b|^resposta\b/i.test(line)) questionLines.push(line)
+      if (m) {
+        options.push({ letter: m[1].toUpperCase(), text: String(m[2] || '').trim() })
+      } else if (/^(?:correta|resposta\s+correta|resposta)\b/i.test(line)) {
+        const ans = String(line || '').replace(/^(?:correta|resposta\s+correta|resposta)\s*[:\-–]\s*/i, '').trim()
+        if (ans) correctAnswerText = ans
+      } else {
+        questionLines.push(line)
+      }
     }
     const qText = questionLines
       .join(' ')
-      .replace(/^(Q(?:uest[aã]o)?|Pergunta)\s*\d+\s*[:.)]\s*/i, '')
+      .replace(/^(Q(?:uest[aã]o)?|Pergunta)(?:\s*\d+)?\s*[:.)]\s*/i, '')
       .trim()
 
     const correctLine = lines.find((l) => /^correta\b|^resposta\b/i.test(l)) || ''
     const correctLetter = normalizeLetter((correctLine.match(/\b([A-D])\b/i) || [])[1])
 
     if (qText.length < 10) continue
-    if (options.length < 2) continue
-    if (!correctLetter) continue
-    const byLetter = new Map(options.map((o) => [o.letter, o.text]))
-    const ordered = ['A', 'B', 'C', 'D'].map((L) => ({
-      text: String(byLetter.get(L) || '').trim(),
-      is_correct: L === correctLetter,
-      explanation: '',
-    }))
-    if (ordered.some((o) => !o.text)) continue
+    if (options.length >= 2 && correctLetter) {
+      const byLetter = new Map(options.map((o) => [o.letter, o.text]))
+      const ordered = ['A', 'B', 'C', 'D'].map((L) => ({
+        text: String(byLetter.get(L) || '').trim(),
+        is_correct: L === correctLetter,
+        explanation: '',
+      }))
+      if (ordered.some((o) => !o.text)) continue
+      out.push({ question_text: qText, options: ordered, difficulty_level: 'intermediario' })
+      continue
+    }
+
+    // Minimal format: question + "Resposta correta: <texto>"
+    if (!correctAnswerText || correctAnswerText.length < 3) continue
+    const base = correctAnswerText.trim()
+    const wrong: string[] = []
+    const seen = new Set<string>([base.toLowerCase()])
+    const push = (t: any) => {
+      const s = String(t || '').trim()
+      if (!s) return
+      const k = s.toLowerCase()
+      if (seen.has(k)) return
+      seen.add(k)
+      wrong.push(s)
+    }
+    const nums = base.match(/-?\d+(?:[.,]\d+)?/g) || []
+    if (nums.length) {
+      const first = nums[0]
+      const n0 = Number(String(first).replace(',', '.'))
+      if (Number.isFinite(n0)) {
+        push(base.replace(first, String(n0 + 1)))
+        push(base.replace(first, String(Math.max(0, n0 - 1))))
+        push(base.replace(first, String(n0 * 10)))
+      }
+    }
+    push(base.split(' ').reverse().join(' '))
+    push('Procedimento semelhante, porém com uma etapa fora de ordem.')
+    push('Conceito relacionado, mas aplicado ao equipamento/condição errada.')
+    push('Condição parcialmente correta, mas com parâmetro/limiar diferente.')
+    while (wrong.length < 3) push(`Alternativa plausível, mas incorreta (${wrong.length + 1}).`)
+
+    const ordered = [
+      { text: base, is_correct: true, explanation: '' },
+      { text: wrong[0], is_correct: false, explanation: '' },
+      { text: wrong[1], is_correct: false, explanation: '' },
+      { text: wrong[2], is_correct: false, explanation: '' },
+    ]
     out.push({ question_text: qText, options: ordered, difficulty_level: 'intermediario' })
   }
   return out
@@ -210,7 +255,11 @@ Regras:
 - Idioma: ${language}.
 - Cada pergunta deve ter exatamente 4 alternativas e exatamente 1 correta.
 - Se o texto do usuário não trouxer 3 erradas, gere erradas verossímeis e factíveis (mas ERRADAS).
-- Se o texto marcar a correta (ex.: "Correta: B", "*" na alternativa, "(correta)"), preserve essa correta; não invente outra.
+- O input pode vir como:
+  (a) A) B) C) D) + "Correta: B" ou
+  (b) "Pergunta: ..." + "Resposta correta: <texto>" (sem alternativas).
+  Em (b), use a resposta correta como alternativa correta e gere 3 erradas.
+- Se o texto marcar a correta por letra (ex.: "Correta: B", "*" na alternativa, "(correta)"), preserve essa correta; não invente outra.
 - Explicação: 1 a 3 frases, direta, sem inventar normas internas; se não houver, use "".
 - Evite "todas/nenhuma das alternativas" e não repita a correta nas erradas.
 - Retorne no máximo ${limit} perguntas.`
@@ -267,4 +316,3 @@ Regras:
 }
 
 export const config = { api: { bodyParser: { sizeLimit: '1mb' } }, maxDuration: 60 }
-

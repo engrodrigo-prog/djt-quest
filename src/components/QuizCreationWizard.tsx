@@ -31,7 +31,9 @@ const quizSchema = z.object({
     .refine((val) => val.length === 0 || val.length >= 10, {
       message: "Descrição deve ter no mínimo 10 caracteres quando preenchida",
     }),
-  xp_reward: z.coerce.number().min(1, "XP deve ser maior que 0"),
+  xp_reward: z.coerce
+    .number()
+    .refine((v) => [5, 10, 20, 50].includes(Number(v)), { message: "Selecione 5 / 10 / 20 / 50" }),
   quiz_specialties: z.array(z.string()).optional(),
   chas_dimension: z.enum(['C','H','A','S']).default('C'),
 });
@@ -74,6 +76,7 @@ export function QuizCreationWizard() {
   const [autoProofread, setAutoProofread] = useState(getActiveLocale() === 'pt-BR');
   const [autoGenerating, setAutoGenerating] = useState(false);
   const [quizMeta, setQuizMeta] = useState<{ title: string; description: string }>({ title: '', description: '' });
+  const [quizXpReward, setQuizXpReward] = useState<number | null>(null);
   const [suggestedQuestions, setSuggestedQuestions] = useState<any[]>([]);
   const [questionSearch, setQuestionSearch] = useState('');
   const [questionSort, setQuestionSort] = useState<'recent' | 'access' | 'relevance'>('recent');
@@ -91,13 +94,26 @@ export function QuizCreationWizard() {
 
   const location = useLocation();
   const navigate = useNavigate();
+  const xpToDifficulty = (xp: number): 'basico' | 'intermediario' | 'avancado' | 'especialista' => {
+    const n = Number(xp);
+    if (n === 5) return 'basico';
+    if (n === 10) return 'intermediario';
+    if (n === 20) return 'avancado';
+    return 'especialista';
+  };
+
+  const quizForcedDifficulty = useMemo<'basico' | 'intermediario' | 'avancado' | 'especialista'>(() => {
+    const xp = Number(quizXpReward);
+    if ([5, 10, 20, 50].includes(xp)) return xpToDifficulty(xp);
+    return 'intermediario';
+  }, [quizXpReward]);
 
   const { register, handleSubmit, formState: { errors }, setValue } = useForm<QuizFormData>({
     resolver: zodResolver(quizSchema),
     defaultValues: {
       title: '',
       description: '',
-      xp_reward: 100,
+      xp_reward: 10,
       quiz_specialties: [],
       chas_dimension: 'C',
     },
@@ -242,6 +258,16 @@ export function QuizCreationWizard() {
 
     setTextImportImporting(true);
     try {
+      // Force XP per question based on the quiz setting (xp_reward).
+      let forcedDifficulty: 'basico' | 'intermediario' | 'avancado' | 'especialista' = textImportDefaultDifficulty;
+      try {
+        const { data: ch } = await supabase.from('challenges').select('xp_reward').eq('id', id).maybeSingle();
+        const xpReward = Number((ch as any)?.xp_reward);
+        if ([5, 10, 20, 50].includes(xpReward)) forcedDifficulty = xpToDifficulty(xpReward);
+      } catch {
+        // ignore
+      }
+
       const questions = (Array.isArray(textImportPreview) && textImportPreview.length)
         ? textImportPreview
         : await parseTextImportPreview({ silent: true });
@@ -259,7 +285,7 @@ export function QuizCreationWizard() {
             body: JSON.stringify({
               challengeId: id,
               question_text: String(q?.question_text || '').trim(),
-              difficulty_level: String(q?.difficulty_level || textImportDefaultDifficulty || 'intermediario'),
+              difficulty_level: forcedDifficulty,
               options: Array.isArray(q?.options)
                 ? q.options.map((o: any) => ({
                     option_text: String(o?.text || o?.option_text || '').trim(),
@@ -310,6 +336,7 @@ export function QuizCreationWizard() {
         const created = (json as any)?.quiz;
         if (!created?.id) throw new Error("Resposta inesperada ao criar quiz");
         setQuizMeta({ title: data.title, description: data.description || '' });
+        setQuizXpReward(Number(data.xp_reward) || 10);
         setQuizId(created.id);
         if (textImportAuto && String(textImport || '').trim()) {
           await importTextQuestionsToQuiz(created.id);
@@ -354,6 +381,7 @@ export function QuizCreationWizard() {
 
       setQuizId(challenge.id);
       setQuizMeta({ title: data.title, description: data.description || '' });
+      setQuizXpReward(Number(data.xp_reward) || 10);
       if (textImportAuto && String(textImport || '').trim()) {
         await importTextQuestionsToQuiz(challenge.id);
       } else {
@@ -460,7 +488,7 @@ export function QuizCreationWizard() {
         body: JSON.stringify({
           challengeId: quizId,
           question_text: String(item?.question_text || '').trim(),
-          difficulty_level: String(item?.difficulty || 'basico'),
+          difficulty_level: quizForcedDifficulty,
           options,
         }),
       });
@@ -471,17 +499,6 @@ export function QuizCreationWizard() {
     } catch (e: any) {
       toast.error(e?.message || 'Falha ao adicionar pergunta');
     }
-  };
-
-  const normalizeDifficultyLevel = (raw: any): 'basico' | 'intermediario' | 'avancado' | 'especialista' => {
-    const s = String(raw || '').trim().toLowerCase();
-    if (!s) return 'intermediario';
-    if (s === 'basico' || s === 'básico' || s === 'basica' || s === 'básica' || s === 'basic') return 'basico';
-    if (s === 'intermediario' || s === 'intermediário' || s === 'intermediaria' || s === 'intermediária' || s === 'intermediate')
-      return 'intermediario';
-    if (s === 'avancado' || s === 'avançado' || s === 'avancada' || s === 'avançada' || s === 'advanced') return 'avancado';
-    if (s === 'especialista' || s === 'expert' || s === 'expertise') return 'especialista';
-    return 'intermediario';
   };
 
   const handleGenerateFromStudyLab = async () => {
@@ -548,15 +565,13 @@ export function QuizCreationWizard() {
           continue;
         }
 
-        const difficulty = normalizeDifficultyLevel(q?.difficulty_level || q?.difficulty);
-
         const create = await apiFetch('/api/admin?handler=studio-create-quiz-question', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
           body: JSON.stringify({
             challengeId: quizId,
             question_text: questionText,
-            difficulty_level: difficulty,
+            difficulty_level: quizForcedDifficulty,
             options,
             ...(autoProofread ? {} : { skip_proofread: true }),
           }),
@@ -599,6 +614,25 @@ export function QuizCreationWizard() {
       setIsSubmittingForCuration(false);
     }
   };
+
+  // Hydrate XP reward from DB for existing quizzes (robust across reloads).
+  useEffect(() => {
+    if (!quizId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data } = await supabase.from('challenges').select('xp_reward').eq('id', quizId).maybeSingle();
+        const xp = Number((data as any)?.xp_reward);
+        if (cancelled) return;
+        if (Number.isFinite(xp)) setQuizXpReward(xp);
+      } catch {
+        // ignore
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [quizId]);
 
   if (!quizId) {
     return (
@@ -705,7 +739,7 @@ export function QuizCreationWizard() {
             </div>
 
             <div className="space-y-2">
-              <Label>XP por Quiz (seleção rápida)</Label>
+              <Label>XP por Pergunta</Label>
               <Select onValueChange={(v:any)=> setValue('xp_reward', Number(v), { shouldValidate: true, shouldDirty: true })}>
                 <SelectTrigger>
                   <SelectValue placeholder="Selecione 5 / 10 / 20 / 50" />
@@ -716,7 +750,9 @@ export function QuizCreationWizard() {
               </Select>
               <Input id="xp_reward" type="number" {...register('xp_reward')} placeholder="5" className="sr-only" />
               {errors.xp_reward && (<p className="text-sm text-destructive">{errors.xp_reward.message}</p>)}
-              <p className="text-xs text-muted-foreground">XP por questão é definido pelo nível (5/10/20/50). Este valor resume o total do quiz ou bônus.</p>
+              <p className="text-xs text-muted-foreground">
+                Este valor define o XP de cada pergunta do quiz (a dificuldade é ajustada automaticamente para bater 5/10/20/50).
+              </p>
             </div>
 
             <div className="space-y-2">
@@ -757,7 +793,7 @@ export function QuizCreationWizard() {
                 <div className="min-w-0">
                   <p className="text-sm font-semibold">Importar perguntas por texto (IA)</p>
                   <p className="text-[11px] text-muted-foreground">
-                    Cole perguntas e alternativas em linguagem natural. Exemplo: “Pergunta 1… A) … B) … C) … D) … Correta: B”.
+                    Cole perguntas em linguagem natural. Você pode colar (A-D + “Correta: B”) ou apenas “Pergunta + Resposta correta” e a IA gera as 3 erradas.
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
@@ -794,11 +830,11 @@ export function QuizCreationWizard() {
                 <Textarea
                   value={textImport}
                   onChange={(e) => setTextImport(e.target.value)}
-                  placeholder={`Pergunta 1: ...?\nA) ...\nB) ...\nC) ...\nD) ...\nCorreta: B\n\nPergunta 2: ...`}
+                  placeholder={`Pergunta 1: ...?\nResposta correta: ...\n\nPergunta 2: ...?\nA) ...\nB) ...\nC) ...\nD) ...\nCorreta: B`}
                   rows={8}
                 />
                 <p className="text-[11px] text-muted-foreground">
-                  Dica: quanto mais claro for o marcador da correta (ex.: “Correta: B”), melhor a importação.
+                  Dica: se você usar A-D, marque a correta (ex.: “Correta: B”). Se você colar só a resposta correta, a IA cria as erradas.
                 </p>
               </div>
 
@@ -880,7 +916,7 @@ export function QuizCreationWizard() {
             Importar Perguntas por Texto (IA)
           </CardTitle>
           <p className="text-sm text-muted-foreground">
-            Cole perguntas + alternativas e importe automaticamente neste quiz (1 correta + 3 erradas por pergunta).
+            Cole perguntas (com A-D ou só a resposta correta) e importe automaticamente neste quiz (1 correta + 3 erradas por pergunta).
           </p>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -914,7 +950,7 @@ export function QuizCreationWizard() {
             <Textarea
               value={textImport}
               onChange={(e) => setTextImport(e.target.value)}
-              placeholder={`Pergunta 1: ...?\nA) ...\nB) ...\nC) ...\nD) ...\nCorreta: B\n\nPergunta 2: ...`}
+              placeholder={`Pergunta 1: ...?\nResposta correta: ...\n\nPergunta 2: ...?\nA) ...\nB) ...\nC) ...\nD) ...\nCorreta: B`}
               rows={8}
             />
           </div>
