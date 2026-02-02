@@ -7,10 +7,12 @@ export const FINANCE_EXPENSE_TYPES = [
   'Quilometragem',
   'Abastecimento/Pedágio',
   'Estacionamento',
+  'Almoço',
   'Jantar',
   'Hospedagem/Café da Manhã',
   'Materiais',
   'Serviços',
+  'Outros',
   'Adiantamento',
 ];
 
@@ -30,4 +32,3 @@ export const FINANCE_COORDINATIONS = [
 export const FINANCE_STATUSES = ['Enviado', 'Em análise', 'Aprovado', 'Reprovado', 'Pago', 'Cancelado'];
 
 export const FINANCE_ANALYST_ROLE = 'analista_financeiro';
-

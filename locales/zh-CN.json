@@ -662,5 +662,20 @@
       "topicClosedTitle": "主题已关闭",
       "topicClosedDesc": "已生成整理与摘要。你可以基于汇编创建测验/挑战。"
     }
+  },
+  "finance": {
+    "expenseType": {
+      "transport": "交通",
+      "mileage": "里程",
+      "fuelToll": "加油/过路费",
+      "parking": "停车",
+      "lunch": "午餐",
+      "dinner": "晚餐",
+      "lodgingBreakfast": "住宿/早餐",
+      "materials": "材料",
+      "services": "服务",
+      "other": "其他",
+      "advance": "预支"
+    }
   }
 }

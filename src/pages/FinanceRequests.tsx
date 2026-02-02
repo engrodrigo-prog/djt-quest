@@ -15,6 +15,7 @@ import { Switch } from "@/components/ui/switch";
 import { AttachmentUploader } from "@/components/AttachmentUploader";
 import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft, FileText, Plus, XCircle } from "lucide-react";
+import { useI18n } from "@/contexts/I18nContext";
 import { getActiveLocale } from "@/lib/i18n/activeLocale";
 import { FINANCE_COMPANIES, FINANCE_COORDINATIONS, FINANCE_EXPENSE_TYPES, FINANCE_REQUEST_KINDS, FINANCE_STATUSES } from "@/lib/finance/constants";
 
@@ -93,8 +94,23 @@ const formatBrl = (cents: number | null | undefined) => {
   return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 };
 
+const EXPENSE_TYPE_I18N_KEY: Record<string, string> = {
+  Transporte: "finance.expenseType.transport",
+  Quilometragem: "finance.expenseType.mileage",
+  "Abastecimento/Pedágio": "finance.expenseType.fuelToll",
+  Estacionamento: "finance.expenseType.parking",
+  "Almoço": "finance.expenseType.lunch",
+  Jantar: "finance.expenseType.dinner",
+  "Hospedagem/Café da Manhã": "finance.expenseType.lodgingBreakfast",
+  Materiais: "finance.expenseType.materials",
+  Serviços: "finance.expenseType.services",
+  Outros: "finance.expenseType.other",
+  Adiantamento: "finance.expenseType.advance",
+};
+
 export default function FinanceRequests() {
   const { user, profile, roles, orgScope } = useAuth() as any;
+  const { t } = useI18n();
   const { toast } = useToast();
   const [items, setItems] = useState<RequestRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -166,6 +182,18 @@ export default function FinanceRequests() {
     const roleList = Array.isArray(roles) ? roles : [];
     return Boolean(user?.id) && !isGuestProfile(profile, roleList);
   }, [profile, roles, user?.id]);
+
+  const getExpenseTypeLabel = useCallback(
+    (value: string) => {
+      const raw = String(value || "").trim();
+      if (!raw) return "—";
+      const key = EXPENSE_TYPE_I18N_KEY[raw];
+      if (!key) return raw;
+      const translated = t(key);
+      return translated === key ? raw : translated;
+    },
+    [t],
+  );
 
   const load = useCallback(async () => {
     if (!user?.id) return;
@@ -435,7 +463,7 @@ export default function FinanceRequests() {
                       <div className="min-w-0">
                         <div className="text-[13px] font-semibold truncate">{r.protocol || r.id}</div>
                         <div className="text-[11px] text-muted-foreground truncate">
-                          {r.request_kind} • {r.expense_type} • {r.company} • {r.coordination}
+                          {r.request_kind} • {getExpenseTypeLabel(r.expense_type)} • {r.company} • {r.coordination}
                         </div>
                       </div>
                       <div className="flex flex-col items-end gap-1">
@@ -541,7 +569,11 @@ export default function FinanceRequests() {
                     <Select value={form.expenseType} onValueChange={(v) => setForm((p) => ({ ...p, expenseType: v as any }))}>
                       <SelectTrigger className="mt-1"><SelectValue placeholder="Selecione" /></SelectTrigger>
                       <SelectContent>
-                        {FINANCE_EXPENSE_TYPES.map((t) => (<SelectItem key={t} value={t}>{t}</SelectItem>))}
+                        {FINANCE_EXPENSE_TYPES.map((type) => (
+                          <SelectItem key={type} value={type}>
+                            {getExpenseTypeLabel(type)}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
@@ -660,7 +692,7 @@ export default function FinanceRequests() {
                 <div className="min-w-0">
                   <div className="text-sm font-semibold">{detail.request.protocol}</div>
                   <div className="text-[12px] text-muted-foreground">
-                    {detail.request.request_kind} • {detail.request.expense_type} • {detail.request.company} • {detail.request.coordination}
+                    {detail.request.request_kind} • {getExpenseTypeLabel(detail.request.expense_type)} • {detail.request.company} • {detail.request.coordination}
                   </div>
                 </div>
                 <div className="text-right">

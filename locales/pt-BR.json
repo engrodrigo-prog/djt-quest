@@ -662,5 +662,20 @@
       "topicClosedTitle": "Tópico fechado",
       "topicClosedDesc": "Curadoria e resumo gerados. Você pode criar quiz/desafio a partir do compêndio."
     }
+  },
+  "finance": {
+    "expenseType": {
+      "transport": "Transporte",
+      "mileage": "Quilometragem",
+      "fuelToll": "Abastecimento/Pedágio",
+      "parking": "Estacionamento",
+      "lunch": "Almoço",
+      "dinner": "Jantar",
+      "lodgingBreakfast": "Hospedagem/Café da Manhã",
+      "materials": "Materiais",
+      "services": "Serviços",
+      "other": "Outros",
+      "advance": "Adiantamento"
+    }
   }
 }

@@ -662,5 +662,20 @@
       "topicClosedTitle": "Topic closed",
       "topicClosedDesc": "Curation and summary generated. You can create a quiz/challenge from the compendium."
     }
+  },
+  "finance": {
+    "expenseType": {
+      "transport": "Transport",
+      "mileage": "Mileage",
+      "fuelToll": "Fuel/Toll",
+      "parking": "Parking",
+      "lunch": "Lunch",
+      "dinner": "Dinner",
+      "lodgingBreakfast": "Lodging/Breakfast",
+      "materials": "Materials",
+      "services": "Services",
+      "other": "Other",
+      "advance": "Advance"
+    }
   }
 }
