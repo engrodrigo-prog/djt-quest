@@ -403,6 +403,27 @@ async function extractGpsFromImage(file: File): Promise<{ lat: number; lng: numb
   }
 }
 
+async function getCurrentDeviceLocation(): Promise<{ lat: number; lng: number } | null> {
+  try {
+    if (typeof navigator === "undefined") return null;
+    const geo = (navigator as any)?.geolocation;
+    if (!geo?.getCurrentPosition) return null;
+    return await new Promise((resolve) => {
+      geo.getCurrentPosition(
+        (pos: any) => {
+          const lat = Number(pos?.coords?.latitude);
+          const lng = Number(pos?.coords?.longitude);
+          resolve(clampLatLng(lat, lng));
+        },
+        () => resolve(null),
+        { enableHighAccuracy: false, timeout: 8000, maximumAge: 5 * 60 * 1000 },
+      );
+    });
+  } catch {
+    return null;
+  }
+}
+
 function SepbookFitBounds({
   points,
   disabled,
@@ -833,6 +854,7 @@ export default function SEPBookIG() {
   const [likesOpenFor, setLikesOpenFor] = useState<string | null>(null);
   const [likesLoading, setLikesLoading] = useState(false);
   const [likers, setLikers] = useState<LikeUser[]>([]);
+  const [markingPostLocation, setMarkingPostLocation] = useState<Record<string, boolean>>({});
 
   const deepLinkCommentTargetRef = useRef<{ commentId: string; postId: string } | null>(null);
   const deepLinkCommentHandledRef = useRef<string | null>(null);
@@ -1315,20 +1337,49 @@ export default function SEPBookIG() {
         __gps_url: composerGpsSource.url || null,
       };
     }
+
+    // Fallback: some images (ex.: WhatsApp/webp) do not preserve EXIF GPS.
+    // If the user consented, try current device location so the post can appear on the map.
+    const hasImage = composerMedia.some((m) => m.kind === "image");
+    if (hasImage) {
+      const coords = await getCurrentDeviceLocation();
+      if (coords) {
+        return {
+          location_lat: coords.lat,
+          location_lng: coords.lng,
+          location_label: "Local atual",
+          __gps_url: null,
+        };
+      }
+    }
     return null;
-  }, [composerGpsSource, myProfile?.sepbook_gps_consent]);
+  }, [composerGpsSource, composerMedia, myProfile?.sepbook_gps_consent]);
 
   const resolveLocationForNewComment = useCallback(async () => {
-    if (!commentGpsSource?.gps || !commentGpsSource.url) return null;
     if (myProfile?.sepbook_gps_consent !== true) return null;
-    return {
-      location_lat: commentGpsSource.gps.lat,
-      location_lng: commentGpsSource.gps.lng,
-      // The backend will reverse-geocode (city/state) from lat/lng; never use operational_base as "location".
-      location_label: null,
-      __gps_url: commentGpsSource.url || null,
-    };
-  }, [commentGpsSource, myProfile?.sepbook_gps_consent]);
+    if (commentGpsSource?.gps && commentGpsSource.url) {
+      return {
+        location_lat: commentGpsSource.gps.lat,
+        location_lng: commentGpsSource.gps.lng,
+        // The backend will reverse-geocode (city/state) from lat/lng; never use operational_base as "location".
+        location_label: null,
+        __gps_url: commentGpsSource.url || null,
+      };
+    }
+    const hasImage = commentMedia.some((m) => m.kind === "image");
+    if (hasImage) {
+      const coords = await getCurrentDeviceLocation();
+      if (coords) {
+        return {
+          location_lat: coords.lat,
+          location_lng: coords.lng,
+          location_label: "Local atual",
+          __gps_url: null,
+        };
+      }
+    }
+    return null;
+  }, [commentGpsSource, commentMedia, myProfile?.sepbook_gps_consent]);
 
   const geoLabelCacheRef = useRef<Record<string, string>>({});
   const geoInFlightRef = useRef<Set<string>>(new Set());
@@ -2448,6 +2499,55 @@ export default function SEPBookIG() {
     [commentRestoring, toast],
   );
 
+  const markPostOnMap = useCallback(
+    async (post: SepPost) => {
+      const pid = String(post?.id || "").trim();
+      if (!pid) return;
+      if (markingPostLocation[pid]) return;
+      const canEdit = post.user_id === user?.id || isMod;
+      if (!canEdit) return;
+      if (!isMod && myProfile?.sepbook_gps_consent !== true) {
+        toast({ title: "Localização", description: "Ative o consentimento de GPS no SEPBook para publicar no mapa.", variant: "destructive" });
+        return;
+      }
+      setMarkingPostLocation((prev) => ({ ...prev, [pid]: true }));
+      try {
+        const coords = await getCurrentDeviceLocation();
+        if (!coords) throw new Error("Não foi possível obter o local do dispositivo (permissão negada ou indisponível).");
+        const resp = await apiFetch("/api/sepbook-edit", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ post_id: pid, location_lat: coords.lat, location_lng: coords.lng }),
+        });
+        const json = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(json?.error || "Falha ao publicar no mapa");
+        const updated = json?.post || null;
+        setPosts((prev) =>
+          prev.map((p) =>
+            p.id === pid
+              ? {
+                  ...p,
+                  location_lat: (updated as any)?.location_lat ?? coords.lat,
+                  location_lng: (updated as any)?.location_lng ?? coords.lng,
+                  location_label: (updated as any)?.location_label ?? p.location_label ?? null,
+                }
+              : p,
+          ),
+        );
+        setMapSelectedId(`post:${pid}`);
+        setMapHasInteracted(false);
+        setMapFitToken((v) => v + 1);
+        setMapOpen(true);
+        toast({ title: "Publicado no mapa", description: "Localização adicionada à publicação." });
+      } catch (e: any) {
+        toast({ title: "Mapa", description: e?.message || "Falha ao publicar no mapa", variant: "destructive" });
+      } finally {
+        setMarkingPostLocation((prev) => ({ ...prev, [pid]: false }));
+      }
+    },
+    [apiFetch, isMod, markingPostLocation, myProfile?.sepbook_gps_consent, toast, user?.id],
+  );
+
   const submitPost = useCallback(async () => {
     const text = String(composerText || "").trim();
     const uploading = composerUploading || composerMedia.some((m) => m.uploading);
@@ -3062,6 +3162,12 @@ export default function SEPBookIG() {
                         >
                           {tr("sepbook.copyLink")}
                         </DropdownMenuItem>
+                        {!hasGps && (p.user_id === user?.id || isMod) && Array.isArray(p.attachments) && p.attachments.some((u) => /\.(png|jpe?g|webp|gif|heic|heif|avif)(\?|#|$)/i.test(String(u || "").split("?")[0] || "")) ? (
+                          <DropdownMenuItem onClick={() => void markPostOnMap(p)} disabled={Boolean(markingPostLocation[p.id])}>
+                            <MapPinned className="h-4 w-4 mr-2" />
+                            {markingPostLocation[p.id] ? "Publicando no mapa..." : "Publicar no mapa (local atual)"}
+                          </DropdownMenuItem>
+                        ) : null}
                         {p.user_id === user?.id || isMod ? (
                           <>
                             <DropdownMenuSeparator />

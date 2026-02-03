@@ -4,6 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 import { extractSepbookMentions } from "./sepbook-mentions.js";
 import { translateForumTexts } from "../server/lib/forum-translations.js";
 import { assertDjtQuestServerEnv } from "../server/env-guard.js";
+import { normalizeLatLng, reverseGeocodeCityLabel } from "../server/lib/reverse-geocode.js";
 
 const SUPABASE_URL = process.env.SUPABASE_URL as string;
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY as string | undefined;
@@ -152,22 +153,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       isMod = roles.some((r) => MOD_ROLES.has(r));
     }
 
-    const { post_id, content_md, attachments, post_kind } = req.body || {};
-    const targetLocales = normalizeRequestedLocales(req.body?.locales);
+    const body = req.body || {};
+    const { post_id, content_md, attachments, post_kind, location_lat, location_lng } = body;
+    const targetLocales = normalizeRequestedLocales(body?.locales);
     const postId = String(post_id || "").trim();
-    const text = String(content_md || "").trim();
-    const atts = Array.isArray(attachments) ? attachments : [];
+    const hasContentField = Object.prototype.hasOwnProperty.call(body, "content_md");
+    const hasAttachmentsField = Object.prototype.hasOwnProperty.call(body, "attachments");
+    const hasKindField = Object.prototype.hasOwnProperty.call(body, "post_kind");
+    const hasLocationField =
+      Object.prototype.hasOwnProperty.call(body, "location_lat") || Object.prototype.hasOwnProperty.call(body, "location_lng");
+
+    const text = hasContentField ? String(content_md || "").trim() : null;
+    const atts = hasAttachmentsField ? (Array.isArray(attachments) ? attachments : []) : null;
     const kindRaw = String(post_kind || "").trim();
     const kind = kindRaw ? kindRaw.toLowerCase() : "";
 
     if (!postId) return res.status(400).json({ error: "post_id required" });
-    if (!text && atts.length === 0)
-      return res.status(400).json({ error: "Conteúdo ou mídia obrigatórios" });
-    if (kind && kind !== "normal" && kind !== "ocorrencia") return res.status(400).json({ error: "post_kind inválido" });
+    if (hasKindField && kind && kind !== "normal" && kind !== "ocorrencia") return res.status(400).json({ error: "post_kind inválido" });
 
     const { data: post, error: postErr } = await authed
       .from("sepbook_posts")
-      .select("id, user_id")
+      .select("id, user_id, content_md, attachments")
       .eq("id", postId)
       .maybeSingle();
     if (postErr) return res.status(400).json({ error: postErr.message });
@@ -178,24 +184,70 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(403).json({ error: "Sem permissão para editar este post" });
     }
 
-    let translations: any = { "pt-BR": text || "" };
-    if (text && targetLocales.length) {
-      try {
-        const [map] = await translateForumTexts({ texts: [text], targetLocales, maxPerBatch: 6 } as any);
-        if (map && typeof map === "object") translations = map;
-      } catch {
-        // keep base locale only
+    // location update (optional)
+    let locationUpdate: any = null;
+    if (hasLocationField) {
+      const coords = normalizeLatLng(location_lat, location_lng);
+      // allow explicit clear: both null/undefined clears location
+      const wantsClear = (location_lat == null && location_lng == null);
+      if (!coords && !wantsClear) return res.status(400).json({ error: "Localização inválida" });
+
+      if (!isMod) {
+        // Require explicit consent for non-mods
+        try {
+          const { data: prof } = await admin.from("profiles").select("sepbook_gps_consent").eq("id", uid).maybeSingle();
+          if (prof?.sepbook_gps_consent !== true) return res.status(403).json({ error: "GPS não autorizado no SEPBook" });
+        } catch {
+          return res.status(403).json({ error: "GPS não autorizado no SEPBook" });
+        }
+      }
+      const label = coords ? await reverseGeocodeCityLabel(coords.lat, coords.lng) : null;
+      locationUpdate = {
+        location_lat: coords ? coords.lat : null,
+        location_lng: coords ? coords.lng : null,
+        location_label: label,
+      };
+    }
+
+    // Only translate if content is being updated.
+    let translations: any = null;
+    if (hasContentField) {
+      translations = { "pt-BR": text || "" };
+      if (text && targetLocales.length) {
+        try {
+          const [map] = await translateForumTexts({ texts: [text], targetLocales, maxPerBatch: 6 } as any);
+          if (map && typeof map === "object") translations = map;
+        } catch {
+          // keep base locale only
+        }
       }
     }
 
     const updatePayload: any = {
-      content_md: text || "",
-      attachments: atts,
-      has_media: atts.length > 0,
       updated_at: new Date().toISOString(),
-      translations,
     };
-    if (kind) updatePayload.post_kind = kind;
+    if (hasContentField) updatePayload.content_md = text || "";
+    if (hasAttachmentsField) {
+      updatePayload.attachments = atts;
+      updatePayload.has_media = (atts || []).length > 0;
+    }
+    if (translations) updatePayload.translations = translations;
+    if (hasKindField && kind) updatePayload.post_kind = kind;
+    if (locationUpdate) Object.assign(updatePayload, locationUpdate);
+
+    if (Object.keys(updatePayload).length <= 1) {
+      // Only updated_at
+      return res.status(400).json({ error: "Nada para atualizar" });
+    }
+
+    // Prevent blank posts when content/attachments are being modified.
+    if (hasContentField || hasAttachmentsField) {
+      const nextText = hasContentField ? (text || "") : String(post?.content_md || "");
+      const nextAtts = hasAttachmentsField ? (atts || []) : Array.isArray((post as any)?.attachments) ? (post as any).attachments : [];
+      if (!String(nextText || "").trim() && (!Array.isArray(nextAtts) || nextAtts.length === 0)) {
+        return res.status(400).json({ error: "Conteúdo ou mídia obrigatórios" });
+      }
+    }
 
     let data: any = null;
     let error: any = null;
@@ -212,16 +264,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
     if (error) return res.status(400).json({ error: error.message });
 
-    try {
-      if (!SERVICE_ROLE_KEY) throw new Error("no service role");
-      const handles = extractSepbookMentions(text || "");
-      if (handles.length) {
-        const mentionedIds = await resolveMentionIds(admin, handles);
-        await syncPostMentions({ admin, postId, mentionedIds, authorId: uid, authorName: "Colaborador" });
-      } else {
-        await admin.from("sepbook_mentions").delete().eq("post_id", postId);
-      }
-    } catch {}
+    if (hasContentField) {
+      try {
+        if (!SERVICE_ROLE_KEY) throw new Error("no service role");
+        const handles = extractSepbookMentions(text || "");
+        if (handles.length) {
+          const mentionedIds = await resolveMentionIds(admin, handles);
+          await syncPostMentions({ admin, postId, mentionedIds, authorId: uid, authorName: "Colaborador" });
+        } else {
+          await admin.from("sepbook_mentions").delete().eq("post_id", postId);
+        }
+      } catch {}
+    }
 
     return res.status(200).json({ success: true, post: data });
   } catch (e: any) {
