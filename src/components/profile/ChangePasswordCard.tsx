@@ -52,7 +52,13 @@ export function ChangePasswordCard({ compact = false }: ChangePasswordCardProps)
       setForm({ password: '', confirm: '' });
     } catch (error) {
       console.error('Error updating password:', error);
-      toast.error('Não foi possível atualizar a senha');
+      const msg =
+        error instanceof Error
+          ? error.message
+          : typeof (error as any)?.message === 'string'
+            ? String((error as any)?.message)
+            : '';
+      toast.error('Não foi possível atualizar a senha', { description: msg || undefined });
     } finally {
       setLoading(false);
     }
@@ -77,6 +83,11 @@ export function ChangePasswordCard({ compact = false }: ChangePasswordCardProps)
               onChange={(e) => setForm({ ...form, password: e.target.value })}
               placeholder="••••••"
               autoComplete="new-password"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              minLength={6}
+              required
             />
           </div>
           <div className="space-y-2">
@@ -87,6 +98,11 @@ export function ChangePasswordCard({ compact = false }: ChangePasswordCardProps)
               onChange={(e) => setForm({ ...form, confirm: e.target.value })}
               placeholder="••••••"
               autoComplete="new-password"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              minLength={6}
+              required
             />
           </div>
           <Button type="submit" className="w-full" disabled={loading}>

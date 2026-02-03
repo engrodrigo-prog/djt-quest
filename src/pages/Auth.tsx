@@ -133,7 +133,9 @@ const Auth = () => {
       if (next) {
         navigate(next);
       } else {
-        navigate(authData?.isLeader ? '/leader-dashboard' : '/dashboard');
+        // Início deve ser o mesmo para todos (líderes também jogam quizzes).
+        // O dashboard de liderança continua acessível via menu do perfil/botão "Líder".
+        navigate('/dashboard');
       }
     } catch (error) {
       console.error("Login error:", error);
@@ -476,6 +478,9 @@ const Auth = () => {
                 placeholder={t("auth.passwordPlaceholder")}
                 autoFocus={!!selectedUserName}
                 autoComplete={selectedUserId ? "current-password" : "off"}
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
                 ref={passwordRef}
                 className="bg-white text-slate-900 placeholder:text-slate-500 border-slate-300 focus-visible:ring-primary"
               />

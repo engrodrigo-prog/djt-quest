@@ -14,6 +14,7 @@ import { ProfileDropdown } from "@/components/ProfileDropdown";
 import { fetchTeamNames } from "@/lib/teamLookup";
 import { getActiveLocale } from "@/lib/i18n/activeLocale";
 import { DJT_TEAM_GROUP_IDS, isDjtTeamAggregateBaseId } from "@/lib/constants/points";
+import Navigation from "@/components/Navigation";
 
 interface TeamStats {
   total_members: number;
@@ -1014,6 +1015,7 @@ export default function LeaderDashboard() {
         )}
       </Tabs>
       </main>
+      <Navigation />
     </div>
   );
 }

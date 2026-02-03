@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
-import { Shield, Zap, Trophy, Target, LogOut, Star, Menu, Filter, History, CheckCircle, ListFilter, Trash2, Share2, Bell, MessageSquare, AtSign, ClipboardList } from "lucide-react";
+import { Shield, Zap, Trophy, Target, LogOut, Star, Menu, Filter, History, CheckCircle, ListFilter, Trash2, Share2, Bell, MessageSquare, AtSign, ClipboardList, Plus } from "lucide-react";
 import { AIStatus } from "@/components/AIStatus";
 import { useNavigate } from "react-router-dom";
 import Navigation from "@/components/Navigation";
@@ -54,7 +54,6 @@ const Dashboard = () => {
   const [campaignStats, setCampaignStats] = useState<Record<string, { total: number; approved: number; last_event_at: string | null }>>({});
   const [campaignSearch, setCampaignSearch] = useState("");
   const [campaignTag, setCampaignTag] = useState("");
-  const [campaignStatusFilter, setCampaignStatusFilter] = useState<"active" | "closed" | "all">("active");
   const [campaignDateStart, setCampaignDateStart] = useState("");
   const [campaignDateEnd, setCampaignDateEnd] = useState("");
   const [allChallenges, setAllChallenges] = useState<Challenge[]>([]);
@@ -77,6 +76,8 @@ const Dashboard = () => {
   const [sepbookSummary, setSepbookSummary] = useState({ new_posts: 0, mentions: 0 });
   // Desafios passam a ser conduzidos via campanhas e fóruns; seção dedicada de desafios fica oculta.
   const showChallengesSection = false;
+  const [showQuizHistory, setShowQuizHistory] = useState(false);
+  const [showCampaignHistory, setShowCampaignHistory] = useState(false);
 
   const loadedForUserRef = useRef<string | null>(null);
 
@@ -597,7 +598,8 @@ const Dashboard = () => {
       .filter((c) => {
         if ((c as any)?.archived_at) return false;
         const status = getCampaignStatus(c);
-        if (campaignStatusFilter !== "all" && status !== campaignStatusFilter) return false;
+        // A UI controla status via seção principal + histórico expandível.
+        // Mantém a filtragem por texto/tag/período aqui.
 
         const hay = `${c?.title || ""} ${(c as any)?.description || ""} ${(c as any)?.narrative_tag || ""}`.toLowerCase();
         if (q && !hay.includes(q)) return false;
@@ -612,22 +614,55 @@ const Dashboard = () => {
         return true;
       })
       .sort((a, b) => {
-        const aRank = getCampaignStatus(a) === "active" ? 0 : 1;
-        const bRank = getCampaignStatus(b) === "active" ? 0 : 1;
-        if (aRank !== bRank) return aRank - bRank;
         const ad = a?.start_date ? Date.parse(String(a.start_date)) : 0;
         const bd = b?.start_date ? Date.parse(String(b.start_date)) : 0;
         if (bd !== ad) return bd - ad;
         return String(a?.title || "").localeCompare(String(b?.title || ""), locale);
       });
-  }, [campaignDateEnd, campaignDateStart, campaignSearch, campaignStatusFilter, campaignTag, campaigns, getCampaignStatus, locale]);
+  }, [campaignDateEnd, campaignDateStart, campaignSearch, campaignTag, campaigns, getCampaignStatus, locale]);
+
+  const campaignCompletion = useCallback(
+    (campaignId: string) => {
+      const stats = campaignStats?.[campaignId];
+      const total = Math.max(0, Number(stats?.total || 0));
+      const approved = Math.max(0, Number(stats?.approved || 0));
+      const isCompleted = total > 0 && approved >= total;
+      return { total, approved, isCompleted };
+    },
+    [campaignStats],
+  );
+
+  const campaignsMain = useMemo(() => {
+    const list = filteredCampaigns.filter((c) => getCampaignStatus(c) === 'active');
+    return list
+      .filter((c) => !campaignCompletion(c.id).isCompleted)
+      .sort((a, b) => {
+        const ad = a?.start_date ? Date.parse(String(a.start_date)) : 0;
+        const bd = b?.start_date ? Date.parse(String(b.start_date)) : 0;
+        if (bd !== ad) return bd - ad;
+        return String(a?.title || "").localeCompare(String(b?.title || ""), locale);
+      });
+  }, [campaignCompletion, filteredCampaigns, getCampaignStatus, locale]);
+
+  const campaignsHistory = useMemo(() => {
+    const activeCompleted = filteredCampaigns.filter(
+      (c) => getCampaignStatus(c) === 'active' && campaignCompletion(c.id).isCompleted,
+    );
+    const closed = filteredCampaigns.filter((c) => getCampaignStatus(c) === 'closed');
+    return [...activeCompleted, ...closed].sort((a, b) => {
+      const ad = a?.start_date ? Date.parse(String(a.start_date)) : 0;
+      const bd = b?.start_date ? Date.parse(String(b.start_date)) : 0;
+      if (bd !== ad) return bd - ad;
+      return String(a?.title || "").localeCompare(String(b?.title || ""), locale);
+    });
+  }, [campaignCompletion, filteredCampaigns, getCampaignStatus, locale]);
 
   const featuredMilhao = useMemo(() => {
     const isMilhao = (t: string) => /milh(ã|a)o/i.test(t || '');
     // allChallenges já vem ordenado por created_at desc
     return (allChallenges || []).find((c) => {
       if (!c) return false;
-      if ((c.type || '').toLowerCase() !== 'quiz') return false;
+      if (!(c.type || '').toLowerCase().includes('quiz')) return false;
       if (!isMilhao(String(c.title || ''))) return false;
       if ((c.reward_mode || '') !== 'tier_steps' && (c.xp_reward || 0) <= 0) return false;
       // Evita mostrar tentativas antigas que falharam e ficaram sem perguntas
@@ -638,7 +673,7 @@ const Dashboard = () => {
 
   const activeQuizzes = useMemo(() => {
     const list = (allChallenges || []).filter((ch) => {
-      const isQuiz = (ch.type || '').toLowerCase() === 'quiz';
+      const isQuiz = (ch.type || '').toLowerCase().includes('quiz');
       if (!isQuiz) return false;
       if (!isChallengeOpen(ch)) return false;
       if (!isChallengeVigente(ch)) return false;
@@ -647,6 +682,30 @@ const Dashboard = () => {
     if (!featuredMilhao) return list;
     return list.filter((q) => q.id !== featuredMilhao.id);
   }, [allChallenges, campaigns, featuredMilhao]);
+
+  const quizCreatedAtMs = (c: Challenge) => {
+    const raw = (c as any)?.created_at;
+    const ms = raw ? Date.parse(String(raw)) : 0;
+    return Number.isFinite(ms) ? ms : 0;
+  };
+
+  const featuredMilhaoCompleted = Boolean(featuredMilhao && completedChallengeIds.has(featuredMilhao.id));
+
+  const activeQuizzesSorted = useMemo(() => {
+    return (activeQuizzes || []).slice().sort((a, b) => quizCreatedAtMs(b) - quizCreatedAtMs(a));
+  }, [activeQuizzes]);
+
+  const activeQuizzesPending = useMemo(
+    () => activeQuizzesSorted.filter((q) => !completedChallengeIds.has(q.id)),
+    [activeQuizzesSorted, completedChallengeIds],
+  );
+
+  const quizHistory = useMemo(() => {
+    const isQuiz = (c: Challenge) => (c?.type || '').toLowerCase().includes('quiz');
+    return (allChallenges || [])
+      .filter((c) => isQuiz(c) && completedChallengeIds.has(c.id))
+      .sort((a, b) => quizCreatedAtMs(b) - quizCreatedAtMs(a));
+  }, [allChallenges, completedChallengeIds]);
 
   const handleDeleteChallenge = async (challenge: Challenge) => {
     if (!user) return;
@@ -879,82 +938,30 @@ const Dashboard = () => {
         {/* Team Performance Card */}
         <TeamPerformanceCard />
 
-        {/* Open Forums */}
-        {openForums.length > 0 && (
-          <Card className="bg-white/5 border border-white/20 text-white backdrop-blur-md shadow-lg">
-            <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-lg text-white">
-                <Target className="h-5 w-5 text-white" />
-                {tr("dashboard.openForumsTitle")}
-              </CardTitle>
-              <CardDescription className="text-white/80">{tr("dashboard.openForumsDescription")}</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {openForums.slice(0,4).map((topic) => {
-                const displayTitle = (topic as any)?.title_translations?.[locale] || topic.title;
-                const displayDesc = (topic as any)?.description_translations?.[locale] || topic.description;
-                return (
-                  <div
-                    key={topic.id}
-                    className="flex items-center justify-between p-3 border border-white/30 rounded-lg hover:bg-white/10 cursor-pointer gap-3"
-                    onClick={() => navigate(`/forum/${topic.id}`)}
-                  >
-                    <div className="min-w-0 flex-1">
-                      <p className="font-medium truncate text-white">{displayTitle}</p>
-                      <p className="text-xs text-white/70 truncate">{displayDesc}</p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Badge variant="outline" className="border-white/50 text-white">
-                        {tr("dashboard.forumsPosts", { count: topic.posts_count || 0 })}
-                      </Badge>
-                      <button
-                        type="button"
-                        className="p-1 rounded-full hover:bg-white/10 text-white/90"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          const url = buildAbsoluteAppUrl(`/forum/${encodeURIComponent(topic.id)}`);
-                          openWhatsAppShare({
-                            message: tr("dashboard.forumShareMessage", { title: displayTitle }),
-                            url,
-                          });
-                        }}
-                        aria-label={tr("dashboard.forumShareAria")}
-                        title={tr("dashboard.shareWhatsApp")}
-                      >
-                        <Share2 className="h-4 w-4" />
-                      </button>
-                      {canDeleteContent && (
-                        <button
-                          type="button"
-                          className="p-1 rounded-full hover:bg-destructive/20 text-destructive"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDeleteForumFromDashboard(topic.id, displayTitle);
-                          }}
-                          aria-label={tr("dashboard.forumDeleteAria")}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-              <div className="pt-2 flex justify-end">
-                <Button variant="ghost" size="sm" onClick={() => navigate('/forums')}>{tr("dashboard.forumsViewAll")}</Button>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Active Campaigns */}
-        {featuredMilhao && (
-          <section>
-            <div className="flex items-center gap-2 mb-3 text-foreground">
-              <Trophy className="h-5 w-5 text-amber-300" />
-              <h2 className="text-2xl font-semibold leading-tight">{tr("dashboard.featuredQuizTitle")}</h2>
+        {/* Quizzes (vigentes + pendentes primeiro; respondidos em histórico "+") */}
+        <section>
+          <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
+            <div className="flex items-center gap-2 text-foreground">
+              <Zap className="h-5 w-5 text-blue-300" />
+              <h2 className="text-2xl font-semibold leading-tight">Quizzes</h2>
             </div>
-            <Card className="bg-white/5 border border-white/20 text-white backdrop-blur-md shadow-lg">
+            {quizHistory.length > 0 && (
+              <Button
+                type="button"
+                size="sm"
+                variant={showQuizHistory ? "secondary" : "outline"}
+                onClick={() => setShowQuizHistory((v) => !v)}
+                className="gap-2"
+                aria-label={showQuizHistory ? "Ocultar quizzes respondidos" : "Mostrar quizzes respondidos"}
+              >
+                <Plus className="h-4 w-4" />
+                {showQuizHistory ? "Ocultar" : `+${quizHistory.length} respondidos`}
+              </Button>
+            )}
+          </div>
+
+          {featuredMilhao && !featuredMilhaoCompleted && (
+            <Card className="bg-white/5 border border-white/20 text-white backdrop-blur-md shadow-lg mb-3">
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between gap-2">
                   <Badge variant="outline" className="w-fit text-[11px] uppercase tracking-wide border-white/50 text-white">
@@ -963,11 +970,7 @@ const Dashboard = () => {
                       : tr("dashboard.levelsBadgeXp", { xp: featuredMilhao.xp_reward })}
                   </Badge>
                   <div className="flex items-center gap-2">
-                    {completedChallengeIds.has(featuredMilhao.id) && (
-                      <Badge variant="secondary" className="text-[11px]">
-                        {tr("dashboard.quizCompleted")}
-                      </Badge>
-                    )}
+                    <Trophy className="h-4 w-4 text-amber-300" aria-hidden />
                     <Button
                       size="icon"
                       variant="ghost"
@@ -999,22 +1002,15 @@ const Dashboard = () => {
                   variant="secondary"
                   onClick={() => navigate(`/challenge/${featuredMilhao.id}`)}
                 >
-                  {completedChallengeIds.has(featuredMilhao.id) ? tr("dashboard.quizViewAgain") : tr("dashboard.quizStartNow")}
+                  {tr("dashboard.quizStartNow")}
                 </Button>
               </CardContent>
             </Card>
-          </section>
-        )}
+          )}
 
-        {activeQuizzes.length > 0 && (
-          <section>
-            <div className="flex items-center gap-2 mb-3 text-foreground">
-              <Zap className="h-5 w-5 text-blue-300" />
-              <h2 className="text-2xl font-semibold leading-tight">Quizzes vigentes</h2>
-            </div>
+          {activeQuizzesPending.length > 0 ? (
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {activeQuizzes.map((quiz) => {
-                const completed = completedChallengeIds.has(quiz.id);
+              {activeQuizzesPending.map((quiz) => {
                 const totalQuestions = quizQuestionCounts[quiz.id] || 0;
                 const dueLabel = quiz.due_date ? formatDueDateLabel(quiz.due_date) : '';
                 return (
@@ -1026,11 +1022,6 @@ const Dashboard = () => {
                           <Badge className="text-[10px]" variant="secondary">{typeDomain(quiz.type)}</Badge>
                         </div>
                         <div className="flex items-center gap-2">
-                          {completed && (
-                            <Badge variant="secondary" className="text-[10px]">
-                              {tr("dashboard.quizCompleted")}
-                            </Badge>
-                          )}
                           <span className="text-xs font-semibold text-accent">
                             {quiz.reward_mode === 'tier_steps'
                               ? `+${quiz.reward_tier_steps || 1} patamar(es)`
@@ -1073,147 +1064,378 @@ const Dashboard = () => {
                         variant="game"
                         onClick={() => navigate(`/challenge/${quiz.id}`)}
                       >
-                        {completed ? tr("dashboard.quizViewAgain") : tr("dashboard.quizStartNow")}
+                        {tr("dashboard.quizStartNow")}
                       </Button>
                     </CardContent>
                   </Card>
                 );
               })}
             </div>
-          </section>
-        )}
+          ) : (
+            !featuredMilhao || featuredMilhaoCompleted ? (
+              <Card className="bg-white/5 border border-white/20 text-white/90 backdrop-blur-md">
+                <CardContent className="p-4 text-sm">
+                  Nenhum quiz vigente pendente no momento.
+                </CardContent>
+              </Card>
+            ) : null
+          )}
 
+          {showQuizHistory && quizHistory.length > 0 && (
+            <div className="mt-4">
+              <div className="flex items-center justify-between gap-2 mb-3">
+                <div className="flex items-center gap-2 text-foreground">
+                  <History className="h-5 w-5 text-white/80" />
+                  <h3 className="text-lg font-semibold leading-tight">Respondidos</h3>
+                </div>
+                <Button variant="ghost" size="sm" onClick={() => navigate('/profile')}>
+                  Ver histórico completo
+                </Button>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {quizHistory.slice(0, 18).map((quiz) => {
+                  const totalQuestions = quizQuestionCounts[quiz.id] || 0;
+                  const dueLabel = quiz.due_date ? formatDueDateLabel(quiz.due_date) : '';
+                  return (
+                    <Card key={`done_${quiz.id}`} className="hover:shadow-lg transition-shadow">
+                      <CardHeader className="pb-3">
+                        <div className="flex items-center justify-between mb-2 gap-2">
+                          <div className="flex items-center gap-2">
+                            <Badge variant="outline" className="text-[10px]">Quiz</Badge>
+                            <Badge className="text-[10px]" variant="secondary">{typeDomain(quiz.type)}</Badge>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Badge variant="secondary" className="text-[10px]">
+                              {tr("dashboard.quizCompleted")}
+                            </Badge>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-8 w-8"
+                              onClick={() => {
+                                const url = buildAbsoluteAppUrl(`/challenge/${encodeURIComponent(quiz.id)}`);
+                                const dueLine = dueLabel ? `\n${tr("dashboard.quizDueUntil", { date: dueLabel })}` : '';
+                                openWhatsAppShare({
+                                  message: `${tr("dashboard.quizShareMessage", { title: quiz.title })}${dueLine}`,
+                                  url,
+                                });
+                              }}
+                              title={tr("dashboard.shareWhatsApp")}
+                            >
+                              <Share2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </div>
+                        <CardTitle className="text-base leading-tight">{quiz.title}</CardTitle>
+                        <CardDescription className="text-xs line-clamp-2">{quiz.description}</CardDescription>
+                      </CardHeader>
+                      <CardContent className="pt-0">
+                        {totalQuestions > 0 && (
+                          <p className="text-[10px] text-muted-foreground mb-2">
+                            {totalQuestions} perguntas
+                          </p>
+                        )}
+                        <Button
+                          className="w-full h-9 text-sm"
+                          variant="secondary"
+                          onClick={() => navigate(`/challenge/${quiz.id}`)}
+                        >
+                          {tr("dashboard.quizViewAgain")}
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </section>
+
+		        <section>
+		          <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
+		            <div className="flex items-center gap-2 text-foreground">
+		              <Target className="h-5 w-5 text-primary" />
+		              <h2 className="text-2xl font-semibold leading-tight">{tr("dashboard.campaignsTitle")}</h2>
+		            </div>
+		            {campaignsHistory.length > 0 && (
+		              <Button
+		                type="button"
+		                size="sm"
+		                variant={showCampaignHistory ? "secondary" : "outline"}
+		                onClick={() => setShowCampaignHistory((v) => !v)}
+		                className="gap-2"
+		                aria-label={showCampaignHistory ? "Ocultar histórico de campanhas" : "Mostrar histórico de campanhas"}
+		              >
+		                <Plus className="h-4 w-4" />
+		                {showCampaignHistory ? "Ocultar" : `+${campaignsHistory.length} no histórico`}
+		              </Button>
+		            )}
+		          </div>
+		          <div className="mb-3 space-y-2">
+		            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+		              <Input
+		                placeholder="Buscar campanha (nome/objetivo)…"
+		                value={campaignSearch}
+		                onChange={(e) => setCampaignSearch(e.target.value)}
+		                className="sm:max-w-md"
+		              />
+		              <div className="text-[11px] text-muted-foreground">
+		                {campaignsMain.length} ativa(s) pendente(s){campaignsHistory.length ? ` • ${campaignsHistory.length} no histórico` : ""}
+		              </div>
+		            </div>
+		            <div className="grid gap-2 sm:grid-cols-3">
+		              <Input
+		                placeholder="Filtrar por tag…"
+		                value={campaignTag}
+		                onChange={(e) => setCampaignTag(e.target.value)}
+		              />
+		              <Input type="date" value={campaignDateStart} onChange={(e) => setCampaignDateStart(e.target.value)} />
+		              <Input type="date" value={campaignDateEnd} onChange={(e) => setCampaignDateEnd(e.target.value)} />
+		            </div>
+		          </div>
+
+		          {campaignsMain.length === 0 ? (
+		            <Card className="bg-white/5 border border-white/20 text-white/90 backdrop-blur-md">
+		              <CardContent className="p-4 text-sm">
+		                Nenhuma campanha ativa pendente no momento.
+		              </CardContent>
+		            </Card>
+		          ) : (
+		            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+		              {campaignsMain.map((campaign) => {
+		                const status = getCampaignStatus(campaign);
+		                const stats = campaignStats?.[campaign.id];
+		                const totalActions = Number(stats?.total || 0);
+		                const approvedActions = Number(stats?.approved || 0);
+		                const lastAt = stats?.last_event_at ? new Date(stats.last_event_at) : null;
+		                const lastLabel = lastAt ? lastAt.toLocaleDateString(locale, { day: "2-digit", month: "short" }) : "—";
+		                const start = campaign.start_date ? new Date(campaign.start_date) : null;
+		                const end = campaign.end_date ? new Date(campaign.end_date) : null;
+		                const periodLabel =
+		                  start && end
+		                    ? `${start.toLocaleDateString(locale, { day: "2-digit", month: "short" })} - ${end.toLocaleDateString(locale, { day: "2-digit", month: "short" })}`
+		                    : start
+		                      ? `${start.toLocaleDateString(locale, { day: "2-digit", month: "short" })} - —`
+		                      : end
+		                        ? `— - ${end.toLocaleDateString(locale, { day: "2-digit", month: "short" })}`
+		                        : "Período não informado";
+
+		                return (
+		                  <Card
+		                    key={campaign.id}
+		                    className="hover:shadow-lg transition-shadow bg-white/5 border border-white/20 text-white backdrop-blur-md"
+		                  >
+		                    <CardHeader className="pb-3 space-y-2">
+		                      <div className="flex items-center justify-between gap-2">
+		                        <div className="flex flex-wrap items-center gap-2">
+		                          <Badge variant="outline" className="w-fit text-[11px] uppercase tracking-wide border-white/50 text-white">
+		                            {campaign.narrative_tag || "Campanha"}
+		                          </Badge>
+		                          <Badge
+		                            variant={status === "active" ? "secondary" : "outline"}
+		                            className="w-fit text-[10px] uppercase tracking-wide"
+		                          >
+		                            {status === "active" ? "Ativa" : "Encerrada"}
+		                          </Badge>
+		                        </div>
+		                        <Button
+		                          size="icon"
+		                          variant="ghost"
+		                          className="h-8 w-8 text-white/90 hover:text-white"
+		                          onClick={() => {
+		                            const url = buildAbsoluteAppUrl(`/campaign/${encodeURIComponent(campaign.id)}`);
+		                            openWhatsAppShare({
+		                              message: tr("dashboard.campaignShareMessage", { title: campaign.title }),
+		                              url,
+		                            });
+		                          }}
+		                          title={tr("dashboard.shareWhatsApp")}
+		                        >
+		                          <Share2 className="h-4 w-4" />
+		                        </Button>
+		                      </div>
+		                      <CardTitle className="text-lg leading-tight text-white">{campaign.title}</CardTitle>
+		                      <CardDescription className="text-sm text-white/75 line-clamp-2">{campaign.description || "—"}</CardDescription>
+		                    </CardHeader>
+		                    <CardContent className="pt-0">
+		                      <p className="text-xs text-white/70">{periodLabel}</p>
+		                      <p className="text-[11px] text-white/70 mt-1 mb-2">
+		                        Ações: {totalActions} • Aprovadas: {approvedActions} • Última: {lastLabel}
+		                      </p>
+		                      <Button
+		                        className="w-full h-9 text-sm"
+		                        variant="secondary"
+		                        onClick={() => navigate(`/campaign/${campaign.id}`)}
+		                      >
+		                        {tr("dashboard.campaignDetails")}
+		                      </Button>
+		                    </CardContent>
+		                  </Card>
+		                );
+		              })}
+		            </div>
+		          )}
+
+		          {showCampaignHistory && campaignsHistory.length > 0 && (
+		            <div className="mt-4">
+		              <div className="flex items-center justify-between gap-2 mb-3">
+		                <div className="flex items-center gap-2 text-foreground">
+		                  <History className="h-5 w-5 text-white/80" />
+		                  <h3 className="text-lg font-semibold leading-tight">Histórico</h3>
+		                </div>
+		              </div>
+		              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+		                {campaignsHistory.slice(0, 18).map((campaign) => {
+		                  const status = getCampaignStatus(campaign);
+		                  const stats = campaignStats?.[campaign.id];
+		                  const totalActions = Number(stats?.total || 0);
+		                  const approvedActions = Number(stats?.approved || 0);
+		                  const isCompleted = campaignCompletion(campaign.id).isCompleted;
+		                  const lastAt = stats?.last_event_at ? new Date(stats.last_event_at) : null;
+		                  const lastLabel = lastAt ? lastAt.toLocaleDateString(locale, { day: "2-digit", month: "short" }) : "—";
+		                  const start = campaign.start_date ? new Date(campaign.start_date) : null;
+		                  const end = campaign.end_date ? new Date(campaign.end_date) : null;
+		                  const periodLabel =
+		                    start && end
+		                      ? `${start.toLocaleDateString(locale, { day: "2-digit", month: "short" })} - ${end.toLocaleDateString(locale, { day: "2-digit", month: "short" })}`
+		                      : start
+		                        ? `${start.toLocaleDateString(locale, { day: "2-digit", month: "short" })} - —`
+		                        : end
+		                          ? `— - ${end.toLocaleDateString(locale, { day: "2-digit", month: "short" })}`
+		                          : "Período não informado";
+
+		                  const statusLabel =
+		                    status === "active" && isCompleted ? "Concluída" : status === "active" ? "Ativa" : "Encerrada";
+
+		                  return (
+		                    <Card
+		                      key={`hist_${campaign.id}`}
+		                      className="hover:shadow-lg transition-shadow bg-white/5 border border-white/20 text-white backdrop-blur-md"
+		                    >
+		                      <CardHeader className="pb-3 space-y-2">
+		                        <div className="flex items-center justify-between gap-2">
+		                          <div className="flex flex-wrap items-center gap-2">
+		                            <Badge variant="outline" className="w-fit text-[11px] uppercase tracking-wide border-white/50 text-white">
+		                              {campaign.narrative_tag || "Campanha"}
+		                            </Badge>
+		                            <Badge
+		                              variant={status === "active" ? "secondary" : "outline"}
+		                              className="w-fit text-[10px] uppercase tracking-wide"
+		                            >
+		                              {statusLabel}
+		                            </Badge>
+		                          </div>
+		                          <Button
+		                            size="icon"
+		                            variant="ghost"
+		                            className="h-8 w-8 text-white/90 hover:text-white"
+		                            onClick={() => {
+		                              const url = buildAbsoluteAppUrl(`/campaign/${encodeURIComponent(campaign.id)}`);
+		                              openWhatsAppShare({
+		                                message: tr("dashboard.campaignShareMessage", { title: campaign.title }),
+		                                url,
+		                              });
+		                            }}
+		                            title={tr("dashboard.shareWhatsApp")}
+		                          >
+		                            <Share2 className="h-4 w-4" />
+		                          </Button>
+		                        </div>
+		                        <CardTitle className="text-lg leading-tight text-white">{campaign.title}</CardTitle>
+		                        <CardDescription className="text-sm text-white/75 line-clamp-2">{campaign.description || "—"}</CardDescription>
+		                      </CardHeader>
+		                      <CardContent className="pt-0">
+		                        <p className="text-xs text-white/70">{periodLabel}</p>
+		                        <p className="text-[11px] text-white/70 mt-1 mb-2">
+		                          Ações: {totalActions} • Aprovadas: {approvedActions} • Última: {lastLabel}
+		                        </p>
+		                        <Button
+		                          className="w-full h-9 text-sm"
+		                          variant="secondary"
+		                          onClick={() => navigate(`/campaign/${campaign.id}`)}
+		                        >
+		                          {tr("dashboard.campaignDetails")}
+		                        </Button>
+		                      </CardContent>
+		                    </Card>
+		                  );
+		                })}
+		              </div>
+		            </div>
+			          )}
+			        </section>
+
+			        {/* Fóruns (mais recentes primeiro) */}
+			        {openForums.length > 0 && (
+			          <Card className="bg-white/5 border border-white/20 text-white backdrop-blur-md shadow-lg">
+			            <CardHeader className="pb-3">
+			              <CardTitle className="flex items-center gap-2 text-lg text-white">
+			                <Target className="h-5 w-5 text-white" />
+			                {tr("dashboard.openForumsTitle")}
+			              </CardTitle>
+			              <CardDescription className="text-white/80">{tr("dashboard.openForumsDescription")}</CardDescription>
+			            </CardHeader>
+			            <CardContent className="space-y-2">
+			              {openForums.slice(0, 4).map((topic) => {
+			                const displayTitle = (topic as any)?.title_translations?.[locale] || topic.title;
+			                const displayDesc = (topic as any)?.description_translations?.[locale] || topic.description;
+			                return (
+			                  <div
+			                    key={topic.id}
+			                    className="flex items-center justify-between p-3 border border-white/30 rounded-lg hover:bg-white/10 cursor-pointer gap-3"
+			                    onClick={() => navigate(`/forum/${topic.id}`)}
+			                  >
+			                    <div className="min-w-0 flex-1">
+			                      <p className="font-medium truncate text-white">{displayTitle}</p>
+			                      <p className="text-xs text-white/70 truncate">{displayDesc}</p>
+			                    </div>
+			                    <div className="flex items-center gap-2">
+			                      <Badge variant="outline" className="border-white/50 text-white">
+			                        {tr("dashboard.forumsPosts", { count: topic.posts_count || 0 })}
+			                      </Badge>
+			                      <button
+			                        type="button"
+			                        className="p-1 rounded-full hover:bg-white/10 text-white/90"
+			                        onClick={(e) => {
+			                          e.stopPropagation();
+			                          const url = buildAbsoluteAppUrl(`/forum/${encodeURIComponent(topic.id)}`);
+			                          openWhatsAppShare({
+			                            message: tr("dashboard.forumShareMessage", { title: displayTitle }),
+			                            url,
+			                          });
+			                        }}
+			                        aria-label={tr("dashboard.forumShareAria")}
+			                        title={tr("dashboard.shareWhatsApp")}
+			                      >
+			                        <Share2 className="h-4 w-4" />
+			                      </button>
+			                      {canDeleteContent && (
+			                        <button
+			                          type="button"
+			                          className="p-1 rounded-full hover:bg-destructive/20 text-destructive"
+			                          onClick={(e) => {
+			                            e.stopPropagation();
+			                            handleDeleteForumFromDashboard(topic.id, displayTitle);
+			                          }}
+			                          aria-label={tr("dashboard.forumDeleteAria")}
+			                        >
+			                          <Trash2 className="h-4 w-4" />
+			                        </button>
+			                      )}
+			                    </div>
+			                  </div>
+			                );
+			              })}
+			              <div className="pt-2 flex justify-end">
+			                <Button variant="ghost" size="sm" onClick={() => navigate('/forums')}>{tr("dashboard.forumsViewAll")}</Button>
+			              </div>
+			            </CardContent>
+			          </Card>
+			        )}
+
+	        {/* Challenges with filters (desativados da home; desafios agora via campanhas/fóruns) */}
+	        {showChallengesSection && (
 	        <section>
-	          <div className="flex items-center gap-2 mb-3 text-foreground">
-	            <Target className="h-5 w-5 text-primary" />
-	            <h2 className="text-2xl font-semibold leading-tight">{tr("dashboard.campaignsTitle")}</h2>
-	          </div>
-	          <div className="mb-3 space-y-2">
-	            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-	              <Input
-	                placeholder="Buscar campanha (nome/objetivo)…"
-	                value={campaignSearch}
-	                onChange={(e) => setCampaignSearch(e.target.value)}
-	                className="sm:max-w-md"
-	              />
-	              <div className="flex flex-wrap items-center gap-2">
-	                <Button
-	                  type="button"
-	                  size="sm"
-	                  variant={campaignStatusFilter === "active" ? "secondary" : "outline"}
-	                  onClick={() => setCampaignStatusFilter("active")}
-	                >
-	                  Ativas
-	                </Button>
-	                <Button
-	                  type="button"
-	                  size="sm"
-	                  variant={campaignStatusFilter === "closed" ? "secondary" : "outline"}
-	                  onClick={() => setCampaignStatusFilter("closed")}
-	                >
-	                  Encerradas
-	                </Button>
-	                <Button
-	                  type="button"
-	                  size="sm"
-	                  variant={campaignStatusFilter === "all" ? "secondary" : "outline"}
-	                  onClick={() => setCampaignStatusFilter("all")}
-	                >
-	                  Todas
-	                </Button>
-	              </div>
-	            </div>
-	            <div className="grid gap-2 sm:grid-cols-3">
-	              <Input
-	                placeholder="Filtrar por tag…"
-	                value={campaignTag}
-	                onChange={(e) => setCampaignTag(e.target.value)}
-	              />
-	              <Input type="date" value={campaignDateStart} onChange={(e) => setCampaignDateStart(e.target.value)} />
-	              <Input type="date" value={campaignDateEnd} onChange={(e) => setCampaignDateEnd(e.target.value)} />
-	            </div>
-	            <div className="text-[11px] text-muted-foreground">
-	              {filteredCampaigns.length} campanha(s)
-	            </div>
-	          </div>
-	          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-	            {filteredCampaigns.map((campaign) => {
-	              const status = getCampaignStatus(campaign);
-	              const stats = campaignStats?.[campaign.id];
-	              const totalActions = Number(stats?.total || 0);
-	              const approvedActions = Number(stats?.approved || 0);
-	              const lastAt = stats?.last_event_at ? new Date(stats.last_event_at) : null;
-	              const lastLabel = lastAt ? lastAt.toLocaleDateString(locale, { day: "2-digit", month: "short" }) : "—";
-	              const start = campaign.start_date ? new Date(campaign.start_date) : null;
-	              const end = campaign.end_date ? new Date(campaign.end_date) : null;
-	              const periodLabel =
-	                start && end
-	                  ? `${start.toLocaleDateString(locale, { day: "2-digit", month: "short" })} - ${end.toLocaleDateString(locale, { day: "2-digit", month: "short" })}`
-	                  : start
-	                    ? `${start.toLocaleDateString(locale, { day: "2-digit", month: "short" })} - —`
-	                    : end
-	                      ? `— - ${end.toLocaleDateString(locale, { day: "2-digit", month: "short" })}`
-	                      : "Período não informado";
-
-	              return (
-	              <Card
-	                key={campaign.id}
-	                className="hover:shadow-lg transition-shadow bg-white/5 border border-white/20 text-white backdrop-blur-md"
-	              >
-	                <CardHeader className="pb-3 space-y-2">
-	                  <div className="flex items-center justify-between gap-2">
-	                    <div className="flex flex-wrap items-center gap-2">
-	                      <Badge variant="outline" className="w-fit text-[11px] uppercase tracking-wide border-white/50 text-white">
-	                        {campaign.narrative_tag || "Campanha"}
-	                      </Badge>
-	                      <Badge
-	                        variant={status === "active" ? "secondary" : "outline"}
-	                        className="w-fit text-[10px] uppercase tracking-wide"
-	                      >
-	                        {status === "active" ? "Ativa" : "Encerrada"}
-	                      </Badge>
-	                    </div>
-	                    <Button
-	                      size="icon"
-	                      variant="ghost"
-	                      className="h-8 w-8 text-white/90 hover:text-white"
-	                      onClick={() => {
-                        const url = buildAbsoluteAppUrl(`/campaign/${encodeURIComponent(campaign.id)}`);
-                        openWhatsAppShare({
-                          message: tr("dashboard.campaignShareMessage", { title: campaign.title }),
-                          url,
-                        });
-                      }}
-                      title={tr("dashboard.shareWhatsApp")}
-	                    >
-	                      <Share2 className="h-4 w-4" />
-	                    </Button>
-	                  </div>
-	                  <CardTitle className="text-lg leading-tight text-white">{campaign.title}</CardTitle>
-	                  <CardDescription className="text-sm text-white/75 line-clamp-2">{campaign.description || "—"}</CardDescription>
-	                </CardHeader>
-	                <CardContent className="pt-0">
-	                  <p className="text-xs text-white/70">{periodLabel}</p>
-	                  <p className="text-[11px] text-white/70 mt-1 mb-2">
-	                    Ações: {totalActions} • Aprovadas: {approvedActions} • Última: {lastLabel}
-	                  </p>
-	                  <Button
-	                    className="w-full h-9 text-sm"
-	                    variant="secondary"
-	                    onClick={() => navigate(`/campaign/${campaign.id}`)}
-	                  >
-	                    {tr("dashboard.campaignDetails")}
-	                  </Button>
-	                </CardContent>
-	              </Card>
-	              );
-	            })}
-	          </div>
-	        </section>
-
-        {/* Challenges with filters (desativados da home; desafios agora via campanhas/fóruns) */}
-        {showChallengesSection && (
-        <section>
           <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
               <div className="flex items-center gap-2">
               <Zap className="h-5 w-5 text-blue-300" />

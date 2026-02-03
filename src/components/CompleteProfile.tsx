@@ -173,7 +173,13 @@ export function CompleteProfile({ profile }: CompleteProfileProps) {
       navigate('/dashboard');
     } catch (error) {
       console.error('Error completing profile:', error);
-      toast.error('Erro ao completar perfil');
+      const msg =
+        error instanceof Error
+          ? error.message
+          : typeof (error as any)?.message === 'string'
+            ? String((error as any)?.message)
+            : '';
+      toast.error('Erro ao completar perfil', { description: msg || undefined });
     } finally {
       setLoading(false);
     }
@@ -248,6 +254,9 @@ export function CompleteProfile({ profile }: CompleteProfileProps) {
                     minLength={6}
                     placeholder="Mínimo 6 caracteres (não use 123456)"
                     autoComplete="new-password"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
                   />
                 </div>
 
@@ -259,8 +268,12 @@ export function CompleteProfile({ profile }: CompleteProfileProps) {
                     value={formData.confirmPassword}
                     onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
                     required
+                    minLength={6}
                     placeholder="Digite a senha novamente"
                     autoComplete="new-password"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
                   />
                 </div>
               </>

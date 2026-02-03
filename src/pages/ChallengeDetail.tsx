@@ -16,6 +16,7 @@ import { QuizPlayer } from '@/components/QuizPlayer';
 import { HelpInfo } from '@/components/HelpInfo';
 import { VoiceRecorderButton } from '@/components/VoiceRecorderButton';
 import { AttachmentUploader } from '@/components/AttachmentUploader';
+import Navigation from '@/components/Navigation';
 import { buildAbsoluteAppUrl, openWhatsAppShare } from '@/lib/whatsappShare';
 import { getActiveLocale } from '@/lib/i18n/activeLocale';
 import { localeToOpenAiLanguageTag, localeToSpeechLanguage } from '@/lib/i18n/language';
@@ -371,7 +372,7 @@ const ChallengeDetail = () => {
   return (
     <div className="relative min-h-screen bg-background p-4 pb-40 overflow-hidden">
       <ThemedBackground theme={theme} />
-      <HelpInfo kind={challenge.type === 'quiz' ? 'quiz' : 'challenge'} />
+      <HelpInfo kind={(challenge.type || '').toLowerCase().includes('quiz') ? 'quiz' : 'challenge'} />
       <div className="container max-w-2xl mx-auto py-8 space-y-6 relative">
         <Button variant="ghost" onClick={() => navigate('/profile')}>
           <ArrowLeft className="h-4 w-4 mr-2" />
@@ -891,6 +892,7 @@ const ChallengeDetail = () => {
           <QuizAnalytics challengeId={challenge.id} />
         )}
       </div>
+      <Navigation />
     </div>
   );
 };

@@ -13,6 +13,7 @@ import { buildAbsoluteAppUrl, openWhatsAppShare } from '@/lib/whatsappShare'
 import { useI18n } from '@/contexts/I18nContext'
 import { translateTextsCached } from '@/lib/i18n/aiTranslate'
 import { ForumMentionsInbox } from '@/components/ForumMentionsInbox'
+import Navigation from '@/components/Navigation'
 
 interface Topic {
   id: string;
@@ -346,6 +347,7 @@ export default function Forums() {
           ))}
         </div>
       </div>
+      <Navigation />
     </div>
   )
 }
