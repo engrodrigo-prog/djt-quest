@@ -376,7 +376,7 @@ const ChallengeDetail = () => {
     <div className="relative min-h-screen bg-background p-4 pb-40 overflow-hidden">
       <ThemedBackground theme={theme} />
       <HelpInfo kind={(challenge.type || '').toLowerCase().includes('quiz') ? 'quiz' : 'challenge'} />
-      <div className="container max-w-2xl mx-auto py-8 space-y-6 relative">
+      <div className="container w-full max-w-3xl lg:max-w-4xl mx-auto py-8 space-y-6 relative">
         <Button variant="ghost" onClick={() => navigate('/profile')}>
           <ArrowLeft className="h-4 w-4 mr-2" />
           Voltar ao Perfil
