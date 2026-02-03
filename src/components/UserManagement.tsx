@@ -140,11 +140,54 @@ export const UserManagement = () => {
 
       if (error) throw error;
 
-      setUsers(data || []);
+      const baseUsers = (data || []) as UserProfile[];
+
+      // Alguns perfis (ex.: líderes) podem não ter permissão de ler avatar_url via RLS/grants.
+      // Fazemos um "hydrate" best-effort via handler server-side (service role) para preencher os avatars.
+      let mergedUsers = baseUsers;
+      try {
+        const ids = (baseUsers || []).map((u) => String((u as any)?.id || '').trim()).filter(Boolean);
+        const avatarById: Record<string, { avatar_url?: string | null; avatar_thumbnail_url?: string | null }> = {};
+        for (let i = 0; i < ids.length; i += 500) {
+          const chunk = ids.slice(i, i + 500);
+          const resp = await apiFetch('/api/admin?handler=studio-list-user-avatars', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ids: chunk }),
+          });
+          if (!resp.ok) continue;
+          const json = await resp.json().catch(() => null);
+          const items = Array.isArray(json?.items) ? json.items : [];
+          for (const item of items) {
+            const id = String(item?.id || '').trim();
+            if (!id) continue;
+            avatarById[id] = {
+              avatar_url: (item as any)?.avatar_url ?? null,
+              avatar_thumbnail_url: (item as any)?.avatar_thumbnail_url ?? null,
+            };
+          }
+        }
+        if (Object.keys(avatarById).length) {
+          mergedUsers = (baseUsers || []).map((u) => {
+            const id = String((u as any)?.id || '').trim();
+            const extra = id ? avatarById[id] : undefined;
+            if (!extra) return u;
+            return {
+              ...u,
+              avatar_thumbnail_url: (u as any)?.avatar_thumbnail_url || extra.avatar_thumbnail_url || null,
+              avatar_url: (u as any)?.avatar_url || extra.avatar_url || null,
+            };
+          });
+        }
+      } catch {
+        // ignore hydrate errors
+      }
+
+      setUsers(mergedUsers);
 
       // Mapear roles (para filtro por perfil e visualização). Best-effort: pode falhar dependendo de RLS.
       try {
-        const ids = (data || []).map((u) => String((u as any)?.id || '')).filter(Boolean);
+        const ids = (mergedUsers || []).map((u) => String((u as any)?.id || '')).filter(Boolean);
         const rolesRows: any[] = [];
         for (let i = 0; i < ids.length; i += 500) {
           const chunk = ids.slice(i, i + 500);
@@ -163,7 +206,7 @@ export const UserManagement = () => {
           byUser[k] = Array.from(new Set(byUser[k].map(normalizeRoleLocal).filter(Boolean)));
         }
         const primaryBy: Record<string, string> = {};
-        for (const u of data || []) {
+        for (const u of mergedUsers || []) {
           const uid = String((u as any)?.id || '').trim();
           if (!uid) continue;
           primaryBy[uid] = primaryRoleFromList(byUser[uid] || []);
@@ -176,7 +219,7 @@ export const UserManagement = () => {
       }
       
       // Detectar usuários de teste
-      const testUsersList = (data || []).filter(u => 
+      const testUsersList = (mergedUsers || []).filter(u => 
         u.email?.includes('@djtquest') || 
         u.email?.includes('@test') ||
         u.email?.includes('@exemplo')

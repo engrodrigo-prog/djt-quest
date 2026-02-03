@@ -596,10 +596,10 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
       </div>
 
       {/* Question */}
-      <Card>
+      <Card className="bg-background/95 backdrop-blur-sm">
         <CardHeader>
           <div className="flex items-start justify-between gap-3">
-            <CardTitle className="text-lg font-semibold leading-tight text-foreground">
+            <CardTitle className="text-[17px] sm:text-lg md:text-xl font-semibold leading-relaxed text-foreground whitespace-pre-wrap break-words">
               {currentQuestion.question_text}
             </CardTitle>
             <div className="flex items-center gap-2 flex-shrink-0">
@@ -625,11 +625,11 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
               >
                 <Volume2 className="h-4 w-4" />
               </Button>
-              <span className="text-sm px-3 py-1 rounded-full bg-primary/10 text-primary border border-primary/20">
-                {isMilhao && currentMilhaoMeta
-                  ? `${currentMilhaoMeta.faixa} • Nível ${currentMilhaoMeta.level}`
-                  : difficultyLabel}
-              </span>
+                <span className="text-[13px] sm:text-sm leading-relaxed px-3 py-1 rounded-full bg-primary/10 text-primary border border-primary/20">
+                  {isMilhao && currentMilhaoMeta
+                    ? `${currentMilhaoMeta.faixa} • Nível ${currentMilhaoMeta.level}`
+                    : difficultyLabel}
+                </span>
             </div>
           </div>
         </CardHeader>
@@ -727,7 +727,7 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
                 return (
                   <div
                     key={option.id}
-                    className={`flex items-start gap-3 p-4 rounded-lg border-2 transition-colors ${
+                    className={`flex items-start gap-3 p-4 rounded-lg border-2 transition-colors bg-background/60 ${
                       showCorrect
                         ? "border-green-500 bg-green-50 dark:bg-green-950"
                         : showWrong
@@ -743,13 +743,15 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
                     <div className="flex-1">
                       <Label
                         htmlFor={option.id}
-                        className={`cursor-pointer ${isEliminated ? "line-through text-muted-foreground" : ""}`}
+                        className={`cursor-pointer select-none text-[16px] sm:text-[15px] md:text-base leading-relaxed text-foreground whitespace-pre-wrap break-words ${isEliminated ? "line-through text-muted-foreground" : ""}`}
                       >
                         <span className="font-semibold mr-2 text-foreground">{String.fromCharCode(65 + index)}.</span>
                         {isEliminated ? "Alternativa eliminada" : option.option_text}
                       </Label>
                       {answerResult && (isSelected || showCorrect) && option.explanation && (
-                        <p className="mt-2 text-sm text-muted-foreground">{option.explanation}</p>
+                        <p className="mt-2 text-[13px] sm:text-sm leading-relaxed text-muted-foreground whitespace-pre-wrap break-words">
+                          {option.explanation}
+                        </p>
                       )}
                     </div>
                     {showCorrect && <CheckCircle2 className="h-5 w-5 text-green-600 flex-shrink-0" />}

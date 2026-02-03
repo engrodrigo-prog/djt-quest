@@ -16,6 +16,7 @@ import studioLogQuizImportMetrics from '../server/api-handlers/studio-log-quiz-i
 import studioUpdateQuizVigencia from '../server/api-handlers/studio-update-quiz-vigencia.js';
 import studioPendingCounts from '../server/api-handlers/studio-pending-counts.js';
 import studioListPendingRegistrations from '../server/api-handlers/studio-list-pending-registrations.js';
+import studioListUserAvatars from '../server/api-handlers/studio-list-user-avatars.js';
 import studioCreateUser from '../server/api-handlers/studio-create-user.js';
 import studioUpdateUser from '../server/api-handlers/studio-update-user.js';
 import uploadAvatar from '../server/api-handlers/upload-avatar.js';
@@ -77,6 +78,7 @@ const handlers: Record<string, Handler> = {
   'studio-update-quiz-vigencia': studioUpdateQuizVigencia,
   'studio-pending-counts': studioPendingCounts,
   'studio-list-pending-registrations': studioListPendingRegistrations,
+  'studio-list-user-avatars': studioListUserAvatars,
   'studio-create-user': studioCreateUser,
   'studio-update-user': studioUpdateUser,
   'upload-avatar': uploadAvatar,
