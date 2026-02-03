@@ -19,6 +19,7 @@ import { useTts } from "@/lib/tts";
 
 interface QuizPlayerProps {
   challengeId: string;
+  practiceMode?: boolean;
 }
 
 interface Question {
@@ -104,7 +105,7 @@ const inferDomain = (questionText: string, challengeTitle: string, quizSpecialti
   return "subestacoes";
 };
 
-export function QuizPlayer({ challengeId }: QuizPlayerProps) {
+export function QuizPlayer({ challengeId, practiceMode }: QuizPlayerProps) {
   const navigate = useNavigate();
   const { refreshUserSession } = useAuth();
   const { play: playSfx } = useSfx();
@@ -130,6 +131,7 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
   const progressSyncForChallengeRef = useRef<string | null>(null);
 
   const syncProgressFromDb = useCallback(async (opts?: { silent?: boolean }) => {
+    if (practiceMode) return;
     if (!challengeId) return;
     if (!questions.length) return;
     try {
@@ -179,7 +181,7 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
     } catch {
       // silencioso
     }
-  }, [challengeId, currentQuestionIndex, questions]);
+  }, [challengeId, currentQuestionIndex, practiceMode, questions]);
 
   const loadQuestions = useCallback(async () => {
     try {
@@ -193,24 +195,26 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
         if (challenge?.title) setChallengeTitle(challenge.title);
         if (Array.isArray((challenge as any)?.quiz_specialties)) setChallengeSpecialties((challenge as any).quiz_specialties);
       } catch {/* ignore */}
-      // If attempt already submitted, don't show questions
-      const { data: session } = await supabase.auth.getSession();
-      const uid = session.session?.user?.id;
-      if (uid) {
-        try {
-          const { data: attempt } = await supabase
-            .from('quiz_attempts')
-            .select('submitted_at')
-            .eq('user_id', uid)
-            .eq('challenge_id', challengeId)
-            .maybeSingle();
-          if (attempt?.submitted_at) {
-            setQuestions([]);
-            setLoading(false);
-            toast("Quiz já concluído. Consulte o histórico em Perfil.");
-            return;
-          }
-        } catch {/* ignore if table not present */}
+      if (!practiceMode) {
+        // If attempt already submitted, don't show questions
+        const { data: session } = await supabase.auth.getSession();
+        const uid = session.session?.user?.id;
+        if (uid) {
+          try {
+            const { data: attempt } = await supabase
+              .from('quiz_attempts')
+              .select('submitted_at')
+              .eq('user_id', uid)
+              .eq('challenge_id', challengeId)
+              .maybeSingle();
+            if (attempt?.submitted_at) {
+              setQuestions([]);
+              setLoading(false);
+              toast("Quiz já concluído. Consulte o histórico em Perfil.");
+              return;
+            }
+          } catch {/* ignore if table not present */}
+        }
       }
       const { data, error } = await supabase
         .from("quiz_questions")
@@ -226,7 +230,7 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
     } finally {
       setLoading(false);
     }
-  }, [challengeId]);
+  }, [challengeId, practiceMode]);
 
   const loadOptions = useCallback(async (questionId: string) => {
     try {
@@ -257,11 +261,12 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
 
   // Retomar progresso automaticamente (evita erro 400 em caso de recarregar a página no meio do quiz)
   useEffect(() => {
+    if (practiceMode) return;
     if (questions.length === 0) return;
     if (progressSyncForChallengeRef.current === challengeId) return;
     progressSyncForChallengeRef.current = challengeId;
     syncProgressFromDb({ silent: true });
-  }, [challengeId, questions.length, syncProgressFromDb]);
+  }, [challengeId, practiceMode, questions.length, syncProgressFromDb]);
 
   useEffect(() => {
     if (questions.length > 0) {
@@ -348,72 +353,103 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
 
     setIsSubmitting(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) throw new Error("Não autenticado");
+      let result: AnswerResult;
 
-      const response = await supabase.functions.invoke("submit-quiz-answer", {
-        body: {
-          question_id: questions[currentQuestionIndex].id,
-          option_id: selectedOption,
-          used_help: helpUsedThisQuestion,
-        },
-      });
+      if (practiceMode) {
+        const resp = await apiFetch("/api/quiz-practice-check", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            question_id: questions[currentQuestionIndex].id,
+            option_id: selectedOption,
+          }),
+        });
+        const json = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(String(json?.error || "Falha ao validar alternativa"));
+        const isCorrect = Boolean((json as any)?.isCorrect);
+        const correctOptionId = (json as any)?.correctOptionId ? String((json as any).correctOptionId) : null;
+        result = {
+          isCorrect,
+          xpEarned: 0,
+          explanation: null,
+          correctOptionId,
+          isCompleted: currentQuestionIndex >= questions.length - 1,
+          endedReason: "completed",
+          totalXpEarned: 0,
+        };
+      } else {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) throw new Error("Não autenticado");
 
-      if (response.error) {
-        let serverMsg = '';
-        try {
-          const resp = (response as any)?.response as Response | undefined;
-          if (resp) {
-            const ct = resp.headers.get('content-type') || '';
-            if (ct.includes('application/json')) {
-              const j = await resp.json().catch(() => ({}));
-              serverMsg = String((j as any)?.error || '');
-            } else {
-              serverMsg = String(await resp.text()).trim();
+        const response = await supabase.functions.invoke("submit-quiz-answer", {
+          body: {
+            question_id: questions[currentQuestionIndex].id,
+            option_id: selectedOption,
+            used_help: helpUsedThisQuestion,
+          },
+        });
+
+        if (response.error) {
+          let serverMsg = '';
+          try {
+            const resp = (response as any)?.response as Response | undefined;
+            if (resp) {
+              const ct = resp.headers.get('content-type') || '';
+              if (ct.includes('application/json')) {
+                const j = await resp.json().catch(() => ({}));
+                serverMsg = String((j as any)?.error || '');
+              } else {
+                serverMsg = String(await resp.text()).trim();
+              }
             }
+          } catch {
+            // ignore
           }
-        } catch {
-          // ignore
+          const msg = (serverMsg || (response.error as any)?.message || '').trim();
+          const e: any = new Error(msg || 'Erro ao enviar resposta');
+          e._raw = response.error;
+          throw e;
         }
-        const msg = (serverMsg || (response.error as any)?.message || '').trim();
-        const e: any = new Error(msg || 'Erro ao enviar resposta');
-        e._raw = response.error;
-        throw e;
+
+        result = response.data as AnswerResult;
       }
 
-      const result = response.data as AnswerResult;
       setAnswerResult(result);
 
       if (result.isCorrect) {
         playSfx("correct");
-        const bestBefore = typeof result.bestScoreBefore === "number" ? result.bestScoreBefore : null;
-        const bestAfter = typeof result.bestScoreAfter === "number" ? result.bestScoreAfter : null;
+        if (practiceMode) {
+          toast.success("Correto! (treino — sem XP)");
+        } else {
+          const bestBefore = typeof result.bestScoreBefore === "number" ? result.bestScoreBefore : null;
+          const bestAfter = typeof result.bestScoreAfter === "number" ? result.bestScoreAfter : null;
 
-        if (result.xpBlockedForLeader) {
-          toast.success("Resposta correta registrada");
-        } else if (isMilhao) {
-          if (result.xpEarned > 0) {
-            toast.success(`Correto! +${result.xpEarned} XP`);
-            if (bestBefore != null && bestAfter != null && bestAfter > bestBefore) {
-              toast.message("Novo recorde no Milhão!", { description: `${bestAfter} XP acumulado.` });
+          if (result.xpBlockedForLeader) {
+            toast.success("Resposta correta registrada");
+          } else if (isMilhao) {
+            if (result.xpEarned > 0) {
+              toast.success(`Correto! +${result.xpEarned} XP`);
+              if (bestBefore != null && bestAfter != null && bestAfter > bestBefore) {
+                toast.message("Novo recorde no Milhão!", { description: `${bestAfter} XP acumulado.` });
+              }
+            } else {
+              toast.success("Correto!");
+              if (bestAfter != null) {
+                toast.message("Sem XP extra (recorde já maior)", { description: `Seu recorde atual é ${bestAfter} XP.` });
+              }
             }
           } else {
-            toast.success("Correto!");
-            if (bestAfter != null) {
-              toast.message("Sem XP extra (recorde já maior)", { description: `Seu recorde atual é ${bestAfter} XP.` });
+            toast.success(`Correto! +${result.xpEarned} XP`);
+          }
+          if (result.xpBlockedForLeader) {
+            toast.info('Líderes não acumulam XP nos quizzes.');
+          }
+          if (!result.xpBlockedForLeader && result.xpEarned > 0) {
+            if (result.xpApplied === false) {
+              toast.error("Resposta correta, mas houve falha ao aplicar o XP. Atualize a página e tente novamente.");
             }
+            refreshUserSession().catch((e) => console.warn("QuizPlayer: refreshUserSession failed", e));
           }
-        } else {
-          toast.success(`Correto! +${result.xpEarned} XP`);
-        }
-        if (result.xpBlockedForLeader) {
-          toast.info('Líderes não acumulam XP nos quizzes.');
-        }
-        if (!result.xpBlockedForLeader && result.xpEarned > 0) {
-          if (result.xpApplied === false) {
-            toast.error("Resposta correta, mas houve falha ao aplicar o XP. Atualize a página e tente novamente.");
-          }
-          refreshUserSession().catch((e) => console.warn("QuizPlayer: refreshUserSession failed", e));
         }
       } else {
         playSfx("wrong");
@@ -426,7 +462,7 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
             toast.error(`Resposta incorreta. Fim de jogo! Total: ${total} XP`);
           }
         } else {
-          toast.error("Resposta incorreta");
+          toast.error(practiceMode ? "Incorreto (treino — sem XP)" : "Resposta incorreta");
         }
       }
     } catch (error) {
@@ -450,9 +486,13 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
     // Clear UI state early for smoother transitions
     setSelectedOption("");
     if (answerResult?.isCompleted) {
-      refreshUserSession().catch((e) => console.warn("QuizPlayer: refreshUserSession failed", e));
+      if (!practiceMode) {
+        refreshUserSession().catch((e) => console.warn("QuizPlayer: refreshUserSession failed", e));
+      }
       const total = answerResult?.totalXpEarned ?? 0;
-      if (isMilhao && answerResult.endedReason === "wrong") {
+      if (practiceMode) {
+        toast.success("Treino concluído! (sem XP)");
+      } else if (isMilhao && answerResult.endedReason === "wrong") {
         toast.error(`Fim de jogo! Total acumulado: ${total} XP`);
       } else {
         playSfx("complete");

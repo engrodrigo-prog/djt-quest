@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/contexts/AuthContext";
 import { isAllowlistedAdminFromProfile } from "@/lib/adminAllowlist";
+import { apiFetch } from "@/lib/api";
 
 type RangeKey = "30" | "60" | "180" | "365" | "all";
 
@@ -217,11 +218,26 @@ export const ChallengeManagement = ({ onlyQuizzes }: ChallengeManagementProps) =
       };
       const { data: userData } = await supabase.auth.getUser();
       const uid = userData.user?.id;
-      const { error } = await supabase
-        .from("challenges")
-        .update({ title, description, xp_reward: xp })
-        .eq("id", c.id);
-      if (error) throw error;
+
+      const isQuiz = (c.type || "").toLowerCase().includes("quiz");
+      if (isQuiz) {
+        // Quizzes podem estar "travados" após submissão/publicação (trigger enforce_quiz_workflow).
+        // Atualize via handler server-side (service_role) para manter a regra de versionamento.
+        const resp = await apiFetch("/api/admin?handler=curation-update-quiz", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ challengeId: c.id, title, description, xp_reward: xp }),
+        });
+        const json = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(json?.error || "Falha ao salvar quiz");
+      } else {
+        const { error } = await supabase
+          .from("challenges")
+          .update({ title, description, xp_reward: xp })
+          .eq("id", c.id);
+        if (error) throw error;
+      }
+
       if (uid) {
         await supabase.from("content_change_requests").insert({
           item_type: c.type.toLowerCase().includes("quiz") ? "quiz" : "challenge",

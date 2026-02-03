@@ -39,6 +39,11 @@ export default async function handler(req, res) {
     if (typeof body.description !== 'undefined') updates.description = body.description ? String(body.description) : null;
     if (typeof body.quiz_specialties !== 'undefined') updates.quiz_specialties = body.quiz_specialties || null;
     if (typeof body.chas_dimension === 'string') updates.chas_dimension = body.chas_dimension;
+    if (typeof body.xp_reward !== 'undefined') {
+      const n = Number(body.xp_reward);
+      if (!Number.isFinite(n) || n < 0) return res.status(400).json({ error: 'xp_reward inválido' });
+      updates.xp_reward = Math.floor(n);
+    }
 
     if (Object.keys(updates).length === 0) return res.status(400).json({ error: 'No updates' });
 

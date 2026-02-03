@@ -45,6 +45,7 @@ const ChallengeDetail = () => {
   const { toast } = useToast();
   const [searchParams] = useSearchParams();
   const retryEventId = searchParams.get('retry');
+  const practiceMode = searchParams.get('practice') === '1';
   const [challenge, setChallenge] = useState<Challenge | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -371,6 +372,7 @@ const ChallengeDetail = () => {
   const theme = domainFromType(challenge.type);
   const isQuiz = (challenge.type || '').toLowerCase().includes('quiz');
   const isAllowlistedAdmin = isAllowlistedAdminFromProfile(profile);
+  const canSeeQuizAnalytics = Boolean(isAllowlistedAdmin) || Boolean(isLeader) || userRole === 'admin' || String(userRole || '').includes('gerente') || String(userRole || '').includes('coordenador');
 
   return (
     <div className="relative min-h-screen bg-background p-4 pb-40 overflow-hidden">
@@ -469,7 +471,7 @@ const ChallengeDetail = () => {
         </Card>
 
         {challenge.type === 'quiz' ? (
-          quizCompleted ? (
+          quizCompleted && !practiceMode ? (
             <Card>
               <CardHeader>
                 <CardTitle>{/milh(ã|a)o/i.test(challenge.title || '') ? 'Quiz finalizado' : 'Quiz já concluído'}</CardTitle>
@@ -481,30 +483,34 @@ const ChallengeDetail = () => {
               </CardHeader>
               <CardContent>
                 <div className="flex flex-col sm:flex-row gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={resettingAttempt}
-                    onClick={resetMyQuizAttempt}
-                    className="w-full"
-                    title={
-                      /milh(ã|a)o/i.test(challenge.title || '')
-                        ? 'Zera respostas e libera nova tentativa (mantém recorde e não reduz XP)'
-                        : 'Zera respostas e permite responder novamente (sobrescreve pontuação deste quiz)'
-                    }
-                  >
-                    {resettingAttempt
-                      ? 'Preparando...'
-                      : /milh(ã|a)o/i.test(challenge.title || '')
-                        ? 'Jogar novamente (tentar bater recorde)'
-                        : 'Refazer quiz (sobrescrever pontos)'}
-                  </Button>
+                  {/milh(ã|a)o/i.test(challenge.title || '') ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={resettingAttempt}
+                      onClick={resetMyQuizAttempt}
+                      className="w-full"
+                      title={'Zera respostas e libera nova tentativa (mantém recorde e não reduz XP)'}
+                    >
+                      {resettingAttempt ? 'Preparando...' : 'Jogar novamente (tentar bater recorde)'}
+                    </Button>
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      className="w-full"
+                      onClick={() => navigate(`/challenge/${encodeURIComponent(challenge.id)}?practice=1`)}
+                      title="Treinar novamente sem pontuar"
+                    >
+                      Treinar novamente (sem pontuar)
+                    </Button>
+                  )}
                   <Button onClick={() => navigate('/dashboard')} className="w-full">Voltar</Button>
                 </div>
               </CardContent>
             </Card>
           ) : (
-            <QuizPlayer challengeId={challenge.id} />
+            <QuizPlayer challengeId={challenge.id} practiceMode={practiceMode && quizCompleted} />
           )
         ) : (
           <Card>
@@ -768,8 +774,8 @@ const ChallengeDetail = () => {
           </Card>
         )}
 
-        {/* Admin-only analytics for quizzes (management actions moved to Studio to avoid accidents during live answering). */}
-        {isQuiz && isAllowlistedAdmin && (
+        {/* Analytics for quizzes (admins + liderança). */}
+        {isQuiz && canSeeQuizAnalytics && (
           <Card>
             <CardHeader>
               <CardTitle>Quiz</CardTitle>
@@ -779,7 +785,7 @@ const ChallengeDetail = () => {
             </CardHeader>
             <CardContent className="flex flex-wrap gap-2">
               <Button type="button" variant="outline" onClick={() => setShowAnalytics((v) => !v)}>
-                <BarChart3 className="h-4 w-4 mr-2" /> Histórico
+                <BarChart3 className="h-4 w-4 mr-2" /> Aderência e notas
               </Button>
             </CardContent>
           </Card>

@@ -1138,9 +1138,11 @@ const Dashboard = () => {
                         <Button
                           className="w-full h-9 text-sm"
                           variant="secondary"
-                          onClick={() => navigate(`/challenge/${quiz.id}`)}
+                          onClick={() =>
+                            navigate(/milh(ã|a)o/i.test(quiz.title || '') ? `/challenge/${quiz.id}` : `/challenge/${quiz.id}?practice=1`)
+                          }
                         >
-                          {tr("dashboard.quizViewAgain")}
+                          {/milh(ã|a)o/i.test(quiz.title || '') ? 'Ver / jogar novamente' : 'Treinar novamente (sem pontuar)'}
                         </Button>
                       </CardContent>
                     </Card>
