@@ -63,6 +63,7 @@ const Dashboard = () => {
   const [typeFilters, setTypeFilters] = useState<Set<string>>(new Set());
   const [profile, setProfile] = useState<{ name: string; xp: number; tier: string; avatar_url: string | null; team: { name: string } | null } | null>(null);
   const [completedQuizIds, setCompletedQuizIds] = useState<Set<string>>(new Set());
+  const [attemptedMilhaoIds, setAttemptedMilhaoIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [openForums, setOpenForums] = useState<Array<{ id: string; title: string; description?: string | null; posts_count?: number | null; last_post_at?: string | null; created_at?: string | null; is_locked?: boolean | null }>>([]);
   const [pendingCounts, setPendingCounts] = useState({
@@ -134,12 +135,12 @@ const Dashboard = () => {
             .select('challenge_id')
             .eq('user_id', user.id)
           ,
-          // Tentativas finalizadas (ex.: Quiz do Milhão encerra ao errar)
+          // Tentativas (ex.: Quiz do Milhão pode encerrar ao errar; ainda assim conta como "realizado")
           supabase
             .from('quiz_attempts')
-            .select('challenge_id, submitted_at')
+            .select('challenge_id, submitted_at, score, max_score')
             .eq('user_id', user.id)
-            .not('submitted_at', 'is', null),
+          ,
           supabase
             .from('forum_topics')
             .select('id,title,description,posts_count,last_post_at,created_at,is_locked,is_active,title_translations,description_translations')
@@ -228,13 +229,18 @@ const Dashboard = () => {
           );
 
           const attemptCompleted = new Set<string>();
+          const attemptProgress = new Set<string>();
           if (quizAttemptsResult?.error) {
             console.warn('Dashboard: quiz_attempts indisponível', quizAttemptsResult.error.message);
           } else if (quizAttemptsResult?.data) {
             (quizAttemptsResult.data as any[]).forEach((row: any) => {
               const cid = String(row?.challenge_id || '');
               if (!cid) return;
-              if (row?.submitted_at) attemptCompleted.add(cid);
+              const submitted = Boolean(row?.submitted_at);
+              const score = Number(row?.score ?? 0) || 0;
+              const max = Number(row?.max_score ?? 0) || 0;
+              if (submitted || score > 0 || max > 0) attemptProgress.add(cid);
+              if (submitted) attemptCompleted.add(cid);
             });
           }
 
@@ -251,6 +257,16 @@ const Dashboard = () => {
           });
           attemptCompleted.forEach((cid) => completed.add(cid));
           setCompletedQuizIds(completed);
+
+          // Milhão: deve sumir da tela inicial assim que houver qualquer resposta/tentativa.
+          const isMilhao = (t: string) => /milh(ã|a)o/i.test(t || '');
+          const milhaoAttempted = new Set<string>();
+          quizChallenges.forEach((q) => {
+            if (!isMilhao(String(q.title || ''))) return;
+            const answered = answeredCounts.get(q.id) || 0;
+            if (answered > 0 || attemptProgress.has(q.id)) milhaoAttempted.add(q.id);
+          });
+          setAttemptedMilhaoIds(milhaoAttempted);
         }
         
       } catch (error) {
@@ -689,7 +705,12 @@ const Dashboard = () => {
     return Number.isFinite(ms) ? ms : 0;
   };
 
-  const featuredMilhaoCompleted = Boolean(featuredMilhao && completedChallengeIds.has(featuredMilhao.id));
+  const featuredMilhaoCompleted = Boolean(
+    featuredMilhao &&
+      (/milh(ã|a)o/i.test(String(featuredMilhao.title || ''))
+        ? attemptedMilhaoIds.has(featuredMilhao.id)
+        : completedChallengeIds.has(featuredMilhao.id)),
+  );
 
   const activeQuizzesSorted = useMemo(() => {
     return (activeQuizzes || []).slice().sort((a, b) => quizCreatedAtMs(b) - quizCreatedAtMs(a));
@@ -702,10 +723,17 @@ const Dashboard = () => {
 
   const quizHistory = useMemo(() => {
     const isQuiz = (c: Challenge) => (c?.type || '').toLowerCase().includes('quiz');
+    const isMilhao = (t: string) => /milh(ã|a)o/i.test(t || '');
     return (allChallenges || [])
-      .filter((c) => isQuiz(c) && completedChallengeIds.has(c.id))
+      .filter((c) => {
+        if (!isQuiz(c)) return false;
+        if (completedChallengeIds.has(c.id)) return true;
+        // Milhão: mesmo "incompleto" conta como realizado e deve ir para o histórico (+)
+        if (isMilhao(String(c.title || '')) && attemptedMilhaoIds.has(c.id)) return true;
+        return false;
+      })
       .sort((a, b) => quizCreatedAtMs(b) - quizCreatedAtMs(a));
-  }, [allChallenges, completedChallengeIds]);
+  }, [allChallenges, attemptedMilhaoIds, completedChallengeIds]);
 
   const handleDeleteChallenge = async (challenge: Challenge) => {
     if (!user) return;
