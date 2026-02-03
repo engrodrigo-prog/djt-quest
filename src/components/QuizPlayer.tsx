@@ -551,10 +551,10 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
     difficultyLabelMap[currentQuestion.difficulty_level] || currentQuestion.difficulty_level;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pl-[calc(env(safe-area-inset-left)+1rem)] pr-[calc(env(safe-area-inset-right)+1rem)] sm:pl-0 sm:pr-0">
       {/* Progress / Milhão HUD */}
       <div className="space-y-2">
-        <div className="flex justify-between text-sm">
+        <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
           {isMilhao && currentMilhaoMeta ? (
             <span className="font-medium">
               Nível {currentMilhaoMeta.level} de 10 • {currentMilhaoMeta.titulo}
@@ -598,11 +598,11 @@ export function QuizPlayer({ challengeId }: QuizPlayerProps) {
       {/* Question */}
       <Card className="bg-background/95 backdrop-blur-sm">
         <CardHeader>
-          <div className="flex items-start justify-between gap-3">
+          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
             <CardTitle className="text-[17px] sm:text-lg md:text-xl font-semibold leading-relaxed text-foreground whitespace-pre-wrap break-words">
               {currentQuestion.question_text}
             </CardTitle>
-            <div className="flex items-center gap-2 flex-shrink-0">
+            <div className="flex items-center gap-2 flex-shrink-0 self-end sm:self-auto">
               <Button
                 type="button"
                 size="icon"
