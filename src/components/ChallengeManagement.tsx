@@ -4,6 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/contexts/AuthContext";
+import { isAllowlistedAdminFromProfile } from "@/lib/adminAllowlist";
 
 type RangeKey = "30" | "60" | "180" | "365" | "all";
 
@@ -34,8 +35,15 @@ export const ChallengeManagement = ({ onlyQuizzes }: ChallengeManagementProps) =
   const [editXp, setEditXp] = useState<string>("0");
 
   const isTopLeader = profile?.matricula === "601555";
+  const isAllowlistedAdmin = isAllowlistedAdminFromProfile(profile);
   const canDelete =
-    Boolean(isLeader) || (userRole && (userRole.includes("gerente") || userRole.includes("coordenador")));
+    Boolean(isAllowlistedAdmin) ||
+    (Boolean(isLeader) || (userRole && (userRole.includes("gerente") || userRole.includes("coordenador"))));
+  const canDeleteThis = (c: Challenge) => {
+    const isQuiz = (c.type || "").toLowerCase().includes("quiz");
+    if (onlyQuizzes && isQuiz) return Boolean(isAllowlistedAdmin);
+    return Boolean(canDelete);
+  };
 
   const load = async () => {
     setLoading(true);
@@ -81,39 +89,73 @@ export const ChallengeManagement = ({ onlyQuizzes }: ChallengeManagementProps) =
 
   const updateStatus = async (c: Challenge, status: string) => {
     if (!c.id) return;
+    const isQuiz = (c.type || "").toLowerCase().includes("quiz");
+    if (isQuiz && !isAllowlistedAdmin) {
+      alert("Apenas admins (Rodrigo/Cíntia) podem alterar status de quizzes no momento.");
+      return;
+    }
     try {
       const msg =
         status === "active"
           ? "Reabrir este desafio/quiz para um novo ciclo?"
           : "Encerrar este desafio/quiz? Ele deixará de aceitar novas ações/respostas.";
       if (!window.confirm(msg)) return;
-      // Prefer server route (service_role bypasses quiz workflow locks); fallback to direct update.
-      try {
-        const { data: session } = await supabase.auth.getSession();
-        const token = session.session?.access_token;
-        if (!token) throw new Error("Não autenticado");
-        const resp = await fetch("/api/admin?handler=challenges-update-status", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ id: c.id, status }),
-        });
-        const json = await resp.json().catch(() => ({}));
-        if (!resp.ok) throw new Error(json?.error || "Falha ao atualizar status");
-      } catch (e) {
-        const { error } = await supabase.from("challenges").update({ status }).eq("id", c.id);
-        if (error) throw error;
-      }
+      const { data: session } = await supabase.auth.getSession();
+      const token = session.session?.access_token;
+      if (!token) throw new Error("Não autenticado");
+      const resp = await fetch("/api/admin?handler=challenges-update-status", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ id: c.id, status }),
+      });
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(json?.error || "Falha ao atualizar status");
       await load();
     } catch (e: any) {
       alert(String(e?.message || "Erro ao atualizar desafio"));
     }
   };
 
+  const cancelQuiz = async (c: Challenge) => {
+    if (!c?.id) return;
+    const isQuiz = (c.type || "").toLowerCase().includes("quiz");
+    if (!isQuiz) return;
+    if (!isAllowlistedAdmin) {
+      alert("Apenas admins (Rodrigo/Cíntia) podem cancelar quizzes no momento.");
+      return;
+    }
+    if (!window.confirm('Cancelar este quiz? Os usuários não poderão mais responder.')) return;
+    try {
+      const { data: session } = await supabase.auth.getSession();
+      const token = session.session?.access_token;
+      if (!token) throw new Error("Não autenticado");
+      const resp = await fetch("/api/admin?handler=challenges-update-status", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ id: c.id, status: "canceled" }),
+      });
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(json?.error || "Falha ao cancelar quiz");
+      await load();
+    } catch (e: any) {
+      alert(String(e?.message || "Erro ao cancelar quiz"));
+    }
+  };
+
   const handleDelete = async (c: Challenge) => {
-    if (!canDelete || !c.id) return;
+    if (!c?.id) return;
+    const isQuiz = (c.type || "").toLowerCase().includes("quiz");
+    if (onlyQuizzes && isQuiz && !isAllowlistedAdmin) {
+      alert("Apenas admins (Rodrigo/Cíntia) podem excluir quizzes no momento.");
+      return;
+    }
+    if (!canDelete && !(onlyQuizzes && isQuiz && isAllowlistedAdmin)) return;
     const baseMsg = `Esta ação vai excluir permanentemente o desafio/quiz "${c.title}" e remover TODO o XP acumulado por quaisquer usuários ligado a ele.`;
     const approvalMsg = isTopLeader
       ? `${baseMsg}\n\nVocê é o líder máximo, esta exclusão será aplicada imediatamente. Confirmar?`
@@ -320,30 +362,43 @@ export const ChallengeManagement = ({ onlyQuizzes }: ChallengeManagementProps) =
                             Cancelar
                           </Button>
                         </>
-                      ) : (
-                        <>
-                          <Button
-                            size="xs"
-                            variant="outline"
-                            onClick={() => handleEdit(c)}
-                          >
-                            Editar
-                          </Button>
-                          <Button
-                            size="xs"
-                            variant="outline"
-                            onClick={() => updateStatus(c, "closed")}
-                          >
-                            Encerrar
-                          </Button>
-                          <Button
-                            size="xs"
-                            variant="secondary"
-                            onClick={() => updateStatus(c, "active")}
-                          >
-                            Reabrir
-                          </Button>
-                          {canDelete && (
+	                      ) : (
+	                        <>
+	                          <Button
+	                            size="xs"
+	                            variant="outline"
+	                            onClick={() => handleEdit(c)}
+	                          >
+	                            Editar
+	                          </Button>
+	                          {(!onlyQuizzes || isAllowlistedAdmin) && (
+	                            <>
+	                              <Button
+	                                size="xs"
+	                                variant="outline"
+	                                onClick={() => updateStatus(c, "closed")}
+	                              >
+	                                Encerrar
+	                              </Button>
+	                              <Button
+	                                size="xs"
+	                                variant="secondary"
+	                                onClick={() => updateStatus(c, "active")}
+	                              >
+	                                Reabrir
+	                              </Button>
+	                            </>
+	                          )}
+	                          {onlyQuizzes && isAllowlistedAdmin && (
+	                            <Button
+	                              size="xs"
+	                              variant="destructive"
+	                              onClick={() => cancelQuiz(c)}
+	                            >
+	                              Cancelar
+	                            </Button>
+	                          )}
+                          {canDeleteThis(c) && (
                             <Button
                               size="xs"
                               variant="destructive"
@@ -352,8 +407,8 @@ export const ChallengeManagement = ({ onlyQuizzes }: ChallengeManagementProps) =
                               Excluir
                             </Button>
                           )}
-                        </>
-                      )}
+	                        </>
+	                      )}
                     </div>
                   </div>
                 </div>

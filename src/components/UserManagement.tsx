@@ -21,6 +21,8 @@ interface UserProfile {
   id: string;
   email: string;
   name: string;
+  avatar_url?: string | null;
+  avatar_thumbnail_url?: string | null;
   created_at: string;
   operational_base: string | null;
   sigla_area: string | null;
@@ -121,6 +123,8 @@ export const UserManagement = () => {
           id,
           email,
           name,
+          avatar_url,
+          avatar_thumbnail_url,
           created_at,
           operational_base,
           sigla_area,
@@ -675,34 +679,46 @@ export const UserManagement = () => {
               </Button>
             </div>
           </div>
-          <ScrollArea className="h-[460px] pr-4">
-            <div className="space-y-2">
-              {filteredUsers.map((user) => {
-                const isTestUser = testUsers.find(tu => tu.id === user.id);
-                return (
-                  <div
-                    key={user.id}
-                    className={`flex items-center justify-between p-4 rounded-lg border ${
-                      isTestUser ? 'border-orange-500/30 bg-orange-500/5' : 'border-border'
-                    } hover:bg-muted/50 transition-colors`}
+	          <ScrollArea className="h-[460px] pr-4">
+	            <div className="space-y-2">
+	              {filteredUsers.map((user) => {
+	                const isTestUser = testUsers.find(tu => tu.id === user.id);
+	                const avatar = (user as any)?.avatar_thumbnail_url || (user as any)?.avatar_url || null;
+	                return (
+	                  <div
+	                    key={user.id}
+	                    className={`flex items-center justify-between p-4 rounded-lg border ${
+	                      isTestUser ? 'border-orange-500/30 bg-orange-500/5' : 'border-border'
+	                    } hover:bg-muted/50 transition-colors`}
                     onClick={(e) => {
                       const target = e.target as HTMLElement;
                       if (target.closest('button') || target.closest('input[type="checkbox"]')) return;
                       openEditor(user);
                     }}
                   >
-                    <div className="flex items-start gap-3 flex-1 min-w-0">
-                      <input
-                        type="checkbox"
-                        checked={selectedIds.has(user.id)}
-                        onChange={() => toggleSelect(user.id)}
-                        className="mt-1"
-                      />
-                      <div className="space-y-1 min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                        <p className="font-medium text-foreground truncate">{user.name}</p>
-                          <Badge variant={primaryRoleByUserId[String(user.id || '')] ? "secondary" : "outline"} className="text-[10px]">
-                            {primaryRoleByUserId[String(user.id || '')] ? roleLabel(primaryRoleByUserId[String(user.id || '')]) : "Sem role"}
+	                    <div className="flex items-start gap-3 flex-1 min-w-0">
+	                      <input
+	                        type="checkbox"
+	                        checked={selectedIds.has(user.id)}
+	                        onChange={() => toggleSelect(user.id)}
+	                        className="mt-1"
+	                      />
+	                      <div className="mt-0.5 h-10 w-10 flex-shrink-0 rounded-full overflow-hidden bg-transparent">
+	                        {avatar ? (
+	                          <img
+	                            src={avatar}
+	                            alt={user.name || 'Avatar'}
+	                            className="h-full w-full object-cover"
+	                            loading="lazy"
+	                            decoding="async"
+	                          />
+	                        ) : null}
+	                      </div>
+	                      <div className="space-y-1 min-w-0 flex-1">
+	                        <div className="flex items-center gap-2">
+	                        <p className="font-medium text-foreground truncate">{user.name}</p>
+	                          <Badge variant={primaryRoleByUserId[String(user.id || '')] ? "secondary" : "outline"} className="text-[10px]">
+	                            {primaryRoleByUserId[String(user.id || '')] ? roleLabel(primaryRoleByUserId[String(user.id || '')]) : "Sem role"}
                           </Badge>
                           {isTestUser && (
                             <Badge variant="outline" className="bg-orange-500/10 text-orange-600 border-orange-500/20">

@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { isAllowlistedAdmin } from '../lib/admin-allowlist.js';
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY);
 export default async function handler(req, res) {
@@ -16,15 +17,17 @@ export default async function handler(req, res) {
         const token = authHeader.slice(7);
         const { data: userData } = await admin.auth.getUser(token);
         const uid = userData?.user?.id;
+        const email = String(userData?.user?.email || '').toLowerCase();
         if (!uid)
             return res.status(401).json({ error: 'Unauthorized' });
         const { id } = req.body || {};
         if (!id)
             return res.status(400).json({ error: 'id required' });
-        // Only leaders/managers/admins can delete quizzes
-        const { data: roles } = await admin.from('user_roles').select('role').eq('user_id', uid);
-        const allowed = new Set(['coordenador_djtx', 'gerente_divisao_djtx', 'gerente_djt', 'admin']);
-        if (!roles?.some((r) => allowed.has(r.role)))
+        // Only allowlisted admins (for now) can delete quizzes
+        const { data: prof } = await admin.from('profiles').select('matricula,email').eq('id', uid).maybeSingle();
+        const matricula = String(prof?.matricula || '').trim();
+        const profileEmail = String(prof?.email || '').trim().toLowerCase();
+        if (!isAllowlistedAdmin({ email: email || profileEmail, matricula }))
             return res.status(403).json({ error: 'Insufficient permissions' });
         // Ensure it's a quiz
         const { data: chall, error: chErr } = await admin.from('challenges').select('type').eq('id', id).maybeSingle();
@@ -32,7 +35,7 @@ export default async function handler(req, res) {
             return res.status(400).json({ error: chErr.message });
         if (!chall)
             return res.status(404).json({ error: 'Challenge not found' });
-        if (String(chall.type || '').toLowerCase() !== 'quiz')
+        if (!String(chall.type || '').toLowerCase().includes('quiz'))
             return res.status(400).json({ error: 'Only quiz challenges can be deleted here' });
         // Delete: FKs on quiz_questions -> options cascade; events may exist (historical) so block if any answers exist
         const { count: answersCnt } = await admin.from('user_quiz_answers').select('id', { count: 'exact', head: true }).eq('challenge_id', id);

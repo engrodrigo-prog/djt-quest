@@ -21,6 +21,7 @@ import { buildAbsoluteAppUrl, openWhatsAppShare } from '@/lib/whatsappShare';
 import { getActiveLocale } from '@/lib/i18n/activeLocale';
 import { localeToOpenAiLanguageTag, localeToSpeechLanguage } from '@/lib/i18n/language';
 import { apiFetch } from '@/lib/api';
+import { isAllowlistedAdminFromProfile } from '@/lib/adminAllowlist';
 
 interface Challenge {
   id: string;
@@ -39,7 +40,7 @@ interface Challenge {
 
 const ChallengeDetail = () => {
   const { id } = useParams();
-  const { user, isLeader, studioAccess, userRole, refreshUserSession } = useAuth() as any;
+  const { user, isLeader, studioAccess, userRole, refreshUserSession, profile } = useAuth() as any;
   const navigate = useNavigate();
   const { toast } = useToast();
   const [searchParams] = useSearchParams();
@@ -368,6 +369,8 @@ const ChallengeDetail = () => {
   if (!challenge) return null;
 
   const theme = domainFromType(challenge.type);
+  const isQuiz = (challenge.type || '').toLowerCase().includes('quiz');
+  const isAllowlistedAdmin = isAllowlistedAdminFromProfile(profile);
 
   return (
     <div className="relative min-h-screen bg-background p-4 pb-40 overflow-hidden">
@@ -765,130 +768,24 @@ const ChallengeDetail = () => {
           </Card>
         )}
 
-        {/* Ações de gerenciamento para QUIZ (apenas líderes com acesso ao Studio) */}
-        {challenge.type?.toLowerCase?.().includes('quiz') && user && studioAccess && isLeader && (
+        {/* Admin-only analytics for quizzes (management actions moved to Studio to avoid accidents during live answering). */}
+        {isQuiz && isAllowlistedAdmin && (
           <Card>
             <CardHeader>
-              <CardTitle>Gerenciar Quiz</CardTitle>
+              <CardTitle>Quiz</CardTitle>
               <CardDescription>
                 Status atual: <strong>{(challenge.status || 'active').toUpperCase()}</strong>
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-wrap gap-2">
-              {/milh(ã|a)o/i.test(challenge.title || '') && (
-                <>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={reopening}
-                    onClick={() => reopenMyMilhaoAttempts('current')}
-                    title="Reabre sua tentativa (para re-teste das regras novas)"
-                  >
-                    {reopening ? 'Reabrindo...' : 'Reabrir minha tentativa'}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={reopening}
-                    onClick={() => reopenMyMilhaoAttempts('latest2')}
-                    title="Reabre as tentativas dos 2 quizzes mais recentes do Milhão"
-                  >
-                    {reopening ? 'Reabrindo...' : 'Reabrir 2 últimos do Milhão'}
-                  </Button>
-                </>
-              )}
-              <Button type="button" variant="outline" onClick={async () => {
-                try {
-                  // Try API route first, fallback to direct update
-                  try {
-                    const { data: session } = await supabase.auth.getSession();
-                    const token = session.session?.access_token;
-                    const resp = await fetch('/api/admin?handler=challenges-update-status', {
-                      method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-                      body: JSON.stringify({ id: challenge.id, status: 'active' })
-                    });
-                    if (!resp.ok) {
-                      const j = await resp.json().catch(()=>({}));
-                      throw new Error(j?.error || 'Falha ao reabrir');
-                    }
-                  } catch (e) {
-                    const { error } = await supabase.from('challenges').update({ status: 'active' }).eq('id', challenge.id);
-                    if (error) throw error;
-                  }
-                  toast({ title: 'Quiz reaberto para coleta' });
-                  setChallenge({ ...challenge, status: 'active' });
-                } catch (e: any) {
-                  toast({ title: 'Falha ao reabrir', description: e?.message || 'Tente novamente', variant: 'destructive' })
-                }
-              }}>Reabrir Coleta</Button>
-
-              <Button type="button" variant="secondary" onClick={async () => {
-                try {
-                  try {
-                    const { data: session } = await supabase.auth.getSession();
-                    const token = session.session?.access_token;
-                    const resp = await fetch('/api/admin?handler=challenges-update-status', {
-                      method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-                      body: JSON.stringify({ id: challenge.id, status: 'closed' })
-                    });
-                    if (!resp.ok) {
-                      const j = await resp.json().catch(()=>({}));
-                      throw new Error(j?.error || 'Falha ao encerrar');
-                    }
-                  } catch (e) {
-                    const { error } = await supabase.from('challenges').update({ status: 'closed' }).eq('id', challenge.id);
-                    if (error) throw error;
-                  }
-                  toast({ title: 'Coleta encerrada' });
-                  setChallenge({ ...challenge, status: 'closed' });
-                } catch (e: any) {
-                  toast({ title: 'Falha ao encerrar', description: e?.message || 'Tente novamente', variant: 'destructive' })
-                }
-              }}>Encerrar Coleta</Button>
-
-              <Button type="button" variant="destructive" onClick={async () => {
-                if (!confirm('Cancelar este quiz? Os usuários não poderão mais responder.')) return;
-                try {
-                  const { error } = await supabase.from('challenges').update({ status: 'canceled' }).eq('id', challenge.id);
-                  if (error) throw error;
-                  toast({ title: 'Quiz cancelado' });
-                  setChallenge({ ...challenge, status: 'canceled' });
-                } catch (e: any) {
-                  toast({ title: 'Falha ao cancelar', description: e?.message || 'Tente novamente', variant: 'destructive' })
-                }
-              }}>Cancelar Quiz</Button>
-
-              <Button type="button" variant="destructive" onClick={async () => {
-                if (!confirm('Excluir este quiz definitivamente? Esta ação não poderá ser desfeita.')) return;
-                try {
-                  // Try service API first, fallback to direct delete
-                  try {
-                    const { data: session } = await supabase.auth.getSession();
-                    const token = session.session?.access_token;
-                    const resp = await fetch('/api/admin?handler=challenges-delete', {
-                      method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-                      body: JSON.stringify({ id: challenge.id })
-                    });
-                    const j = await resp.json().catch(()=>({}));
-                    if (!resp.ok) throw new Error(j?.error || 'Falha ao excluir');
-                  } catch (e) {
-                    const { error } = await supabase.from('challenges').delete().eq('id', challenge.id);
-                    if (error) throw error;
-                  }
-                  toast({ title: 'Quiz excluído' });
-                  navigate('/studio');
-                } catch (e: any) {
-                  toast({ title: 'Falha ao excluir', description: e?.message || 'Tente novamente', variant: 'destructive' })
-                }
-              }}>Excluir Quiz</Button>
-              <Button type="button" variant="outline" onClick={() => setShowAnalytics((v)=>!v)}>
+              <Button type="button" variant="outline" onClick={() => setShowAnalytics((v) => !v)}>
                 <BarChart3 className="h-4 w-4 mr-2" /> Histórico
               </Button>
             </CardContent>
           </Card>
         )}
 
-        {showAnalytics && challenge.type?.toLowerCase?.() === 'quiz' && (
+        {showAnalytics && isQuiz && (
           <QuizAnalytics challengeId={challenge.id} />
         )}
       </div>
