@@ -13,6 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 import { apiFetch } from '@/lib/api';
+import { extractYyyyMmDd } from '@/lib/dateKey';
 import { supabase } from '@/integrations/supabase/client';
 import { QuizQuestionForm } from '@/components/QuizQuestionForm';
 import { QuizQuestionsList } from '@/components/QuizQuestionsList';
@@ -151,8 +152,8 @@ export default function StudioCuration() {
       setDetail(json);
       setEditTitle(String(json?.quiz?.title || ''));
       setEditDescription(String(json?.quiz?.description || ''));
-      const dd = String(json?.quiz?.due_date || '').trim();
-      setEditDueDate(/^\d{4}-\d{2}-\d{2}$/.test(dd) ? dd : '');
+      const dd = extractYyyyMmDd(json?.quiz?.due_date);
+      setEditDueDate(dd || '');
     } catch (e: any) {
       toast.error(e?.message || 'Falha ao carregar quiz');
       setDetail(null);

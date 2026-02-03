@@ -591,7 +591,7 @@ export function QuizPlayer({ challengeId, practiceMode }: QuizPlayerProps) {
     difficultyLabelMap[currentQuestion.difficulty_level] || currentQuestion.difficulty_level;
 
   return (
-    <div className="space-y-6 pl-[calc(env(safe-area-inset-left)+1rem)] pr-[calc(env(safe-area-inset-right)+1rem)] sm:pl-0 sm:pr-0">
+    <div className="space-y-6">
       {/* Progress / Milhão HUD */}
       <div className="space-y-2">
         <div className="flex flex-wrap items-center justify-between gap-2 text-sm">

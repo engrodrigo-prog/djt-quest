@@ -48,6 +48,7 @@ const ChallengeDetail = () => {
   const practiceMode = searchParams.get('practice') === '1';
   const [challenge, setChallenge] = useState<Challenge | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<{ kind: 'no_access' | 'error'; message?: string } | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [description, setDescription] = useState('');
   const [evidenceUrls, setEvidenceUrls] = useState<string[]>([]);
@@ -183,15 +184,26 @@ const ChallengeDetail = () => {
     const loadChallenge = async () => {
       if (!id) return;
 
+      setLoading(true);
+      setLoadError(null);
       const { data, error } = await supabase
         .from('challenges')
         .select('*, created_by')
         .eq('id', id)
-        .single();
+        .maybeSingle();
 
       if (error) {
-        toast({ title: 'Erro', description: 'Não foi possível carregar o desafio', variant: 'destructive' });
-        navigate('/');
+        console.warn('ChallengeDetail: erro ao carregar desafio', error);
+        setLoadError({ kind: 'error', message: error.message });
+        setLoading(false);
+        return;
+      }
+
+      if (!data) {
+        // Tipicamente: link inválido OU RLS (quiz ainda em curadoria/rascunho).
+        setLoadError({ kind: 'no_access' });
+        setChallenge(null);
+        setLoading(false);
         return;
       }
 
@@ -258,7 +270,7 @@ const ChallengeDetail = () => {
     };
 
     loadChallenge();
-  }, [id, retryEventId, navigate, toast, user]);
+  }, [id, retryEventId, user]);
 
   // Load participants catalog (alphabetical; same team first)
   useEffect(() => {
@@ -367,6 +379,51 @@ const ChallengeDetail = () => {
     );
   }
 
+  if (loadError) {
+    return (
+      <div className="relative min-h-screen bg-background p-4 pb-40 overflow-hidden">
+        <ThemedBackground theme="Conhecimento" />
+        <div className="container w-full max-w-2xl mx-auto py-8 space-y-6 relative">
+          <Button variant="ghost" onClick={() => navigate('/dashboard')}>
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Voltar
+          </Button>
+          <Card>
+            <CardHeader>
+              <CardTitle>{loadError.kind === 'no_access' ? 'Quiz/Desafio indisponível' : 'Erro ao carregar'}</CardTitle>
+              <CardDescription>
+                {loadError.kind === 'no_access'
+                  ? 'Este conteúdo pode ainda não ter sido publicado (em curadoria) ou você não tem permissão para acessá-lo.'
+                  : 'Não foi possível carregar este conteúdo no momento.'}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                ID: <span className="font-mono text-xs">{id}</span>
+              </p>
+              {loadError.kind === 'error' && loadError.message ? (
+                <p className="text-xs text-muted-foreground">
+                  Detalhe: <span className="font-mono">{loadError.message}</span>
+                </p>
+              ) : null}
+              <div className="flex flex-col sm:flex-row gap-2">
+                <Button variant="secondary" className="w-full" onClick={() => window.location.reload()}>
+                  Tentar novamente
+                </Button>
+                <Button className="w-full" onClick={() => navigate('/dashboard')}>
+                  Ir para o Início
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Se o link foi compartilhado hoje e não abre, peça para o responsável publicar o quiz na Curadoria do Studio.
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
   if (!challenge) return null;
 
   const theme = domainFromType(challenge.type);
@@ -378,7 +435,11 @@ const ChallengeDetail = () => {
     <div className="relative min-h-screen bg-background p-4 pb-40 overflow-hidden">
       <ThemedBackground theme={theme} />
       <HelpInfo kind={(challenge.type || '').toLowerCase().includes('quiz') ? 'quiz' : 'challenge'} />
-      <div className="container w-full max-w-3xl lg:max-w-4xl mx-auto py-8 space-y-6 relative">
+      <div
+        className={`container w-full mx-auto py-8 space-y-6 relative ${
+          isQuiz ? 'max-w-4xl lg:max-w-6xl' : 'max-w-3xl lg:max-w-4xl'
+        }`}
+      >
         <Button variant="ghost" onClick={() => navigate('/profile')}>
           <ArrowLeft className="h-4 w-4 mr-2" />
           Voltar ao Perfil

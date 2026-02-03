@@ -18,6 +18,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { QuizQuestionForm } from './QuizQuestionForm';
 import { QuizQuestionsList } from './QuizQuestionsList';
 import { apiFetch } from '@/lib/api';
+import { extractYyyyMmDd } from '@/lib/dateKey';
 import { CompendiumPicker } from '@/components/CompendiumPicker';
 import { getActiveLocale } from '@/lib/i18n/activeLocale';
 import { localeToOpenAiLanguageTag } from '@/lib/i18n/language';
@@ -775,7 +776,7 @@ export function QuizCreationWizard() {
         if (!created?.id) throw new Error("Resposta inesperada ao criar quiz");
         setQuizMeta({ title: data.title, description: data.description || '' });
         setQuizXpReward(Number(data.xp_reward) || 10);
-        setQuizDueDate(String(created?.due_date || (data as any).due_date || '').trim());
+        setQuizDueDate(extractYyyyMmDd(created?.due_date) || extractYyyyMmDd((data as any).due_date) || '');
         setQuizId(created.id);
         if (textImportAuto && String(textImport || '').trim()) {
           await importTextQuestionsToQuiz(created.id);
@@ -822,7 +823,7 @@ export function QuizCreationWizard() {
       setQuizId(challenge.id);
       setQuizMeta({ title: data.title, description: data.description || '' });
       setQuizXpReward(Number(data.xp_reward) || 10);
-      setQuizDueDate(String((data as any).due_date || '').trim());
+      setQuizDueDate(extractYyyyMmDd((data as any).due_date) || '');
       if (textImportAuto && String(textImport || '').trim()) {
         await importTextQuestionsToQuiz(challenge.id);
       } else {
@@ -1066,8 +1067,8 @@ export function QuizCreationWizard() {
         const xp = Number((data as any)?.xp_reward);
         if (cancelled) return;
         if (Number.isFinite(xp)) setQuizXpReward(xp);
-        const due = String((data as any)?.due_date || '').trim();
-        if (due && /^\d{4}-\d{2}-\d{2}$/.test(due)) setQuizDueDate(due);
+        const due = extractYyyyMmDd((data as any)?.due_date);
+        if (due) setQuizDueDate(due);
       } catch {
         // ignore
       }

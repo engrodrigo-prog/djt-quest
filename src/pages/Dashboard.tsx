@@ -18,6 +18,7 @@ import { fetchTeamNames } from "@/lib/teamLookup";
 import { buildAbsoluteAppUrl, openWhatsAppShare } from "@/lib/whatsappShare";
 import { useI18n } from "@/contexts/I18nContext";
 import { apiFetch } from "@/lib/api";
+import { extractYyyyMmDd } from "@/lib/dateKey";
 
 interface Campaign {
   id: string;
@@ -480,8 +481,8 @@ const Dashboard = () => {
 
   const formatDueDateLabel = useCallback(
     (dueDate: string | null | undefined) => {
-      const d = String(dueDate || '').trim();
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return '';
+      const d = extractYyyyMmDd(dueDate);
+      if (!d) return '';
       try {
         // Avoid timezone shifts by parsing as local date.
         return new Date(`${d}T00:00:00`).toLocaleDateString(locale || undefined);
@@ -494,8 +495,8 @@ const Dashboard = () => {
 
   const isChallengeVigente = (ch: Challenge) => {
     if (ch?.due_date) {
-      const d = String(ch.due_date || '').trim();
-      if (/^\d{4}-\d{2}-\d{2}$/.test(d)) {
+      const d = extractYyyyMmDd(ch.due_date);
+      if (d) {
         try {
           const end = new Date(`${d}T23:59:59.999`);
           if (Number.isFinite(end.getTime()) && end < new Date()) return false;
@@ -717,8 +718,14 @@ const Dashboard = () => {
   }, [activeQuizzes]);
 
   const activeQuizzesPending = useMemo(
-    () => activeQuizzesSorted.filter((q) => !completedChallengeIds.has(q.id)),
-    [activeQuizzesSorted, completedChallengeIds],
+    () =>
+      activeQuizzesSorted.filter((q) => {
+        if (completedChallengeIds.has(q.id)) return false;
+        // Milhão: mesmo que não tenha "completado" (errou antes do fim), se já tentou deve sair da lista principal.
+        if (/milh(ã|a)o/i.test(String(q.title || '')) && attemptedMilhaoIds.has(q.id)) return false;
+        return true;
+      }),
+    [activeQuizzesSorted, attemptedMilhaoIds, completedChallengeIds],
   );
 
   const quizHistory = useMemo(() => {
