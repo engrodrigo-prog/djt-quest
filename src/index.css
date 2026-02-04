@@ -117,34 +117,68 @@ All colors MUST be HSL.
 
 @layer base {
   * {
-    @apply border-border;
+    border-color: hsl(var(--border));
   }
 
   body {
-    @apply bg-background text-foreground font-sans antialiased text-[15px] leading-relaxed;
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-family: ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol",
+      "Noto Color Emoji";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-size: 15px;
+    line-height: 1.625;
   }
 
   h1 {
-    @apply text-3xl md:text-4xl font-semibold leading-tight tracking-tight text-foreground;
+    font-size: 1.875rem;
+    font-weight: 600;
+    line-height: 1.25;
+    letter-spacing: -0.025em;
+    color: hsl(var(--foreground));
   }
 
   h2 {
-    @apply text-2xl md:text-3xl font-semibold leading-snug text-foreground;
+    font-size: 1.5rem;
+    font-weight: 600;
+    line-height: 1.375;
+    color: hsl(var(--foreground));
   }
 
   h3 {
-    @apply text-xl font-semibold leading-snug text-foreground;
+    font-size: 1.25rem;
+    font-weight: 600;
+    line-height: 1.375;
+    color: hsl(var(--foreground));
   }
 
   h4 {
-    @apply text-lg font-semibold leading-snug text-foreground;
+    font-size: 1.125rem;
+    font-weight: 600;
+    line-height: 1.375;
+    color: hsl(var(--foreground));
   }
 
   p {
-    @apply leading-relaxed;
+    line-height: 1.625;
   }
 
   small {
-    @apply text-xs leading-tight text-muted-foreground;
+    font-size: 0.75rem;
+    line-height: 1.25;
+    color: hsl(var(--muted-foreground));
+  }
+}
+
+@media (min-width: 768px) {
+  @layer base {
+    h1 {
+      font-size: 2.25rem;
+    }
+
+    h2 {
+      font-size: 1.875rem;
+    }
   }
 }
