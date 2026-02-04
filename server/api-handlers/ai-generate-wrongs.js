@@ -81,6 +81,12 @@ const formatGlobalContext = (context) => {
   return '';
 };
 
+const formatAvoidList = (avoid) => {
+  const items = Array.isArray(avoid) ? avoid.map((t) => String(t || '').trim()).filter(Boolean) : [];
+  if (!items.length) return '';
+  return `\nEvite também (não repita):\n- ${items.slice(0, 18).join('\n- ')}`.slice(0, 1800);
+};
+
 const callOpenAiForWrongs = async ({
   question,
   correct,
@@ -109,7 +115,7 @@ Regras:
 Em "explanation", explique em 1 frase por que a alternativa é incorreta, de forma objetiva (pode mencionar o detalhe que quebra a alternativa).`;
 
   const avoidLines = Array.isArray(avoid) && avoid.length
-    ? `\nEvite também (não repita):\n- ${avoid.map((t) => String(t || '').trim()).filter(Boolean).slice(0, 12).join('\n- ')}`
+    ? formatAvoidList(avoid)
     : '';
 
   const ctx = formatGlobalContext(context);
@@ -150,6 +156,75 @@ Nível: ${String(difficulty || '').trim()}${avoidLines}${ctx}`;
   }, 25000);
 };
 
+const callOpenAiForTypedWrongs = async ({
+  question,
+  correct,
+  difficulty,
+  language,
+  avoid = [],
+  context,
+  seed,
+}) => {
+  const model = OPENAI_DISTRACTOR_MODEL;
+  const isGpt5 = /^gpt-5/i.test(String(model));
+
+  const sys = `Você gera exatamente 3 alternativas INCORRETAS (distratores) para uma questão de múltipla escolha em ${language}.
+Regras críticas:
+- A resposta correta NÃO pode ser repetida nas erradas.
+- Cada distrator deve ser verossímil e tecnicamente plausível, mas incorreto NO CONTEXTO do enunciado.
+- Proibido: "todas as anteriores", "nenhuma das anteriores", alternativas caricatas.
+- Proibido mencionar SmartLine/Smartline/Smart Line.
+- Não invente números/limiares se não existirem no enunciado/correta.
+- Devem existir 3 tipos diferentes, exatamente 1 de cada:
+  1) "confusao_conceito": confunde conceito/técnica/instrumento/objetivo.
+  2) "procedimento_parcial": parcialmente correto mas omite passo crítico (ex.: LOTO, teste de ausência, descarga, aterramento temporário) OU aplica passo correto no contexto errado.
+  3) "generalizacao_indevida": generaliza/extrapola (sempre/nunca), inverte causa/efeito, extrapola nível de tensão/equipamento.
+
+Saída: retorne APENAS JSON válido:
+{"items":[{"type":"confusao_conceito","text":"...","explanation":"..."},{"type":"procedimento_parcial","text":"...","explanation":"..."},{"type":"generalizacao_indevida","text":"...","explanation":"..."}]}
+
+Em "explanation": 1 frase curta explicando por que é incorreta.`;
+
+  const avoidLines = formatAvoidList(avoid);
+  const ctx = formatGlobalContext(context);
+  const seedLine = seed ? `\nSEED: ${String(seed).slice(0, 120)}` : '';
+
+  const user = `Gere os 3 distratores tipados.
+Pergunta: ${String(question || '').trim()}
+Resposta correta: ${String(correct || '').trim()}
+Dificuldade: ${String(difficulty || '').trim()}${seedLine}${avoidLines}${ctx}`;
+
+  return withTimeout(async (signal) => {
+    const body = {
+      model,
+      messages: [
+        { role: 'system', content: sys },
+        { role: 'user', content: user },
+      ],
+      ...(isGpt5 ? { max_completion_tokens: 750 } : { max_tokens: 750, temperature: 0.65 }),
+    };
+
+    const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal,
+    });
+
+    const json = await resp.json().catch(() => null);
+    const content = json?.choices?.[0]?.message?.content || '';
+    const parsed = parseJsonFromAiContent(content).parsed;
+    const items = Array.isArray(parsed?.items) ? parsed.items : [];
+
+    if (!resp.ok) {
+      const msg = json?.error?.message || `OpenAI error (${resp.status})`;
+      throw new Error(msg);
+    }
+
+    return items;
+  }, 25000);
+};
+
 export async function generateWrongOptions({
   question,
   correct,
@@ -158,8 +233,10 @@ export async function generateWrongOptions({
   count = 3,
   context,
   avoid = [],
+  typed = false,
+  seed,
 } = {}) {
-  const target = clampCount(count);
+  const target = typed ? 3 : clampCount(count);
   const correctText = String(correct || '').trim();
 
   const accepted = [];
@@ -180,31 +257,63 @@ export async function generateWrongOptions({
     if (!key) return false;
     if (seen.has(key)) return false;
     seen.add(key);
-    accepted.push({ text, explanation: String(cand?.explanation || '').trim() });
+    accepted.push({ text, explanation: String(cand?.explanation || '').trim(), type: cand?.type ? String(cand.type) : undefined });
     return true;
   };
 
   // Try OpenAI first (up to 2 passes), then fallback.
   if (OPENAI_API_KEY) {
-    for (let pass = 0; pass < 2 && accepted.length < target; pass += 1) {
+    if (typed) {
       try {
-        const want = Math.max(10, target * 4);
-        const raw = await callOpenAiForWrongs({
+        const raw = await callOpenAiForTypedWrongs({
           question,
           correct: correctText,
           difficulty,
           language,
-          count: want,
           avoid: [...(Array.isArray(avoid) ? avoid : []), ...accepted.map((a) => a.text)],
           context,
+          seed,
         });
         if (Array.isArray(raw) && raw.length) usedAi = true;
+
+        const wantOrder = ['confusao_conceito', 'procedimento_parcial', 'generalizacao_indevida'];
+        const byType = new Map();
         for (const item of Array.isArray(raw) ? raw : []) {
+          const t = String(item?.type || '').trim();
+          if (!wantOrder.includes(t)) continue;
+          if (byType.has(t)) continue;
+          byType.set(t, item);
+        }
+        for (const t of wantOrder) {
           if (accepted.length >= target) break;
-          acceptCandidate(item);
+          const it = byType.get(t);
+          if (!it) continue;
+          acceptCandidate({ ...it, type: t });
         }
       } catch {
         // ignore and fallback
+      }
+    } else {
+      for (let pass = 0; pass < 2 && accepted.length < target; pass += 1) {
+        try {
+          const want = Math.max(10, target * 4);
+          const raw = await callOpenAiForWrongs({
+            question,
+            correct: correctText,
+            difficulty,
+            language,
+            count: want,
+            avoid: [...(Array.isArray(avoid) ? avoid : []), ...accepted.map((a) => a.text)],
+            context,
+          });
+          if (Array.isArray(raw) && raw.length) usedAi = true;
+          for (const item of Array.isArray(raw) ? raw : []) {
+            if (accepted.length >= target) break;
+            acceptCandidate(item);
+          }
+        } catch {
+          // ignore and fallback
+        }
       }
     }
   }
@@ -249,14 +358,20 @@ export async function generateWrongOptions({
   }
 
   // As last resort, pad.
-  const pads = [
-    'Verificar um parâmetro relacionado, mas não o objetivo do ensaio.',
-    'Executar um passo correto, porém na condição de equipamento errada.',
-    'Aplicar critério de outro teste semelhante.',
-  ];
+  const pads = typed
+    ? [
+        { type: 'confusao_conceito', text: 'Confundir o objetivo do ensaio com outro teste semelhante.', explanation: '' },
+        { type: 'procedimento_parcial', text: 'Executar um passo correto, porém omitindo uma etapa crítica de segurança/garantia.', explanation: '' },
+        { type: 'generalizacao_indevida', text: 'Aplicar uma regra geral como se valesse para todo equipamento/condição.', explanation: '' },
+      ]
+    : [
+        { text: 'Verificar um parâmetro relacionado, mas não o objetivo do ensaio.', explanation: '' },
+        { text: 'Executar um passo correto, porém na condição de equipamento errada.', explanation: '' },
+        { text: 'Aplicar critério de outro teste semelhante.', explanation: '' },
+      ];
   while (accepted.length < target) {
     const next = pads[accepted.length % pads.length];
-    acceptCandidate({ text: next, explanation: '' }, { allowLowQuality: true });
+    acceptCandidate(next, { allowLowQuality: true });
   }
 
   return { wrong: accepted.slice(0, target), usedAi: Boolean(OPENAI_API_KEY && usedAi) };
@@ -268,11 +383,11 @@ export default async function handler(req, res) {
     if (req.method !== 'POST')
         return res.status(405).json({ error: 'Method not allowed' });
     try {
-        const { question, correct, difficulty = 'basico', language = 'pt-BR', count = 3, context, avoid } = req.body || {};
+        const { question, correct, difficulty = 'basico', language = 'pt-BR', count = 3, context, avoid, typed, seed } = req.body || {};
         if (!question || !correct) {
             return res.status(400).json({ error: 'Campos obrigatórios: question, correct' });
         }
-        const out = await generateWrongOptions({ question, correct, difficulty, language, count, context, avoid });
+        const out = await generateWrongOptions({ question, correct, difficulty, language, count, context, avoid, typed: Boolean(typed), seed });
         return res.status(200).json({ wrong: out.wrong, meta: { usedAi: out.usedAi, model: OPENAI_DISTRACTOR_MODEL } });
     }
     catch (err) {

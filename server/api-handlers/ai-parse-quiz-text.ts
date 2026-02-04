@@ -5,6 +5,7 @@ import { createSupabaseAdminClient, requireCallerUser } from '../lib/supabase-ad
 import { rolesToSet, canAccessStudio } from '../lib/rbac.js'
 import { normalizeChatModel } from '../lib/openai-models.js'
 import { parseJsonFromAiContent } from '../lib/ai-curation-provider.js'
+import { generateWrongOptions } from './ai-generate-wrongs.js'
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || ''
 const OPENAI_PARSE_MODEL = normalizeChatModel(
@@ -30,6 +31,45 @@ const normalizeLetter = (raw: any) => {
   if (s === 'A' || s === 'B' || s === 'C' || s === 'D') return s
   return null
 }
+
+const seededHash32 = (s: string) => {
+  // FNV-1a 32-bit
+  let h = 2166136261
+  for (let i = 0; i < s.length; i += 1) {
+    h ^= s.charCodeAt(i)
+    h = Math.imul(h, 16777619)
+  }
+  return h >>> 0
+}
+
+const mulberry32 = (seed: number) => {
+  let t = seed >>> 0
+  return () => {
+    t += 0x6d2b79f5
+    let x = Math.imul(t ^ (t >>> 15), 1 | t)
+    x ^= x + Math.imul(x ^ (x >>> 7), 61 | x)
+    return ((x ^ (x >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+const seededShuffle = <T,>(arr: T[], seedStr: string) => {
+  const rng = mulberry32(seededHash32(seedStr))
+  const out = arr.slice()
+  for (let i = out.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(rng() * (i + 1))
+    const tmp = out[i]
+    out[i] = out[j]
+    out[j] = tmp
+  }
+  return out
+}
+
+const normalizeSpaces = (s: string) =>
+  String(s || '')
+    .replace(/\r\n/g, '\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
 
 const heuristicParse = (text: any) => {
   const raw = String(text || '').replace(/\r\n/g, '\n')
@@ -64,16 +104,24 @@ const heuristicParse = (text: any) => {
     const options: Array<{ letter: string; text: string }> = []
     let questionLines: string[] = []
     let correctAnswerText = ''
+    let readingAnswerBlock = false
     for (const line of lines) {
       if (headerRe.test(line)) continue
       const m = line.match(optionRe)
       if (m) {
         options.push({ letter: m[1].toUpperCase(), text: String(m[2] || '').trim() })
-      } else if (/^(?:correta|resposta\s+correta|resposta)\b/i.test(line)) {
-        const ans = String(line || '').replace(/^(?:correta|resposta\s+correta|resposta)\s*[:\-–]\s*/i, '').trim()
-        if (ans) correctAnswerText = ans
+        readingAnswerBlock = false
+      } else if (/^(?:gabarito|resposta\s+correta|resposta)\s*[:\-–]/i.test(line)) {
+        // "Resposta:" pode ter múltiplas linhas: tudo após o marcador até o fim do bloco.
+        const ans = String(line || '').replace(/^(?:gabarito|resposta\s+correta|resposta)\s*[:\-–]\s*/i, '').trim()
+        correctAnswerText = ans
+        readingAnswerBlock = true
       } else {
-        questionLines.push(line)
+        if (readingAnswerBlock) {
+          correctAnswerText = [correctAnswerText, line].filter(Boolean).join('\n').trim()
+        } else {
+          questionLines.push(line)
+        }
       }
     }
 
@@ -106,7 +154,7 @@ const heuristicParse = (text: any) => {
       continue
     }
 
-    // Minimal format: question + "Resposta correta: <texto>"
+    // Minimal format: question + "Resposta: <texto>" (sem alternativas)
     if (!correctAnswerText || correctAnswerText.length < 3) continue
     const base = correctAnswerText.trim()
     const wrong: string[] = []
@@ -230,13 +278,16 @@ const sanitizeQuestions = ({ questions, defaultDifficulty = 'intermediario' }: a
   return { cleaned, issues }
 }
 
+const isLowQualityWrong = (s: string) =>
+  /\b(procedimento semelhante|conceito relacionado|condi[cç][aã]o parcialmente|alternativa plaus[ií]vel)\b/i.test(String(s || '').trim())
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === 'OPTIONS') return res.status(204).send('')
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
 
   try {
-    const { text, language = 'pt-BR', maxQuestions = 30, defaultDifficulty = 'intermediario' } = (req.body || {}) as any
-    const inputText = String(text || '').trim()
+    const { text, language = 'pt-BR', maxQuestions = 30, defaultDifficulty = 'intermediario', seed, scope } = (req.body || {}) as any
+    const inputText = normalizeSpaces(String(text || '').trim())
     if (!inputText) return res.status(400).json({ error: 'Campo obrigatório: text' })
 
     const supabaseAdmin = createSupabaseAdminClient()
@@ -253,7 +304,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     let parsed: any = null
     let usedAi = false
 
-    if (OPENAI_API_KEY) {
+    const seedStr = String(seed || '').trim()
+    const scopeStr = String(scope || '').trim()
+
+    const hasRespostaBlocks = /\n?\s*(?:gabarito|resposta\s+correta|resposta)\s*[:\-–]/i.test(inputText)
+
+    if (OPENAI_API_KEY && !hasRespostaBlocks) {
       try {
         const model = OPENAI_PARSE_MODEL
         const isGpt5 = /^gpt-5/i.test(String(model))
@@ -319,8 +375,120 @@ Regras:
       }
     }
 
-    const questionsRaw = Array.isArray(parsed?.questions) ? parsed.questions : heuristicParse(inputText)
+    let questionsRaw: any[] = Array.isArray(parsed?.questions) ? parsed.questions : heuristicParse(inputText)
+
+    // Se o texto vem no formato "Resposta:" (sem alternativas), gere distratores melhores (tipados) por questão.
+    // Mantém a correta como foi informada (não reescreve), apenas cria 3 erradas verossímeis e explicações curtas.
+    if (hasRespostaBlocks && OPENAI_API_KEY) {
+      const globalAvoid = new Set<string>()
+      const scopeContext = scopeStr ? `Escopo do lote: ${scopeStr}` : null
+      const globalContext = [
+        ...(scopeContext ? [scopeContext] : []),
+        ...questionsRaw
+          .map((q: any, idx: number) => {
+            const qt = String(q?.question_text || q?.question || '').trim()
+            const opts = Array.isArray(q?.options) ? q.options : []
+            const corr = opts.find((o: any) => Boolean(o?.is_correct))
+            const ct = String(corr?.text || corr?.option_text || '').trim()
+            if (!qt || !ct) return null
+            return `Q${idx + 1}: ${qt.slice(0, 240)}\nCorreta: ${ct.slice(0, 240)}`
+          })
+          .filter(Boolean),
+      ].filter(Boolean)
+
+      const upgraded: any[] = []
+      for (let i = 0; i < questionsRaw.length; i += 1) {
+        const q = questionsRaw[i] || {}
+        const question_text = String(q?.question_text || q?.question || '').trim()
+        const optsRaw = Array.isArray(q?.options) ? q.options : []
+        const opts = optsRaw
+          .map((o: any) => ({
+            text: String(o?.text || o?.option_text || '').trim(),
+            is_correct: Boolean(o?.is_correct),
+            explanation: String(o?.explanation || '').trim(),
+          }))
+          .filter((o: any) => o.text.length > 0)
+          .slice(0, 4)
+
+        const correct = opts.find((o: any) => o.is_correct)
+        const wrongs = opts.filter((o: any) => !o.is_correct)
+        const looksLikeAnswerOnly = Boolean(correct && wrongs.length === 3 && wrongs.some((w: any) => isLowQualityWrong(w.text) || w.text.length < 10))
+
+        if (!question_text || !correct || !looksLikeAnswerOnly) {
+          upgraded.push(q)
+          continue
+        }
+
+        try {
+          const avoidList = Array.from(globalAvoid).slice(0, 40)
+          const out = await generateWrongOptions({
+            question: question_text,
+            correct: correct.text,
+            difficulty: defaultDifficulty,
+            language,
+            typed: true,
+            seed: seedStr ? `${seedStr}|Q${i + 1}` : null,
+            avoid: avoidList,
+            context: globalContext.join('\n\n').slice(0, 2400),
+          })
+          const wrong = Array.isArray(out?.wrong) ? out.wrong : []
+          if (wrong.length === 3) {
+            wrong.forEach((w: any) => {
+              const t = String(w?.text || '').trim()
+              if (t) globalAvoid.add(t)
+            })
+            // Mantém a posição da correta; substitui as 3 erradas na ordem recebida.
+            const nextOpts = opts.map((o: any) => ({ ...o }))
+            let wi = 0
+            for (let j = 0; j < nextOpts.length; j += 1) {
+              if (nextOpts[j].is_correct) continue
+              const w = wrong[wi++]
+              if (!w) continue
+              nextOpts[j] = { text: String(w.text || '').trim(), is_correct: false, explanation: String(w.explanation || '').trim() }
+            }
+            upgraded.push({ ...q, question_text, difficulty_level: defaultDifficulty, options: nextOpts })
+          } else {
+            upgraded.push(q)
+          }
+        } catch {
+          upgraded.push(q)
+        }
+      }
+      questionsRaw = upgraded
+    }
     const { cleaned, issues } = sanitizeQuestions({ questions: questionsRaw, defaultDifficulty })
+
+    // Deterministic letter distribution (A-D) for the UI/import ordering.
+    // Note: the DB does not store letters; we preserve order by insert and fetch ordering in the client.
+    const letters = ['A', 'B', 'C', 'D']
+    const assignedLetters = (() => {
+      const n = cleaned.length
+      if (!seedStr || n <= 0) return []
+      const base = new Array(n).fill(0).map((_, i) => letters[i % letters.length])
+      return seededShuffle(base, `${seedStr}|letters|${n}`)
+    })()
+
+    const normalized = cleaned.map((q: any, idx: number) => {
+      const opts = Array.isArray(q?.options) ? q.options : []
+      const correctIdx = opts.findIndex((o: any) => Boolean(o?.is_correct))
+      if (correctIdx < 0) return q
+      const correct = opts[correctIdx]
+      const wrongs = opts.filter((_: any, i: number) => i !== correctIdx)
+      if (wrongs.length !== 3) return q
+
+      const wantedLetter = assignedLetters[idx] || null
+      if (!wantedLetter) return q
+      const targetIndex = letters.indexOf(wantedLetter)
+      if (targetIndex < 0) return q
+
+      const ordered: any[] = []
+      for (let i = 0; i < 4; i += 1) {
+        if (i === targetIndex) ordered.push(correct)
+        else ordered.push(wrongs.shift())
+      }
+      if (ordered.some((o) => !o?.text)) return q
+      return { ...q, options: ordered }
+    })
 
     if (!cleaned.length) {
       return res.status(400).json({
@@ -332,9 +500,9 @@ Regras:
 
     return res.status(200).json({
       success: true,
-      questions: cleaned.slice(0, limit),
+      questions: normalized.slice(0, limit),
       issues: issues.slice(0, 50),
-      meta: { usedAi, model: usedAi ? OPENAI_PARSE_MODEL : null, limit },
+      meta: { usedAi, model: usedAi ? OPENAI_PARSE_MODEL : null, limit, seed: seedStr || null, scope: scopeStr || null, hasRespostaBlocks },
     })
   } catch (e: any) {
     return res.status(500).json({ error: e?.message || 'Unknown error' })

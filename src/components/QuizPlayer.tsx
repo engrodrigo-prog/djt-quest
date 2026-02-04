@@ -237,15 +237,13 @@ export function QuizPlayer({ challengeId, practiceMode }: QuizPlayerProps) {
       const { data, error } = await supabase
         .from("quiz_options")
         .select("id, option_text, explanation")
-        .eq("question_id", questionId);
+        .eq("question_id", questionId)
+        .order("created_at", { ascending: true })
+        .order("id", { ascending: true });
 
       if (error) throw error;
-      const shuffled =
-        (data || [])
-          .map((opt) => ({ sort: Math.random(), value: opt }))
-          .sort((a, b) => a.sort - b.sort)
-          .map(({ value }) => value);
-      setOptions(shuffled);
+      // Mantém ordem estável (necessário para randomização determinística por SEED na etapa de importação/curadoria).
+      setOptions(data || []);
       setSelectedOption("");
       setAnswerResult(null);
       setEliminatedOptionIds({});

@@ -36,6 +36,8 @@ export default async function handler(req, res) {
     const difficulty = String(body.difficulty || '').trim();
     const count = body.count ?? 3;
     const context = body.context ?? null;
+    const typed = Boolean(body.typed);
+    const seed = body.seed != null ? String(body.seed) : null;
     const maxItems = clampItems(body.maxItems ?? itemsRaw.length);
     const items = itemsRaw.slice(0, maxItems);
 
@@ -56,7 +58,11 @@ export default async function handler(req, res) {
       correct: String(it?.correct || it?.correct_text || '').trim(),
     }));
 
-    const results = await mapWithConcurrency(items, 4, async (it) => {
+    const globalAvoid = new Set();
+    const toAvoidList = () => Array.from(globalAvoid).slice(0, 40);
+
+    const concurrency = typed ? 1 : 4;
+    const results = await mapWithConcurrency(items, concurrency, async (it, idx) => {
       const question = String(it?.question || it?.question_text || '').trim();
       const correct = String(it?.correct || it?.correct_text || '').trim();
       if (!question || !correct) return { wrong: [], meta: { usedAi: false }, error: 'question/correct required' };
@@ -67,7 +73,14 @@ export default async function handler(req, res) {
         language,
         count,
         context: globalContext,
+        avoid: toAvoidList(),
+        typed,
+        seed: seed ? `${seed}|${idx + 1}` : null,
       });
+      for (const w of Array.isArray(out?.wrong) ? out.wrong : []) {
+        const t = String(w?.text || '').trim();
+        if (t) globalAvoid.add(t);
+      }
       return { wrong: out.wrong, meta: { usedAi: out.usedAi } };
     });
 
@@ -79,4 +92,3 @@ export default async function handler(req, res) {
 }
 
 export const config = { api: { bodyParser: true } };
-

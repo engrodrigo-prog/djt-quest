@@ -120,6 +120,7 @@ export function QuizCreationWizard() {
   const [textImportAutoImprove, setTextImportAutoImprove] = useState(true);
   const [textImportImproving, setTextImportImproving] = useState(false);
   const [textImportUsedAi, setTextImportUsedAi] = useState<boolean | null>(null);
+  const [textImportSeed, setTextImportSeed] = useState<string>('');
 
   const location = useLocation();
   const navigate = useNavigate();
@@ -300,7 +301,23 @@ export function QuizCreationWizard() {
     setTextImportIssues([]);
     setTextImportDrafts(null);
     setTextImportUsedAi(null);
+    setTextImportSeed('');
   }, [textImport]);
+
+  const ensureTextImportSeed = () => {
+    if (textImportSeed) return textImportSeed;
+    try {
+      const buf = new Uint32Array(2);
+      crypto.getRandomValues(buf);
+      const next = `${Date.now().toString(36)}-${buf[0].toString(36)}${buf[1].toString(36)}`;
+      setTextImportSeed(next);
+      return next;
+    } catch {
+      const next = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+      setTextImportSeed(next);
+      return next;
+    }
+  };
 
   const parseTextImportPreview = async (opts?: { silent?: boolean }) => {
     const raw = String(textImport || '').trim();
@@ -308,6 +325,7 @@ export function QuizCreationWizard() {
       if (!opts?.silent) toast.error('Cole o texto das perguntas antes de pré-visualizar.');
       return [];
     }
+    const seed = ensureTextImportSeed();
     setTextImportParsing(true);
     try {
       const inferredMax = inferQuestionCountFromText(raw);
@@ -319,6 +337,8 @@ export function QuizCreationWizard() {
           language: localeToOpenAiLanguageTag(getActiveLocale()),
           maxQuestions: inferredMax || 50,
           defaultDifficulty: textImportDefaultDifficulty,
+          seed,
+          scope: String(quizMeta?.title || '').trim() || undefined,
         }),
       });
       const json = await resp.json().catch(() => ({}));
@@ -363,8 +383,6 @@ export function QuizCreationWizard() {
         return wrongs.some((w) => isLowQuality(w.text));
       };
 
-      const shuffle = <T,>(arr: T[]) => [...arr].sort(() => Math.random() - 0.5);
-
       const improveDrafts = async (items: ImportQuestionDraft[]) => {
         const list = Array.isArray(items) ? items : [];
         if (!list.length) return;
@@ -386,6 +404,9 @@ export function QuizCreationWizard() {
               difficulty: effectiveTextImportDifficulty,
               count: 3,
               maxItems: 30,
+              typed: true,
+              seed,
+              context: String(quizMeta?.title || '').trim() ? `Escopo: ${String(quizMeta.title).trim()}` : null,
             }),
           });
           const json2 = await resp2.json().catch(() => ({}));
@@ -395,6 +416,7 @@ export function QuizCreationWizard() {
 
           const next = list.map((d, idx) => {
             const correct = d.options.find((o) => o.is_correct) || d.options[0];
+            const correctIndex = Math.max(0, d.options.findIndex((o) => o.is_correct));
             const wrongFromAi = Array.isArray(results?.[idx]?.wrong) ? results[idx].wrong : [];
             const wrong = wrongFromAi
               .map((w: any) => ({
@@ -405,7 +427,19 @@ export function QuizCreationWizard() {
               .filter((w: any) => w.text.length > 0)
               .slice(0, 3);
             if (wrong.length !== 3) return d;
-            const options = shuffle([{ ...correct, is_correct: true }, ...wrong]);
+            // Preserve the "seeded" correct position (if any) from the parsed preview.
+            const base = d.options.map((o) => ({ ...o }));
+            let wi = 0;
+            for (let i = 0; i < base.length; i += 1) {
+              if (i === correctIndex) {
+                base[i] = { ...correct, is_correct: true };
+                continue;
+              }
+              const w = wrong[wi++];
+              if (!w) continue;
+              base[i] = w;
+            }
+            const options = base;
             return { ...d, difficulty_level: effectiveTextImportDifficulty, options, _meta: { ...(d._meta || {}), aiImproved: true } };
           });
           setTextImportDrafts(next);
@@ -590,6 +624,7 @@ export function QuizCreationWizard() {
       return { ok: false, inserted: 0, failed: 0 };
     }
 
+    const seed = ensureTextImportSeed();
     setTextImportImporting(true);
     try {
       // Force XP per question based on the quiz setting (xp_reward).
@@ -656,6 +691,8 @@ export function QuizCreationWizard() {
                 count: 3,
                 maxItems: 30,
                 context: buildGlobalContextForAi(drafts),
+                typed: true,
+                seed,
               }),
             });
             const json2 = await resp2.json().catch(() => ({}));
@@ -663,6 +700,7 @@ export function QuizCreationWizard() {
               const results = Array.isArray((json2 as any)?.items) ? (json2 as any).items : [];
               drafts = drafts.map((d, idx) => {
                 const correct = d.options.find((o) => o.is_correct) || d.options[0];
+                const correctIndex = Math.max(0, d.options.findIndex((o) => o.is_correct));
                 const wrongFromAi = Array.isArray(results?.[idx]?.wrong) ? results[idx].wrong : [];
                 const wrong = wrongFromAi
                   .map((w: any) => ({
@@ -673,7 +711,18 @@ export function QuizCreationWizard() {
                   .filter((w: any) => w.text.length > 0)
                   .slice(0, 3);
                 if (wrong.length !== 3) return d;
-                return { ...d, options: shuffle([{ ...correct, is_correct: true }, ...wrong]), _meta: { ...(d._meta || {}), aiImproved: true } };
+                const base = d.options.map((o) => ({ ...o }));
+                let wi = 0;
+                for (let i = 0; i < base.length; i += 1) {
+                  if (i === correctIndex) {
+                    base[i] = { ...correct, is_correct: true };
+                    continue;
+                  }
+                  const w = wrong[wi++];
+                  if (!w) continue;
+                  base[i] = w;
+                }
+                return { ...d, options: base, _meta: { ...(d._meta || {}), aiImproved: true } };
               });
               setTextImportDrafts(drafts);
               setTextImportUsedAi(Boolean((json2 as any)?.meta?.usedAi));
@@ -696,6 +745,8 @@ export function QuizCreationWizard() {
               challengeId: id,
               question_text: String(q?.question_text || '').trim(),
               difficulty_level: forcedDifficulty,
+              preserve_order: true,
+              seed: `${seed}|insert|${i + 1}`,
               options: Array.isArray(q?.options)
                 ? q.options.map((o: any) => ({
                     option_text: String(o?.text || o?.option_text || '').trim(),
