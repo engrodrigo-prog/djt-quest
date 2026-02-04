@@ -2,6 +2,7 @@ import { createSupabaseAdminClient, requireCallerUser } from '../lib/supabase-ad
 import { rolesToSet, hasRole, ROLE } from '../lib/rbac.js';
 import { tryInsertAuditLog } from '../lib/audit-log.js';
 import { snapshotQuizVersion } from '../lib/quiz-versioning.js';
+import { proofreadPtBrStrings } from '../lib/ai-proofread-ptbr.js';
 
 const LEADER_ROLES = new Set([
   ROLE.TEAM_LEADER,
@@ -62,6 +63,80 @@ export default async function handler(req, res) {
       // ignore
     }
 
+    // Revisão ortográfica (IA) antes de publicar (best-effort).
+    let proofreadUpdated = 0;
+    try {
+      const safeTrim = (v) => String(v ?? '').trim();
+      const title = String(before?.title || '');
+      const desc = before?.description == null ? '' : String(before?.description || '');
+      const { output } = await proofreadPtBrStrings({ strings: [title, desc] });
+      const nextTitle = output?.[0] ?? title;
+      const nextDesc = output?.[1] ?? desc;
+      const updates = {};
+      if (safeTrim(nextTitle) && nextTitle !== title) updates.title = nextTitle;
+      if (before?.description != null && nextDesc !== desc) updates.description = nextDesc;
+      if (Object.keys(updates).length) {
+        const { error: upErr } = await admin.from('challenges').update(updates).eq('id', id);
+        if (!upErr) proofreadUpdated += Object.keys(updates).length;
+      }
+
+      const { data: questions } = await admin
+        .from('quiz_questions')
+        .select('id, question_text, order_index')
+        .eq('challenge_id', id)
+        .order('order_index', { ascending: true });
+
+      for (const q of questions || []) {
+        const qid = String(q?.id || '').trim();
+        if (!qid) continue;
+        const { data: options } = await admin
+          .from('quiz_options')
+          .select('id, option_text, explanation')
+          .eq('question_id', qid)
+          .order('id', { ascending: true });
+
+        const opts = Array.isArray(options) ? options : [];
+        const strings = [
+          String(q?.question_text || ''),
+          ...opts.map((o) => String(o?.option_text || '')),
+          ...opts.map((o) => String(o?.explanation || '')),
+        ];
+        let out = strings;
+        try {
+          const resp = await proofreadPtBrStrings({ strings });
+          out = Array.isArray(resp?.output) ? resp.output : strings;
+        } catch {
+          out = strings;
+        }
+
+        const nextQuestionText = out?.[0] ?? strings[0];
+        if (safeTrim(nextQuestionText) && nextQuestionText !== String(q?.question_text || '')) {
+          const { error: qUpErr } = await admin.from('quiz_questions').update({ question_text: nextQuestionText }).eq('id', qid);
+          if (!qUpErr) proofreadUpdated += 1;
+        }
+
+        const n = opts.length;
+        for (let i = 0; i < n; i++) {
+          const opt = opts[i];
+          const oid = String(opt?.id || '').trim();
+          if (!oid) continue;
+          const prevOptText = String(opt?.option_text || '');
+          const prevExpl = opt?.explanation == null ? null : String(opt?.explanation || '');
+          const nextOptText = out?.[1 + i] ?? prevOptText;
+          const nextExpl = out?.[1 + n + i] ?? (prevExpl || '');
+          const up = {};
+          if (safeTrim(nextOptText) && nextOptText !== prevOptText) up.option_text = nextOptText;
+          if (prevExpl != null && nextExpl !== prevExpl) up.explanation = nextExpl;
+          if (Object.keys(up).length) {
+            const { error: oUpErr } = await admin.from('quiz_options').update(up).eq('id', oid);
+            if (!oUpErr) proofreadUpdated += Object.keys(up).length;
+          }
+        }
+      }
+    } catch {
+      // ignore
+    }
+
     const now = new Date().toISOString();
     const { data: after, error } = await admin
       .from('challenges')
@@ -105,7 +180,7 @@ export default async function handler(req, res) {
       entity_type: 'quiz',
       entity_id: id,
       before_json: before,
-      after_json: { ...after, awarded },
+      after_json: { ...after, awarded, proofread: { updated: proofreadUpdated } },
     });
 
     return res.status(200).json({ success: true, quiz: after, awarded });
@@ -115,4 +190,3 @@ export default async function handler(req, res) {
 }
 
 export const config = { api: { bodyParser: true } };
-

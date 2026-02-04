@@ -80,6 +80,7 @@ const Dashboard = () => {
   const showChallengesSection = false;
   const [showQuizHistory, setShowQuizHistory] = useState(false);
   const [showCampaignHistory, setShowCampaignHistory] = useState(false);
+  const [showCampaignFilters, setShowCampaignFilters] = useState(false);
 
   const loadedForUserRef = useRef<string | null>(null);
 
@@ -879,7 +880,7 @@ const Dashboard = () => {
         </div>
       </header>
 
-      <main className="container relative mx-auto px-3 py-4 space-y-6">
+      <main className="container relative mx-auto px-3 py-4 space-y-4">
         {/* Barra de progressão sempre no topo */}
         <Card className="bg-gradient-to-r from-primary/10 to-secondary/10">
           <CardHeader className="pb-3">
@@ -934,40 +935,49 @@ const Dashboard = () => {
         </Card>
 
         <Card className="bg-white/5 border border-white/20 text-white backdrop-blur-md shadow-lg">
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-lg text-white">
-              <Bell className="h-5 w-5 text-white" />
-              {tr("dashboard.notifications.title")}
-            </CardTitle>
-            <CardDescription className="text-white/80">{tr("dashboard.notifications.subtitle")}</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {notificationItems.filter((item) => item.count > 0).length === 0 ? (
-              <p className="text-sm text-white/70">{tr("dashboard.notifications.empty")}</p>
-            ) : (
-              notificationItems
-                .filter((item) => item.count > 0)
-                .map((item) => {
-                  const Icon = item.icon;
-                  return (
-                    <button
-                      key={item.key}
-                      type="button"
-                      onClick={item.action}
-                      className="flex w-full items-center justify-between gap-3 rounded-lg border border-white/20 bg-white/5 px-3 py-2 text-left hover:bg-white/10"
-                    >
-                      <div className="flex items-center gap-2">
-                        <Icon className="h-4 w-4 text-white" />
-                        <span className="text-sm font-medium">{item.label}</span>
-                      </div>
-                      <Badge variant="outline" className="border-white/60 text-white">
-                        {item.count > 99 ? "99+" : item.count}
-                      </Badge>
-                    </button>
-                  );
-                })
-            )}
-          </CardContent>
+          {notificationItems.filter((item) => item.count > 0).length === 0 ? (
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Bell className="h-5 w-5 text-white" />
+                  <p className="text-sm font-semibold text-white">{tr("dashboard.notifications.title")}</p>
+                </div>
+                <p className="text-xs text-white/70">{tr("dashboard.notifications.empty")}</p>
+              </div>
+            </CardContent>
+          ) : (
+            <>
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-2 text-lg text-white">
+                  <Bell className="h-5 w-5 text-white" />
+                  {tr("dashboard.notifications.title")}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2 pt-0">
+                {notificationItems
+                  .filter((item) => item.count > 0)
+                  .map((item) => {
+                    const Icon = item.icon;
+                    return (
+                      <button
+                        key={item.key}
+                        type="button"
+                        onClick={item.action}
+                        className="flex w-full items-center justify-between gap-3 rounded-lg border border-white/20 bg-white/5 px-3 py-2 text-left hover:bg-white/10"
+                      >
+                        <div className="flex items-center gap-2">
+                          <Icon className="h-4 w-4 text-white" />
+                          <span className="text-sm font-medium">{item.label}</span>
+                        </div>
+                        <Badge variant="outline" className="border-white/60 text-white">
+                          {item.count > 99 ? "99+" : item.count}
+                        </Badge>
+                      </button>
+                    );
+                  })}
+              </CardContent>
+            </>
+          )}
         </Card>
 
         {/* Team Performance Card */}
@@ -1208,28 +1218,44 @@ const Dashboard = () => {
 		              </Button>
 		            )}
 		          </div>
-		          <div className="mb-3 space-y-2">
-		            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-		              <Input
-		                placeholder="Buscar campanha (nome/objetivo)…"
-		                value={campaignSearch}
-		                onChange={(e) => setCampaignSearch(e.target.value)}
-		                className="sm:max-w-md"
-		              />
-		              <div className="text-[11px] text-muted-foreground">
-		                {campaignsMain.length} ativa(s) pendente(s){campaignsHistory.length ? ` • ${campaignsHistory.length} no histórico` : ""}
-		              </div>
-		            </div>
-		            <div className="grid gap-2 sm:grid-cols-3">
-		              <Input
-		                placeholder="Filtrar por tag…"
-		                value={campaignTag}
-		                onChange={(e) => setCampaignTag(e.target.value)}
-		              />
-		              <Input type="date" value={campaignDateStart} onChange={(e) => setCampaignDateStart(e.target.value)} />
-		              <Input type="date" value={campaignDateEnd} onChange={(e) => setCampaignDateEnd(e.target.value)} />
-		            </div>
-		          </div>
+              <div className="mb-3 space-y-2">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex flex-1 items-center gap-2">
+                    <Input
+                      placeholder="Buscar campanha (nome/objetivo)…"
+                      value={campaignSearch}
+                      onChange={(e) => setCampaignSearch(e.target.value)}
+                      className="sm:max-w-md"
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={showCampaignFilters ? "secondary" : "outline"}
+                      onClick={() => setShowCampaignFilters((v) => !v)}
+                      className="gap-2"
+                      aria-label={showCampaignFilters ? "Ocultar filtros" : "Mostrar filtros"}
+                    >
+                      <Filter className="h-4 w-4" />
+                      Filtros
+                    </Button>
+                  </div>
+                  <div className="text-[11px] text-muted-foreground">
+                    {campaignsMain.length} ativa(s) pendente(s)
+                    {campaignsHistory.length ? ` • ${campaignsHistory.length} no histórico` : ""}
+                  </div>
+                </div>
+                {showCampaignFilters && (
+                  <div className="grid gap-2 sm:grid-cols-3">
+                    <Input
+                      placeholder="Filtrar por tag…"
+                      value={campaignTag}
+                      onChange={(e) => setCampaignTag(e.target.value)}
+                    />
+                    <Input type="date" value={campaignDateStart} onChange={(e) => setCampaignDateStart(e.target.value)} />
+                    <Input type="date" value={campaignDateEnd} onChange={(e) => setCampaignDateEnd(e.target.value)} />
+                  </div>
+                )}
+              </div>
 
 		          {campaignsMain.length === 0 ? (
 		            <Card className="bg-white/5 border border-white/20 text-white/90 backdrop-blur-md">

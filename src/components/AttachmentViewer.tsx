@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { X, Download, Info } from "lucide-react";
+import { X, Download, Info, Play, Pause } from "lucide-react";
 import { AttachmentMetadataModal } from "./AttachmentMetadataModal";
 import { cn } from "@/lib/utils";
 
@@ -42,6 +42,9 @@ export const AttachmentViewer = ({
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [metadataUrl, setMetadataUrl] = useState<string | null>(null);
   const [carouselIndex, setCarouselIndex] = useState(0);
+  const [videoPosterByUrl, setVideoPosterByUrl] = useState<Record<string, string | null>>({});
+  const [videoPlaying, setVideoPlaying] = useState(false);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
 
   const images = urls.filter(url => getFileType(url) === 'image');
   const audioFiles = urls.filter(url => getFileType(url) === 'audio');
@@ -60,6 +63,159 @@ export const AttachmentViewer = ({
     }
     setCarouselIndex((prev) => Math.max(0, Math.min(prev, media.length - 1)));
   }, [media.length]);
+
+  const currentCarouselUrl = mediaLayout === 'carousel' && media.length > 0 ? media[carouselIndex] : null;
+  const currentCarouselType = currentCarouselUrl ? getFileType(currentCarouselUrl) : null;
+
+  // Pause/stop video whenever the carousel changes (or switches to non-video).
+  useEffect(() => {
+    setVideoPlaying(false);
+    const v = videoRef.current;
+    if (!v) return;
+    try {
+      v.pause();
+      v.currentTime = 0;
+    } catch {
+      // ignore
+    }
+  }, [carouselIndex, currentCarouselUrl, currentCarouselType]);
+
+  // Generate a poster frame (best-effort) so videos don't show as a black rectangle.
+  useEffect(() => {
+    const url = currentCarouselUrl;
+    if (!url) return;
+    if (currentCarouselType !== 'video') return;
+    if (Object.prototype.hasOwnProperty.call(videoPosterByUrl, url)) return;
+
+    let cancelled = false;
+    const timeoutMs = 7000;
+
+    const extractPoster = async (src: string): Promise<string | null> => {
+      // Best-effort extraction of a mid-frame as a dataURL.
+      // If CORS blocks canvas extraction, this returns null and we fall back to a placeholder.
+      return await new Promise((resolve) => {
+        const v = document.createElement('video');
+        const cleanup = () => {
+          try {
+            v.pause();
+          } catch {
+            // ignore
+          }
+          try {
+            v.removeAttribute('src');
+            v.load();
+          } catch {
+            // ignore
+          }
+        };
+
+        const timer = window.setTimeout(() => {
+          cleanup();
+          resolve(null);
+        }, timeoutMs);
+
+        const finish = (value: string | null) => {
+          window.clearTimeout(timer);
+          cleanup();
+          resolve(value);
+        };
+
+        try {
+          v.crossOrigin = 'anonymous';
+        } catch {
+          // ignore
+        }
+        v.preload = 'auto';
+        v.muted = true;
+        (v as any).playsInline = true;
+        v.src = src;
+
+        const onLoaded = () => {
+          try {
+            const duration = Number.isFinite(v.duration) ? v.duration : 0;
+            const target = duration > 0 ? Math.max(0.1, Math.min(duration - 0.1, duration / 2)) : 0.1;
+            const onSeeked = () => {
+              try {
+                const w = v.videoWidth || 0;
+                const h = v.videoHeight || 0;
+                if (!w || !h) return finish(null);
+                const canvas = document.createElement('canvas');
+                canvas.width = w;
+                canvas.height = h;
+                const ctx = canvas.getContext('2d');
+                if (!ctx) return finish(null);
+                ctx.drawImage(v, 0, 0, w, h);
+                try {
+                  const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
+                  return finish(dataUrl);
+                } catch {
+                  return finish(null);
+                }
+              } catch {
+                return finish(null);
+              } finally {
+                try {
+                  v.removeEventListener('seeked', onSeeked);
+                } catch {
+                  // ignore
+                }
+              }
+            };
+
+            v.addEventListener('seeked', onSeeked, { once: true });
+            v.currentTime = target;
+          } catch {
+            finish(null);
+          } finally {
+            try {
+              v.removeEventListener('loadeddata', onLoaded);
+            } catch {
+              // ignore
+            }
+          }
+        };
+
+        v.addEventListener('loadeddata', onLoaded, { once: true });
+        v.addEventListener('error', () => finish(null), { once: true });
+      });
+    };
+
+    (async () => {
+      const poster = await extractPoster(url);
+      if (cancelled) return;
+      setVideoPosterByUrl((prev) => ({ ...prev, [url]: poster }));
+    })().catch(() => {
+      if (cancelled) return;
+      setVideoPosterByUrl((prev) => ({ ...prev, [url]: null }));
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentCarouselType, currentCarouselUrl, videoPosterByUrl]);
+
+  const toggleVideo = useCallback(async () => {
+    const v = videoRef.current;
+    if (!v) return;
+    if (videoPlaying) {
+      try {
+        v.pause();
+        v.currentTime = 0;
+      } catch {
+        // ignore
+      }
+      setVideoPlaying(false);
+      return;
+    }
+    try {
+      v.loop = true;
+      await v.play();
+      setVideoPlaying(true);
+    } catch {
+      // If browser blocks play, keep poster visible.
+      setVideoPlaying(false);
+    }
+  }, [videoPlaying]);
 
   const openLightbox = (index: number) => {
     setSelectedIndex(index);
@@ -83,21 +239,91 @@ export const AttachmentViewer = ({
             const url = media[carouselIndex];
             const t = getFileType(url);
             if (t === 'video') {
+              const poster = Object.prototype.hasOwnProperty.call(videoPosterByUrl, url) ? videoPosterByUrl[url] : null;
               return (
-                <video
-                  controls
-                  className="w-full max-h-[70vh] bg-black"
-                  preload="metadata"
-                  onDoubleClick={(e) => {
-                    if (!onMediaDoubleClick) return;
-                    e.preventDefault();
-                    e.stopPropagation();
-                    onMediaDoubleClick();
-                  }}
-                >
-                  <source src={url} />
-                  Seu navegador não suporta vídeo.
-                </video>
+                <div className="relative w-full bg-black">
+                  <video
+                    ref={(el) => {
+                      videoRef.current = el;
+                    }}
+                    className={cn(
+                      "w-full max-h-[70vh] bg-black object-contain",
+                      videoPlaying ? "opacity-100" : "opacity-0 pointer-events-none",
+                    )}
+                    preload="metadata"
+                    playsInline
+                    onEnded={() => {
+                      try {
+                        const v = videoRef.current;
+                        if (v) v.currentTime = 0;
+                      } catch {
+                        // ignore
+                      }
+                      setVideoPlaying(false);
+                    }}
+                    onDoubleClick={(e) => {
+                      if (!onMediaDoubleClick) return;
+                      e.preventDefault();
+                      e.stopPropagation();
+                      onMediaDoubleClick();
+                    }}
+                  >
+                    <source src={url} />
+                    Seu navegador não suporta vídeo.
+                  </video>
+
+                  {!videoPlaying && (
+                    <button
+                      type="button"
+                      className="absolute inset-0 flex items-center justify-center"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        void toggleVideo();
+                      }}
+                      onDoubleClick={(e) => {
+                        if (!onMediaDoubleClick) return;
+                        e.preventDefault();
+                        e.stopPropagation();
+                        onMediaDoubleClick();
+                      }}
+                      aria-label="Reproduzir vídeo"
+                      title="Reproduzir vídeo"
+                    >
+                      {poster ? (
+                        <img
+                          src={poster}
+                          alt="Prévia do vídeo"
+                          className="absolute inset-0 h-full w-full object-contain bg-black"
+                          draggable={false}
+                        />
+                      ) : (
+                        <div className="absolute inset-0 bg-black/90" />
+                      )}
+                      <span className="relative z-10 inline-flex h-14 w-14 items-center justify-center rounded-full bg-black/60 text-white border border-white/30">
+                        <Play className="h-7 w-7 ml-0.5" />
+                      </span>
+                    </button>
+                  )}
+
+                  {videoPlaying && (
+                    <button
+                      type="button"
+                      className="absolute inset-0 flex items-center justify-center"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        void toggleVideo();
+                      }}
+                      aria-label="Pausar vídeo"
+                      title="Pausar vídeo"
+                    >
+                      <span className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-black/40 text-white border border-white/20 opacity-0 hover:opacity-100 transition-opacity">
+                        <Pause className="h-6 w-6" />
+                      </span>
+                    </button>
+                  )}
+                </div>
               );
             }
             const imageIndex = images.indexOf(url);
