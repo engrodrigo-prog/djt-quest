@@ -1,0 +1,19 @@
+{
+  "errors": 204,
+  "warnings": 125,
+  "files": 443,
+  "rules": {
+    "@typescript-eslint/ban-ts-comment": 72,
+    "no-empty": 125,
+    "no-control-regex": 1,
+    "prefer-const": 7,
+    "no-extra-boolean-cast": 1,
+    "no-useless-escape": 80,
+    "unknown": 11,
+    "react-hooks/exhaustive-deps": 27,
+    "react-hooks/rules-of-hooks": 3,
+    "react-hooks/purity": 1,
+    "react-hooks/set-state-in-effect": 1
+  },
+  "updated_at": "2026-02-04T13:00:58.168Z"
+}
