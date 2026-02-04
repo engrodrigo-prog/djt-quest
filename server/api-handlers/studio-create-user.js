@@ -10,6 +10,20 @@ const normTeamCode = (raw) => String(raw || '')
     .replace(/-+/g, '-')
     .replace(/^-|-$/g, '')
     .slice(0, 32);
+const canonicalizeSiglaArea = (raw) => {
+    const s = String(raw || '').trim().toUpperCase();
+    if (!s)
+        return s;
+    if (s === 'DJT-PLA')
+        return 'DJT-PLAN';
+    if (s === 'DJTV-VOR')
+        return 'DJTV-VOT';
+    if (s === 'DJTB-STO')
+        return 'DJTB-SAN';
+    if (s === 'DJTV-ITP')
+        return 'DJTV-ITA';
+    return s;
+};
 const normMatricula = (raw) => {
     const digits = String(raw || '').replace(/\\D/g, '').slice(0, 32);
     return digits || null;
@@ -50,7 +64,7 @@ export default async function handler(req, res) {
         const name = String(body.name || '').trim();
         const role = String(body.role || '').trim();
         const requestedTeam = typeof body.team_id === 'string' ? body.team_id : body.team_id ?? null;
-        const teamId = requestedTeam ? normTeamCode(requestedTeam) : null;
+        const teamId = requestedTeam ? canonicalizeSiglaArea(normTeamCode(requestedTeam)) : null;
         const matricula = normMatricula(body.matricula);
         if (!email || !email.includes('@'))
             return res.status(400).json({ error: 'email inválido' });

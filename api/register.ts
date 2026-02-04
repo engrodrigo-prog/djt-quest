@@ -14,13 +14,13 @@ const REGISTRATION_TEAM_IDS = [
   'DJT',
   'DJT-PLAN',
   'DJTV',
-  'DJTV-VOR',
+  'DJTV-VOT',
   'DJTV-JUN',
   'DJTV-PJU',
   'DJTV-ITA',
   'DJTB',
   'DJTB-CUB',
-  'DJTB-STO',
+  'DJTB-SAN',
   GUEST_TEAM_ID,
 ] as const;
 
@@ -49,6 +49,16 @@ const normTeam = (s: any) =>
     .slice(0, 32);
 
 const isGuestSigla = (sigla: string) => sigla === GUEST_TEAM_ID || sigla === 'EXTERNO';
+
+const canonicalizeSiglaArea = (raw: string) => {
+  const s = String(raw || '').trim().toUpperCase();
+  if (!s) return s;
+  if (s === 'DJT-PLA') return 'DJT-PLAN';
+  if (s === 'DJTV-VOR') return 'DJTV-VOT';
+  if (s === 'DJTB-STO') return 'DJTB-SAN';
+  if (s === 'DJTV-ITP') return 'DJTV-ITA';
+  return s;
+};
 
 const normDob = (raw: any) => {
   const s = String(raw ?? '').trim();
@@ -80,7 +90,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const telefone = normText(body.telefone, 20) || null;
     const matricula = normMatricula(body.matricula);
     const siglaRaw = normTeam(body.sigla_area);
-    const sigla = isGuestSigla(siglaRaw) ? GUEST_TEAM_ID : siglaRaw;
+    const sigla = isGuestSigla(siglaRaw) ? GUEST_TEAM_ID : canonicalizeSiglaArea(siglaRaw);
     const operationalBaseRaw = normText(body.operational_base, 100);
     const operational_base = sigla === GUEST_TEAM_ID ? GUEST_TEAM_ID : operationalBaseRaw;
 

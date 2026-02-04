@@ -347,12 +347,15 @@
     "subtitle": "Track individual, team and division performance",
     "tabs": {
       "overall": "Overall",
+      "guests": "Guests",
       "myTeam": "My team",
       "teams": "Teams",
       "divisions": "Divisions",
       "leaders": "Leaders"
     },
     "overallTitle": "Overall ranking",
+    "guestsTitle": "Guests",
+    "guestsEmpty": "No guests found.",
     "myTeamTitle": "My team ranking",
     "myTeamEmpty": "No collaborators found in your team.",
     "teamsTitle": "Team ranking (adherence %)",
@@ -366,6 +369,7 @@
     "leadersStats": "Reviews: {completed} • Quizzes: {quizXp} XP • Initiatives: {initiativesXp} XP • Forum: {forumXp} XP • SEPBook: {sepbookXp} XP",
     "inlineBreakdown": "Quizzes: {quizXp} XP • Initiatives: {initiativesXp} XP • Forum: {forumXp} XP • SEPBook: {sepbookXp} XP • Reviews: {evaluationsXp} XP",
     "pointsLabel": "XP",
+    "guestBadge": "Guest",
     "breakdownTitle": "XP Breakdown",
     "breakdownSubtitle": "Based on recorded activity.",
     "breakdownLoading": "Loading details...",

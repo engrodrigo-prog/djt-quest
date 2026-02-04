@@ -25,8 +25,9 @@ interface IndividualRanking {
   teamName: string;
   teamId: string | null;
   coordId: string | null;
-  divisionId: string;
+  divisionId: string | null;
   isLeader: boolean;
+  isGuest: boolean;
   quizXp: number;
   initiativesXp: number;
   forumXp: number;
@@ -101,12 +102,13 @@ function Rankings() {
   const { orgScope } = useAuth();
   const { t: tr } = useI18n();
   const [individualRankings, setIndividualRankings] = useState<IndividualRanking[]>([]);
+  const [guestRankings, setGuestRankings] = useState<IndividualRanking[]>([]);
   const [myTeamRankings, setMyTeamRankings] = useState<IndividualRanking[]>([]);
   const [teamRankings, setTeamRankings] = useState<TeamRanking[]>([]);
   const [divisionRankings, setDivisionRankings] = useState<DivisionRanking[]>([]);
   const [leaderRankings, setLeaderRankings] = useState<LeaderRanking[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'individual' | 'myteam' | 'teams' | 'divisions' | 'leaders'>('individual');
+  const [activeTab, setActiveTab] = useState<'individual' | 'guests' | 'myteam' | 'teams' | 'divisions' | 'leaders'>('individual');
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [breakdownLoading, setBreakdownLoading] = useState(false);
@@ -156,13 +158,13 @@ function Rankings() {
 
       const allProfiles = profilesResult.data || [];
       const isLeaderProfile = (p: any) => Boolean(p?.is_leader || p?.studio_access);
-      const profilesData = allProfiles.filter((profile: any) => !isLeaderProfile(profile));
       const isGuestProfile = (p: any) =>
         isGuestTeamId(p?.team_id) ||
         isGuestTeamId(p?.sigla_area) ||
         isGuestTeamId(p?.operational_base);
 
-      const visibleProfiles = allProfiles.filter((p: any) => !isGuestProfile(p));
+      const profilesData = allProfiles.filter((profile: any) => !isLeaderProfile(profile));
+      const visibleProfiles = profilesData; // Overall rankings: include guests (filter via tab)
       let breakdownByUserId: Record<string, any> = {};
       try {
         const ids = visibleProfiles.map((p: any) => p?.id).filter(Boolean);
@@ -188,6 +190,7 @@ function Rankings() {
         const ranked = [...visibleProfiles]
           .map((profile: any) => {
             const isLeader = isLeaderProfile(profile);
+            const isGuest = isGuestProfile(profile);
             const breakdown = breakdownByUserId[String(profile.id)];
             const baseXp = breakdown ? computeBaseXpFromBreakdown(breakdown) : Number(profile.xp ?? 0);
             const points = baseXp;
@@ -205,6 +208,7 @@ function Rankings() {
               __points: points,
               __xp: xp,
               __isLeader: isLeader,
+              __isGuest: isGuest,
               __quizXp: quizXp,
               __initiativesXp: initiativesXp,
               __forumXp: forumXp,
@@ -225,11 +229,16 @@ function Rankings() {
               level: Math.floor(points / 100),
               avatarUrl: profile.avatar_url,
               tier: profile.tier,
-              teamName: profile.team_id ? (teamMap[profile.team_id] || String(profile.team_id)) : 'Sem equipe',
+              teamName: (profile as any).__isGuest
+                ? 'Convidados'
+                : profile.team_id
+                  ? (teamMap[profile.team_id] || String(profile.team_id))
+                  : 'Sem equipe',
               coordId: profile.coord_id,
               divisionId: profile.division_id,
               teamId: profile.team_id,
               isLeader: Boolean((profile as any).__isLeader),
+              isGuest: Boolean((profile as any).__isGuest),
               quizXp: Number((profile as any).__quizXp ?? 0),
               initiativesXp: Number((profile as any).__initiativesXp ?? 0),
               forumXp: Number((profile as any).__forumXp ?? 0),
@@ -238,6 +247,7 @@ function Rankings() {
             };
           });
         setIndividualRankings(ranked);
+        setGuestRankings(ranked.filter((r) => r.isGuest).map((r, i) => ({ ...r, rank: i + 1 })));
 
         // Filter My Team: selected team (if any) or user's team
         const baseTeamId =
@@ -246,7 +256,7 @@ function Rankings() {
         if (baseTeamId) {
           const allTeamIds = (teamsResult.data || []).map((t: any) => String(t?.id || '')).filter(Boolean);
           const scope = buildTeamScope(baseTeamId, allTeamIds);
-          // Keep the DJT special grouping (DJT + PLA + DJT-PLA) even if teams list is partial.
+          // Keep the DJT special grouping (DJT + PLAN + legacy IDs) even if teams list is partial.
           if (normalizeTeamId(baseTeamId) === 'DJT') {
             Array.from(DJT_TEAM_GROUP_IDS).forEach((id) => scope.add(normalizeTeamId(id)));
           }
@@ -718,6 +728,10 @@ function Rankings() {
               <Trophy className="h-4 w-4" />
               <span className="truncate">{tr("rankings.tabs.overall")}</span>
             </TabsTrigger>
+            <TabsTrigger value="guests" className="flex items-center gap-2 min-w-0" title={tr("rankings.tabs.guests")}>
+              <Award className="h-4 w-4" />
+              <span className="truncate">{tr("rankings.tabs.guests")}</span>
+            </TabsTrigger>
             <TabsTrigger value="myteam" className="flex items-center gap-2 min-w-0" title={tr("rankings.tabs.myTeam")}>
               <Users className="h-4 w-4" />
               <span className="truncate">{tr("rankings.tabs.myTeam")}</span>
@@ -785,6 +799,11 @@ function Rankings() {
                                   <Badge variant="outline" className="text-xs">
                                     {ranking.tier}
                                   </Badge>
+                                  {ranking.isGuest && (
+                                    <Badge variant="secondary" className="text-xs">
+                                      {tr("rankings.guestBadge")}
+                                    </Badge>
+                                  )}
                                   <span className="truncate">{ranking.teamName}</span>
                                 </div>
                               </div>
@@ -852,6 +871,67 @@ function Rankings() {
                         )}
                       </div>
                     )}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="guests">
+            <Card className="bg-transparent border-transparent shadow-none">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Award className="h-5 w-5 text-primary" />
+                  {tr("rankings.guestsTitle")}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {loading ? (
+                  <p className="text-center py-8 text-muted-foreground">{tr("common.loading")}</p>
+                ) : guestRankings.length === 0 ? (
+                  <p className="text-center py-8 text-muted-foreground">{tr("rankings.guestsEmpty")}</p>
+                ) : (
+                  <div className="space-y-6">
+                    {guestRankings.map((ranking) => (
+                      <div
+                        key={ranking.userId}
+                        onClick={() => setSelectedUserId(ranking.userId)}
+                        className={`flex items-center gap-4 p-4 rounded-lg border bg-white/5 hover:bg-white/10 transition-colors cursor-pointer ${selectedUserId===ranking.userId ? 'ring-1 ring-primary/40 bg-white/10' : ''}`}
+                      >
+                        <span className="text-2xl font-bold text-muted-foreground min-w-[3rem]">
+                          {getMedalEmoji(ranking.rank)}
+                        </span>
+
+                        <UserProfilePopover userId={ranking.userId} name={ranking.name} avatarUrl={ranking.avatarUrl}>
+                          <button
+                            type="button"
+                            className="flex items-center gap-4 min-w-0 flex-1 text-left p-0 bg-transparent border-0"
+                            onClick={(event) => event.stopPropagation()}
+                          >
+                            <Avatar className="h-12 w-12">
+                              <AvatarImage src={ranking.avatarUrl || ''} />
+                              <AvatarFallback>{ranking.name.split(' ').map(n => n[0]).join('')}</AvatarFallback>
+                            </Avatar>
+                            <div className="min-w-0">
+                              <p className="font-semibold truncate">{ranking.name}</p>
+                              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                <Badge variant="outline" className="text-xs">
+                                  {ranking.tier}
+                                </Badge>
+                                <Badge variant="secondary" className="text-xs">
+                                  {tr("rankings.guestBadge")}
+                                </Badge>
+                              </div>
+                            </div>
+                          </button>
+                        </UserProfilePopover>
+
+                        <div className="text-right">
+                          <p className="text-lg font-bold">{ranking.points.toLocaleString()} {tr("rankings.pointsLabel")}</p>
+                          <p className="text-sm text-muted-foreground">{tr("rankings.levelLabel", { level: ranking.level })}</p>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 )}
               </CardContent>

@@ -10,15 +10,25 @@ const REGISTRATION_TEAM_IDS = [
   'DJT',
   'DJT-PLAN',
   'DJTV',
-  'DJTV-VOR',
+  'DJTV-VOT',
   'DJTV-JUN',
   'DJTV-PJU',
   'DJTV-ITA',
   'DJTB',
   'DJTB-CUB',
-  'DJTB-STO',
+  'DJTB-SAN',
   GUEST_TEAM_ID,
 ] as const;
+
+const canonicalizeSiglaArea = (raw: string) => {
+  const s = String(raw || '').trim().toUpperCase();
+  if (!s) return s;
+  if (s === 'DJT-PLA') return 'DJT-PLAN';
+  if (s === 'DJTV-VOR') return 'DJTV-VOT';
+  if (s === 'DJTB-STO') return 'DJTB-SAN';
+  if (s === 'DJTV-ITP') return 'DJTV-ITA';
+  return s;
+};
 
 const normText = (s: any) =>
   String(s ?? '')
@@ -45,7 +55,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const team =
       (typeof req.query.team === 'string' ? req.query.team : Array.isArray(req.query.team) ? req.query.team[0] : '') || '';
-    const teamId = normText(team).toUpperCase();
+    const teamId = canonicalizeSiglaArea(normText(team));
 
     // Teams list (restricted to allowed registration teams; names from DB when possible)
     const allowed = new Set(REGISTRATION_TEAM_IDS.map((id) => id.toUpperCase()));

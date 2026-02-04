@@ -72,13 +72,13 @@ const REGISTRATION_TEAM_IDS = [
   "DJT",
   "DJT-PLAN",
   "DJTV",
-  "DJTV-VOR",
+  "DJTV-VOT",
   "DJTV-JUN",
   "DJTV-PJU",
   "DJTV-ITA",
   "DJTB",
   "DJTB-CUB",
-  "DJTB-STO",
+  "DJTB-SAN",
   GUEST_TEAM_ID,
 ] as const;
 

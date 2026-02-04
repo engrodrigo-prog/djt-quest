@@ -1,8 +1,10 @@
 export const BASE_OPTIONS_BY_SIGLA: Record<string, string[]> = {
   'DJTB-CUB': ['Cubatão'],
-  'DJTB-STO': ['Santos'],
-  // legados/aliases (mantidos para compatibilidade)
+  // Canonical IDs (prod)
   'DJTB-SAN': ['Santos'],
+  'DJTV-VOT': ['Votorantim'],
+  // legados/aliases (mantidos para compatibilidade)
+  'DJTB-STO': ['Santos'],
   'DJTB-SUDESTE': ['Salto', 'Jundiaí'],
   'DJTV-VOR': ['Votorantim'],
   'DJTV-SUL': ['Votorantim'],

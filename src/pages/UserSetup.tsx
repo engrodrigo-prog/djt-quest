@@ -33,8 +33,8 @@ const INITIAL_USERS: UserRow[] = [
     email: "cveiga@cpfl.com.br",
     telefone: "",
     cargo: "Coordenação",
-    sigla_area: "DJT-PLA",
-    base_operacional: "Votorantim"
+    sigla_area: "DJT-PLAN",
+    base_operacional: "DJT-PLAN"
   },
   {
     nome: "Paulo Henrique Costa Camara",
@@ -60,7 +60,7 @@ const INITIAL_USERS: UserRow[] = [
     email: "sergio.dutra@cpfl.com.br",
     telefone: "",
     cargo: "Coordenação",
-    sigla_area: "DJTV-ITP",
+    sigla_area: "DJTV-ITA",
     base_operacional: "Itapetininga"
   },
   {

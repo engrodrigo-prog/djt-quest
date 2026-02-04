@@ -347,12 +347,15 @@
     "subtitle": "跟踪个人、团队与分部表现",
     "tabs": {
       "overall": "总榜",
+      "guests": "访客",
       "myTeam": "我的团队",
       "teams": "团队",
       "divisions": "分部",
       "leaders": "领导"
     },
     "overallTitle": "总榜排行",
+    "guestsTitle": "访客",
+    "guestsEmpty": "未找到访客。",
     "myTeamTitle": "我的团队排行",
     "myTeamEmpty": "在你的团队中未找到协作者。",
     "teamsTitle": "团队排行（参与度 %）",
@@ -366,6 +369,7 @@
     "leadersStats": "评审：{completed} • 测验：{quizXp} XP • 活动：{initiativesXp} XP • 论坛：{forumXp} XP • SEPBook：{sepbookXp} XP",
     "inlineBreakdown": "测验：{quizXp} XP • 活动：{initiativesXp} XP • 论坛：{forumXp} XP • SEPBook：{sepbookXp} XP • 评审：{evaluationsXp} XP",
     "pointsLabel": "XP",
+    "guestBadge": "访客",
     "breakdownTitle": "XP 明细",
     "breakdownSubtitle": "基于记录的活动。",
     "breakdownLoading": "正在加载明细…",

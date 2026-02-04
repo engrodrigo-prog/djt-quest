@@ -347,12 +347,15 @@
     "subtitle": "Acompanhe o desempenho individual, das equipes e divisões",
     "tabs": {
       "overall": "Geral",
+      "guests": "Convidados",
       "myTeam": "Minha equipe",
       "teams": "Equipes",
       "divisions": "Divisões",
       "leaders": "Líderes"
     },
     "overallTitle": "Ranking geral",
+    "guestsTitle": "Convidados",
+    "guestsEmpty": "Nenhum convidado encontrado.",
     "myTeamTitle": "Ranking da minha equipe",
     "myTeamEmpty": "Nenhum colaborador encontrado na sua equipe.",
     "teamsTitle": "Ranking de equipes (adesão %)",
@@ -366,6 +369,7 @@
     "leadersStats": "Avaliações: {completed} • Quizzes: {quizXp} XP • Iniciativas: {initiativesXp} XP • Fórum: {forumXp} XP • SEPBook: {sepbookXp} XP",
     "inlineBreakdown": "Quizzes: {quizXp} XP • Iniciativas: {initiativesXp} XP • Fórum: {forumXp} XP • SEPBook: {sepbookXp} XP • Avaliações: {evaluationsXp} XP",
     "pointsLabel": "XP",
+    "guestBadge": "Convidado",
     "breakdownTitle": "Detalhamento de XP",
     "breakdownSubtitle": "Baseado em atividades registradas.",
     "breakdownLoading": "Carregando detalhes...",

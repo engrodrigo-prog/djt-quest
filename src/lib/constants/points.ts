@@ -1,4 +1,5 @@
-export const DJT_TEAM_GROUP_IDS = ["DJT", "PLA", "DJT-PLA"] as const;
+// DJT aggregate group (kept permissive for backwards-compat with legacy IDs).
+export const DJT_TEAM_GROUP_IDS = ["DJT", "DJT-PLAN", "DJT-PLA", "PLA"] as const;
 
 export const isDjtTeamGroupId = (teamId: string | null | undefined) =>
   DJT_TEAM_GROUP_IDS.includes(String(teamId || "").trim().toUpperCase() as any);
@@ -7,8 +8,8 @@ export const normalizeTeamId = (teamId: string | null | undefined) =>
   String(teamId || "").trim().toUpperCase();
 
 const TEAM_SCOPE_EXTRAS: Record<string, string[]> = {
-  // DJT should include PLA even though it is not a prefix child.
-  DJT: ["PLA"],
+  // Legacy: DJT-PLA / PLA (older org ids) should still be visible under DJT scope.
+  DJT: ["DJT-PLAN", "DJT-PLA", "PLA"],
 };
 
 export const buildTeamScope = (baseTeamId: string | null | undefined, allTeamIds: string[]) => {

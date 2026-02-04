@@ -10,6 +10,20 @@ const normTeamCode = (raw) => String(raw || '')
     .replace(/-+/g, '-')
     .replace(/^-|-$/g, '')
     .slice(0, 32);
+const canonicalizeSiglaArea = (raw) => {
+    const s = String(raw || '').trim().toUpperCase();
+    if (!s)
+        return s;
+    if (s === 'DJT-PLA')
+        return 'DJT-PLAN';
+    if (s === 'DJTV-VOR')
+        return 'DJTV-VOT';
+    if (s === 'DJTB-STO')
+        return 'DJTB-SAN';
+    if (s === 'DJTV-ITP')
+        return 'DJTV-ITA';
+    return s;
+};
 const computeScope = async (admin, userId) => {
     const [{ data: rolesData }, { data: profile }] = await Promise.all([
         admin.from('user_roles').select('role').eq('user_id', userId),
@@ -117,7 +131,8 @@ export default async function handler(req, res) {
         const forceGuest = Boolean(body?.force_guest) ||
             String(overrideSiglaRaw || '').trim().toUpperCase() === GUEST_TEAM_ID ||
             String(overrideBaseRaw || '').trim().toUpperCase() === GUEST_TEAM_ID;
-        const desiredSigla = forceGuest ? GUEST_TEAM_ID : normTeamCode(overrideSiglaRaw || reg.sigla_area) || normTeamCode(reg.sigla_area);
+        const desiredSiglaRaw = forceGuest ? GUEST_TEAM_ID : normTeamCode(overrideSiglaRaw || reg.sigla_area) || normTeamCode(reg.sigla_area);
+        const desiredSigla = forceGuest ? GUEST_TEAM_ID : canonicalizeSiglaArea(desiredSiglaRaw);
         const desiredBase = forceGuest ? GUEST_TEAM_ID : String(overrideBaseRaw || reg.operational_base || '').trim().slice(0, 80);
         if (!desiredSigla)
             return res.status(400).json({ error: 'Sigla/base inválida. Ajuste antes de aprovar.' });
