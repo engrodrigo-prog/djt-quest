@@ -80,16 +80,20 @@ Date: 2026-02-04
   - `.env.example` presente (sem segredos).
   - Pendência operacional: confirmar Node `22.x` no projeto Vercel e smoke test pós-deploy.
 
-## Majors candidatos (NÃO aplicados automaticamente)
+## Majors aplicados (por solicitação)
 - Node 24 (current) — **não** (manter LTS 22)
-- `@hookform/resolvers` 3.x → 5.x
-- `date-fns` 3.x → 4.x
-- `react-router-dom` 6.x → 7.x
-- `tailwind-merge` 2.x → 3.x
-- `tailwindcss` 3.x → 4.x
-- `zod` 3.x → 4.x
-- `openai` 4.x → 6.x
-- `@types/node` 22.x → 25.x
+- `tailwind-merge` 2.x → 3.x (`f156e9d`)
+- `date-fns` 3.x → 4.x (`2e97449`)
+- `@types/node` 22.x → 25.x (`70659b3`)
+- `@hookform/resolvers` 3.x → 5.x (`3e78ed5`)
+- `zod` 3.x → 4.x (`249a316`)
+- `openai` 4.x → 6.x (`e8557ef`)
+- `react-router-dom` 6.x → 7.x (`518b0f5`)
+- `tailwindcss` 3.x → 4.x (`44820ae`)
+
+Notas Tailwind v4:
+- Passou a exigir plugin PostCSS `@tailwindcss/postcss`.
+- `@apply` no CSS global falhou em algumas utilities (`border-border`, `font-sans`); substituído por CSS equivalente em `src/index.css`.
 
 ## Checklist (PR / Deploy)
 - [ ] Rodar gates localmente: `npm ci && npm run gate`
