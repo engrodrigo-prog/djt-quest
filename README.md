@@ -6,14 +6,14 @@ Aplicação web (Vite + React) com backend Supabase (SQL migrations + Edge Funct
 
 - Node.js: `22.x`
 - Vite: `7.3.1`
-- React / React DOM: `19.2.3`
+- React / React DOM: `19.2.4`
 - TypeScript: `5.9.3`
 - Tailwind CSS: `3.4.19`
 - shadcn/ui (Radix UI) + lucide-react
-- Supabase JS: `2.90.1`
-- TanStack React Query: `5.90.16`
+- Supabase JS: `2.94.0`
+- TanStack React Query: `5.90.20`
 - Leaflet / React-Leaflet (mapas): `1.9.4` / `5.0.0`
-- Vercel CLI (dev/debug): `50.1.6`
+- Vercel CLI (dev/debug): `npx vercel@50.10.0`
 
 ## Rodar localmente
 

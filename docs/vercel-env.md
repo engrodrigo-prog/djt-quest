@@ -30,5 +30,4 @@ Não coloque segredos no frontend:
 ## Como validar
 
 - Health check: `GET /api/ai?handler=health` (deve retornar `{ ok: true, ... }` quando `OPENAI_API_KEY` está configurada)
-- Em dev, se estiver rodando `npm run dev` sem proxy, prefira `vercel dev` para ter `/api/*` local.
-
+- Em dev, se estiver rodando `npm run dev` sem proxy, prefira `npm run dev:vercel:nowarn` (ou `npx vercel@50.10.0 dev`) para ter `/api/*` local.
