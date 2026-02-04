@@ -71,8 +71,14 @@ Date: 2026-02-04
   - `@rolldown/pluginutils@1.0.0-rc.2` (transitivo do tooling Vite/plugin)
 
 ## Gate 3 — Supabase/Vercel sanity checks (pendente)
-- Supabase: revisar `supabase/config.toml` + ordem/nomes em `supabase/migrations/` (sem aplicar migrations).
-- Vercel: validar Node 22.x em produção e smoke test pós-deploy.
+- Supabase:
+  - `supabase/config.toml` presente (project_id configurado).
+  - `supabase/migrations/` presente e ordenável por prefixo de data (há migrações com prefixo de 12 e 14 dígitos; ambas funcionam desde que mantenham ordem temporal).
+  - `supabase status`: **não executou** porque Docker daemon não está rodando nesta máquina (`Cannot connect to the Docker daemon...`).
+- Vercel:
+  - `vercel.json` presente (rewrites para SPA + `/api/*`).
+  - `.env.example` presente (sem segredos).
+  - Pendência operacional: confirmar Node `22.x` no projeto Vercel e smoke test pós-deploy.
 
 ## Majors candidatos (NÃO aplicados automaticamente)
 - Node 24 (current) — **não** (manter LTS 22)
