@@ -1,12 +1,9 @@
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { apiFetch } from '@/lib/api';
-import { getActiveLocale } from '@/lib/i18n/activeLocale';
 import { toast } from 'sonner';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -36,6 +33,7 @@ type AttemptRow = {
   team_id: string | null;
   coord_id: string | null;
   division_id: string | null;
+  sigla_area?: string | null;
   operational_base: string | null;
   submitted_at: string | null;
   score: number;
@@ -50,6 +48,7 @@ type PeopleRow = {
   team_id: string | null;
   coord_id: string | null;
   division_id: string | null;
+  sigla_area?: string | null;
   operational_base: string | null;
   submitted_at: string | null;
   score: number | null;
@@ -80,6 +79,213 @@ type QuizResultsPayload = {
 const fmtPct = (v: number | null | undefined) => (typeof v === 'number' ? `${Math.round(v)}%` : '—');
 const round1 = (n: number) => Math.round(n * 10) / 10;
 
+const GUEST_TEAM_ID = 'CONVIDADOS';
+const EXTERNAL_TEAM_ID = 'EXTERNO';
+
+const canonicalizeOrgId = (raw: unknown) => {
+  const s = String(raw || '').trim().toUpperCase();
+  if (!s) return s;
+  if (s === 'DJT-PLA') return 'DJT-PLAN';
+  if (s === 'DJTV-VOR') return 'DJTV-VOT';
+  if (s === 'DJTB-STO') return 'DJTB-SAN';
+  if (s === 'DJTV-ITP') return 'DJTV-ITA';
+  return s;
+};
+
+const normalizeOrgId = (raw: unknown) => {
+  const s = canonicalizeOrgId(raw);
+  return s ? s : null;
+};
+
+const isGuestValue = (raw: unknown) => {
+  const s = String(raw || '').trim().toUpperCase();
+  return s === GUEST_TEAM_ID || s === EXTERNAL_TEAM_ID;
+};
+
+const isGuestProfile = (p: Partial<PeopleRow>) =>
+  isGuestValue(p?.team_id) || isGuestValue((p as any)?.sigla_area) || isGuestValue(p?.operational_base);
+
+const deriveDivisionFromId = (raw: unknown) => {
+  const s = normalizeOrgId(raw);
+  if (!s) return null;
+  if (s === GUEST_TEAM_ID || s === EXTERNAL_TEAM_ID) return s;
+  const base = s.split('-')[0];
+  return base || s;
+};
+
+const deriveDivisionId = (p: Partial<PeopleRow>) => {
+  const direct = normalizeOrgId(p?.division_id);
+  if (direct && direct !== GUEST_TEAM_ID && direct !== EXTERNAL_TEAM_ID) return direct;
+  return (
+    deriveDivisionFromId(p?.coord_id) ||
+    deriveDivisionFromId(p?.team_id) ||
+    deriveDivisionFromId((p as any)?.sigla_area) ||
+    null
+  );
+};
+
+const DIV_ORDER = ['DJT', 'DJTV', 'DJTB'];
+const divisionOrderIndex = (id: unknown) => {
+  const i = DIV_ORDER.indexOf(String(id || '').toUpperCase());
+  return i === -1 ? 999 : i;
+};
+
+type TreeKind = 'root' | 'division' | 'team' | 'person';
+
+type TreeNode = {
+  id: string;
+  kind: TreeKind;
+  label: string;
+  eligibleUsers: number;
+  participants: number;
+  scoreSum: number;
+  maxSum: number;
+  participationRate: number;
+  avgScorePct: number | null;
+  children: TreeNode[];
+  person?: PeopleRow;
+};
+
+type MutableTreeNode = Omit<TreeNode, 'children' | 'participationRate' | 'avgScorePct'> & {
+  children: Map<string, MutableTreeNode>;
+};
+
+const createMutableNode = (id: string, kind: TreeKind, label: string): MutableTreeNode => ({
+  id,
+  kind,
+  label,
+  eligibleUsers: 0,
+  participants: 0,
+  scoreSum: 0,
+  maxSum: 0,
+  children: new Map(),
+});
+
+const addPersonStats = (node: MutableTreeNode, person: PeopleRow) => {
+  node.eligibleUsers += 1;
+  if (!person?.hasAttempt) return;
+  node.participants += 1;
+  const score = Number(person.score ?? 0) || 0;
+  const max = Number(person.max_score ?? 0) || 0;
+  node.scoreSum += score;
+  node.maxSum += max;
+};
+
+const ensureChild = (parent: MutableTreeNode, key: string, kind: TreeKind, label: string) => {
+  const existing = parent.children.get(key);
+  if (existing) return existing;
+  const child = createMutableNode(`${parent.id}/${key}`, kind, label);
+  parent.children.set(key, child);
+  return child;
+};
+
+const comparePersonNodes = (a: TreeNode, b: TreeNode) => {
+  const ap = a.person;
+  const bp = b.person;
+  const aHas = ap?.hasAttempt ? 1 : 0;
+  const bHas = bp?.hasAttempt ? 1 : 0;
+  if (aHas !== bHas) return bHas - aHas;
+  const aPct = typeof ap?.scorePct === 'number' ? ap.scorePct : -1;
+  const bPct = typeof bp?.scorePct === 'number' ? bp.scorePct : -1;
+  if (aPct !== bPct) return bPct - aPct;
+  return String(a.label || '').localeCompare(String(b.label || ''), 'pt-BR');
+};
+
+const finalizeTree = (node: MutableTreeNode): TreeNode => {
+  const eligible = Number(node.eligibleUsers || 0) || 0;
+  const participants = Number(node.participants || 0) || 0;
+  const scoreSum = Number(node.scoreSum || 0) || 0;
+  const maxSum = Number(node.maxSum || 0) || 0;
+  const participationRate = eligible > 0 ? round1((participants / eligible) * 100) : 0;
+  const avgScorePct = maxSum > 0 ? round1((scoreSum / maxSum) * 100) : null;
+
+  const children = Array.from(node.children.values()).map(finalizeTree);
+
+  children.sort((a, b) => {
+    // Keep groups above people at each level.
+    if (a.kind !== b.kind) {
+      if (a.kind === 'person') return 1;
+      if (b.kind === 'person') return -1;
+    }
+    if (a.kind === 'division' && b.kind === 'division') {
+      return divisionOrderIndex(a.label) - divisionOrderIndex(b.label) || String(a.label).localeCompare(String(b.label), 'pt-BR');
+    }
+    if (a.kind === 'person' && b.kind === 'person') return comparePersonNodes(a, b);
+    return String(a.label).localeCompare(String(b.label), 'pt-BR');
+  });
+
+  return {
+    id: node.id,
+    kind: node.kind,
+    label: node.label,
+    eligibleUsers: eligible,
+    participants,
+    scoreSum,
+    maxSum,
+    participationRate,
+    avgScorePct,
+    children,
+    person: node.person,
+  };
+};
+
+const buildQuizOrgTree = (people: PeopleRow[]) => {
+  const rootDjt = createMutableNode('root:DJT', 'root', 'DJT');
+  const rootLeaders = createMutableNode('root:LEADERS', 'root', 'Líderes');
+  const rootGuests = createMutableNode('root:GUESTS', 'root', 'Convidados');
+
+  for (const p of people || []) {
+    const guest = isGuestProfile(p);
+    const leader = Boolean(p?.is_leader);
+    const root = guest ? rootGuests : leader ? rootLeaders : rootDjt;
+    addPersonStats(root, p);
+
+    // Guests: show directly under the "Convidados" root (no extra CONVIDADOS->CONVIDADOS nesting).
+    if (guest) {
+      const personNode = ensureChild(root, `person:${p.user_id}`, 'person', p.name || '—');
+      personNode.person = p;
+      addPersonStats(personNode, p);
+      continue;
+    }
+
+    const divisionId = deriveDivisionId(p) || '—';
+    const divisionLabel = divisionId === '—' ? 'Sem divisão' : divisionId;
+    const divNode = ensureChild(root, `division:${divisionId}`, 'division', divisionLabel);
+    addPersonStats(divNode, p);
+
+    const teamId = normalizeOrgId(p?.team_id) || '—';
+    const shouldSkipTeam = teamId !== '—' && divisionId !== '—' && teamId === divisionId;
+    const parent = shouldSkipTeam
+      ? divNode
+      : (() => {
+          const teamLabel = teamId === '—' ? 'Sem equipe' : teamId;
+          const teamNode = ensureChild(divNode, `team:${teamId}`, 'team', teamLabel);
+          addPersonStats(teamNode, p);
+          return teamNode;
+        })();
+
+    const personNode = ensureChild(parent, `person:${p.user_id}`, 'person', p.name || '—');
+    personNode.person = p;
+    addPersonStats(personNode, p);
+  }
+
+  const roots = [finalizeTree(rootDjt), finalizeTree(rootLeaders), finalizeTree(rootGuests)];
+  return roots.filter((r) => r.eligibleUsers > 0);
+};
+
+type FlatRow = { node: TreeNode; depth: number };
+
+const flattenTree = (nodes: TreeNode[], expanded: Record<string, true>, depth = 0): FlatRow[] => {
+  const out: FlatRow[] = [];
+  for (const n of nodes) {
+    out.push({ node: n, depth });
+    if (n.children.length > 0 && expanded[n.id]) {
+      out.push(...flattenTree(n.children, expanded, depth + 1));
+    }
+  }
+  return out;
+};
+
 export function QuizResultsDashboard({ challengeId }: { challengeId: string }) {
   const { orgScope, userRole, isLeader } = useAuth() as any;
 
@@ -97,13 +303,14 @@ export function QuizResultsDashboard({ challengeId }: { challengeId: string }) {
   const [scope, setScope] = useState<Scope>(defaultScope);
   const [scopeId, setScopeId] = useState<string>('');
   const [includeLeaders, setIncludeLeaders] = useState(true);
-  const [includeGuests, setIncludeGuests] = useState(false);
-  const [tab, setTab] = useState<'divisions' | 'coords' | 'teams' | 'bases' | 'people'>('coords');
+  const [includeGuests, setIncludeGuests] = useState(true);
   const [loading, setLoading] = useState(false);
-  const [search, setSearch] = useState('');
-  const [peopleFilter, setPeopleFilter] = useState<'all' | 'responded' | 'pending'>('all');
   const [data, setData] = useState<QuizResultsPayload | null>(null);
-  const [expandedTeamGroups, setExpandedTeamGroups] = useState<Record<string, true>>({});
+  const [expandedNodes, setExpandedNodes] = useState<Record<string, true>>({
+    'root:DJT': true,
+    'root:LEADERS': true,
+    'root:GUESTS': true,
+  });
 
   useEffect(() => {
     const id =
@@ -117,13 +324,6 @@ export function QuizResultsDashboard({ challengeId }: { challengeId: string }) {
     if (scope !== 'all') setScopeId(id ? String(id) : '');
     else setScopeId('');
   }, [orgScope?.coordId, orgScope?.divisionId, orgScope?.teamId, scope]);
-
-  useEffect(() => {
-    // Tab defaults depending on scope
-    if (scope === 'all') setTab('divisions');
-    else if (scope === 'division') setTab('coords');
-    else setTab('people');
-  }, [scope]);
 
   const fetchResults = async () => {
     if (!challengeId) return;
@@ -155,103 +355,25 @@ export function QuizResultsDashboard({ challengeId }: { challengeId: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [challengeId, includeGuests, includeLeaders, scope, scopeId]);
 
-  const filteredPeople = useMemo(() => {
-    const rows = (data?.people || []) as PeopleRow[];
-    const q = search.trim().toLowerCase();
-    const byText = q
-      ? rows.filter((r) => {
-      const hay = `${r.name || ''} ${r.team_id || ''} ${r.coord_id || ''} ${r.division_id || ''} ${r.operational_base || ''}`.toLowerCase();
-      return hay.includes(q);
-    })
-      : rows;
+  const treeRoots = useMemo(() => buildQuizOrgTree((data?.people || []) as PeopleRow[]), [data?.people]);
 
-    if (peopleFilter === 'responded') return byText.filter((r) => r.hasAttempt);
-    if (peopleFilter === 'pending') return byText.filter((r) => !r.hasAttempt);
-    return byText;
-  }, [data?.people, peopleFilter, search]);
-
-  const showDivisions = Boolean((data?.divisions || []).length);
-  const showBases = Boolean((data?.bases || []).length);
-
-  const groupedTeamsRows = useMemo(() => {
-    const rows = (data?.teams || []) as StatRow[];
-    if (!rows.length) return [] as Array<{ kind: 'group' | 'team'; key: string; row: StatRow; children?: StatRow[]; direct?: StatRow[] }>;
-
-    const byDivision = new Map<string, { children: StatRow[]; direct: StatRow[] }>();
-    const others: StatRow[] = [];
-
-    for (const r of rows) {
-      const divisionId = String(r?.division_id || '').trim();
-      const teamId = String(r?.team_id || '').trim();
-      const isGuest = teamId === 'CONVIDADOS' || teamId === 'EXTERNO' || divisionId === 'CONVIDADOS' || divisionId === 'EXTERNO';
-      if (isGuest || !divisionId || !teamId) {
-        others.push(r);
-        continue;
-      }
-      const isChild = teamId.startsWith(`${divisionId}-`);
-      const bucket = byDivision.get(divisionId) || { children: [], direct: [] };
-      if (isChild) bucket.children.push(r);
-      else bucket.direct.push(r);
-      byDivision.set(divisionId, bucket);
-    }
-
-    const divisionSortKey = (id: string) => {
-      const upper = id.toUpperCase();
-      if (upper === 'DJT') return '0_DJT';
-      if (upper === 'DJTV') return '1_DJTV';
-      if (upper === 'DJTB') return '2_DJTB';
-      return `9_${upper}`;
-    };
-
-    const out: Array<{ kind: 'group' | 'team'; key: string; row: StatRow; children?: StatRow[]; direct?: StatRow[] }> = [];
-
-    const divisionIds = Array.from(byDivision.keys()).sort((a, b) => divisionSortKey(a).localeCompare(divisionSortKey(b)));
-    for (const div of divisionIds) {
-      const bucket = byDivision.get(div);
-      const children = (bucket?.children || []).slice().sort((a, b) => String(a.team_id || '').localeCompare(String(b.team_id || '')));
-      const direct = (bucket?.direct || []).slice().sort((a, b) => String(a.team_id || '').localeCompare(String(b.team_id || '')));
-
-      if (!children.length) {
-        out.push(...direct.map((r, i) => ({ kind: 'team', key: `${div}:direct:${r.team_id || '—'}:${i}`, row: r })));
-        continue;
-      }
-
-      const eligibleUsers = children.reduce((sum, r) => sum + (Number(r.eligibleUsers || 0) || 0), 0);
-      const participants = children.reduce((sum, r) => sum + (Number(r.participants || 0) || 0), 0);
-      const scoreSum = children.reduce((sum, r) => sum + (Number(r.scoreSum || 0) || 0), 0);
-      const maxSum = children.reduce((sum, r) => sum + (Number(r.maxSum || 0) || 0), 0);
-      const participationRate = eligibleUsers > 0 ? round1((participants / eligibleUsers) * 100) : 0;
-      const avgScorePct = maxSum > 0 ? round1((scoreSum / maxSum) * 100) : null;
-
-      out.push({
-        kind: 'group',
-        key: `group:${div}`,
-        row: {
-          team_id: div,
-          coord_id: null,
-          division_id: div,
-          eligibleUsers,
-          participants,
-          participationRate,
-          avgScorePct,
-          scoreSum,
-          maxSum,
-        },
-        children,
-        direct,
-      });
-    }
-
-    // Add any non-division grouped rows at the end (guests/unknown)
-    out.push(
-      ...others
-        .slice()
-        .sort((a, b) => String(a.team_id || '').localeCompare(String(b.team_id || '')))
-        .map((r, i) => ({ kind: 'team' as const, key: `other:${r.team_id || '—'}:${i}`, row: r })),
+  const totals = useMemo(() => {
+    return treeRoots.reduce(
+      (acc, r) => {
+        acc.eligible += Number(r.eligibleUsers || 0) || 0;
+        acc.participants += Number(r.participants || 0) || 0;
+        acc.scoreSum += Number(r.scoreSum || 0) || 0;
+        acc.maxSum += Number(r.maxSum || 0) || 0;
+        return acc;
+      },
+      { eligible: 0, participants: 0, scoreSum: 0, maxSum: 0 },
     );
+  }, [treeRoots]);
 
-    return out;
-  }, [data?.teams]);
+  const totalParticipationRate = totals.eligible > 0 ? round1((totals.participants / totals.eligible) * 100) : 0;
+  const totalAvgScorePct = totals.maxSum > 0 ? round1((totals.scoreSum / totals.maxSum) * 100) : null;
+
+  const flatRows = useMemo(() => flattenTree(treeRoots, expandedNodes), [expandedNodes, treeRoots]);
 
   return (
     <Card className="bg-black/20 border-white/10">
@@ -296,14 +418,14 @@ export function QuizResultsDashboard({ challengeId }: { challengeId: string }) {
             <div className="flex items-center justify-between gap-3 rounded border border-white/10 p-2 bg-black/20">
               <div className="min-w-0">
                 <div className="text-xs font-medium">Líderes</div>
-                <div className="text-[11px] text-muted-foreground">Contar líderes nos elegíveis e notas</div>
+                <div className="text-[11px] text-muted-foreground">Exibir em grupo separado</div>
               </div>
               <Switch checked={includeLeaders} onCheckedChange={setIncludeLeaders} />
             </div>
             <div className="flex items-center justify-between gap-3 rounded border border-white/10 p-2 bg-black/20">
               <div className="min-w-0">
                 <div className="text-xs font-medium">Convidados</div>
-                <div className="text-[11px] text-muted-foreground">Incluir equipe CONVIDADOS</div>
+                <div className="text-[11px] text-muted-foreground">Exibir em grupo separado</div>
               </div>
               <Switch checked={includeGuests} onCheckedChange={setIncludeGuests} />
             </div>
@@ -312,325 +434,103 @@ export function QuizResultsDashboard({ challengeId }: { challengeId: string }) {
           <div className="space-y-2">
             <Label className="text-xs">Resumo</Label>
             <div className="flex flex-wrap gap-2">
-              <Badge variant="outline">Elegíveis: {data?.eligibleUsers ?? (loading ? '…' : 0)}</Badge>
-              <Badge variant="outline">Respondentes: {data?.participants ?? (loading ? '…' : 0)}</Badge>
-              <Badge variant="outline">Aderência: {data ? `${data.participationRate}%` : loading ? '…' : '0%'}</Badge>
-              <Badge variant="outline">Média: {fmtPct(data?.avgScorePct)}</Badge>
+              <Badge variant="outline">Elegíveis: {loading ? '…' : totals.eligible}</Badge>
+              <Badge variant="outline">Respondentes: {loading ? '…' : totals.participants}</Badge>
+              <Badge variant="outline">Aderência: {loading ? '…' : `${totalParticipationRate}%`}</Badge>
+              <Badge variant="outline">Média: {loading ? '…' : fmtPct(totalAvgScorePct)}</Badge>
             </div>
           </div>
         </div>
       </CardHeader>
 
       <CardContent className="space-y-3">
-        <Tabs value={tab} onValueChange={(v) => setTab(v as any)}>
-          <TabsList className="grid w-full grid-cols-2 md:grid-cols-5">
-            <TabsTrigger value="divisions" disabled={!showDivisions}>
-              Divisões
-            </TabsTrigger>
-            <TabsTrigger value="coords">Coordenações</TabsTrigger>
-            <TabsTrigger value="teams">Equipes</TabsTrigger>
-            <TabsTrigger value="bases" disabled={!showBases}>
-              Bases
-            </TabsTrigger>
-            <TabsTrigger value="people">Pessoas</TabsTrigger>
-          </TabsList>
+        <ScrollArea className="h-[420px] w-full pr-2">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Organização</TableHead>
+                <TableHead className="text-right">Elegíveis</TableHead>
+                <TableHead className="text-right">Respondentes</TableHead>
+                <TableHead className="text-right">Aderência</TableHead>
+                <TableHead className="text-right">Nota</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {flatRows.map(({ node, depth }) => {
+                const hasChildren = node.children.length > 0;
+                const expanded = Boolean(expandedNodes[node.id]);
+                const indentPx = depth * 16;
+                const isPerson = node.kind === 'person';
+                const person = node.person;
+                const pct = isPerson && person && typeof person.scorePct === 'number' ? Math.round(person.scorePct) : null;
+                const score = isPerson && person && typeof person.score === 'number' ? person.score : null;
+                const max = isPerson && person && typeof person.max_score === 'number' ? person.max_score : null;
+                const pending = isPerson && person ? !person.hasAttempt : false;
 
-          <TabsContent value="divisions" className="space-y-2">
-            <ScrollArea className="h-[320px] w-full">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Divisão</TableHead>
-                    <TableHead className="text-right">Elegíveis</TableHead>
-                    <TableHead className="text-right">Respondentes</TableHead>
-                    <TableHead className="text-right">Aderência</TableHead>
-                    <TableHead className="text-right">Média</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {(data?.divisions || []).map((r, idx) => (
-                    <TableRow key={`${r.division_id || '—'}:${idx}`}>
-                      <TableCell className="font-medium">{r.division_id || '—'}</TableCell>
-                      <TableCell className="text-right">{r.eligibleUsers}</TableCell>
-                      <TableCell className="text-right">{r.participants}</TableCell>
-                      <TableCell className="text-right">{r.participationRate}%</TableCell>
-                      <TableCell className="text-right">{fmtPct(r.avgScorePct)}</TableCell>
-                    </TableRow>
-                  ))}
-                  {!loading && (data?.divisions || []).length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={5} className="text-sm text-muted-foreground">
-                        Sem dados para este escopo.
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </ScrollArea>
-          </TabsContent>
-
-          <TabsContent value="coords" className="space-y-2">
-            <ScrollArea className="h-[320px] w-full">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Coordenação</TableHead>
-                    <TableHead>Divisão</TableHead>
-                    <TableHead className="text-right">Elegíveis</TableHead>
-                    <TableHead className="text-right">Respondentes</TableHead>
-                    <TableHead className="text-right">Aderência</TableHead>
-                    <TableHead className="text-right">Média</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {(data?.coordinations || []).map((r, idx) => (
-                    <TableRow key={`${r.coord_id || '—'}:${idx}`}>
-                      <TableCell className="font-medium">{r.coord_id || '—'}</TableCell>
-                      <TableCell className="text-xs text-muted-foreground">{r.division_id || '—'}</TableCell>
-                      <TableCell className="text-right">{r.eligibleUsers}</TableCell>
-                      <TableCell className="text-right">{r.participants}</TableCell>
-                      <TableCell className="text-right">{r.participationRate}%</TableCell>
-                      <TableCell className="text-right">{fmtPct(r.avgScorePct)}</TableCell>
-                    </TableRow>
-                  ))}
-                  {!loading && (data?.coordinations || []).length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={6} className="text-sm text-muted-foreground">
-                        Sem coordenações no escopo selecionado.
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </ScrollArea>
-          </TabsContent>
-
-	          <TabsContent value="teams" className="space-y-2">
-	            <ScrollArea className="h-[320px] w-full">
-	              <Table>
-	                <TableHeader>
-	                  <TableRow>
-	                    <TableHead className="w-[44px]"></TableHead>
-	                    <TableHead>Equipe</TableHead>
-	                    <TableHead>Coordenação</TableHead>
-	                    <TableHead>Divisão</TableHead>
-	                    <TableHead className="text-right">Elegíveis</TableHead>
-	                    <TableHead className="text-right">Respondentes</TableHead>
-	                    <TableHead className="text-right">Aderência</TableHead>
-	                    <TableHead className="text-right">Média</TableHead>
-	                  </TableRow>
-	                </TableHeader>
-	                <TableBody>
-	                  {groupedTeamsRows.map((item) => {
-	                    if (item.kind === 'team') {
-	                      const r = item.row;
-	                      return (
-	                        <TableRow key={item.key}>
-	                          <TableCell></TableCell>
-	                          <TableCell className="font-medium">{r.team_id || '—'}</TableCell>
-	                          <TableCell className="text-xs text-muted-foreground">{r.coord_id || '—'}</TableCell>
-	                          <TableCell className="text-xs text-muted-foreground">{r.division_id || '—'}</TableCell>
-	                          <TableCell className="text-right">{r.eligibleUsers}</TableCell>
-	                          <TableCell className="text-right">{r.participants}</TableCell>
-	                          <TableCell className="text-right">{r.participationRate}%</TableCell>
-	                          <TableCell className="text-right">{fmtPct(r.avgScorePct)}</TableCell>
-	                        </TableRow>
-	                      );
-	                    }
-
-	                    const groupKey = String(item.row.team_id || '');
-	                    const expanded = Boolean(expandedTeamGroups[groupKey]);
-	                    const hasDirect = Boolean(item.direct?.length);
-	                    return (
-	                      <Fragment key={item.key}>
-	                        <TableRow key={item.key}>
-	                          <TableCell className="align-top">
-	                            <Button
-	                              type="button"
-	                              size="icon"
-	                              variant="ghost"
-	                              className="h-8 w-8"
-	                              aria-label={expanded ? `Recolher ${groupKey}` : `Expandir ${groupKey}`}
-	                              onClick={() =>
-	                                setExpandedTeamGroups((prev) => {
-	                                  const next = { ...prev };
-	                                  if (next[groupKey]) delete next[groupKey];
-	                                  else next[groupKey] = true;
-	                                  return next;
-	                                })
-	                              }
-	                            >
-	                              {expanded ? <Minus className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
-	                            </Button>
-	                          </TableCell>
-	                          <TableCell className="font-semibold">{item.row.team_id || '—'}</TableCell>
-	                          <TableCell className="text-xs text-muted-foreground">—</TableCell>
-	                          <TableCell className="text-xs text-muted-foreground">{item.row.division_id || '—'}</TableCell>
-	                          <TableCell className="text-right">{item.row.eligibleUsers}</TableCell>
-	                          <TableCell className="text-right">{item.row.participants}</TableCell>
-	                          <TableCell className="text-right">{item.row.participationRate}%</TableCell>
-	                          <TableCell className="text-right">{fmtPct(item.row.avgScorePct)}</TableCell>
-	                        </TableRow>
-	                        {expanded && (
-	                          <>
-	                            {(item.children || []).map((r, idx) => (
-	                              <TableRow key={`${item.key}:child:${r.team_id || '—'}:${idx}`}>
-	                                <TableCell></TableCell>
-	                                <TableCell className="font-medium pl-6">{r.team_id || '—'}</TableCell>
-	                                <TableCell className="text-xs text-muted-foreground">{r.coord_id || '—'}</TableCell>
-	                                <TableCell className="text-xs text-muted-foreground">{r.division_id || '—'}</TableCell>
-	                                <TableCell className="text-right">{r.eligibleUsers}</TableCell>
-	                                <TableCell className="text-right">{r.participants}</TableCell>
-	                                <TableCell className="text-right">{r.participationRate}%</TableCell>
-	                                <TableCell className="text-right">{fmtPct(r.avgScorePct)}</TableCell>
-	                              </TableRow>
-	                            ))}
-	                            {hasDirect && (
-	                              <>
-	                                {(item.direct || []).map((r, idx) => (
-	                                  <TableRow key={`${item.key}:direct:${r.team_id || '—'}:${idx}`}>
-	                                    <TableCell></TableCell>
-	                                    <TableCell className="font-medium pl-6">{r.team_id || '—'}</TableCell>
-	                                    <TableCell className="text-xs text-muted-foreground">{r.coord_id || '—'}</TableCell>
-	                                    <TableCell className="text-xs text-muted-foreground">{r.division_id || '—'}</TableCell>
-	                                    <TableCell className="text-right">{r.eligibleUsers}</TableCell>
-	                                    <TableCell className="text-right">{r.participants}</TableCell>
-	                                    <TableCell className="text-right">{r.participationRate}%</TableCell>
-	                                    <TableCell className="text-right">{fmtPct(r.avgScorePct)}</TableCell>
-	                                  </TableRow>
-	                                ))}
-	                              </>
-	                            )}
-	                          </>
-	                        )}
-	                      </Fragment>
-	                    );
-	                  })}
-	                  {!loading && (data?.teams || []).length === 0 && (
-	                    <TableRow>
-	                      <TableCell colSpan={8} className="text-sm text-muted-foreground">
-	                        Sem equipes no escopo selecionado.
-	                      </TableCell>
-	                    </TableRow>
-	                  )}
-	                </TableBody>
-	              </Table>
-	            </ScrollArea>
-	          </TabsContent>
-
-          <TabsContent value="bases" className="space-y-2">
-            <ScrollArea className="h-[320px] w-full">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Base</TableHead>
-                    <TableHead>Coordenação</TableHead>
-                    <TableHead>Divisão</TableHead>
-                    <TableHead className="text-right">Elegíveis</TableHead>
-                    <TableHead className="text-right">Respondentes</TableHead>
-                    <TableHead className="text-right">Aderência</TableHead>
-                    <TableHead className="text-right">Média</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {(data?.bases || []).map((r, idx) => (
-                    <TableRow key={`${r.coord_id || '—'}:${r.base || '—'}:${idx}`}>
-                      <TableCell className="font-medium">{r.base || '—'}</TableCell>
-                      <TableCell className="text-xs text-muted-foreground">{r.coord_id || '—'}</TableCell>
-                      <TableCell className="text-xs text-muted-foreground">{r.division_id || '—'}</TableCell>
-                      <TableCell className="text-right">{r.eligibleUsers}</TableCell>
-                      <TableCell className="text-right">{r.participants}</TableCell>
-                      <TableCell className="text-right">{r.participationRate}%</TableCell>
-                      <TableCell className="text-right">{fmtPct(r.avgScorePct)}</TableCell>
-                    </TableRow>
-                  ))}
-                  {!loading && (data?.bases || []).length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={7} className="text-sm text-muted-foreground">
-                        Sem bases registradas no escopo selecionado.
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </ScrollArea>
-          </TabsContent>
-
-          <TabsContent value="people" className="space-y-2">
-            <div className="flex flex-wrap items-end justify-between gap-2">
-              <div className="flex flex-wrap gap-2">
-                <Badge variant="outline">Elegíveis: {data?.eligibleUsers ?? 0}</Badge>
-                <Badge variant="outline">Respondentes: {data?.participants ?? 0}</Badge>
-                <Badge variant="outline">Pendentes: {Math.max(0, Number(data?.eligibleUsers ?? 0) - Number(data?.participants ?? 0))}</Badge>
-              </div>
-              <div className="flex items-center gap-2">
-                <Label className="text-xs">Filtro</Label>
-                <Select value={peopleFilter} onValueChange={(v) => setPeopleFilter(v as any)}>
-                  <SelectTrigger className="h-9 w-[180px]">
-                    <SelectValue placeholder="Selecione…" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Todos</SelectItem>
-                    <SelectItem value="responded">Só respondidos</SelectItem>
-                    <SelectItem value="pending">Só pendentes</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <Input
-              placeholder="Buscar por nome, equipe, coordenação ou base…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-            <ScrollArea className="h-[360px] pr-3">
-              <div className="space-y-2">
-                {loading && <div className="text-sm text-muted-foreground">Carregando…</div>}
-                {!loading && filteredPeople.length === 0 && (
-                  <div className="text-sm text-muted-foreground">Sem notas registradas para este quiz.</div>
-                )}
-                {filteredPeople.map((row) => {
-                  const pct = typeof row.scorePct === 'number' ? Math.round(row.scorePct) : null;
-                  const when = row.submitted_at ? new Date(row.submitted_at).toLocaleString(getActiveLocale()) : '';
-                  const hasAttempt = Boolean(row.hasAttempt);
-                  return (
-                    <div key={row.user_id} className="flex items-center justify-between gap-3 p-2 rounded border border-white/10 bg-black/10">
-                      <div className="min-w-0">
-                        <div className="font-medium truncate">{row.name || '—'}</div>
-                        <div className="text-xs text-muted-foreground truncate">
-                          {(row.team_id || row.coord_id || row.division_id) ? (
-                            <>
-                              {row.team_id ? `Equipe: ${row.team_id}` : row.coord_id ? `Coord: ${row.coord_id}` : `Div: ${row.division_id}`}
-                              {row.operational_base ? ` • Base: ${row.operational_base}` : ''}
-                            </>
-                          ) : (
-                            'Sem equipe'
-                          )}
-                          {when ? ` • ${when}` : ''}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2 flex-shrink-0">
-                        {!hasAttempt ? (
-                          <Badge variant="secondary">Pendente</Badge>
+                return (
+                  <TableRow key={node.id}>
+                    <TableCell className={node.kind === 'root' ? 'font-semibold' : 'font-medium'}>
+                      <div className="flex items-center gap-2 min-w-0" style={{ paddingLeft: indentPx }}>
+                        {hasChildren ? (
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            className="h-7 w-7 flex-shrink-0"
+                            aria-label={expanded ? `Recolher ${node.label}` : `Expandir ${node.label}`}
+                            onClick={() =>
+                              setExpandedNodes((prev) => {
+                                const next = { ...prev };
+                                if (next[node.id]) delete next[node.id];
+                                else next[node.id] = true;
+                                return next;
+                              })
+                            }
+                          >
+                            {expanded ? <Minus className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+                          </Button>
                         ) : (
-                          <>
-                            <Badge variant="outline">{row.score ?? 0}/{row.max_score ?? 0}</Badge>
-                            <Badge
-                              variant={
-                                pct == null ? 'secondary' : pct >= 70 ? 'default' : pct >= 40 ? 'secondary' : 'destructive'
-                              }
-                            >
-                              {pct == null ? '—' : `${pct}%`}
-                            </Badge>
-                          </>
+                          <div className="h-7 w-7 flex-shrink-0" />
+                        )}
+                        <div className="min-w-0 truncate">{node.label}</div>
+                        {pending && (
+                          <Badge variant="secondary" className="ml-auto text-[10px]">
+                            Pendente
+                          </Badge>
                         )}
                       </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </ScrollArea>
-          </TabsContent>
-        </Tabs>
+                    </TableCell>
+                    <TableCell className="text-right">{node.eligibleUsers}</TableCell>
+                    <TableCell className="text-right">{node.participants}</TableCell>
+                    <TableCell className="text-right">{node.participationRate}%</TableCell>
+                    <TableCell className="text-right">
+                      {isPerson ? (
+                        pending ? (
+                          '—'
+                        ) : (
+                          <div className="flex flex-col items-end leading-tight">
+                            <div>{pct == null ? '—' : `${pct}%`}</div>
+                            <div className="text-[11px] text-muted-foreground">{`${score ?? 0}/${max ?? 0}`}</div>
+                          </div>
+                        )
+                      ) : (
+                        fmtPct(node.avgScorePct)
+                      )}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+
+              {!loading && flatRows.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={5} className="text-sm text-muted-foreground">
+                    Sem dados para este escopo.
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </ScrollArea>
       </CardContent>
     </Card>
   );
