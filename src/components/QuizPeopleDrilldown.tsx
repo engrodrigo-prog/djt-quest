@@ -65,8 +65,8 @@ export function QuizPeopleDrilldown(props: {
           return hay.includes(q);
         })
       : rows;
-    if (peopleFilter === 'responded') return byText.filter((r: any) => Boolean(r.hasAttempt));
-    if (peopleFilter === 'pending') return byText.filter((r: any) => !Boolean(r.hasAttempt));
+    if (peopleFilter === 'responded') return byText.filter((r: any) => !!r.hasAttempt);
+    if (peopleFilter === 'pending') return byText.filter((r: any) => !r.hasAttempt);
     return byText;
   }, [data?.people, peopleFilter, search]);
 
@@ -178,4 +178,3 @@ export function QuizPeopleDrilldown(props: {
     </div>
   );
 }
-

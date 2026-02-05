@@ -2,15 +2,19 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { createClient } from "@supabase/supabase-js";
 
-import { assertDjtQuestServerEnv } from "../server/env-guard.js";
+import { assertDjtQuestServerEnv, DJT_QUEST_SUPABASE_HOST } from "../server/env-guard.js";
 import { canManageFinanceRequests, isGuestProfile } from "../server/finance/permissions.js";
 import { extractCsvForFinanceAttachment, parseStorageRefFromUrl, buildFinanceCsvPath } from "../server/finance/attachment-extract.js";
+import { getSupabaseUrlFromEnv } from "../server/lib/supabase-url.js";
 
-const SUPABASE_URL = process.env.SUPABASE_URL as string;
-const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY as string | undefined;
-const ANON_KEY = (process.env.SUPABASE_ANON_KEY ||
-  process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
-  process.env.VITE_SUPABASE_ANON_KEY) as string;
+const getSupabaseUrl = () =>
+  getSupabaseUrlFromEnv(process.env, { expectedHostname: DJT_QUEST_SUPABASE_HOST, allowLocal: true });
+
+const getSupabaseAnonKey = () =>
+  (process.env.SUPABASE_ANON_KEY ||
+    process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+    process.env.VITE_SUPABASE_ANON_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) as string;
 
 const toBuffer = async (blob: any) => {
   try {
@@ -33,7 +37,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     assertDjtQuestServerEnv({ requireSupabaseUrl: false });
-    if (!SUPABASE_URL || !ANON_KEY) return res.status(500).json({ error: "Missing Supabase config" });
+    const SUPABASE_URL = getSupabaseUrl();
+    const ANON_KEY = getSupabaseAnonKey();
+    const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY as string | undefined;
+    if (!SUPABASE_URL || !ANON_KEY) {
+      return res.status(500).json({
+        error: "Missing Supabase config",
+        missing: { supabaseUrl: !SUPABASE_URL, supabaseAnonKey: !ANON_KEY },
+      });
+    }
     if (!SERVICE_ROLE_KEY) {
       return res.status(503).json({ error: "Processamento de anexos indisponível (missing SUPABASE_SERVICE_ROLE_KEY)." });
     }
@@ -173,4 +185,3 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 }
 
 export const config = { api: { bodyParser: { sizeLimit: "2mb" } }, maxDuration: 60 };
-

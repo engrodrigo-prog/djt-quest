@@ -1,15 +1,19 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
-import { assertDjtQuestServerEnv } from '../server/env-guard.js';
+import { assertDjtQuestServerEnv, DJT_QUEST_SUPABASE_HOST } from '../server/env-guard.js';
 import { financeRequestCancelSchema } from '../server/finance/schema.js';
 import { canManageFinanceRequests, isGuestProfile } from '../server/finance/permissions.js';
 import { pickQueryParam } from '../server/finance/utils.js';
+import { getSupabaseUrlFromEnv } from '../server/lib/supabase-url.js';
 
-const SUPABASE_URL = process.env.SUPABASE_URL as string;
-const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY as string | undefined;
-const ANON_KEY = (process.env.SUPABASE_ANON_KEY ||
-  process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
-  process.env.VITE_SUPABASE_ANON_KEY) as string;
+const getSupabaseUrl = () =>
+  getSupabaseUrlFromEnv(process.env, { expectedHostname: DJT_QUEST_SUPABASE_HOST, allowLocal: true });
+
+const getSupabaseAnonKey = () =>
+  (process.env.SUPABASE_ANON_KEY ||
+    process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+    process.env.VITE_SUPABASE_ANON_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) as string;
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === 'OPTIONS') return res.status(204).send('');
@@ -17,7 +21,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     assertDjtQuestServerEnv({ requireSupabaseUrl: false });
-    if (!SUPABASE_URL || !ANON_KEY) return res.status(500).json({ error: 'Missing Supabase config' });
+    const SUPABASE_URL = getSupabaseUrl();
+    const ANON_KEY = getSupabaseAnonKey();
+    const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY as string | undefined;
+    if (!SUPABASE_URL || !ANON_KEY) {
+      return res.status(500).json({
+        error: 'Missing Supabase config',
+        missing: { supabaseUrl: !SUPABASE_URL, supabaseAnonKey: !ANON_KEY },
+      });
+    }
 
     const authHeader = req.headers['authorization'] as string | undefined;
     if (!authHeader?.startsWith('Bearer ')) return res.status(401).json({ error: 'Unauthorized' });
