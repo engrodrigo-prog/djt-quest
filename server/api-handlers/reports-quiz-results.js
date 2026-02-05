@@ -220,6 +220,7 @@ export default async function handler(req, res) {
       coordinations: [],
       teams: [],
       bases: [],
+      people: [],
       attempts: [],
     };
 
@@ -270,6 +271,33 @@ export default async function handler(req, res) {
     const participants = participantsSet.size;
     const participationRate =
       eligibleProfiles.length > 0 ? round1((participants / eligibleProfiles.length) * 100) : 0;
+
+    const attemptByUserId = new Map(attempts.map((a) => [String(a.user_id), a]));
+    const people = eligibleProfiles
+      .map((p) => {
+        const a = attemptByUserId.get(String(p.id));
+        return {
+          user_id: p.id,
+          name: p.name,
+          team_id: p.team_id,
+          coord_id: p.coord_id,
+          division_id: p.division_id,
+          sigla_area: p.sigla_area,
+          operational_base: p.operational_base,
+          is_leader: p.is_leader,
+          submitted_at: a?.submitted_at || null,
+          score: typeof a?.score === 'number' ? a.score : null,
+          max_score: typeof a?.max_score === 'number' ? a.max_score : null,
+          scorePct: typeof a?.scorePct === 'number' ? a.scorePct : null,
+          hasAttempt: Boolean(a),
+        };
+      })
+      .sort(
+        (a, b) =>
+          Number(b.hasAttempt) - Number(a.hasAttempt) ||
+          (Number(b.scorePct ?? -1) - Number(a.scorePct ?? -1)) ||
+          String(a.name || '').localeCompare(String(b.name || ''), 'pt-BR'),
+      );
 
     // Aggregations
     const byDivision = new Map();
@@ -379,6 +407,7 @@ export default async function handler(req, res) {
       coordinations,
       teams,
       bases,
+      people,
       attempts,
     });
   } catch (e) {
@@ -387,4 +416,3 @@ export default async function handler(req, res) {
 }
 
 export const config = { api: { bodyParser: false } };
-

@@ -43,6 +43,21 @@ type AttemptRow = {
   is_leader?: boolean;
 };
 
+type PeopleRow = {
+  user_id: string;
+  name: string;
+  team_id: string | null;
+  coord_id: string | null;
+  division_id: string | null;
+  operational_base: string | null;
+  submitted_at: string | null;
+  score: number | null;
+  max_score: number | null;
+  scorePct: number | null;
+  hasAttempt: boolean;
+  is_leader?: boolean;
+};
+
 type QuizResultsPayload = {
   challengeId: string;
   scope: Scope;
@@ -57,6 +72,7 @@ type QuizResultsPayload = {
   coordinations: StatRow[];
   teams: StatRow[];
   bases: StatRow[];
+  people: PeopleRow[];
   attempts: AttemptRow[];
 };
 
@@ -83,6 +99,7 @@ export function QuizResultsDashboard({ challengeId }: { challengeId: string }) {
   const [tab, setTab] = useState<'divisions' | 'coords' | 'teams' | 'bases' | 'people'>('coords');
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
+  const [peopleFilter, setPeopleFilter] = useState<'all' | 'responded' | 'pending'>('all');
   const [data, setData] = useState<QuizResultsPayload | null>(null);
 
   useEffect(() => {
@@ -135,15 +152,20 @@ export function QuizResultsDashboard({ challengeId }: { challengeId: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [challengeId, includeGuests, includeLeaders, scope, scopeId]);
 
-  const filteredAttempts = useMemo(() => {
-    const rows = data?.attempts || [];
+  const filteredPeople = useMemo(() => {
+    const rows = (data?.people || []) as PeopleRow[];
     const q = search.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((r) => {
+    const byText = q
+      ? rows.filter((r) => {
       const hay = `${r.name || ''} ${r.team_id || ''} ${r.coord_id || ''} ${r.division_id || ''} ${r.operational_base || ''}`.toLowerCase();
       return hay.includes(q);
-    });
-  }, [data?.attempts, search]);
+    })
+      : rows;
+
+    if (peopleFilter === 'responded') return byText.filter((r) => r.hasAttempt);
+    if (peopleFilter === 'pending') return byText.filter((r) => !r.hasAttempt);
+    return byText;
+  }, [data?.people, peopleFilter, search]);
 
   const showDivisions = Boolean((data?.divisions || []).length);
   const showBases = Boolean((data?.bases || []).length);
@@ -377,6 +399,26 @@ export function QuizResultsDashboard({ challengeId }: { challengeId: string }) {
           </TabsContent>
 
           <TabsContent value="people" className="space-y-2">
+            <div className="flex flex-wrap items-end justify-between gap-2">
+              <div className="flex flex-wrap gap-2">
+                <Badge variant="outline">Elegíveis: {data?.eligibleUsers ?? 0}</Badge>
+                <Badge variant="outline">Respondentes: {data?.participants ?? 0}</Badge>
+                <Badge variant="outline">Pendentes: {Math.max(0, Number(data?.eligibleUsers ?? 0) - Number(data?.participants ?? 0))}</Badge>
+              </div>
+              <div className="flex items-center gap-2">
+                <Label className="text-xs">Filtro</Label>
+                <Select value={peopleFilter} onValueChange={(v) => setPeopleFilter(v as any)}>
+                  <SelectTrigger className="h-9 w-[180px]">
+                    <SelectValue placeholder="Selecione…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos</SelectItem>
+                    <SelectItem value="responded">Só respondidos</SelectItem>
+                    <SelectItem value="pending">Só pendentes</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
             <Input
               placeholder="Buscar por nome, equipe, coordenação ou base…"
               value={search}
@@ -385,12 +427,13 @@ export function QuizResultsDashboard({ challengeId }: { challengeId: string }) {
             <ScrollArea className="h-[360px] pr-3">
               <div className="space-y-2">
                 {loading && <div className="text-sm text-muted-foreground">Carregando…</div>}
-                {!loading && filteredAttempts.length === 0 && (
+                {!loading && filteredPeople.length === 0 && (
                   <div className="text-sm text-muted-foreground">Sem notas registradas para este quiz.</div>
                 )}
-                {filteredAttempts.map((row) => {
+                {filteredPeople.map((row) => {
                   const pct = typeof row.scorePct === 'number' ? Math.round(row.scorePct) : null;
                   const when = row.submitted_at ? new Date(row.submitted_at).toLocaleString(getActiveLocale()) : '';
+                  const hasAttempt = Boolean(row.hasAttempt);
                   return (
                     <div key={row.user_id} className="flex items-center justify-between gap-3 p-2 rounded border border-white/10 bg-black/10">
                       <div className="min-w-0">
@@ -408,14 +451,20 @@ export function QuizResultsDashboard({ challengeId }: { challengeId: string }) {
                         </div>
                       </div>
                       <div className="flex items-center gap-2 flex-shrink-0">
-                        <Badge variant="outline">{row.score}/{row.max_score || 0}</Badge>
-                        <Badge
-                          variant={
-                            pct == null ? 'secondary' : pct >= 70 ? 'default' : pct >= 40 ? 'secondary' : 'destructive'
-                          }
-                        >
-                          {pct == null ? '—' : `${pct}%`}
-                        </Badge>
+                        {!hasAttempt ? (
+                          <Badge variant="secondary">Pendente</Badge>
+                        ) : (
+                          <>
+                            <Badge variant="outline">{row.score ?? 0}/{row.max_score ?? 0}</Badge>
+                            <Badge
+                              variant={
+                                pct == null ? 'secondary' : pct >= 70 ? 'default' : pct >= 40 ? 'secondary' : 'destructive'
+                              }
+                            >
+                              {pct == null ? '—' : `${pct}%`}
+                            </Badge>
+                          </>
+                        )}
                       </div>
                     </div>
                   );
@@ -428,4 +477,3 @@ export function QuizResultsDashboard({ challengeId }: { challengeId: string }) {
     </Card>
   );
 }
-
