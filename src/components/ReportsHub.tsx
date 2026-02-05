@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
@@ -16,6 +16,8 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from 'recharts';
 import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart';
 import { getActiveLocale } from '@/lib/i18n/activeLocale';
+import { Minus, Plus } from 'lucide-react';
+import { QuizPeopleDrilldown } from '@/components/QuizPeopleDrilldown';
 
 type Scope = 'team' | 'coord' | 'division' | 'all';
 type Chas = 'C' | 'H' | 'A' | 'S';
@@ -98,6 +100,11 @@ type QuestionUsage = {
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 const monthStartIso = () => new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10);
+const daysAgoIso = (days: number) => {
+  const d = new Date();
+  d.setDate(d.getDate() - Math.max(0, Math.floor(days)));
+  return d.toISOString().slice(0, 10);
+};
 
 function downloadCsv(filename: string, rows: Array<Record<string, any>>) {
   const headers = Object.keys(rows[0] || {});
@@ -125,6 +132,7 @@ export function ReportsHub() {
   const [includeGuests, setIncludeGuests] = useState(false);
   const [from, setFrom] = useState<string>(monthStartIso());
   const [to, setTo] = useState<string>(todayIso());
+  const [expandedQuizIds, setExpandedQuizIds] = useState<Record<string, true>>({});
 
   const [quizSummary, setQuizSummary] = useState<QuizSummary | null>(null);
   const [accessSummary, setAccessSummary] = useState<AccessSummary | null>(null);
@@ -302,6 +310,23 @@ export function ReportsHub() {
             <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
           </div>
           <div className="space-y-2">
+            <Label>Atalhos</Label>
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" variant="outline" onClick={() => { setFrom(daysAgoIso(7)); setTo(todayIso()); }}>
+                7 dias
+              </Button>
+              <Button type="button" variant="outline" onClick={() => { setFrom(daysAgoIso(30)); setTo(todayIso()); }}>
+                30 dias
+              </Button>
+              <Button type="button" variant="outline" onClick={() => { setFrom(daysAgoIso(60)); setTo(todayIso()); }}>
+                60 dias
+              </Button>
+              <Button type="button" variant="outline" onClick={() => { setFrom('2000-01-01'); setTo(todayIso()); }}>
+                Tudo
+              </Button>
+            </div>
+          </div>
+          <div className="space-y-2">
             <Label>Escopo</Label>
             <Select value={scope} onValueChange={(v) => setScope(v as Scope)}>
               <SelectTrigger>
@@ -315,6 +340,18 @@ export function ReportsHub() {
                 ))}
               </SelectContent>
             </Select>
+            {scope !== 'all' && (
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground">ID do escopo</Label>
+                <Input
+                  value={scopeId}
+                  onChange={(e) => setScopeId(e.target.value)}
+                  placeholder={scope === 'team' ? 'Ex.: DJTB' : scope === 'coord' ? 'Ex.: DJTB-SAN' : 'Ex.: DJT'}
+                  disabled={!canAll}
+                />
+                {!canAll && <div className="text-[11px] text-muted-foreground">Somente staff pode alterar.</div>}
+              </div>
+            )}
           </div>
           <div className="space-y-2">
             <Label>Ações</Label>
@@ -408,6 +445,7 @@ export function ReportsHub() {
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead className="w-[44px]"></TableHead>
                       <TableHead>Quiz</TableHead>
                       <TableHead>CHAS</TableHead>
                       <TableHead className="text-right">Participantes</TableHead>
@@ -415,22 +453,61 @@ export function ReportsHub() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {quizSummary.quizzes.map((q) => (
-                      <TableRow key={q.challenge_id}>
-                        <TableCell className="font-medium">{q.title}</TableCell>
-                        <TableCell>
-                          {q.chas_dimension ? (
-                            <Badge variant="outline" className="text-[10px]">
-                              {q.chas_dimension}
-                            </Badge>
-                          ) : (
-                            '—'
+                    {quizSummary.quizzes.map((q) => {
+                      const expanded = Boolean(expandedQuizIds[q.challenge_id]);
+                      return (
+                        <Fragment key={q.challenge_id}>
+                          <TableRow key={q.challenge_id}>
+                            <TableCell className="align-top">
+                              <Button
+                                type="button"
+                                size="icon"
+                                variant="ghost"
+                                className="h-8 w-8"
+                                aria-label={expanded ? 'Fechar detalhes' : 'Abrir detalhes'}
+                                onClick={() =>
+                                  setExpandedQuizIds((prev) => {
+                                    const next = { ...prev };
+                                    if (next[q.challenge_id]) delete next[q.challenge_id];
+                                    else next[q.challenge_id] = true;
+                                    return next;
+                                  })
+                                }
+                              >
+                                {expanded ? <Minus className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+                              </Button>
+                            </TableCell>
+                            <TableCell className="font-medium">{q.title}</TableCell>
+                            <TableCell>
+                              {q.chas_dimension ? (
+                                <Badge variant="outline" className="text-[10px]">
+                                  {q.chas_dimension}
+                                </Badge>
+                              ) : (
+                                '—'
+                              )}
+                            </TableCell>
+                            <TableCell className="text-right">{q.participants}</TableCell>
+                            <TableCell className="text-right">{q.avgScorePct == null ? '—' : `${q.avgScorePct}%`}</TableCell>
+                          </TableRow>
+                          {expanded && (
+                            <TableRow key={`${q.challenge_id}:details`}>
+                              <TableCell colSpan={5} className="p-0">
+                                <QuizPeopleDrilldown
+                                  challengeId={q.challenge_id}
+                                  scope={scope}
+                                  scopeId={scopeId}
+                                  includeLeaders={includeLeaders}
+                                  includeGuests={includeGuests}
+                                  from={from}
+                                  to={to}
+                                />
+                              </TableCell>
+                            </TableRow>
                           )}
-                        </TableCell>
-                        <TableCell className="text-right">{q.participants}</TableCell>
-                        <TableCell className="text-right">{q.avgScorePct == null ? '—' : `${q.avgScorePct}%`}</TableCell>
-                      </TableRow>
-                    ))}
+                        </Fragment>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               )}

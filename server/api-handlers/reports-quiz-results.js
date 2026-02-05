@@ -6,11 +6,22 @@ const ALLOWED_ROLES = new Set(['lider_equipe', ...Array.from(STAFF_ROLES)]);
 
 const GUEST_TEAM_ID = 'CONVIDADOS';
 const EXTERNAL_TEAM_ID = 'EXTERNO';
+const toIsoStart = (d) => new Date(`${d}T00:00:00.000Z`).toISOString();
+const toIsoEnd = (d) => new Date(`${d}T23:59:59.999Z`).toISOString();
 
 function getStrParam(req, key) {
   const v = req.query?.[key];
   const s = Array.isArray(v) ? v[0] : v;
   return s != null ? String(s).trim() : '';
+}
+
+function getDateParam(req, key) {
+  const v = req.query?.[key];
+  const s = Array.isArray(v) ? v[0] : v;
+  if (!s) return null;
+  const txt = String(s).trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(txt)) return null;
+  return txt;
 }
 
 const canonicalizeSiglaArea = (raw) => {
@@ -89,6 +100,21 @@ const safeIso = (raw) => {
   if (!s) return null;
   const ms = Date.parse(s);
   return Number.isFinite(ms) ? new Date(ms).toISOString() : null;
+};
+
+const inRange = (iso, fromIso, toIso) => {
+  if (!iso) return false;
+  const ms = Date.parse(String(iso));
+  if (!Number.isFinite(ms)) return false;
+  if (fromIso) {
+    const fromMs = Date.parse(fromIso);
+    if (Number.isFinite(fromMs) && ms < fromMs) return false;
+  }
+  if (toIso) {
+    const toMs = Date.parse(toIso);
+    if (Number.isFinite(toMs) && ms > toMs) return false;
+  }
+  return true;
 };
 
 async function getTotalQuestions(admin, challengeId) {
@@ -234,6 +260,10 @@ export default async function handler(req, res) {
 
     const includeLeaders = getStrParam(req, 'includeLeaders') === '1';
     const includeGuests = getStrParam(req, 'includeGuests') === '1';
+    const from = getDateParam(req, 'from');
+    const to = getDateParam(req, 'to');
+    const fromIso = from ? toIsoStart(from) : null;
+    const toIso = to ? toIsoEnd(to) : null;
 
     let usersQuery = admin
       .from('profiles')
@@ -290,13 +320,16 @@ export default async function handler(req, res) {
     // older records stored XP instead of "acertos", which breaks accuracy averages.
     const submittedByUserId = new Map(); // user_id -> submitted_at
     for (const ids of chunk(userIds, 500)) {
-      const { data: rows, error: aErr } = await admin
+      let q = admin
         .from('quiz_attempts')
         .select('user_id, submitted_at')
         .in('user_id', ids)
         .eq('challenge_id', challengeId)
         .not('submitted_at', 'is', null)
         .limit(5000);
+      if (fromIso) q = q.gte('submitted_at', fromIso);
+      if (toIso) q = q.lte('submitted_at', toIso);
+      const { data: rows, error: aErr } = await q;
       if (aErr) {
         const msg = String(aErr.message || '');
         if (/quiz_attempts/i.test(msg) && /(does not exist|schema cache|relation)/i.test(msg)) {
@@ -326,11 +359,12 @@ export default async function handler(req, res) {
       const submittedAt = submittedByUserId.get(uid) || null;
       const s = answerStats.get(uid) || { answered: 0, correct: 0, lastAnsweredAt: null };
       const completedByAnswers = totalQuestions > 0 && Number(s.answered || 0) >= totalQuestions;
-      const hasAttempt = Boolean(submittedAt) || completedByAnswers;
+      const completionAt = submittedAt || s.lastAnsweredAt || null;
+      const hasAttempt = (Boolean(submittedAt) || completedByAnswers) && (fromIso || toIso ? inRange(completionAt, fromIso, toIso) : true);
 
       if (!hasAttempt) continue;
 
-      const when = submittedAt || s.lastAnsweredAt || null;
+      const when = completionAt;
       const score = Math.max(0, Number(s.correct || 0) || 0);
       const max = Math.max(0, Number(totalQuestions || 0) || 0);
       const row = {
