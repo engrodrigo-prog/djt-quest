@@ -6,6 +6,8 @@ import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/contexts/AuthContext";
 import { isAllowlistedAdminFromProfile } from "@/lib/adminAllowlist";
 import { apiFetch } from "@/lib/api";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { QuizResultsDashboard } from "@/components/QuizResultsDashboard";
 
 type RangeKey = "30" | "60" | "180" | "365" | "all";
 
@@ -34,6 +36,7 @@ export const ChallengeManagement = ({ onlyQuizzes }: ChallengeManagementProps) =
   const [editTitle, setEditTitle] = useState("");
   const [editDescription, setEditDescription] = useState("");
   const [editXp, setEditXp] = useState<string>("0");
+  const [resultsChallenge, setResultsChallenge] = useState<Challenge | null>(null);
 
   const isTopLeader = profile?.matricula === "601555";
   const isAllowlistedAdmin = isAllowlistedAdminFromProfile(profile);
@@ -258,6 +261,25 @@ export const ChallengeManagement = ({ onlyQuizzes }: ChallengeManagementProps) =
 
   return (
     <div className="space-y-4">
+      <Dialog
+        open={Boolean(resultsChallenge)}
+        onOpenChange={(open) => {
+          if (!open) setResultsChallenge(null);
+        }}
+      >
+        <DialogContent className="max-w-5xl">
+          <DialogHeader>
+            <DialogTitle>Resultados</DialogTitle>
+            <DialogDescription className="text-xs">
+              {resultsChallenge?.title || "Resultados do quiz"}
+            </DialogDescription>
+          </DialogHeader>
+          {resultsChallenge?.id ? (
+            <QuizResultsDashboard challengeId={resultsChallenge.id} />
+          ) : null}
+        </DialogContent>
+      </Dialog>
+
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div>
           <h2 className="text-2xl font-bold text-blue-50">
@@ -387,6 +409,15 @@ export const ChallengeManagement = ({ onlyQuizzes }: ChallengeManagementProps) =
 	                          >
 	                            Editar
 	                          </Button>
+                            {(c.type || "").toLowerCase().includes("quiz") && (
+                              <Button
+                                size="xs"
+                                variant="outline"
+                                onClick={() => setResultsChallenge(c)}
+                              >
+                                Resultados
+                              </Button>
+                            )}
 	                          {(!onlyQuizzes || isAllowlistedAdmin) && (
 	                            <>
 	                              <Button
