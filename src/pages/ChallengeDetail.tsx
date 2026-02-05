@@ -22,6 +22,7 @@ import { getActiveLocale } from '@/lib/i18n/activeLocale';
 import { localeToOpenAiLanguageTag, localeToSpeechLanguage } from '@/lib/i18n/language';
 import { apiFetch } from '@/lib/api';
 import { isAllowlistedAdminFromProfile } from '@/lib/adminAllowlist';
+import { extractYyyyMmDd } from '@/lib/dateKey';
 
 interface Challenge {
   id: string;
@@ -35,6 +36,7 @@ interface Challenge {
   campaign_id: string;
   evidence_required: boolean;
   status?: string;
+  due_date?: string | null;
   cover_image_url?: string | null;
 }
 
@@ -45,7 +47,7 @@ const ChallengeDetail = () => {
   const { toast } = useToast();
   const [searchParams] = useSearchParams();
   const retryEventId = searchParams.get('retry');
-  const practiceMode = searchParams.get('practice') === '1';
+  const practiceRequested = searchParams.get('practice') === '1';
   const [challenge, setChallenge] = useState<Challenge | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<{ kind: 'no_access' | 'error'; message?: string } | null>(null);
@@ -69,6 +71,24 @@ const ChallengeDetail = () => {
   const [myTeamId, setMyTeamId] = useState<string | null>(null);
   const [showAnalytics, setShowAnalytics] = useState(false);
   const [reopening, setReopening] = useState(false);
+
+  const isQuizExpired = (() => {
+    if (!challenge) return false;
+    if (String(challenge.type || '').toLowerCase() !== 'quiz') return false;
+    const status = String(challenge.status || 'active').toLowerCase();
+    if (['closed', 'canceled', 'cancelled'].includes(status)) return true;
+    const d = extractYyyyMmDd(challenge.due_date);
+    if (!d) return false;
+    try {
+      const end = new Date(`${d}T23:59:59.999`);
+      const ms = end.getTime();
+      return Number.isFinite(ms) && ms < Date.now();
+    } catch {
+      return false;
+    }
+  })();
+
+  const practiceModeEnabled = Boolean(practiceRequested && (quizCompleted || isQuizExpired));
 
   const reopenMyMilhaoAttempts = async (mode: 'current' | 'latest2') => {
     if (!challenge || !user) return;
@@ -532,7 +552,7 @@ const ChallengeDetail = () => {
         </Card>
 
         {challenge.type === 'quiz' ? (
-          quizCompleted && !practiceMode ? (
+          quizCompleted && !practiceModeEnabled ? (
             <Card>
               <CardHeader>
                 <CardTitle>{/milh(ã|a)o/i.test(challenge.title || '') ? 'Quiz finalizado' : 'Quiz já concluído'}</CardTitle>
@@ -571,7 +591,7 @@ const ChallengeDetail = () => {
               </CardContent>
             </Card>
           ) : (
-            <QuizPlayer challengeId={challenge.id} practiceMode={practiceMode && quizCompleted} />
+            <QuizPlayer challengeId={challenge.id} practiceMode={practiceModeEnabled} />
           )
         ) : (
           <Card>
