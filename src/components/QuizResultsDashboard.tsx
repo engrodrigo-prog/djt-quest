@@ -200,6 +200,7 @@ const finalizeTree = (node: MutableTreeNode): TreeNode => {
   const avgScorePct = maxSum > 0 ? round1((scoreSum / maxSum) * 100) : null;
 
   const children = Array.from(node.children.values()).map(finalizeTree);
+  const isLeadersRoot = node.id === 'root:LEADERS';
 
   children.sort((a, b) => {
     // Keep groups above people at each level.
@@ -210,7 +211,10 @@ const finalizeTree = (node: MutableTreeNode): TreeNode => {
     if (a.kind === 'division' && b.kind === 'division') {
       return divisionOrderIndex(a.label) - divisionOrderIndex(b.label) || String(a.label).localeCompare(String(b.label), 'pt-BR');
     }
-    if (a.kind === 'person' && b.kind === 'person') return comparePersonNodes(a, b);
+    if (a.kind === 'person' && b.kind === 'person') {
+      if (isLeadersRoot) return String(a.label).localeCompare(String(b.label), 'pt-BR', { sensitivity: 'base' });
+      return comparePersonNodes(a, b);
+    }
     return String(a.label).localeCompare(String(b.label), 'pt-BR');
   });
 
@@ -242,6 +246,14 @@ const buildQuizOrgTree = (people: PeopleRow[]) => {
 
     // Guests: show directly under the "Convidados" root (no extra CONVIDADOS->CONVIDADOS nesting).
     if (guest) {
+      const personNode = ensureChild(root, `person:${p.user_id}`, 'person', p.name || '—');
+      personNode.person = p;
+      addPersonStats(personNode, p);
+      continue;
+    }
+
+    // Leaders: list alphabetically at the collaborator level (no area/team drilldown).
+    if (leader) {
       const personNode = ensureChild(root, `person:${p.user_id}`, 'person', p.name || '—');
       personNode.person = p;
       addPersonStats(personNode, p);
