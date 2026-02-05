@@ -26,6 +26,61 @@ const toPct = (scoreRaw, maxRaw) => {
   return Math.max(0, Math.min(100, pct));
 };
 
+const ANSWERS_PAGE_SIZE = 10_000;
+
+const safeIso = (raw) => {
+  const s = raw != null ? String(raw).trim() : '';
+  if (!s) return null;
+  const ms = Date.parse(s);
+  return Number.isFinite(ms) ? new Date(ms).toISOString() : null;
+};
+
+async function getTotalQuestions(admin, challengeId) {
+  const { count, error } = await admin
+    .from('quiz_questions')
+    .select('id', { count: 'exact', head: true })
+    .eq('challenge_id', challengeId);
+  if (error) return { totalQuestions: 0, error };
+  const total = Math.max(0, Number(count ?? 0) || 0);
+  return { totalQuestions: total, error: null };
+}
+
+async function loadAnswerStats(admin, challengeId, userIds, chunk) {
+  const byUser = new Map(); // user_id -> { answered, correct, lastAnsweredAt }
+  for (const ids of chunk(userIds, 500)) {
+    let from = 0;
+    while (true) {
+      const { data: rows, error } = await admin
+        .from('user_quiz_answers')
+        .select('id, user_id, is_correct, answered_at')
+        .in('user_id', ids)
+        .eq('challenge_id', challengeId)
+        .order('answered_at', { ascending: true })
+        .order('id', { ascending: true })
+        .range(from, from + ANSWERS_PAGE_SIZE - 1);
+      if (error) return { byUser: new Map(), error };
+
+      for (const row of rows || []) {
+        const uid = String(row?.user_id || '').trim();
+        if (!uid) continue;
+        const existing = byUser.get(uid) || { answered: 0, correct: 0, lastAnsweredAt: null };
+        existing.answered += 1;
+        if (row?.is_correct === true) existing.correct += 1;
+        const iso = safeIso(row?.answered_at);
+        if (iso) {
+          if (!existing.lastAnsweredAt || iso > existing.lastAnsweredAt) existing.lastAnsweredAt = iso;
+        }
+        byUser.set(uid, existing);
+      }
+
+      const got = (rows || []).length;
+      if (got < ANSWERS_PAGE_SIZE) break;
+      from += ANSWERS_PAGE_SIZE;
+    }
+  }
+  return { byUser, error: null };
+}
+
 export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(204).send('');
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
@@ -132,12 +187,15 @@ export default async function handler(req, res) {
       });
     }
 
-    // Attempts for this quiz
-    const attempts = [];
+    const { totalQuestions, error: tqErr } = await getTotalQuestions(admin, challengeId);
+    if (tqErr) return res.status(400).json({ error: tqErr.message || 'Falha ao contar perguntas' });
+
+    // Submitted attempts (completion marker). We ignore score/max_score because older records stored XP.
+    const submittedByUserId = new Map(); // user_id -> submitted_at
     for (const ids of chunk(userIds, 500)) {
       const { data: rows, error: aErr } = await admin
         .from('quiz_attempts')
-        .select('user_id, submitted_at, score, max_score')
+        .select('user_id, submitted_at')
         .in('user_id', ids)
         .eq('challenge_id', challengeId)
         .not('submitted_at', 'is', null)
@@ -155,20 +213,39 @@ export default async function handler(req, res) {
         const uid = String(row?.user_id || '').trim();
         const prof = byUserId.get(uid);
         if (!uid || !prof) continue;
-        attempts.push({
-          user_id: uid,
-          name: prof.name,
-          team_id: prof.team_id,
-          is_leader: prof.is_leader,
-          submitted_at: row?.submitted_at ? String(row.submitted_at) : null,
-          score: Number(row?.score ?? 0) || 0,
-          max_score: Number(row?.max_score ?? 0) || 0,
-          scorePct: toPct(row?.score, row?.max_score),
-        });
+        const submittedAt = safeIso(row?.submitted_at);
+        if (submittedAt) submittedByUserId.set(uid, submittedAt);
       }
     }
 
-    const participants = new Set(attempts.map((a) => a.user_id)).size;
+    const { byUser: answerStats, error: ansErr } = await loadAnswerStats(admin, challengeId, userIds, chunk);
+    if (ansErr) return res.status(400).json({ error: ansErr.message || 'Falha ao carregar respostas' });
+
+    const attempts = [];
+    for (const p of eligibleProfiles) {
+      const uid = String(p.id);
+      const submittedAt = submittedByUserId.get(uid) || null;
+      const s = answerStats.get(uid) || { answered: 0, correct: 0, lastAnsweredAt: null };
+      const completedByAnswers = totalQuestions > 0 && Number(s.answered || 0) >= totalQuestions;
+      const hasAttempt = Boolean(submittedAt) || completedByAnswers;
+      if (!hasAttempt) continue;
+
+      const when = submittedAt || s.lastAnsweredAt || null;
+      const score = Math.max(0, Number(s.correct || 0) || 0);
+      const max = Math.max(0, Number(totalQuestions || 0) || 0);
+      attempts.push({
+        user_id: uid,
+        name: p.name,
+        team_id: p.team_id,
+        is_leader: p.is_leader,
+        submitted_at: when,
+        score,
+        max_score: max,
+        scorePct: toPct(score, max),
+      });
+    }
+
+    const participants = attempts.length;
     const participationRate = eligibleProfiles.length > 0 ? Math.round((participants / eligibleProfiles.length) * 1000) / 10 : 0;
 
     const compareName = (a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'pt-BR');
@@ -196,4 +273,3 @@ export default async function handler(req, res) {
 }
 
 export const config = { api: { bodyParser: false } };
-
