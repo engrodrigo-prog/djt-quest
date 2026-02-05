@@ -283,8 +283,14 @@ Deno.serve(async (req: Request) => {
       ? body.roles.map((r: string) => String(r || '').trim()).filter(Boolean)
       : []
     const wantsCurator = Boolean(assign_content_curator) || requestedRoles.includes('content_curator')
+    const requestedProfile = String((registration as any)?.requested_profile || '').trim().toLowerCase()
+    const wantsLeader = !isGuest && (requestedRoles.includes('lider_equipe') || requestedProfile === 'leader')
     const baseRole = isGuest ? 'invited' : 'colaborador'
-    const rolesToAssign = [baseRole, ...(wantsCurator ? ['content_curator'] : [])]
+    const rolesToAssign = Array.from(new Set([
+      baseRole,
+      ...(wantsLeader ? ['lider_equipe'] : []),
+      ...(wantsCurator ? ['content_curator'] : []),
+    ]))
 
     const { error: roleError } = await supabaseAdmin
       .from('user_roles')
@@ -301,6 +307,14 @@ Deno.serve(async (req: Request) => {
     }
 
     console.log('Role assigned');
+
+    if (wantsLeader) {
+      try {
+        await supabaseAdmin.from('profiles').update({ is_leader: true } as any).eq('id', newUser.user.id)
+      } catch {
+        // ignore
+      }
+    }
 
     // Update registration status
     const { error: updateError } = await supabaseAdmin
@@ -330,7 +344,7 @@ Deno.serve(async (req: Request) => {
         entity_type: 'pending_registration',
         entity_id: String(registrationId),
         before_json: registration as any,
-        after_json: { user_id: newUser.user.id, roles: rolesToAssign, sigla_area: desiredSigla, operational_base: desiredBase || registration.operational_base } as any,
+        after_json: { user_id: newUser.user.id, roles: rolesToAssign, is_leader: wantsLeader, sigla_area: desiredSigla, operational_base: desiredBase || registration.operational_base } as any,
       } as any)
     } catch {
       // ignore

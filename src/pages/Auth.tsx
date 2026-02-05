@@ -17,6 +17,7 @@ import djtCover from '@/assets/backgrounds/djt-quest-cover.webp';
 import { apiFetch } from "@/lib/api";
 import { buildAbsoluteAppUrl, openWhatsAppShare } from "@/lib/whatsappShare";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { SUPPORTED_LOCALES, useI18n } from "@/contexts/I18nContext";
 import { localeToOpenAiLanguageTag } from "@/lib/i18n/language";
 
@@ -34,6 +35,17 @@ const DEFAULT_PASSWORD = '123456';
 const normalizeMatricula = (value?: string | null) =>
   (value ?? '').replace(/\D/g, '');
 
+type InviteProfile = "collaborator" | "leader" | "guest";
+
+const normalizeInviteProfile = (raw: string | null): InviteProfile | null => {
+  const s = String(raw || "").trim().toLowerCase();
+  if (!s) return null;
+  if (s === "guest" || s === "convidado" || s === "invited") return "guest";
+  if (s === "leader" || s === "lider" || s === "líder" || s === "lider_equipe") return "leader";
+  if (s === "collaborator" || s === "colaborador" || s === "colab") return "collaborator";
+  return null;
+};
+
 const Auth = () => {
   const [selectedUserId, setSelectedUserId] = useState("");
   const [selectedUserName, setSelectedUserName] = useState("");
@@ -43,6 +55,8 @@ const Auth = () => {
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
   const [forgotOpen, setForgotOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareProfile, setShareProfile] = useState<InviteProfile>("collaborator");
   const [resetIdentifier, setResetIdentifier] = useState("");
   const [resetReason, setResetReason] = useState("");
   const [resetLoading, setResetLoading] = useState(false);
@@ -54,6 +68,10 @@ const Auth = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const redirectParam = searchParams.get('redirect');
+  const inviteProfileParam = normalizeInviteProfile(searchParams.get("invite_profile"));
+  const registerPath = inviteProfileParam
+    ? `/register?invite_profile=${encodeURIComponent(inviteProfileParam)}`
+    : "/register";
 
   const lookupProfiles = useCallback(async (params: { mode: string; query: string; limit?: number }) => {
     const resp = await apiFetch('/api/profile-lookup', {
@@ -510,10 +528,7 @@ const Auth = () => {
               variant="outline"
               className="w-full mt-1 text-sm bg-white text-slate-900 border-slate-300 hover:bg-slate-50"
               onClick={() => {
-                openWhatsAppShare({
-                  message: t("auth.shareWhatsappMessage"),
-                  url: buildAbsoluteAppUrl("/auth"),
-                });
+                setShareOpen(true);
               }}
             >
               {t("auth.shareWhatsapp")}
@@ -522,7 +537,7 @@ const Auth = () => {
             <div className="text-center text-sm mt-4">
               <span className="text-slate-600">{t("auth.noAccount")} </span>
               <Link 
-                to="/register" 
+                to={registerPath} 
                 className="text-primary hover:underline font-medium"
               >
                 {t("auth.requestSignup")}
@@ -531,6 +546,82 @@ const Auth = () => {
           </form>
         </CardContent>
       </Card>
+
+      <Dialog
+        open={shareOpen}
+        onOpenChange={(open) => {
+          setShareOpen(open);
+          if (open) {
+            setShareProfile(inviteProfileParam || "collaborator");
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("auth.shareProfile.title")}</DialogTitle>
+            <DialogDescription>{t("auth.shareProfile.description")}</DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            <Label className="text-sm">{t("auth.shareProfile.profileLabel")}</Label>
+            <RadioGroup value={shareProfile} onValueChange={(v) => setShareProfile(v as InviteProfile)} className="gap-3">
+              {[
+                {
+                  key: "collaborator",
+                  title: t("auth.shareProfile.options.collaborator"),
+                  hint: t("auth.shareProfile.options.collaboratorHint"),
+                },
+                {
+                  key: "leader",
+                  title: t("auth.shareProfile.options.leader"),
+                  hint: t("auth.shareProfile.options.leaderHint"),
+                },
+                {
+                  key: "guest",
+                  title: t("auth.shareProfile.options.guest"),
+                  hint: t("auth.shareProfile.options.guestHint"),
+                },
+              ].map((opt) => (
+                <div key={opt.key} className="flex items-start gap-2">
+                  <RadioGroupItem id={`share-profile-${opt.key}`} value={opt.key} />
+                  <div className="grid gap-1 leading-none">
+                    <Label htmlFor={`share-profile-${opt.key}`} className="font-medium">
+                      {opt.title}
+                    </Label>
+                    <p className="text-xs text-muted-foreground">{opt.hint}</p>
+                  </div>
+                </div>
+              ))}
+            </RadioGroup>
+            <p className="text-xs text-muted-foreground">{t("auth.shareProfile.hint")}</p>
+          </div>
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setShareOpen(false)}>
+              {t("auth.shareProfile.cancel")}
+            </Button>
+            <Button
+              type="button"
+              onClick={() => {
+                const profileLabel =
+                  shareProfile === "guest"
+                    ? t("auth.shareProfile.options.guest")
+                    : shareProfile === "leader"
+                      ? t("auth.shareProfile.options.leader")
+                      : t("auth.shareProfile.options.collaborator");
+                const url = buildAbsoluteAppUrl(`/auth?invite_profile=${encodeURIComponent(shareProfile)}`);
+                openWhatsAppShare({
+                  message: `${t("auth.shareWhatsappMessage")}\n${t("auth.shareProfile.messageLine", { profile: profileLabel })}`,
+                  url,
+                });
+                setShareOpen(false);
+              }}
+            >
+              {t("auth.shareProfile.confirm")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={forgotOpen} onOpenChange={(open) => {
         setForgotOpen(open);

@@ -177,6 +177,23 @@
     "entering": "Signing in…",
     "shareWhatsapp": "Share access via WhatsApp",
     "shareWhatsappMessage": "Access DJT Quest via the link:",
+    "shareProfile": {
+      "title": "Share access",
+      "description": "Choose the signup profile for whoever will receive the link.",
+      "profileLabel": "Signup profile",
+      "options": {
+        "collaborator": "Collaborator",
+        "collaboratorHint": "Standard signup (default).",
+        "leader": "Leader",
+        "leaderHint": "The user will be approved as a leader (you still confirm during approval).",
+        "guest": "Guest (external)",
+        "guestHint": "Joins as a guest, outside the hierarchy (CONVIDADOS)."
+      },
+      "hint": "Signup still requires approval in Studio.",
+      "messageLine": "Signup profile: {profile}",
+      "cancel": "Cancel",
+      "confirm": "Share on WhatsApp"
+    },
     "noAccount": "Don't have an account?",
     "requestSignup": "Request Signup",
     "errors": {
@@ -244,6 +261,13 @@
   "register": {
     "title": "Request access",
     "description": "Fill in your details to request access to DJT Quest",
+    "inviteProfile": {
+      "title": "Profile set by invite",
+      "description": "This signup will be submitted with this profile (not editable).",
+      "collaborator": "Collaborator",
+      "leader": "Leader",
+      "guest": "Guest (external)"
+    },
     "fullNameLabel": "Full name *",
     "fullNamePlaceholder": "Enter your full name",
     "emailLabel": "Email *",

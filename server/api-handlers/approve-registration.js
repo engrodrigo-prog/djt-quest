@@ -254,7 +254,13 @@ export default async function handler(req, res) {
         const requestedRoles = requestedRolesRaw.map((r) => String(r || '').trim()).filter(Boolean);
         const assignCurator = Boolean(body?.assign_content_curator) || requestedRoles.includes('content_curator');
         const baseRole = isGuest ? 'invited' : 'colaborador';
-        const rolesToAssign = [baseRole, ...(assignCurator ? ['content_curator'] : [])];
+        const requestedProfile = String(reg?.requested_profile || '').trim().toLowerCase();
+        const wantsLeader = !isGuest && (requestedRoles.includes('lider_equipe') || requestedProfile === 'leader');
+        const rolesToAssign = Array.from(new Set([
+            baseRole,
+            ...(wantsLeader ? ['lider_equipe'] : []),
+            ...(assignCurator ? ['content_curator'] : []),
+        ]));
 
         const { error: roleErr } = await admin
             .from('user_roles')
@@ -262,6 +268,12 @@ export default async function handler(req, res) {
         if (roleErr && !String(roleErr.message || '').toLowerCase().includes('duplicate')) {
             await admin.auth.admin.deleteUser(newUserId);
             return res.status(400).json({ error: roleErr.message });
+        }
+        if (wantsLeader) {
+            try {
+                await admin.from('profiles').update({ is_leader: true }).eq('id', newUserId);
+            }
+            catch { }
         }
         // Update registration
         await admin
@@ -284,7 +296,7 @@ export default async function handler(req, res) {
                 entity_type: 'pending_registration',
                 entity_id: String(body.registrationId),
                 before_json: reg,
-                after_json: { user_id: newUserId, roles: rolesToAssign, sigla_area: desiredSigla, operational_base: desiredBase || reg.operational_base },
+                after_json: { user_id: newUserId, roles: rolesToAssign, is_leader: wantsLeader, sigla_area: desiredSigla, operational_base: desiredBase || reg.operational_base },
             });
         }
         catch { }

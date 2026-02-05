@@ -23,6 +23,7 @@ interface PendingRegistration {
   matricula: string | null;
   operational_base: string;
   sigla_area: string;
+  requested_profile?: string | null;
   status: string;
   created_at: string;
   reviewed_by: string | null;
@@ -41,6 +42,7 @@ export function PendingRegistrationsManager() {
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [reviewNotes, setReviewNotes] = useState<{ [key: string]: string }>({});
   const [assignCurator, setAssignCurator] = useState<Record<string, boolean>>({});
+  const [assignLeader, setAssignLeader] = useState<Record<string, boolean>>({});
   const [search, setSearch] = useState("");
   const [showAll, setShowAll] = useState(false);
   const [bulkApproving, setBulkApproving] = useState(false);
@@ -123,6 +125,7 @@ export function PendingRegistrationsManager() {
         body: JSON.stringify({
           registrationId,
           notes: notes || '',
+          roles: assignLeader[registrationId] ? ['lider_equipe'] : [],
           assign_content_curator: Boolean(assignCurator[registrationId]),
           override_sigla_area: overrides[registrationId]?.sigla_area || undefined,
           override_operational_base: overrides[registrationId]?.operational_base || undefined,
@@ -139,6 +142,7 @@ export function PendingRegistrationsManager() {
         body: {
           registrationId,
           notes: notes || "",
+          roles: assignLeader[registrationId] ? ["lider_equipe"] : [],
           assign_content_curator: Boolean(assignCurator[registrationId]),
           override_sigla_area: overrides[registrationId]?.sigla_area || undefined,
           override_operational_base: overrides[registrationId]?.operational_base || undefined,
@@ -250,6 +254,17 @@ export function PendingRegistrationsManager() {
     return s === "CONVIDADOS" || s === "EXTERNO";
   };
 
+  const normalizeRequestedProfile = (raw: unknown) => {
+    const s = String(raw || "").trim().toLowerCase();
+    if (!s) return null;
+    if (s === "guest" || s === "convidado" || s === "invited") return "guest";
+    if (s === "leader" || s === "lider" || s === "líder" || s === "lider_equipe") return "leader";
+    if (s === "collaborator" || s === "colaborador" || s === "colab") return "collaborator";
+    return null;
+  };
+
+  const wantsLeaderByRequest = (r: PendingRegistration) => normalizeRequestedProfile(r.requested_profile) === "leader";
+
   const ensureOverrides = (list: PendingRegistration[]) => {
     setOverrides((prev) => {
       let changed = false;
@@ -275,8 +290,33 @@ export function PendingRegistrationsManager() {
     });
   };
 
+  const ensureAssignLeader = (list: PendingRegistration[]) => {
+    setAssignLeader((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      const ids = new Set(list.map((r) => String(r.id)));
+
+      for (const r of list) {
+        if (next[r.id] != null) continue;
+        const isGuest = isGuestRegistration(r);
+        next[r.id] = !isGuest && wantsLeaderByRequest(r);
+        changed = true;
+      }
+      for (const id of Object.keys(next)) {
+        if (!ids.has(String(id))) {
+          delete next[id];
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  };
+
   useEffect(() => {
-    if (registrations.length) ensureOverrides(registrations);
+    if (registrations.length) {
+      ensureOverrides(registrations);
+      ensureAssignLeader(registrations);
+    }
   }, [registrations]);
 
   const matchesSearch = (r: PendingRegistration, q: string) => {
@@ -531,6 +571,11 @@ export function PendingRegistrationsManager() {
                         Fora do escopo
                       </Badge>
                     )}
+                    {Boolean(assignLeader[registration.id]) && (
+                      <Badge variant="outline" className="text-blue-600 border-blue-600">
+                        Líder
+                      </Badge>
+                    )}
                     <Badge variant="outline" className="text-yellow-600 border-yellow-600">
                       Pendente
                     </Badge>
@@ -581,7 +626,7 @@ export function PendingRegistrationsManager() {
                       <Switch
                         id={`guest-${registration.id}`}
                         checked={Boolean(overrides[registration.id]?.force_guest)}
-                        onCheckedChange={(v) =>
+                        onCheckedChange={(v) => {
                           setOverrides((prev) => ({
                             ...prev,
                             [registration.id]: {
@@ -591,7 +636,23 @@ export function PendingRegistrationsManager() {
                                 : prev[registration.id]?.operational_base || registration.operational_base,
                               force_guest: Boolean(v),
                             },
-                          }))
+                          }));
+                          if (v) {
+                            setAssignLeader((prev) => ({ ...prev, [registration.id]: false }));
+                          }
+                        }}
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Label htmlFor={`leader-${registration.id}`} className="text-xs text-muted-foreground">
+                        Líder
+                      </Label>
+                      <Switch
+                        id={`leader-${registration.id}`}
+                        checked={Boolean(assignLeader[registration.id])}
+                        disabled={Boolean(overrides[registration.id]?.force_guest) || isGuestRegistration(registration)}
+                        onCheckedChange={(v) =>
+                          setAssignLeader((prev) => ({ ...prev, [registration.id]: Boolean(v) }))
                         }
                       />
                     </div>

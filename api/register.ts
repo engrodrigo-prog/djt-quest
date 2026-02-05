@@ -60,6 +60,15 @@ const canonicalizeSiglaArea = (raw: string) => {
   return s;
 };
 
+const normRequestedProfile = (raw: any) => {
+  const s = normText(raw, 32).toLowerCase();
+  if (!s) return null;
+  if (s === 'guest' || s === 'convidado' || s === 'invited') return 'guest';
+  if (s === 'leader' || s === 'lider' || s === 'líder' || s === 'lider_equipe') return 'leader';
+  if (s === 'collaborator' || s === 'colaborador' || s === 'colab') return 'collaborator';
+  return null;
+};
+
 const normDob = (raw: any) => {
   const s = String(raw ?? '').trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
@@ -89,16 +98,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const date_of_birth = normDob(body.date_of_birth);
     const telefone = normText(body.telefone, 20) || null;
     const matricula = normMatricula(body.matricula);
+    const requested_profile = normRequestedProfile(body.requested_profile);
     const siglaRaw = normTeam(body.sigla_area);
     const sigla = isGuestSigla(siglaRaw) ? GUEST_TEAM_ID : canonicalizeSiglaArea(siglaRaw);
     const operationalBaseRaw = normText(body.operational_base, 100);
-    const operational_base = sigla === GUEST_TEAM_ID ? GUEST_TEAM_ID : operationalBaseRaw;
+    const forcedGuest = requested_profile === 'guest';
+    const operational_base = forcedGuest || sigla === GUEST_TEAM_ID ? GUEST_TEAM_ID : operationalBaseRaw;
+    const effectiveSigla = forcedGuest ? GUEST_TEAM_ID : sigla;
 
     if (!name) return res.status(400).json({ error: 'Nome é obrigatório' });
     if (!email || !email.includes('@')) return res.status(400).json({ error: 'Email inválido' });
     if (!date_of_birth) return res.status(400).json({ error: 'Data de nascimento é obrigatória' });
-    if (!sigla) return res.status(400).json({ error: 'Equipe/Sigla é obrigatória' });
-    if (!ALLOWED_TEAMS.has(sigla.toUpperCase())) return res.status(400).json({ error: 'Equipe/Sigla inválida' });
+    if (!effectiveSigla) return res.status(400).json({ error: 'Equipe/Sigla é obrigatória' });
+    if (!ALLOWED_TEAMS.has(effectiveSigla.toUpperCase())) return res.status(400).json({ error: 'Equipe/Sigla inválida' });
     if (!operational_base) return res.status(400).json({ error: 'Base operacional é obrigatória' });
 
     // If profile already exists for this email, do not create a pending request.
@@ -126,14 +138,29 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       telefone,
       matricula,
       operational_base,
-      sigla_area: sigla,
+      sigla_area: effectiveSigla,
+      ...(requested_profile ? { requested_profile } : {}),
       status: 'pending',
+    };
+
+    const shouldRetryWithoutRequestedProfile = (err: any) => {
+      const msg = String(err?.message || '').toLowerCase();
+      const code = String(err?.code || '');
+      return (code === '42703' || msg.includes('requested_profile')) && (msg.includes('column') || msg.includes('does not exist'));
     };
 
     if (pendingRows && pendingRows.length > 0) {
       const keep = pendingRows[0];
 
-      await admin.from('pending_registrations').update(payload).eq('id', keep.id);
+      const upd = await admin.from('pending_registrations').update(payload).eq('id', keep.id);
+      if (upd.error && payload.requested_profile && shouldRetryWithoutRequestedProfile(upd.error)) {
+        const fallbackPayload = { ...payload };
+        delete fallbackPayload.requested_profile;
+        const upd2 = await admin.from('pending_registrations').update(fallbackPayload).eq('id', keep.id);
+        if (upd2.error) return res.status(400).json({ error: upd2.error.message });
+      } else if (upd.error) {
+        return res.status(400).json({ error: upd.error.message });
+      }
 
       // Mark older duplicates as rejected (best effort).
       const dupIds = pendingRows.slice(1).map((r: any) => r.id).filter(Boolean);
@@ -153,14 +180,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(200).json({ success: true, already_pending: true, id: keep.id });
     }
 
-    const { data: inserted, error: insErr } = await admin
-      .from('pending_registrations')
-      .insert(payload)
-      .select('id')
-      .single();
-    if (insErr) return res.status(400).json({ error: insErr.message });
+    let insertRes = await admin.from('pending_registrations').insert(payload).select('id').single();
+    if (insertRes.error && payload.requested_profile && shouldRetryWithoutRequestedProfile(insertRes.error)) {
+      const fallbackPayload = { ...payload };
+      delete fallbackPayload.requested_profile;
+      insertRes = await admin.from('pending_registrations').insert(fallbackPayload).select('id').single();
+    }
+    if (insertRes.error) return res.status(400).json({ error: insertRes.error.message });
 
-    return res.status(200).json({ success: true, id: inserted?.id });
+    return res.status(200).json({ success: true, id: insertRes.data?.id });
   } catch (e: any) {
     return res.status(500).json({ error: e?.message || 'Unknown error' });
   }

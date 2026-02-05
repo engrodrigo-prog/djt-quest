@@ -177,6 +177,23 @@
     "entering": "正在登录…",
     "shareWhatsapp": "通过WhatsApp分享访问权限",
     "shareWhatsappMessage": "通过链接访问DJT Quest：",
+    "shareProfile": {
+      "title": "分享访问",
+      "description": "选择接收者注册时使用的资料类型。",
+      "profileLabel": "注册资料类型",
+      "options": {
+        "collaborator": "协作者",
+        "collaboratorHint": "普通注册（默认）。",
+        "leader": "负责人",
+        "leaderHint": "审批时将作为负责人创建（仍需确认）。",
+        "guest": "访客（外部）",
+        "guestHint": "作为访客加入，不进入组织层级（CONVIDADOS）。"
+      },
+      "hint": "注册仍需在 Studio 中审批。",
+      "messageLine": "注册资料：{profile}",
+      "cancel": "取消",
+      "confirm": "在 WhatsApp 分享"
+    },
     "noAccount": "没有账户？",
     "requestSignup": "申请注册",
     "errors": {
@@ -244,6 +261,13 @@
   "register": {
     "title": "申请注册",
     "description": "填写信息以申请访问 DJT Quest",
+    "inviteProfile": {
+      "title": "邀请已定义资料",
+      "description": "本次注册将使用该资料类型提交（不可编辑）。",
+      "collaborator": "协作者",
+      "leader": "负责人",
+      "guest": "访客（外部）"
+    },
     "fullNameLabel": "姓名 *",
     "fullNamePlaceholder": "请输入姓名",
     "emailLabel": "邮箱 *",

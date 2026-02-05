@@ -177,6 +177,23 @@
     "entering": "Entrando…",
     "shareWhatsapp": "Compartilhar acesso pelo WhatsApp",
     "shareWhatsappMessage": "Acesse o DJT Quest pelo link:",
+    "shareProfile": {
+      "title": "Compartilhar acesso",
+      "description": "Escolha o perfil do cadastro para quem vai receber o link.",
+      "profileLabel": "Perfil do cadastro",
+      "options": {
+        "collaborator": "Colaborador",
+        "collaboratorHint": "Cadastro normal (padrão).",
+        "leader": "Líder",
+        "leaderHint": "O usuário será aprovado já como líder (você confirma na aprovação).",
+        "guest": "Convidado (externo)",
+        "guestHint": "Entra como convidado, fora da hierarquia (CONVIDADOS)."
+      },
+      "hint": "O cadastro ainda precisa ser aprovado no Studio.",
+      "messageLine": "Perfil do cadastro: {profile}",
+      "cancel": "Cancelar",
+      "confirm": "Compartilhar no WhatsApp"
+    },
     "noAccount": "Não tem conta?",
     "requestSignup": "Solicitar Cadastro",
     "errors": {
@@ -244,6 +261,13 @@
   "register": {
     "title": "Solicitar cadastro",
     "description": "Preencha seus dados para solicitar acesso ao DJT Quest",
+    "inviteProfile": {
+      "title": "Perfil definido pelo convite",
+      "description": "Este cadastro será enviado com este perfil (não editável).",
+      "collaborator": "Colaborador",
+      "leader": "Líder",
+      "guest": "Convidado (externo)"
+    },
     "fullNameLabel": "Nome completo *",
     "fullNamePlaceholder": "Digite seu nome completo",
     "emailLabel": "E-mail *",
