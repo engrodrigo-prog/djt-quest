@@ -8,13 +8,15 @@ import { isAllowlistedAdminFromProfile } from "@/lib/adminAllowlist";
 import { apiFetch } from "@/lib/api";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { QuizResultsDashboard } from "@/components/QuizResultsDashboard";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { QuizQuestionsList } from "@/components/QuizQuestionsList";
 
 type RangeKey = "30" | "60" | "180" | "365" | "all";
 
 interface Challenge {
   id: string;
   title: string;
-  description: string;
+  description: string | null;
   type: string;
   status?: string | null;
   xp_reward: number;
@@ -36,7 +38,8 @@ export const ChallengeManagement = ({ onlyQuizzes }: ChallengeManagementProps) =
   const [editTitle, setEditTitle] = useState("");
   const [editDescription, setEditDescription] = useState("");
   const [editXp, setEditXp] = useState<string>("0");
-  const [resultsChallenge, setResultsChallenge] = useState<Challenge | null>(null);
+  const [modalChallenge, setModalChallenge] = useState<Challenge | null>(null);
+  const [modalTab, setModalTab] = useState<"general" | "questions" | "follow">("general");
 
   const isTopLeader = profile?.matricula === "601555";
   const isAllowlistedAdmin = isAllowlistedAdminFromProfile(profile);
@@ -75,6 +78,18 @@ export const ChallengeManagement = ({ onlyQuizzes }: ChallengeManagementProps) =
   useEffect(() => {
     load();
   }, [onlyQuizzes]);
+
+  const openModal = (c: Challenge, tab: "general" | "questions" | "follow") => {
+    setModalChallenge(c);
+    setModalTab(tab);
+    setEditTitle(String(c.title || ""));
+    setEditDescription(String(c.description || ""));
+    setEditXp(String(c.xp_reward ?? 0));
+  };
+
+  const closeModal = () => {
+    setModalChallenge(null);
+  };
 
   const cutoff = (() => {
     if (range === "all") return null;
@@ -188,6 +203,10 @@ export const ChallengeManagement = ({ onlyQuizzes }: ChallengeManagementProps) =
   };
 
   const handleEdit = (c: Challenge) => {
+    if (onlyQuizzes) {
+      openModal(c, "general");
+      return;
+    }
     setEditingId(c.id);
     setEditTitle(c.title || "");
     setEditDescription(c.description || "");
@@ -262,20 +281,86 @@ export const ChallengeManagement = ({ onlyQuizzes }: ChallengeManagementProps) =
   return (
     <div className="space-y-4">
       <Dialog
-        open={Boolean(resultsChallenge)}
+        open={Boolean(modalChallenge)}
         onOpenChange={(open) => {
-          if (!open) setResultsChallenge(null);
+          if (!open) closeModal();
         }}
       >
-        <DialogContent className="max-w-5xl">
+        <DialogContent className="max-w-6xl">
           <DialogHeader>
-            <DialogTitle>Resultados</DialogTitle>
+            <DialogTitle>Gerenciar quiz</DialogTitle>
             <DialogDescription className="text-xs">
-              {resultsChallenge?.title || "Resultados do quiz"}
+              {modalChallenge?.title || "—"}
             </DialogDescription>
           </DialogHeader>
-          {resultsChallenge?.id ? (
-            <QuizResultsDashboard challengeId={resultsChallenge.id} />
+          {modalChallenge?.id ? (
+            <Tabs value={modalTab} onValueChange={(v) => setModalTab(v as any)} className="w-full">
+              <TabsList className="grid w-full grid-cols-3">
+                <TabsTrigger value="general">Editar</TabsTrigger>
+                <TabsTrigger value="questions">Perguntas</TabsTrigger>
+                <TabsTrigger value="follow">Acompanhar</TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="general" className="space-y-3">
+                <div className="space-y-2">
+                  <div className="text-xs text-muted-foreground">
+                    Aqui você edita o nome e a descrição. Para perguntas/alternativas use a aba “Perguntas”.
+                  </div>
+                  <input
+                    className="w-full text-sm font-semibold bg-black/40 border border-white/10 rounded px-2 py-2 text-blue-50"
+                    value={editTitle}
+                    onChange={(e) => setEditTitle(e.target.value)}
+                    placeholder="Nome do quiz"
+                  />
+                  <textarea
+                    className="w-full text-xs bg-black/40 border border-white/10 rounded px-2 py-2 text-muted-foreground"
+                    rows={4}
+                    value={editDescription}
+                    onChange={(e) => setEditDescription(e.target.value)}
+                    placeholder="Descrição do quiz"
+                  />
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground">XP:</span>
+                      <input
+                        className="w-[120px] text-sm bg-black/40 border border-white/10 rounded px-2 py-2 text-blue-50"
+                        value={editXp}
+                        onChange={(e) => setEditXp(e.target.value)}
+                        inputMode="numeric"
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => modalChallenge && handleSaveEdit(modalChallenge)}
+                      >
+                        Salvar
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={closeModal}>
+                        Fechar
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </TabsContent>
+
+              <TabsContent value="questions" className="space-y-3">
+                <div className="text-xs text-muted-foreground">
+                  Edite perguntas e alternativas. Em quiz publicado, apenas curadoria/admin consegue alterar.
+                </div>
+                <QuizQuestionsList
+                  challengeId={modalChallenge.id}
+                  onUpdate={() => {
+                    load();
+                  }}
+                />
+              </TabsContent>
+
+              <TabsContent value="follow" className="space-y-3">
+                <QuizResultsDashboard challengeId={modalChallenge.id} />
+              </TabsContent>
+            </Tabs>
           ) : null}
         </DialogContent>
       </Dialog>
@@ -336,7 +421,7 @@ export const ChallengeManagement = ({ onlyQuizzes }: ChallengeManagementProps) =
             </p>
           )}
           {filtered.map((c) => {
-            const isEditing = editingId === c.id;
+            const isEditing = !onlyQuizzes && editingId === c.id;
             return (
               <div key={c.id} className="flex flex-col gap-1 border rounded-md p-3 bg-black/20">
                 <div className="flex items-center justify-between gap-2">
@@ -402,27 +487,36 @@ export const ChallengeManagement = ({ onlyQuizzes }: ChallengeManagementProps) =
                         </>
 	                      ) : (
 	                        <>
-	                          <Button
-	                            size="xs"
-	                            variant="outline"
-	                            onClick={() => handleEdit(c)}
-	                          >
-	                            Editar
-	                          </Button>
-                            {(c.type || "").toLowerCase().includes("quiz") && (
+                          <Button
+                            size="xs"
+                            variant="outline"
+                            onClick={() => handleEdit(c)}
+                          >
+                            Editar
+                          </Button>
+                          {(c.type || "").toLowerCase().includes("quiz") && (
+                            <>
                               <Button
                                 size="xs"
                                 variant="outline"
-                                onClick={() => setResultsChallenge(c)}
+                                onClick={() => openModal(c, "questions")}
                               >
-                                Resultados
+                                Perguntas
                               </Button>
-                            )}
-	                          {(!onlyQuizzes || isAllowlistedAdmin) && (
-	                            <>
-	                              <Button
-	                                size="xs"
-	                                variant="outline"
+                              <Button
+                                size="xs"
+                                variant="outline"
+                                onClick={() => openModal(c, "follow")}
+                              >
+                                Acompanhar
+                              </Button>
+                            </>
+                          )}
+		                          {(!onlyQuizzes || isAllowlistedAdmin) && (
+		                            <>
+		                              <Button
+		                                size="xs"
+		                                variant="outline"
 	                                onClick={() => updateStatus(c, "closed")}
 	                              >
 	                                Encerrar
