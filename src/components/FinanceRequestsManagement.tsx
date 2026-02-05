@@ -11,7 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { getActiveLocale } from "@/lib/i18n/activeLocale";
 import { Download, FileText, RefreshCw, Save } from "lucide-react";
-import { FINANCE_COMPANIES, FINANCE_COORDINATIONS, FINANCE_REQUEST_KINDS, FINANCE_STATUSES } from "@/lib/finance/constants";
+import { FINANCE_COMPANIES, FINANCE_COORDINATIONS, FINANCE_REQUEST_KINDS, FINANCE_STATUSES, normalizeFinanceStatus } from "@/lib/finance/constants";
 
 type RequestRow = any;
 
@@ -20,6 +20,8 @@ const formatBrl = (cents: number | null | undefined) => {
   if (!Number.isFinite(n)) return "—";
   return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 };
+
+const statusLabel = (raw: unknown) => normalizeFinanceStatus(raw) || "—";
 
 export function FinanceRequestsManagement() {
   const { toast } = useToast();
@@ -87,8 +89,8 @@ export function FinanceRequestsManagement() {
       const json = await resp.json().catch(() => ({}));
       if (!resp.ok) throw new Error(json?.error || "Falha ao carregar detalhes");
       setDetail(json);
-      const st = String(json?.request?.status || "Enviado");
-      setNextStatus(st);
+      const st = statusLabel(json?.request?.status || "Enviado");
+      setNextStatus(st || "Enviado");
       setObservation(String(json?.request?.last_observation || ""));
     } catch (e: any) {
       setDetail(null);
@@ -132,6 +134,10 @@ export function FinanceRequestsManagement() {
   const applyStatus = async () => {
     const id = String(detailId || "").trim();
     if (!id) return;
+    if (statusLabel(nextStatus) === "Reprovado" && String(observation || "").trim().length < 5) {
+      toast({ title: "Observação obrigatória", description: "Explique o motivo da reprovação (mín. 5 caracteres).", variant: "destructive" });
+      return;
+    }
     try {
       setUpdating(true);
       const resp = await apiFetch("/api/finance-requests-admin", {
@@ -154,13 +160,15 @@ export function FinanceRequestsManagement() {
   };
 
   const totals = useMemo(() => {
-    const pending = items.filter((r) => !["Pago", "Cancelado", "Reprovado"].includes(String(r.status))).length;
-    const paid = items.filter((r) => String(r.status) === "Pago").length;
+    const pending = items.filter((r) => ["Enviado", "Em Análise"].includes(statusLabel(r.status))).length;
+    const approved = items.filter((r) => statusLabel(r.status) === "Aprovado").length;
+    const rejected = items.filter((r) => statusLabel(r.status) === "Reprovado").length;
+    const canceled = items.filter((r) => statusLabel(r.status) === "Cancelado").length;
     const total = items
       .map((r) => Number(r?.amount_cents))
       .filter((n) => Number.isFinite(n))
       .reduce((a, b) => a + b, 0);
-    return { pending, paid, total };
+    return { pending, approved, rejected, canceled, total };
   }, [items]);
 
   return (
@@ -245,7 +253,9 @@ export function FinanceRequestsManagement() {
         <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
           <Badge variant="secondary" className="text-[10px]">Itens: {items.length}</Badge>
           <Badge variant="outline" className="text-[10px]">Em andamento: {totals.pending}</Badge>
-          <Badge variant="outline" className="text-[10px]">Pagos: {totals.paid}</Badge>
+          <Badge variant="outline" className="text-[10px]">Aprovados: {totals.approved}</Badge>
+          <Badge variant="outline" className="text-[10px]">Reprovados: {totals.rejected}</Badge>
+          <Badge variant="outline" className="text-[10px]">Cancelados: {totals.canceled}</Badge>
           <Badge className="text-[10px]">Total (R$): {(totals.total / 100).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Badge>
         </div>
 
@@ -271,7 +281,7 @@ export function FinanceRequestsManagement() {
                     </div>
                   </div>
                   <div className="flex flex-col items-end gap-1">
-                    <Badge className="text-[10px]">{r.status}</Badge>
+                    <Badge className="text-[10px]">{statusLabel(r.status)}</Badge>
                     <div className="text-[11px] text-muted-foreground">{formatBrl(r.amount_cents)}</div>
                   </div>
                 </div>
@@ -307,7 +317,7 @@ export function FinanceRequestsManagement() {
                     </div>
                   </div>
                   <div className="text-right">
-                    <Badge className="text-[11px]">{detail.request.status}</Badge>
+                    <Badge className="text-[11px]">{statusLabel(detail.request.status)}</Badge>
                     <div className="text-[12px] text-muted-foreground mt-1">{formatBrl(detail.request.amount_cents)}</div>
                   </div>
                 </div>
@@ -341,10 +351,28 @@ export function FinanceRequestsManagement() {
                   {(detail.attachments || []).length ? (
                     <div className="mt-2 space-y-1">
                       {(detail.attachments || []).map((a: any) => (
-                        <a key={a.id} href={a.url} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-[12px] hover:underline">
-                          <FileText className="h-4 w-4" />
-                          <span className="truncate">{a.filename || a.url}</span>
-                        </a>
+                        <div key={a.id} className="flex items-center justify-between gap-3">
+                          <a
+                            href={a.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="flex items-center gap-2 text-[12px] hover:underline min-w-0"
+                          >
+                            <FileText className="h-4 w-4 flex-shrink-0" />
+                            <span className="truncate">{a.filename || a.url}</span>
+                          </a>
+                          {a?.metadata?.table_csv?.url ? (
+                            <a
+                              href={a.metadata.table_csv.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-[11px] text-muted-foreground hover:underline flex-shrink-0"
+                              title="Tabela extraída (CSV)"
+                            >
+                              CSV
+                            </a>
+                          ) : null}
+                        </div>
                       ))}
                     </div>
                   ) : (
@@ -359,7 +387,7 @@ export function FinanceRequestsManagement() {
                       {(detail.history || []).map((h: any) => (
                         <div key={h.id} className="text-[12px] flex items-start justify-between gap-2">
                           <div className="min-w-0">
-                            <span className="font-medium">{h.to_status}</span>
+                            <span className="font-medium">{statusLabel(h.to_status)}</span>
                             {h.observation ? <div className="text-muted-foreground whitespace-pre-wrap">{h.observation}</div> : null}
                           </div>
                           <div className="text-[11px] text-muted-foreground flex-shrink-0">

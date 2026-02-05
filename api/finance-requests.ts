@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { assertDjtQuestServerEnv, DJT_QUEST_SUPABASE_HOST } from '../server/env-guard.js';
 import { financeRequestCreateSchema } from '../server/finance/schema.js';
 import { isGuestProfile } from '../server/finance/permissions.js';
+import { normalizeFinanceStatus } from '../server/finance/constants.js';
 import { clampLimit, parseBrlToCents, pickQueryParam, safeText, tryParseStorageFromPublicUrl } from '../server/finance/utils.js';
 import { getSupabaseUrlFromEnv } from '../server/lib/supabase-url.js';
 
@@ -63,7 +64,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (req.method === 'GET') {
-      const status = safeText(pickQueryParam(req.query, 'status'), 40);
+      const statusRaw = safeText(pickQueryParam(req.query, 'status'), 40);
+      const status = statusRaw ? normalizeFinanceStatus(statusRaw) : null;
       const kind = safeText(pickQueryParam(req.query, 'request_kind'), 40);
       const limit = clampLimit(pickQueryParam(req.query, 'limit'), 60, 200);
 

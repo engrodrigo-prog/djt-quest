@@ -29,6 +29,15 @@ export const FINANCE_COORDINATIONS = [
   'DJT (Gerentes + Coordenadora)',
 ];
 
-export const FINANCE_STATUSES = ['Enviado', 'Em análise', 'Aprovado', 'Reprovado', 'Pago', 'Cancelado'];
+// Canonical statuses (DB). Legacy values should be normalized before persisting.
+export const FINANCE_STATUSES = ['Enviado', 'Em Análise', 'Aprovado', 'Reprovado', 'Cancelado'];
 
 export const FINANCE_ANALYST_ROLE = 'analista_financeiro';
+
+export const normalizeFinanceStatus = (raw) => {
+  const s = String(raw || '').trim();
+  if (!s) return '';
+  if (s === 'Em análise') return 'Em Análise';
+  if (s === 'Pago') return 'Aprovado';
+  return s;
+};

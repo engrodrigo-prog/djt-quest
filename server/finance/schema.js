@@ -5,6 +5,7 @@ import {
   FINANCE_EXPENSE_TYPES,
   FINANCE_REQUEST_KINDS,
   FINANCE_STATUSES,
+  normalizeFinanceStatus,
 } from './constants.js';
 import { parseBrlToCents } from './utils.js';
 
@@ -79,6 +80,9 @@ export const financeRequestCancelSchema = z.object({
 
 export const financeRequestAdminUpdateSchema = z.object({
   id: z.string().uuid(),
-  status: z.enum(FINANCE_STATUSES),
+  status: z
+    .string()
+    .transform((v) => normalizeFinanceStatus(v))
+    .refine((v) => FINANCE_STATUSES.includes(v), 'Status inválido'),
   observation: z.string().trim().max(2000).optional().nullable(),
 });

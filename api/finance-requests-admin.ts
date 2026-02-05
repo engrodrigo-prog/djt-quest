@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { assertDjtQuestServerEnv, DJT_QUEST_SUPABASE_HOST } from '../server/env-guard.js';
 import { financeRequestAdminUpdateSchema } from '../server/finance/schema.js';
 import { canManageFinanceRequests, isGuestProfile } from '../server/finance/permissions.js';
+import { normalizeFinanceStatus } from '../server/finance/constants.js';
 import { clampLimit, pickQueryParam, safeText } from '../server/finance/utils.js';
 import * as XLSX from 'xlsx';
 import { getSupabaseUrlFromEnv } from '../server/lib/supabase-url.js';
@@ -87,7 +88,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         missing: { supabaseUrl: !SUPABASE_URL, supabaseAnonKey: !ANON_KEY },
       });
     }
-    if (!SERVICE_ROLE_KEY) return res.status(503).json({ error: 'Admin finance endpoint requires SUPABASE_SERVICE_ROLE_KEY' });
 
     const authHeader = req.headers['authorization'] as string | undefined;
     if (!authHeader?.startsWith('Bearer ')) return res.status(401).json({ error: 'Unauthorized' });
@@ -97,7 +97,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       auth: { autoRefreshToken: false, persistSession: false },
       global: { headers: { Authorization: `Bearer ${token}` } },
     });
-    const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { autoRefreshToken: false, persistSession: false } });
+    const admin = SERVICE_ROLE_KEY
+      ? createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { autoRefreshToken: false, persistSession: false } })
+      : null;
+    const db = admin || authed;
 
     const { data: userData, error: authErr } = await authed.auth.getUser();
     if (authErr) return res.status(401).json({ error: 'Unauthorized' });
@@ -105,8 +108,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!uid) return res.status(401).json({ error: 'Unauthorized' });
 
     const [{ data: rolesRows }, { data: profile }] = await Promise.all([
-      admin.from('user_roles').select('role').eq('user_id', uid),
-      admin
+      db.from('user_roles').select('role').eq('user_id', uid),
+      db
         .from('profiles')
         .select('id,name,email,matricula,team_id,sigla_area,operational_base,is_leader')
         .eq('id', uid)
@@ -123,7 +126,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (!parsed.success) return res.status(400).json({ error: 'Dados inválidos', details: parsed.error.flatten() });
       const { id, status, observation } = parsed.data;
 
-      const { data: reqRow } = await admin
+      const { data: reqRow } = await db
         .from('finance_requests')
         .select('id,status')
         .eq('id', id)
@@ -133,13 +136,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const from_status = String(reqRow.status || '');
       const to_status = String(status);
 
-      const { error: updErr } = await admin
+      const { error: updErr } = await db
         .from('finance_requests')
         .update({ status: to_status, last_observation: safeText(observation, 2000) })
         .eq('id', id);
       if (updErr) return res.status(400).json({ error: updErr.message });
 
-      await admin.from('finance_request_status_history').insert({
+      await db.from('finance_request_status_history').insert({
         request_id: id,
         changed_by: uid,
         from_status,
@@ -156,7 +159,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const company = safeText(pickQueryParam(req.query, 'company'), 80);
     const coordination = safeText(pickQueryParam(req.query, 'coordination'), 80);
     const request_kind = safeText(pickQueryParam(req.query, 'request_kind'), 40);
-    const status = safeText(pickQueryParam(req.query, 'status'), 40);
+    const statusRaw = safeText(pickQueryParam(req.query, 'status'), 40);
+    const status = statusRaw ? normalizeFinanceStatus(statusRaw) : null;
     const q = safeText(pickQueryParam(req.query, 'q'), 200);
     const dateFromRaw = safeText(pickQueryParam(req.query, 'date_start_from'), 30);
     const dateToRaw = safeText(pickQueryParam(req.query, 'date_start_to'), 30);
@@ -169,7 +173,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ error: 'date_start_to deve ser >= date_start_from' });
     }
 
-    let query = admin
+    let query = db
       .from('finance_requests')
       .select(
         'id,protocol,created_at,updated_at,created_by,created_by_name,created_by_email,created_by_matricula,company,training_operational,request_kind,expense_type,coordination,date_start,date_end,amount_cents,currency,status,last_observation',

@@ -17,7 +17,7 @@ import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft, FileText, Plus, XCircle } from "lucide-react";
 import { useI18n } from "@/contexts/I18nContext";
 import { getActiveLocale } from "@/lib/i18n/activeLocale";
-import { FINANCE_COMPANIES, FINANCE_COORDINATIONS, FINANCE_EXPENSE_TYPES, FINANCE_REQUEST_KINDS, FINANCE_STATUSES } from "@/lib/finance/constants";
+import { FINANCE_COMPANIES, FINANCE_COORDINATIONS, FINANCE_EXPENSE_TYPES, FINANCE_REQUEST_KINDS, FINANCE_STATUSES, normalizeFinanceStatus } from "@/lib/finance/constants";
 
 type RequestRow = {
   id: string;
@@ -93,6 +93,8 @@ const formatBrl = (cents: number | null | undefined) => {
   if (!Number.isFinite(n)) return "—";
   return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 };
+
+const statusLabel = (raw: unknown) => normalizeFinanceStatus(raw) || "—";
 
 const EXPENSE_TYPE_I18N_KEY: Record<string, string> = {
   Transporte: "finance.expenseType.transport",
@@ -466,9 +468,12 @@ export default function FinanceRequests() {
                           {r.request_kind} • {getExpenseTypeLabel(r.expense_type)} • {r.company} • {r.coordination}
                         </div>
                       </div>
-                      <div className="flex flex-col items-end gap-1">
-                        <Badge variant={r.status === "Enviado" ? "secondary" : r.status === "Pago" ? "default" : "outline"} className="text-[10px]">
-                          {r.status}
+                        <div className="flex flex-col items-end gap-1">
+                        <Badge
+                          variant={statusLabel(r.status) === "Enviado" ? "secondary" : statusLabel(r.status) === "Aprovado" ? "default" : "outline"}
+                          className="text-[10px]"
+                        >
+                          {statusLabel(r.status)}
                         </Badge>
                         <div className="text-[11px] text-muted-foreground">{formatBrl(r.amount_cents)}</div>
                       </div>
@@ -633,8 +638,8 @@ export default function FinanceRequests() {
                   onAttachmentsChange={() => {}}
                   onAttachmentItemsChange={(items) => setAttachmentItems(items as any)}
                   onUploadingChange={setAttachmentsUploading}
-                  maxFiles={8}
-                  maxImages={8}
+                  maxFiles={12}
+                  maxImages={12}
                   maxVideos={0}
                   maxSizeMB={25}
                   capture="environment"
@@ -696,7 +701,7 @@ export default function FinanceRequests() {
                   </div>
                 </div>
                 <div className="text-right">
-                  <Badge className="text-[11px]">{detail.request.status}</Badge>
+                  <Badge className="text-[11px]">{statusLabel(detail.request.status)}</Badge>
                   <div className="text-[12px] text-muted-foreground mt-1">{formatBrl(detail.request.amount_cents)}</div>
                 </div>
               </div>
@@ -763,7 +768,7 @@ export default function FinanceRequests() {
                     {(detail.history || []).map((h: any) => (
                       <div key={h.id} className="text-[12px] flex items-start justify-between gap-2">
                         <div className="min-w-0">
-                          <span className="font-medium">{h.to_status}</span>
+                          <span className="font-medium">{statusLabel(h.to_status)}</span>
                           {h.observation ? <div className="text-muted-foreground whitespace-pre-wrap">{h.observation}</div> : null}
                         </div>
                         <div className="text-[11px] text-muted-foreground flex-shrink-0">
