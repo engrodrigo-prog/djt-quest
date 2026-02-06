@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState, useMemo } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
-//
+import { useEffect, useRef, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
+
 import iconHome from '@/assets/backgrounds/home.webp';
 import iconRanking from '@/assets/backgrounds/Ranking.webp';
 import iconAvaliar from '@/assets/backgrounds/avaliar.webp';
@@ -10,18 +10,29 @@ import iconProfile from '@/assets/backgrounds/perfil.webp';
 import iconLogout from '@/assets/backgrounds/SAIR.webp';
 import iconSEPBook from '@/assets/backgrounds/SEPbook.webp';
 import iconStudy from '@/assets/backgrounds/studylab.webp';
-import { Button } from '@/components/ui/button';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { useAuth } from '@/contexts/AuthContext';
-import { cn } from '@/lib/utils';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { apiFetch } from '@/lib/api';
-import { supabase } from '@/integrations/supabase/client';
-import { ChangePasswordCard } from '@/components/profile/ChangePasswordCard';
 import bgMenu from '@/assets/backgrounds/BG Menu.webp';
+
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { ChangePasswordCard } from '@/components/profile/ChangePasswordCard';
+import { useAuth } from '@/contexts/AuthContext';
 import { useI18n } from '@/contexts/I18nContext';
+import { supabase } from '@/integrations/supabase/client';
+import { apiFetch } from '@/lib/api';
 import { useSfx } from '@/lib/sfx';
-import { Menu, X } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { Menu, MoreHorizontal, X } from 'lucide-react';
+
+type NavEntry = {
+  key: string;
+  label: string;
+  icon: string;
+  active: boolean;
+  badge?: number;
+  alertBadge?: boolean;
+  onSelect: () => void;
+};
 
 const Navigation = () => {
   const navigate = useNavigate();
@@ -29,7 +40,9 @@ const Navigation = () => {
   const { user, studioAccess, isLeader, signOut } = useAuth();
   const { t } = useI18n();
   const { play: playSfx } = useSfx();
+
   const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
+  const [moreSheetOpen, setMoreSheetOpen] = useState(false);
   const [studioBadge, setStudioBadge] = useState(0);
   const [evalBadge, setEvalBadge] = useState(0);
   const [forumBadge, setForumBadge] = useState(0);
@@ -38,70 +51,19 @@ const Navigation = () => {
   const [studyBadge, setStudyBadge] = useState(0);
   const [sepbookNew, setSepbookNew] = useState(0);
   const [sepbookMentions, setSepbookMentions] = useState(0);
-  const barRef = useRef<HTMLDivElement | null>(null);
-  const [itemSize, setItemSize] = useState<number>(60);
-  const playSfxRef = useRef(playSfx);
-  const notifTotalRef = useRef<number | null>(null);
   const [navHidden, setNavHidden] = useState(false);
   const [navExpanded, setNavExpanded] = useState(false);
-  const showEvaluations = Boolean(isLeader || evalBadge > 0);
+
+  const playSfxRef = useRef(playSfx);
+  const notifTotalRef = useRef<number | null>(null);
   const badgeFetchInFlightRef = useRef(false);
   const badgeFetchAbortRef = useRef<AbortController | null>(null);
+
+  const showEvaluations = Boolean(isLeader || evalBadge > 0);
 
   useEffect(() => {
     playSfxRef.current = playSfx;
   }, [playSfx]);
-
-  // Calculate dynamic item size so all buttons fit without gaps/scroll on current viewport
-  const visibleCount = useMemo(() => {
-    // Home, Forums, SEPBook, Study, Profile, Rankings, Logout
-    // Optional: Evaluations (leader), Studio (studioAccess)
-    let count = 7;
-    if (showEvaluations) count += 1;
-    if (studioAccess) count += 1;
-    return count;
-  }, [showEvaluations, studioAccess]);
-
-  useEffect(() => {
-    let raf = 0;
-    const calc = () => {
-      raf = 0;
-      const el = barRef.current;
-      if (!el) return;
-      const width = el.clientWidth; // available width for items
-      // Reserve minimal side padding (8px total) and no gaps between items
-      const available = Math.max(0, width - 8);
-      // Compute size per item, clamp to sensible range
-      const raw = Math.floor(available / Math.max(1, visibleCount));
-      const clamped = Math.max(48, Math.min(84, raw));
-      setItemSize((prev) => (prev === clamped ? prev : clamped));
-    };
-    const schedule = () => {
-      if (raf) cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(calc);
-    };
-
-    schedule();
-
-    const el = barRef.current;
-    let ro: ResizeObserver | null = null;
-    if (typeof ResizeObserver !== 'undefined' && el) {
-      ro = new ResizeObserver(() => schedule());
-      try {
-        ro.observe(el);
-      } catch {
-        // ignore
-      }
-    } else {
-      window.addEventListener('resize', schedule);
-    }
-
-    return () => {
-      if (raf) cancelAnimationFrame(raf);
-      if (ro) ro.disconnect();
-      window.removeEventListener('resize', schedule);
-    };
-  }, [visibleCount]);
 
   useEffect(() => {
     const handler = () => setPasswordDialogOpen(true);
@@ -109,12 +71,15 @@ const Navigation = () => {
     return () => window.removeEventListener('open-password-dialog', handler as any);
   }, []);
 
-  // Allow pages to request a "focus mode" that collapses the bottom navigation.
+  // Allow pages to request a focus mode where nav collapses to one button.
   useEffect(() => {
     const onToggle = (ev: any) => {
       const hidden = Boolean(ev?.detail?.hidden);
       setNavHidden(hidden);
-      if (hidden) setNavExpanded(false);
+      if (hidden) {
+        setNavExpanded(false);
+        setMoreSheetOpen(false);
+      }
     };
     window.addEventListener('djt-nav-visibility', onToggle as any);
     return () => window.removeEventListener('djt-nav-visibility', onToggle as any);
@@ -124,50 +89,53 @@ const Navigation = () => {
     let active = true;
     let timer: any;
 
-	    const fetchCounts = async () => {
-        if (!active) return;
-        if (typeof navigator !== 'undefined' && 'onLine' in navigator && !navigator.onLine) return;
-        if (badgeFetchInFlightRef.current) return;
-        badgeFetchInFlightRef.current = true;
-        // Abort any previous in-flight request to avoid piling up on slow networks.
+    const fetchCounts = async () => {
+      if (!active) return;
+      if (typeof navigator !== 'undefined' && 'onLine' in navigator && !navigator.onLine) return;
+      if (badgeFetchInFlightRef.current) return;
+      badgeFetchInFlightRef.current = true;
+
+      try {
+        badgeFetchAbortRef.current?.abort();
+      } catch {
+        // ignore
+      }
+
+      const thisController = new AbortController();
+      badgeFetchAbortRef.current = thisController;
+
+      const fetchWithTimeout = async (url: string, timeoutMs: number) => {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), timeoutMs);
+        const onAbort = () => controller.abort();
+
         try {
-          badgeFetchAbortRef.current?.abort();
-        } catch {
-          // ignore
-        }
-        const thisController = new AbortController();
-        badgeFetchAbortRef.current = thisController;
-
-        const fetchWithTimeout = async (url: string, timeoutMs: number) => {
-          const controller = new AbortController();
-          const timeout = setTimeout(() => controller.abort(), timeoutMs);
-          const onAbort = () => controller.abort();
+          thisController.signal.addEventListener('abort', onAbort);
+          const resp = await apiFetch(url, { signal: controller.signal });
+          const json = await resp.json().catch(() => ({}));
+          return { resp, json };
+        } finally {
+          clearTimeout(timeout);
           try {
-            thisController.signal.addEventListener('abort', onAbort);
-            const resp = await apiFetch(url, { signal: controller.signal });
-            const json = await resp.json().catch(() => ({}));
-            return { resp, json };
-          } finally {
-            clearTimeout(timeout);
-            try {
-              thisController.signal.removeEventListener('abort', onAbort);
-            } catch {
-              // ignore
-            }
+            thisController.signal.removeEventListener('abort', onAbort);
+          } catch {
+            // ignore
           }
-        };
+        }
+      };
 
-	      try {
-          const [adminRes, sepRes] = await Promise.allSettled([
-            fetchWithTimeout('/api/admin?handler=studio-pending-counts', 9000),
-            fetchWithTimeout('/api/sepbook-summary', 9000),
-          ]);
+      try {
+        const [adminRes, sepRes] = await Promise.allSettled([
+          fetchWithTimeout('/api/admin?handler=studio-pending-counts', 9000),
+          fetchWithTimeout('/api/sepbook-summary', 9000),
+        ]);
 
-          const adminPayload =
-            adminRes.status === 'fulfilled' && adminRes.value?.resp?.ok ? adminRes.value.json : null;
-          const sepPayload =
-            sepRes.status === 'fulfilled' && sepRes.value?.resp?.ok ? sepRes.value.json : null;
-	        if (!adminPayload) throw new Error('Falha nas contagens');
+        const adminPayload =
+          adminRes.status === 'fulfilled' && adminRes.value?.resp?.ok ? adminRes.value.json : null;
+        const sepPayload =
+          sepRes.status === 'fulfilled' && sepRes.value?.resp?.ok ? sepRes.value.json : null;
+
+        if (!adminPayload) throw new Error('Falha nas contagens');
 
         const approvals = adminPayload?.approvals || 0;
         const passwordResets = adminPayload?.passwordResets || 0;
@@ -179,55 +147,62 @@ const Navigation = () => {
         const campaigns = adminPayload?.campaigns || 0;
         const challengesActive = adminPayload?.challengesActive || 0;
         const quizzesPending = adminPayload?.quizzesPending || 0;
+
         const nextHomeBadge = Math.max(0, Number(campaigns) + Number(challengesActive));
         const nextStudyBadge = Math.max(0, Number(quizzesPending));
-          let evalCount = Number(evaluations) || 0;
-          try {
-            if (user?.id) {
-              const result = await Promise.race([
-                supabase
-                  .from('evaluation_queue')
-                  .select('id', { count: 'exact', head: true })
-                  .eq('assigned_to', user.id)
-                  .is('completed_at', null),
-                new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000)),
-              ]);
-              const { count, error } = result as any;
-              if (!error) evalCount = count || 0;
-            }
-          } catch {
-            // ignore; fallback to server count
-          }
-	        const evalTotal = evalCount + leadershipAssignments;
-          const sepNew = sepPayload?.new_posts || 0;
-          const sepMentions = sepPayload?.mentions || 0;
 
-	        if (!active) return;
-		        setStudioBadge(studioAccess ? approvals + passwordResets + registrations : 0);
-		        setEvalBadge(evalTotal);
-		        setForumBadge(forumMentions);
-          setNotifBadge(notifications);
-          setHomeBadge(nextHomeBadge);
-          setStudyBadge(nextStudyBadge);
-		        setSepbookNew(sepNew);
-		        setSepbookMentions(sepMentions);
-
-          const nextTotal =
-            (studioAccess ? approvals + passwordResets + registrations : 0) +
-            evalTotal +
-            forumMentions +
-            notifications +
-            nextHomeBadge +
-            nextStudyBadge +
-            sepNew +
-            sepMentions;
-          const prevTotal = notifTotalRef.current;
-          notifTotalRef.current = nextTotal;
-          if (prevTotal != null && nextTotal > prevTotal) {
-            playSfxRef.current("notification");
+        let evalCount = Number(evaluations) || 0;
+        try {
+          if (user?.id) {
+            const result = await Promise.race([
+              supabase
+                .from('evaluation_queue')
+                .select('id', { count: 'exact', head: true })
+                .eq('assigned_to', user.id)
+                .is('completed_at', null),
+              new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000)),
+            ]);
+            const { count, error } = result as any;
+            if (!error) evalCount = count || 0;
           }
+        } catch {
+          // ignore; fallback to server count
+        }
+
+        const evalTotal = evalCount + leadershipAssignments;
+        const sepNew = sepPayload?.new_posts || 0;
+        const sepMentions = sepPayload?.mentions || 0;
+
+        if (!active) return;
+
+        setStudioBadge(studioAccess ? approvals + passwordResets + registrations : 0);
+        setEvalBadge(evalTotal);
+        setForumBadge(forumMentions);
+        setNotifBadge(notifications);
+        setHomeBadge(nextHomeBadge);
+        setStudyBadge(nextStudyBadge);
+        setSepbookNew(sepNew);
+        setSepbookMentions(sepMentions);
+
+        const nextTotal =
+          (studioAccess ? approvals + passwordResets + registrations : 0) +
+          evalTotal +
+          forumMentions +
+          notifications +
+          nextHomeBadge +
+          nextStudyBadge +
+          sepNew +
+          sepMentions;
+
+        const prevTotal = notifTotalRef.current;
+        notifTotalRef.current = nextTotal;
+
+        if (prevTotal != null && nextTotal > prevTotal) {
+          playSfxRef.current('notification');
+        }
       } catch {
         if (!active) return;
+
         let evalCount = 0;
         try {
           if (user?.id) {
@@ -245,22 +220,22 @@ const Navigation = () => {
         } catch {
           evalCount = 0;
         }
+
         setStudioBadge(0);
         setEvalBadge(evalCount);
-	        setForumBadge(0);
-	        setNotifBadge(0);
-	        setHomeBadge(0);
-          setStudyBadge(0);
-	        setSepbookNew(0);
-	        setSepbookMentions(0);
-	      }
-        finally {
-          if (badgeFetchAbortRef.current === thisController) {
-            badgeFetchAbortRef.current = null;
-          }
-          badgeFetchInFlightRef.current = false;
+        setForumBadge(0);
+        setNotifBadge(0);
+        setHomeBadge(0);
+        setStudyBadge(0);
+        setSepbookNew(0);
+        setSepbookMentions(0);
+      } finally {
+        if (badgeFetchAbortRef.current === thisController) {
+          badgeFetchAbortRef.current = null;
         }
-	    };
+        badgeFetchInFlightRef.current = false;
+      }
+    };
 
     const stopPolling = () => {
       clearInterval(timer);
@@ -270,7 +245,7 @@ const Navigation = () => {
     const startPolling = () => {
       stopPolling();
       if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
-      timer = setInterval(fetchCounts, 45000); // 45s (reduce noise on mobile)
+      timer = setInterval(fetchCounts, 45000);
     };
 
     fetchCounts();
@@ -280,11 +255,14 @@ const Navigation = () => {
       fetchCounts();
       startPolling();
     };
+
     const onOnline = () => {
       fetchCounts();
       startPolling();
     };
+
     const onOffline = () => stopPolling();
+
     const onVisibility = () => {
       if (document.visibilityState === 'visible') {
         fetchCounts();
@@ -293,10 +271,12 @@ const Navigation = () => {
         stopPolling();
       }
     };
+
     const onManualRefresh = () => {
       fetchCounts();
       startPolling();
     };
+
     window.addEventListener('focus', onFocus);
     window.addEventListener('online', onOnline);
     window.addEventListener('offline', onOffline);
@@ -319,16 +299,21 @@ const Navigation = () => {
     };
   }, [studioAccess, user?.id]);
 
-  // Ouvir eventos globais de leitura de menções para limpar badges imediatamente
+  // Clear badges immediately when dedicated events fire.
   useEffect(() => {
     const onForumSeen = () => setForumBadge(0);
-    const onSepbookLegacy = () => { setSepbookNew(0); setSepbookMentions(0); };
+    const onSepbookLegacy = () => {
+      setSepbookNew(0);
+      setSepbookMentions(0);
+    };
     const onSepbookLastSeen = () => setSepbookNew(0);
     const onSepbookMentionsSeen = () => setSepbookMentions(0);
+
     window.addEventListener('forum-mentions-seen', onForumSeen as any);
     window.addEventListener('sepbook-summary-updated', onSepbookLegacy as any);
     window.addEventListener('sepbook-last-seen-updated', onSepbookLastSeen as any);
     window.addEventListener('sepbook-mentions-seen', onSepbookMentionsSeen as any);
+
     return () => {
       window.removeEventListener('forum-mentions-seen', onForumSeen as any);
       window.removeEventListener('sepbook-summary-updated', onSepbookLegacy as any);
@@ -338,306 +323,509 @@ const Navigation = () => {
   }, []);
 
   const isActive = (path: string) => location.pathname === path;
-  const baseButtonClass =
-    "flex-col h-auto py-1 gap-1 snap-center rounded-none first:rounded-l-xl last:rounded-r-xl hover:bg-white/5";
-  const bubbleClass = (active: boolean) =>
-    cn(
-      "relative inline-flex items-center justify-center rounded-2xl border border-white/10 bg-slate-800/80 backdrop-blur-md shadow-[0_8px_20px_rgba(0,0,0,0.45)] transition-transform duration-150 hover:scale-105 active:scale-110",
-      active ? "ring-2 ring-cyan-300/60 shadow-[0_0_18px_rgba(0,255,255,0.28)] scale-105" : "ring-0"
-    );
-  const labelClass = (active: boolean) =>
-    cn(
-      "text-[11px] font-semibold leading-4 tracking-tight max-w-[92px] truncate",
-      active ? "text-slate-50" : "text-slate-200/80"
-    );
+  const isForumActive = location.pathname.startsWith('/forum');
+  const isSepbookActive = location.pathname.startsWith('/sepbook');
+  const sepbookBadgeTotal = sepbookNew + sepbookMentions;
+  const totalBadge =
+    studioBadge + evalBadge + forumBadge + notifBadge + homeBadge + studyBadge + sepbookBadgeTotal;
+  const secondaryBadgeTotal = (showEvaluations ? evalBadge : 0) + (studioAccess ? studioBadge : 0) + notifBadge;
+
   const badgeClass = (alert?: boolean) =>
     cn(
-      "absolute -top-1 -right-1 text-white text-[11px] leading-none rounded-full px-1.5 py-0.5 min-w-[20px] text-center shadow-sm",
-      alert ? "bg-destructive" : "bg-emerald-600"
+      'absolute -top-1.5 -right-1.5 text-white text-[11px] leading-none rounded-full px-1.5 py-0.5 min-w-[20px] text-center shadow-sm',
+      alert ? 'bg-destructive' : 'bg-emerald-600',
     );
 
+  const bubbleClass = (active: boolean, size: 'sm' | 'md' = 'md') =>
+    cn(
+      'relative inline-flex items-center justify-center rounded-2xl border border-white/10 bg-slate-800/85 backdrop-blur-md transition-transform duration-150',
+      size === 'md' ? 'h-10 w-10' : 'h-9 w-9',
+      active
+        ? 'ring-2 ring-cyan-300/60 shadow-[0_0_18px_rgba(0,255,255,0.24)]'
+        : 'ring-0 shadow-[0_8px_20px_rgba(0,0,0,0.35)]',
+    );
+
+  const goTo = (path: string) => {
+    setMoreSheetOpen(false);
+    navigate(path);
+  };
+
+  const handleLogout = async () => {
+    try {
+      try {
+        localStorage.clear();
+      } catch {
+        // ignore
+      }
+      await signOut();
+    } finally {
+      window.location.href = '/';
+    }
+  };
+
+  const primaryMobileItems: NavEntry[] = [
+    {
+      key: 'dashboard',
+      label: t('nav.dashboard'),
+      icon: iconHome,
+      active: isActive('/dashboard'),
+      badge: homeBadge,
+      alertBadge: true,
+      onSelect: () => goTo('/dashboard'),
+    },
+    {
+      key: 'forums',
+      label: t('nav.forums'),
+      icon: iconForum,
+      active: isForumActive,
+      badge: forumBadge,
+      alertBadge: true,
+      onSelect: () => goTo('/forums'),
+    },
+    {
+      key: 'sepbook',
+      label: t('nav.sepbook'),
+      icon: iconSEPBook,
+      active: isSepbookActive,
+      badge: sepbookBadgeTotal,
+      alertBadge: sepbookMentions > 0,
+      onSelect: () => goTo('/sepbook'),
+    },
+    {
+      key: 'study',
+      label: t('nav.study'),
+      icon: iconStudy,
+      active: isActive('/study'),
+      badge: studyBadge,
+      alertBadge: true,
+      onSelect: () => goTo('/study'),
+    },
+    {
+      key: 'more',
+      label: 'Mais',
+      icon: iconProfile,
+      active: moreSheetOpen,
+      badge: secondaryBadgeTotal,
+      alertBadge: secondaryBadgeTotal > 0,
+      onSelect: () => setMoreSheetOpen(true),
+    },
+  ];
+
+  const mobileSecondaryItems: NavEntry[] = [
+    {
+      key: 'profile',
+      label: t('nav.profile'),
+      icon: iconProfile,
+      active: isActive('/profile'),
+      badge: notifBadge,
+      alertBadge: true,
+      onSelect: () => goTo('/profile'),
+    },
+    {
+      key: 'rankings',
+      label: t('nav.rankings'),
+      icon: iconRanking,
+      active: isActive('/rankings'),
+      onSelect: () => goTo('/rankings'),
+    },
+    ...(showEvaluations
+      ? [
+          {
+            key: 'evaluations',
+            label: t('nav.evaluations'),
+            icon: iconAvaliar,
+            active: isActive('/evaluations'),
+            badge: evalBadge,
+            alertBadge: true,
+            onSelect: () => goTo('/evaluations'),
+          } as NavEntry,
+        ]
+      : []),
+    ...(studioAccess
+      ? [
+          {
+            key: 'studio',
+            label: t('nav.studio'),
+            icon: iconStudio,
+            active: isActive('/studio'),
+            badge: studioBadge,
+            alertBadge: true,
+            onSelect: () => goTo('/studio'),
+          } as NavEntry,
+        ]
+      : []),
+    {
+      key: 'password',
+      label: t('profile.changePasswordTitle'),
+      icon: iconProfile,
+      active: false,
+      onSelect: () => {
+        setMoreSheetOpen(false);
+        setPasswordDialogOpen(true);
+      },
+    },
+    {
+      key: 'logout',
+      label: t('nav.logout'),
+      icon: iconLogout,
+      active: false,
+      onSelect: () => {
+        setMoreSheetOpen(false);
+        void handleLogout();
+      },
+    },
+  ];
+
+  const desktopItems: NavEntry[] = [
+    {
+      key: 'dashboard',
+      label: t('nav.dashboard'),
+      icon: iconHome,
+      active: isActive('/dashboard'),
+      badge: homeBadge,
+      alertBadge: true,
+      onSelect: () => goTo('/dashboard'),
+    },
+    {
+      key: 'forums',
+      label: t('nav.forums'),
+      icon: iconForum,
+      active: isForumActive,
+      badge: forumBadge,
+      alertBadge: true,
+      onSelect: () => goTo('/forums'),
+    },
+    {
+      key: 'sepbook',
+      label: t('nav.sepbook'),
+      icon: iconSEPBook,
+      active: isSepbookActive,
+      badge: sepbookBadgeTotal,
+      alertBadge: sepbookMentions > 0,
+      onSelect: () => goTo('/sepbook'),
+    },
+    {
+      key: 'study',
+      label: t('nav.study'),
+      icon: iconStudy,
+      active: isActive('/study'),
+      badge: studyBadge,
+      alertBadge: true,
+      onSelect: () => goTo('/study'),
+    },
+    ...(showEvaluations
+      ? [
+          {
+            key: 'evaluations',
+            label: t('nav.evaluations'),
+            icon: iconAvaliar,
+            active: isActive('/evaluations'),
+            badge: evalBadge,
+            alertBadge: true,
+            onSelect: () => goTo('/evaluations'),
+          } as NavEntry,
+        ]
+      : []),
+    ...(studioAccess
+      ? [
+          {
+            key: 'studio',
+            label: t('nav.studio'),
+            icon: iconStudio,
+            active: isActive('/studio'),
+            badge: studioBadge,
+            alertBadge: true,
+            onSelect: () => goTo('/studio'),
+          } as NavEntry,
+        ]
+      : []),
+    {
+      key: 'profile',
+      label: t('nav.profile'),
+      icon: iconProfile,
+      active: isActive('/profile'),
+      badge: notifBadge,
+      alertBadge: true,
+      onSelect: () => goTo('/profile'),
+    },
+    {
+      key: 'rankings',
+      label: t('nav.rankings'),
+      icon: iconRanking,
+      active: isActive('/rankings'),
+      onSelect: () => goTo('/rankings'),
+    },
+  ];
+
   if (navHidden && !navExpanded) {
-    const totalBadge = studioBadge + evalBadge + forumBadge + notifBadge + homeBadge + studyBadge + sepbookNew + sepbookMentions;
     return (
-      <div
-        className="fixed bottom-0 right-0 z-30 p-3"
-        style={{ paddingBottom: 'max(env(safe-area-inset-bottom), 12px)' }}
-      >
-        <button
-          type="button"
-          onClick={() => setNavExpanded(true)}
-          className="relative inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-slate-900/80 text-white shadow-[0_10px_24px_rgba(0,0,0,0.55)] backdrop-blur-md hover:bg-slate-900"
-          aria-label="Abrir menu"
-          title="Abrir menu"
+      <>
+        <div
+          className="fixed bottom-0 right-0 z-30 p-3 lg:hidden"
+          style={{ paddingBottom: 'max(env(safe-area-inset-bottom), 12px)' }}
         >
-          <Menu className="h-6 w-6" />
-          {totalBadge > 0 && (
-            <span className={badgeClass(true)} style={{ zIndex: 5 }}>
-              {totalBadge > 99 ? '99+' : totalBadge}
-            </span>
-          )}
-        </button>
-      </div>
+          <button
+            type="button"
+            onClick={() => setNavExpanded(true)}
+            className="relative inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-slate-900/85 text-white shadow-[0_10px_24px_rgba(0,0,0,0.55)] backdrop-blur-md"
+            aria-label="Abrir menu"
+            title="Abrir menu"
+          >
+            <Menu className="h-6 w-6" />
+            {totalBadge > 0 && <span className={badgeClass(true)}>{totalBadge > 99 ? '99+' : totalBadge}</span>}
+          </button>
+        </div>
+
+        <div className="fixed left-4 top-4 z-30 hidden lg:block">
+          <button
+            type="button"
+            onClick={() => setNavExpanded(true)}
+            className="relative inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-slate-900/85 text-white shadow-[0_10px_24px_rgba(0,0,0,0.55)] backdrop-blur-md"
+            aria-label="Abrir menu"
+            title="Abrir menu"
+          >
+            <Menu className="h-6 w-6" />
+            {totalBadge > 0 && <span className={badgeClass(true)}>{totalBadge > 99 ? '99+' : totalBadge}</span>}
+          </button>
+        </div>
+      </>
     );
   }
 
   return (
-    <nav
-      className="fixed bottom-0 left-0 right-0 z-30 min-h-[96px] bg-transparent overflow-visible"
-      style={{ paddingBottom: 'max(env(safe-area-inset-bottom), 8px)' }}
-    >
-      {/* Decorative background for the bottom bar (BG Menu.png), does not block clicks */}
-      <div aria-hidden className="pointer-events-none absolute inset-0 -z-10">
-        <div className="absolute inset-0" style={{
-          backgroundImage: `url(${bgMenu})`,
-          backgroundSize: 'cover',
-          backgroundPosition: 'center',
-          backgroundRepeat: 'no-repeat',
-          filter: 'brightness(0.85) saturate(1.1)'
-        }} />
-        <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-slate-900/70 to-transparent" />
-      </div>
-      <div ref={barRef} className="relative mx-auto max-w-[1200px] px-2 md:px-4 flex items-center justify-center gap-0 py-0 overflow-x-auto overflow-y-visible min-h-[96px] touch-pan-x">
-        <div className="nav-rail relative flex items-center justify-center gap-0 bg-slate-950/80 border border-white/10 rounded-2xl px-2 py-2 shadow-2xl backdrop-blur-xl min-w-max">
-        {navHidden && (
-          <Button
-            type="button"
-            size="icon"
-            variant="ghost"
-            className="h-9 w-9 mr-1"
-            onClick={() => {
-              setNavExpanded(false);
-              setNavHidden(true);
+    <>
+      <nav
+        className="fixed bottom-0 left-0 right-0 z-30 bg-transparent lg:hidden"
+        style={{ paddingBottom: 'max(env(safe-area-inset-bottom), 8px)' }}
+        aria-label="Navegação principal"
+      >
+        <div aria-hidden className="pointer-events-none absolute inset-0 -z-10">
+          <div
+            className="absolute inset-0"
+            style={{
+              backgroundImage: `url(${bgMenu})`,
+              backgroundSize: 'cover',
+              backgroundPosition: 'center',
+              backgroundRepeat: 'no-repeat',
+              filter: 'brightness(0.82) saturate(1.08)',
             }}
-            aria-label="Fechar menu"
-            title="Fechar menu"
-          >
-            <X className="h-5 w-5" />
-          </Button>
-        )}
-        <Button
-          variant={isActive('/dashboard') ? 'default' : 'ghost'}
-          size="sm"
-          onClick={() => navigate('/dashboard')}
-          className={baseButtonClass}
-          aria-label={t("nav.dashboard")}
-          aria-current={isActive('/dashboard') ? 'page' : undefined}
-        >
-          <span style={{ width: itemSize, height: itemSize }} className={bubbleClass(isActive('/dashboard'))}>
-            <span className="absolute inset-[3px] rounded-2xl overflow-hidden">
-              <img src={iconHome} alt={t("nav.dashboard")} className="w-full h-full object-cover" />
-            </span>
-            {homeBadge > 0 && (
-              <span className={badgeClass(true)} style={{ zIndex: 5 }}>
-                {homeBadge > 99 ? '99+' : homeBadge}
-              </span>
-            )}
-          </span>
-          <span className={labelClass(isActive('/dashboard'))} title={t("nav.dashboard")}>{t("nav.dashboard")}</span>
-        </Button>
-        
-        <Button
-          variant={location.pathname.startsWith('/forum') ? 'default' : 'ghost'}
-          size="sm"
-          onClick={() => navigate('/forums')}
-          className={cn(baseButtonClass, 'relative')}
-          aria-label={t("nav.forums")}
-          aria-current={location.pathname.startsWith('/forum') ? 'page' : undefined}
-        >
-          <span style={{ width: itemSize, height: itemSize }} className={bubbleClass(location.pathname.startsWith('/forum'))}>
-            <span className="absolute inset-[3px] rounded-2xl overflow-hidden">
-              <img src={iconForum} alt={t("nav.forums")} className="w-full h-full object-cover" />
-            </span>
-            {forumBadge > 0 && (
-              <span className={badgeClass(true)} style={{ zIndex: 5 }}>
-                {forumBadge > 99 ? '99+' : forumBadge}
-              </span>
-            )}
-          </span>
-          <span className={labelClass(location.pathname.startsWith('/forum'))} title={t("nav.forums")}>{t("nav.forums")}</span>
-        </Button>
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-slate-900/70 to-transparent" />
+        </div>
 
-        <Button
-          variant={location.pathname.startsWith('/sepbook') ? 'default' : 'ghost'}
-          size="sm"
-          onClick={() => navigate('/sepbook')}
-          className={cn(baseButtonClass, 'relative')}
-          aria-label={t("nav.sepbook")}
-          aria-current={location.pathname.startsWith('/sepbook') ? 'page' : undefined}
-        >
-          <span style={{ width: itemSize, height: itemSize }} className={bubbleClass(location.pathname.startsWith('/sepbook'))}>
-            <span className="absolute inset-[3px] rounded-2xl overflow-hidden">
-              <img src={iconSEPBook} alt={t("nav.sepbook")} className="w-full h-full object-cover" />
-            </span>
-            {(sepbookNew > 0 || sepbookMentions > 0) && (
-              <span className={badgeClass(sepbookMentions > 0)} style={{ zIndex: 5 }}>
-                {(sepbookNew + sepbookMentions) > 99 ? '99+' : (sepbookNew + sepbookMentions)}
-              </span>
+        <div className="mx-auto max-w-[640px] px-2">
+          <div className="relative rounded-2xl border border-white/10 bg-slate-950/85 px-2 py-2 shadow-2xl backdrop-blur-xl">
+            {navHidden && (
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                className="absolute right-2 top-2 h-9 w-9"
+                onClick={() => {
+                  setMoreSheetOpen(false);
+                  setNavExpanded(false);
+                }}
+                aria-label="Fechar menu"
+                title="Fechar menu"
+              >
+                <X className="h-5 w-5" />
+              </Button>
             )}
-          </span>
-          <div className="flex flex-col items-center leading-tight">
-            <span className={labelClass(location.pathname.startsWith('/sepbook'))} title={t("nav.sepbook")}>{t("nav.sepbook")}</span>
-            {sepbookMentions > 0 && (
-              <span className="text-[10px] text-emerald-300 font-semibold leading-tight -mt-0.5">
-                {sepbookMentions}@
-              </span>
+
+            <div className={cn('grid grid-cols-5 gap-1', navHidden ? 'pr-10' : '')}>
+              {primaryMobileItems.map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  className={cn(
+                    'flex min-h-[64px] flex-col items-center justify-center gap-1 rounded-xl px-1 text-[11px] font-semibold leading-4 text-slate-200 transition-colors hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950',
+                    item.active && 'text-slate-50',
+                  )}
+                  onClick={item.onSelect}
+                  aria-label={item.label}
+                  aria-current={item.active ? 'page' : undefined}
+                >
+                  {item.key === 'more' ? (
+                    <span className={bubbleClass(item.active)}>
+                      <MoreHorizontal className="h-5 w-5" />
+                      {(item.badge || 0) > 0 && (
+                        <span className={badgeClass(item.alertBadge)}>
+                          {(item.badge || 0) > 99 ? '99+' : item.badge}
+                        </span>
+                      )}
+                    </span>
+                  ) : (
+                    <span className={bubbleClass(item.active)}>
+                      <span className="absolute inset-[3px] rounded-2xl overflow-hidden">
+                        <img src={item.icon} alt="" aria-hidden className="h-full w-full object-cover" />
+                      </span>
+                      {(item.badge || 0) > 0 && (
+                        <span className={badgeClass(item.alertBadge)}>
+                          {(item.badge || 0) > 99 ? '99+' : item.badge}
+                        </span>
+                      )}
+                    </span>
+                  )}
+                  <span className="max-w-[62px] truncate">{item.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </nav>
+
+      <aside
+        className="fixed left-4 top-1/2 z-30 hidden w-[88px] -translate-y-1/2 lg:block"
+        style={{ paddingTop: 'max(env(safe-area-inset-top), 0px)' }}
+        aria-label="Navegação lateral"
+      >
+        <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-slate-950/88 p-3 shadow-2xl backdrop-blur-xl">
+          <div aria-hidden className="pointer-events-none absolute inset-0 -z-10">
+            <div
+              className="absolute inset-0"
+              style={{
+                backgroundImage: `url(${bgMenu})`,
+                backgroundSize: 'cover',
+                backgroundPosition: 'center',
+                backgroundRepeat: 'no-repeat',
+                filter: 'brightness(0.75) saturate(1.08)',
+              }}
+            />
+            <div className="absolute inset-0 bg-gradient-to-br from-slate-950/70 to-slate-900/60" />
+          </div>
+
+          <div className="mb-2 flex items-center justify-center">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-300/90">Menu</p>
+            {navHidden && (
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                className="absolute right-2 top-2 h-8 w-8"
+                onClick={() => {
+                  setMoreSheetOpen(false);
+                  setNavExpanded(false);
+                }}
+                aria-label="Fechar menu"
+              >
+                <X className="h-4 w-4" />
+              </Button>
             )}
           </div>
-        </Button>
 
-        <Button
-          variant={isActive('/study') ? 'default' : 'ghost'}
-          size="sm"
-          onClick={() => navigate('/study')}
-          className={baseButtonClass}
-          aria-label={t("nav.study")}
-          aria-current={isActive('/study') ? 'page' : undefined}
-        >
-          <span
-            style={{ width: itemSize, height: itemSize }}
-            className={bubbleClass(isActive('/study'))}
-          >
-            <span className="absolute inset-[3px] rounded-2xl overflow-hidden">
-              <img src={iconStudy} alt={t("nav.study")} className="w-full h-full object-cover" />
-            </span>
-            {studyBadge > 0 && (
-              <span className={badgeClass(true)} style={{ zIndex: 5 }}>
-                {studyBadge > 99 ? '99+' : studyBadge}
-              </span>
-            )}
-          </span>
-          <span className={labelClass(isActive('/study'))} title={t("nav.study")}>{t("nav.study")}</span>
-        </Button>
-        
-	        {showEvaluations && (
-	          <Button
-	            variant={isActive('/evaluations') ? 'default' : 'ghost'}
-	            size="sm"
-	            onClick={() => navigate('/evaluations')}
-	            className={cn(baseButtonClass, 'relative')}
-            aria-label={t("nav.evaluations")}
-            aria-current={isActive('/evaluations') ? 'page' : undefined}
-          >
-            <span style={{ width: itemSize, height: itemSize }} className={bubbleClass(isActive('/evaluations'))}>
-              <span className="absolute inset-[3px] rounded-2xl overflow-hidden">
-                <img src={iconAvaliar} alt={t("nav.evaluations")} className="w-full h-full object-cover" />
-              </span>
-              {evalBadge > 0 && (
-                <span className={badgeClass(true)} style={{ zIndex: 5 }}>
-                  {evalBadge > 99 ? '99+' : evalBadge}
-                </span>
-              )}
-            </span>
-            <span className={labelClass(isActive('/evaluations'))} title={t("nav.evaluations")}>{t("nav.evaluations")}</span>
-          </Button>
-        )}
-        
-        {studioAccess && (
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant={isActive('/studio') ? 'default' : 'ghost'}
-                  size="sm"
-                  onClick={() => navigate('/studio')}
-                  className={cn(baseButtonClass, "relative")}
-                  aria-label={t("nav.studio")}
-                  aria-current={isActive('/studio') ? 'page' : undefined}
-                >
-                  <div className="relative flex items-center justify-center">
-                  <span style={{ width: itemSize, height: itemSize }} className={bubbleClass(isActive('/studio'))}>
-                    <span className="absolute inset-[3px] rounded-2xl overflow-hidden">
-                      <img src={iconStudio} alt={t("nav.studio")} className="w-full h-full object-cover" />
-                    </span>
-                    {studioBadge > 0 && (
-                      <span className={badgeClass(true)} style={{ zIndex: 5 }}>
-                        {studioBadge > 99 ? '99+' : studioBadge}
-                      </span>
-                    )}
+          <div className="space-y-1.5">
+            {desktopItems.map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                className={cn(
+                  'group flex min-h-[44px] w-full items-center justify-center rounded-xl px-2 py-2 text-slate-200 transition-colors hover:bg-white/7 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950',
+                  item.active && 'bg-white/10 text-slate-50',
+                )}
+                onClick={item.onSelect}
+                aria-label={item.label}
+                aria-current={item.active ? 'page' : undefined}
+                title={item.label}
+              >
+                <span className={bubbleClass(item.active, 'sm')}>
+                  <span className="absolute inset-[3px] rounded-2xl overflow-hidden">
+                    <img src={item.icon} alt="" aria-hidden className="h-full w-full object-cover" />
                   </span>
-                  </div>
-                  <span className={labelClass(isActive('/studio'))} title={t("nav.studio")}>{t("nav.studio")}</span>
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>{t("nav.studio")}</p>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-        )}
-        
-        <Button
-          variant={isActive('/profile') ? 'default' : 'ghost'}
-          size="sm"
-          onClick={() => navigate('/profile')}
-          className={baseButtonClass}
-          aria-label={t("nav.profile")}
-          aria-current={isActive('/profile') ? 'page' : undefined}
-        >
-          <span style={{ width: itemSize, height: itemSize }} className={bubbleClass(isActive('/profile'))}>
-            <span className="absolute inset-[3px] rounded-2xl overflow-hidden">
-              <img src={iconProfile} alt={t("nav.profile")} className="w-full h-full object-cover" />
-            </span>
-            {notifBadge > 0 && (
-              <span className={badgeClass(true)} style={{ zIndex: 5 }}>
-                {notifBadge > 99 ? '99+' : notifBadge}
+                  {(item.badge || 0) > 0 && (
+                    <span className={badgeClass(item.alertBadge)}>{(item.badge || 0) > 99 ? '99+' : item.badge}</span>
+                  )}
+                </span>
+                <span className="sr-only">{item.label}</span>
+              </button>
+            ))}
+          </div>
+
+          <div className="mt-3 border-t border-white/10 pt-3 space-y-1.5">
+            <button
+              type="button"
+              className="group flex min-h-[44px] w-full items-center justify-center rounded-xl px-2 py-2 text-slate-200 transition-colors hover:bg-white/7 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+              onClick={() => setPasswordDialogOpen(true)}
+              aria-label={t('profile.changePasswordTitle')}
+              title={t('profile.changePasswordTitle')}
+            >
+              <span className={bubbleClass(false, 'sm')}>
+                <span className="absolute inset-[3px] rounded-2xl overflow-hidden">
+                  <img src={iconProfile} alt="" aria-hidden className="h-full w-full object-cover" />
+                </span>
               </span>
-            )}
-          </span>
-          <span className={labelClass(isActive('/profile'))} title={t("nav.profile")}>{t("nav.profile")}</span>
-        </Button>
+              <span className="sr-only">{t('profile.changePasswordTitle')}</span>
+            </button>
 
-        <Button
-          variant={isActive('/rankings') ? 'default' : 'ghost'}
-          size="sm"
-          onClick={() => navigate('/rankings')}
-          className={baseButtonClass}
-          aria-label={t("nav.rankings")}
-          aria-current={isActive('/rankings') ? 'page' : undefined}
-        >
-          <span style={{ width: itemSize, height: itemSize }} className={bubbleClass(isActive('/rankings'))}>
-            <span className="absolute inset-[3px] rounded-2xl overflow-hidden">
-              <img src={iconRanking} alt={t("nav.rankings")} className="w-full h-full object-cover" />
-            </span>
-          </span>
-          <span className={labelClass(isActive('/rankings'))} title={t("nav.rankings")}>{t("nav.rankings")}</span>
-        </Button>
-
-        <Button
-          variant={'ghost'}
-          size="sm"
-	          onClick={async () => {
-	            try {
-	              // limpar possíveis caches extras
-	              try { localStorage.clear(); } catch { /* ignore */ }
-	              await signOut();
-	            } finally {
-	              window.location.href = '/';
-	            }
-	          }}
-          className={baseButtonClass}
-          aria-label={t("nav.logout")}
-        >
-          <span style={{ width: itemSize, height: itemSize }} className={bubbleClass(false)}>
-            <span className="absolute inset-[3px] rounded-2xl overflow-hidden">
-              <img src={iconLogout} alt={t("nav.logout")} className="w-full h-full object-cover" />
-            </span>
-          </span>
-          <span className={labelClass(false)} title={t("nav.logout")}>{t("nav.logout")}</span>
-        </Button>
+            <button
+              type="button"
+              className="group flex min-h-[44px] w-full items-center justify-center rounded-xl px-2 py-2 text-slate-200 transition-colors hover:bg-white/7 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+              onClick={() => {
+                void handleLogout();
+              }}
+              aria-label={t('nav.logout')}
+              title={t('nav.logout')}
+            >
+              <span className={bubbleClass(false, 'sm')}>
+                <span className="absolute inset-[3px] rounded-2xl overflow-hidden">
+                  <img src={iconLogout} alt="" aria-hidden className="h-full w-full object-cover" />
+                </span>
+              </span>
+              <span className="sr-only">{t('nav.logout')}</span>
+            </button>
+          </div>
         </div>
-      </div>
+      </aside>
+
+      <Sheet open={moreSheetOpen} onOpenChange={setMoreSheetOpen}>
+        <SheetContent
+          side="bottom"
+          className="rounded-t-2xl border-white/10 bg-slate-950/96 text-slate-100"
+          style={{ paddingBottom: 'max(env(safe-area-inset-bottom), 16px)' }}
+        >
+          <SheetHeader className="text-left">
+            <SheetTitle className="text-slate-100">Mais ações</SheetTitle>
+            <SheetDescription className="text-slate-300">
+              Navegação secundária e atalhos de conta.
+            </SheetDescription>
+          </SheetHeader>
+
+          <div className="mt-4 grid gap-2">
+            {mobileSecondaryItems.map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                className={cn(
+                  'group flex min-h-[48px] w-full items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-left text-sm text-slate-100 transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950',
+                  item.active && 'border-cyan-300/40 bg-white/10',
+                )}
+                onClick={item.onSelect}
+                aria-label={item.label}
+              >
+                <span className={bubbleClass(item.active, 'sm')}>
+                  <span className="absolute inset-[3px] rounded-2xl overflow-hidden">
+                    <img src={item.icon} alt="" aria-hidden className="h-full w-full object-cover" />
+                  </span>
+                  {(item.badge || 0) > 0 && (
+                    <span className={badgeClass(item.alertBadge)}>{(item.badge || 0) > 99 ? '99+' : item.badge}</span>
+                  )}
+                </span>
+                <span className="min-w-0 flex-1 truncate">{item.label}</span>
+              </button>
+            ))}
+          </div>
+        </SheetContent>
+      </Sheet>
 
       <Dialog open={passwordDialogOpen} onOpenChange={setPasswordDialogOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="w-[calc(100%-1.5rem)] max-w-md max-h-[85vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{t("profile.changePasswordTitle")}</DialogTitle>
+            <DialogTitle>{t('profile.changePasswordTitle')}</DialogTitle>
             <DialogDescription className="sr-only">Alterar senha</DialogDescription>
           </DialogHeader>
           <ChangePasswordCard compact />
         </DialogContent>
       </Dialog>
-    </nav>
+    </>
   );
 };
 

@@ -107,7 +107,17 @@ Notas do baseline:
 
 ### Gate 1
 
-- Status: `PENDING`
+- Escopo: shell responsivo (`src/components/Navigation.tsx`).
+- Entrega:
+  - Mobile-first com bottom nav de 5 slots (4 principais + `Mais`) e sheet para ações secundárias.
+  - Desktop com rail persistente (atalho rápido, foco por teclado e badges).
+  - Safe-area aplicada nos elementos fixos (`env(safe-area-inset-bottom/top)`).
+- Comandos:
+  - `npm run lint` ✅
+  - `npm run typecheck` ✅
+  - `npm run build` ✅
+  - `npm test` ✅
+- Status: **PASS**
 
 ### Gate 2
 
