@@ -154,3 +154,25 @@ Notas do baseline:
   - `npm run build` ✅
   - `npm test` ✅
 - Status: **PASS**
+
+## 9) PR + Deploy (Vercel)
+
+- Branch publicada:
+  - `git push -u origin chore/mobile-desktop-ux-20260206` ✅
+- Link para abrir PR:
+  - `https://github.com/engrodrigo-prog/djt-quest/pull/new/chore/mobile-desktop-ux-20260206`
+- Preview deploy:
+  - Comando: `npx vercel --yes`
+  - URL: `https://djt-quest-6tggprlax-rodrigos-projects-9be3fb9d.vercel.app`
+- Produção:
+  - Comando: `npx vercel --prod --yes`
+  - URL do deploy: `https://djt-quest-3wci68ta0-rodrigos-projects-9be3fb9d.vercel.app`
+  - Alias ativo: `https://djt-quest.vercel.app`
+
+## 10) Smoke test web (pós-deploy)
+
+- Validação HTTP básica (`curl -I`) em produção: `/`, `/auth`, `/register`, `/dashboard`, `/forums` => `HTTP/2 200`.
+- Validação HTTP básica (`curl -I`) em preview: `/`, `/auth`, `/dashboard` => `HTTP/2 200`.
+- Validação HTML base (`curl` + `grep`) em preview e produção: `<title>` + `<div id=\"root\"></div>` presentes.
+- Limitação atual:
+  - Sem sessão autenticada automatizada no ambiente CLI para validar visualmente fluxos internos por viewport (360/390/1024/1440/1920) após deploy.
