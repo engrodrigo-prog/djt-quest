@@ -142,6 +142,15 @@ const deriveTeamId = (p: Partial<PeopleRow>) => {
   return candidates[0] || null;
 };
 
+const normalizeBaseKey = (raw: unknown) => {
+  const s = String(raw || "").trim();
+  if (!s) return "";
+  const ascii = s
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+  return ascii.toUpperCase().replace(/[^A-Z0-9]+/g, "");
+};
+
 const DIV_ORDER = ['DJT', 'DJTV', 'DJTB'];
 const divisionOrderIndex = (id: unknown) => {
   const i = DIV_ORDER.indexOf(String(id || '').toUpperCase());
@@ -256,6 +265,50 @@ const buildQuizOrgTree = (people: PeopleRow[]) => {
   const rootLeaders = createMutableNode('root:LEADERS', 'root', 'Líderes');
   const rootGuests = createMutableNode('root:GUESTS', 'root', 'Convidados');
 
+  // Pre-compute which subteams exist per division based on available org signals (team/coord/sigla_area).
+  // This allows us to infer missing subteam for a person using operational_base, and to avoid listing
+  // people as "siblings" of teams when a division already has subteams.
+  const knownTeamsByDivision = new Map<string, Set<string>>();
+  for (const p of people || []) {
+    const guest = isGuestProfile(p);
+    const leader = Boolean(p?.is_leader);
+    if (guest || leader) continue;
+    const divisionId = deriveDivisionId(p) || '—';
+    const teamId = deriveTeamId(p);
+    if (!divisionId || !teamId) continue;
+    if (divisionId === '—') continue;
+    if (teamId === '—' || teamId === divisionId) continue;
+    const set = knownTeamsByDivision.get(divisionId) || new Set<string>();
+    set.add(teamId);
+    knownTeamsByDivision.set(divisionId, set);
+  }
+
+  const inferTeamFromBase = (divisionId: string, p: Partial<PeopleRow>): string | null => {
+    const known = knownTeamsByDivision.get(divisionId);
+    if (!known || known.size === 0) return null;
+    const baseKey = normalizeBaseKey(p?.operational_base);
+    if (!baseKey) return null;
+
+    const codes: string[] = [];
+    if (baseKey.length >= 3) codes.push(baseKey.slice(0, 3));
+    if (baseKey.length >= 4) codes.push(baseKey.slice(0, 4));
+    if (baseKey.length >= 5) codes.push(baseKey.slice(0, 5));
+    if (baseKey.length <= 6) codes.push(baseKey);
+
+    for (const code of codes) {
+      const candidate = `${divisionId}-${code}`;
+      if (known.has(candidate)) return candidate;
+    }
+
+    // Fallback: match on suffix (e.g. "SANTOS" -> "SAN" matches DJTB-SAN).
+    const matches = Array.from(known).filter((teamId) => {
+      const suffix = teamId.split('-').slice(1).join('-');
+      return suffix && codes.includes(suffix);
+    });
+    if (matches.length === 1) return matches[0];
+    return null;
+  };
+
   for (const p of people || []) {
     const guest = isGuestProfile(p);
     const leader = Boolean(p?.is_leader);
@@ -283,13 +336,25 @@ const buildQuizOrgTree = (people: PeopleRow[]) => {
     const divNode = ensureChild(root, `division:${divisionId}`, 'division', divisionLabel);
     addPersonStats(divNode, p);
 
-    const teamId = deriveTeamId(p) || '—';
-    const shouldSkipTeam = teamId !== '—' && divisionId !== '—' && teamId === divisionId;
+    const derivedTeamId = deriveTeamId(p);
+    const inferredTeamId =
+      divisionId !== '—' && (!derivedTeamId || derivedTeamId === divisionId)
+        ? inferTeamFromBase(divisionId, p)
+        : null;
+    const teamId = inferredTeamId || derivedTeamId || '—';
+    const hasSubteams = divisionId !== '—' && (knownTeamsByDivision.get(divisionId)?.size || 0) > 0;
+
+    // Avoid placing people at the same level as teams when a division already has subteams.
+    // If we still don't know the team, bucket them under a "Sem subárea" team node.
+    const isDivisionOnly = teamId !== '—' && divisionId !== '—' && teamId === divisionId;
+    const shouldSkipTeam = isDivisionOnly && !hasSubteams;
     const parent = shouldSkipTeam
       ? divNode
       : (() => {
-          const teamLabel = teamId === '—' ? 'Sem equipe' : teamId;
-          const teamNode = ensureChild(divNode, `team:${teamId}`, 'team', teamLabel);
+          const teamKey = isDivisionOnly && hasSubteams ? `team:${divisionId}::__unspecified` : `team:${teamId}`;
+          const teamLabel =
+            isDivisionOnly && hasSubteams ? `${divisionId} (Sem subárea)` : teamId === '—' ? 'Sem equipe' : teamId;
+          const teamNode = ensureChild(divNode, teamKey, 'team', teamLabel);
           addPersonStats(teamNode, p);
           return teamNode;
         })();
@@ -506,7 +571,7 @@ export function QuizResultsDashboard({ challengeId }: { challengeId: string }) {
                             type="button"
                             size="icon"
                             variant="ghost"
-                            className="h-7 w-7 flex-shrink-0"
+                            className="h-11 w-11 md:h-10 md:w-10 flex-shrink-0"
                             aria-label={expanded ? `Recolher ${node.label}` : `Expandir ${node.label}`}
                             onClick={() =>
                               setExpandedNodes((prev) => {
@@ -517,10 +582,10 @@ export function QuizResultsDashboard({ challengeId }: { challengeId: string }) {
                               })
                             }
                           >
-                            {expanded ? <Minus className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+                            {expanded ? <Minus className="h-5 w-5" /> : <Plus className="h-5 w-5" />}
                           </Button>
                         ) : (
-                          <div className="h-7 w-7 flex-shrink-0" />
+                          <div className="h-11 w-11 md:h-10 md:w-10 flex-shrink-0" />
                         )}
                         <div className="min-w-0 truncate">{node.label}</div>
                         {pending && (

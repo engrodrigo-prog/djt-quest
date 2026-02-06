@@ -31,7 +31,6 @@ const STUDYLAB_INLINE_IMAGE_BYTES = Math.max(
 const OPENAI_MODEL_STUDYLAB_CHAT = normalizeChatModel(process.env.OPENAI_MODEL_STUDYLAB_CHAT || "", STUDYLAB_DEFAULT_CHAT_MODEL);
 const OPENAI_MODEL_STUDYLAB_INGEST = normalizeChatModel(process.env.OPENAI_MODEL_STUDYLAB_INGEST || "", "gpt-4.1-mini");
 const OPENAI_MODEL_STUDYLAB_EMBEDDINGS = process.env.OPENAI_MODEL_STUDYLAB_EMBEDDINGS || "text-embedding-3-small";
-const supportsReasoningEffort = (model) => /^(ft:)?o\d/i.test(String(model || "").trim());
 const buildResponsesTextConfig = (model, desiredVerbosity) => {
   const m = String(model || "").trim().toLowerCase();
   if (!m.startsWith("gpt-5")) return void 0;
@@ -438,7 +437,6 @@ const fetchWebSearchSummary = async (query, opts) => {
           tool_choice: { type: tool },
           max_tool_calls: 1,
           text: buildResponsesTextConfig(model, "low"),
-          reasoning: supportsReasoningEffort(model) ? { effort: "low" } : void 0,
           max_output_tokens: 900
         })
       });
@@ -1923,7 +1921,6 @@ ${webSummary.text}`
             model,
             input: inputPayload,
             text: buildResponsesTextConfig(model, verbosity),
-            reasoning: supportsReasoningEffort(model) ? { effort: reasoningEffort } : void 0,
             max_output_tokens: modelMaxTokens
           }, openAiTimeout);
         } catch (e) {

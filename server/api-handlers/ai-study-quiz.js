@@ -4,7 +4,6 @@ import { classifyOpenAiFailure } from "../lib/openai-failures.js";
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
-const supportsReasoningEffort = (model) => /^(ft:)?o\d/i.test(String(model || "").trim());
 const buildResponsesTextConfig = (model, desiredVerbosity) => {
   const m = String(model || "").trim().toLowerCase();
   if (!m.startsWith("gpt-5")) return void 0;
@@ -276,17 +275,16 @@ async function handler(req, res) {
             method: "POST",
             headers: { "Content-Type": "application/json", Authorization: `Bearer ${OPENAI_API_KEY}` },
             signal: controller.signal,
-            body: JSON.stringify({
-              model,
-              input,
+	            body: JSON.stringify({
+	              model,
+	              input,
 	              tools: [{ type: tool }],
-		              tool_choice: { type: tool },
-		              max_tool_calls: 1,
-		              text: buildResponsesTextConfig(model, "low"),
-		              reasoning: supportsReasoningEffort(model) ? { effort: "low" } : void 0,
-		              max_output_tokens: 900
-		            })
-		          });
+	              tool_choice: { type: tool },
+	              max_tool_calls: 1,
+	              text: buildResponsesTextConfig(model, "low"),
+	              max_output_tokens: 900
+	            })
+	          });
           const json = await resp.json().catch(() => null);
           if (!resp.ok) {
             const msg = json?.error?.message || json?.message || "";

@@ -8,7 +8,6 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY as string;
 const SUPABASE_URL = process.env.SUPABASE_URL as string;
 const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY) as string;
 
-const supportsReasoningEffort = (model: unknown) => /^(ft:)?o\d/i.test(String(model || "").trim());
 const buildResponsesTextConfig = (model: unknown, desiredVerbosity: unknown) => {
   const m = String(model || "").trim().toLowerCase();
   if (!m.startsWith("gpt-5")) return undefined;
@@ -376,7 +375,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               tool_choice: { type: tool },
               max_tool_calls: 1,
               text: buildResponsesTextConfig(model, "low"),
-              reasoning: supportsReasoningEffort(model) ? { effort: "low" } : undefined,
               max_output_tokens: 900,
             }),
           });
