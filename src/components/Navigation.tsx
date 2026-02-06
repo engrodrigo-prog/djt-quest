@@ -328,9 +328,9 @@ const Navigation = () => {
       const viewportHeight = Math.max(640, Number(window.innerHeight || 0));
       // Header + paddings + separator + safe margin.
       const fixedCost = 84;
-      const rowBaseHeight = 54;
+      const rowBaseHeight = 58;
       const rawScale = (viewportHeight - fixedCost) / (totalRows * rowBaseHeight);
-      const nextScale = Math.max(0.68, Math.min(1, Number.isFinite(rawScale) ? rawScale : 1));
+      const nextScale = Math.max(0.74, Math.min(1.12, Number.isFinite(rawScale) ? rawScale : 1));
       setDesktopNavScale((prev) => (Math.abs(prev - nextScale) > 0.01 ? nextScale : prev));
     };
 
@@ -356,7 +356,7 @@ const Navigation = () => {
     cn(
       'relative inline-flex items-center justify-center rounded-2xl border border-white/10 bg-slate-800/85 backdrop-blur-md transition-transform duration-150',
       size === 'xl'
-        ? 'h-[calc(42px*var(--djt-nav-scale,1))] w-[calc(42px*var(--djt-nav-scale,1))]'
+        ? 'h-[calc(46px*var(--djt-nav-scale,1))] w-[calc(46px*var(--djt-nav-scale,1))]'
         : size === 'lg'
           ? 'h-[52px] w-[52px]'
           : size === 'md'
@@ -693,7 +693,7 @@ const Navigation = () => {
           </div>
 
           <div className="mb-0.5 flex items-center justify-between">
-            <p className="pl-1 font-semibold tracking-wide text-slate-100" style={{ fontSize: `${Math.max(10, Math.round(13 * desktopNavScale))}px` }}>
+            <p className="pl-1 font-semibold tracking-wide text-slate-100" style={{ fontSize: `${Math.max(11, Math.round(14 * desktopNavScale))}px` }}>
               Menu
             </p>
             {navHidden && (
@@ -719,7 +719,7 @@ const Navigation = () => {
                   key={item.key}
                   type="button"
                   className={cn(
-                    'group flex min-h-[calc(42px*var(--djt-nav-scale,1))] w-full items-center justify-start gap-[calc(0.35rem*var(--djt-nav-scale,1))] rounded-xl px-[calc(0.32rem*var(--djt-nav-scale,1))] py-[calc(0.15rem*var(--djt-nav-scale,1))] text-left text-slate-100 transition-colors hover:bg-white/7 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950',
+                    'group flex min-h-[calc(46px*var(--djt-nav-scale,1))] w-full items-center justify-start gap-[calc(0.42rem*var(--djt-nav-scale,1))] rounded-xl px-[calc(0.4rem*var(--djt-nav-scale,1))] py-[calc(0.2rem*var(--djt-nav-scale,1))] text-left text-slate-100 transition-colors hover:bg-white/7 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950',
                     item.active && 'bg-white/10',
                   )}
                   onClick={item.onSelect}
@@ -735,7 +735,7 @@ const Navigation = () => {
                       <span className={badgeClass(item.alertBadge)}>{(item.badge || 0) > 99 ? '99+' : item.badge}</span>
                     )}
                   </span>
-                  <span className="min-w-0 flex-1 truncate font-semibold leading-4" style={{ fontSize: `${Math.max(10, Math.round(11 * desktopNavScale))}px` }}>
+                  <span className="min-w-0 flex-1 truncate font-semibold leading-4" style={{ fontSize: `${Math.max(11, Math.round(12 * desktopNavScale))}px` }}>
                     {item.label}
                   </span>
                 </button>
