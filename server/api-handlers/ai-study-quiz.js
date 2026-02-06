@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { parseJsonFromAiContent } from "../lib/ai-curation-provider.js";
+import { classifyOpenAiFailure } from "../lib/openai-failures.js";
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
@@ -679,7 +680,8 @@ ${joinedContext}`
       }
     }
     if (!content) {
-      return res.status(400).json({ error: `OpenAI error: ${lastErr || "no output"}` });
+      const failure = classifyOpenAiFailure(lastErr || "no output");
+      return res.status(400).json({ error: failure.message, meta: { reason_code: failure.code } });
     }
     const json = parseJsonFromAiContent(content).parsed;
     if (!json || !Array.isArray(json.questions)) {

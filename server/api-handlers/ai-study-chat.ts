@@ -6,6 +6,7 @@ import { extractPdfText, extractDocxText, extractJsonText, extractPlainText } fr
 import { extractImageTextWithAi, parseJsonFromAiContent } from "../lib/ai-curation-provider.js";
 import { DJT_RULES_ARTICLE } from "../../shared/djt-rules.js";
 import { normalizeChatModel, pickChatModel } from "../lib/openai-models.js";
+import { classifyOpenAiFailure } from "../lib/openai-failures.js";
 
 const require = createRequire(import.meta.url);
 
@@ -1424,20 +1425,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           lastErrTxt = "Resposta inválida da IA (JSON não parseável).";
         }
 
-        if (!parsed || typeof parsed !== "object") {
-          const txt = lastErrTxt || "OpenAI request failed";
-          const errKind = lastErrKind || "openai";
-          if (errKind === "openai") {
+          if (!parsed || typeof parsed !== "object") {
+            const txt = lastErrTxt || "OpenAI request failed";
+            const failure = classifyOpenAiFailure(txt);
+            const errKind = lastErrKind || "openai";
+            if (errKind === "openai") {
             console.warn("Study ingest OpenAI error", txt);
             try {
               await updateStudySourceWithFallback(admin, source_id, {
                 full_text: trimmed,
                 ingest_status: "failed",
-                ingest_error: `OpenAI error: ${txt}`.slice(0, 900),
+                ingest_error: `${failure.message}${failure.raw ? ` (${failure.raw})` : ""}`.slice(0, 900),
                 ingested_at: new Date().toISOString(),
               });
             } catch {}
-            return res.status(200).json({ success: false, error: `OpenAI error: ${txt}` });
+            return res.status(200).json({ success: false, error: failure.message, meta: { reason_code: failure.code } });
           }
 
           console.warn("Study ingest invalid JSON response", { model: lastModel, err: txt });
@@ -2443,9 +2445,10 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
     }
 
     if (!content) {
+      const failure = classifyOpenAiFailure(lastErrTxt || "unknown");
       return res.status(200).json({
         success: false,
-        error: `OpenAI error: ${lastErrTxt || "unknown"}`,
+        error: failure.message,
         meta: {
           model_candidates: modelCandidates,
           used_web_summary: usedWebSummary,
@@ -2456,6 +2459,7 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
           timeout_ms: STUDYLAB_OPENAI_TIMEOUT_MS,
           max_output_tokens: usedMaxTokens,
           latency_ms: Date.now() - t0,
+          reason_code: failure.code,
         },
       });
     }

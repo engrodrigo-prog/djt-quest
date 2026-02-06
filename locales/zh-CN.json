@@ -199,6 +199,8 @@
     "errors": {
       "loginFailedTitle": "登录失败",
       "loginFailedDesc": "请检查凭证并重试",
+      "invalidCredentialsDesc": "凭证无效。如果您还没有访问权限，请使用“申请注册”。如果您忘记了密码，请使用“忘记密码”。",
+      "missingEmailDesc": "该资料未配置用于登录的电子邮件。请申请注册或联系主管更新邮箱。",
       "loginUnexpectedTitle": "登录时发生意外错误",
       "userNotFoundDetailed": "未找到用户。请检查工号、姓名或电子邮件。"
     },

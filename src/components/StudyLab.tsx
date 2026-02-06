@@ -11,6 +11,7 @@ import { apiFetch } from "@/lib/api";
 import { getActiveLocale } from "@/lib/i18n/activeLocale";
 
 import { AttachmentUploader } from "@/components/AttachmentUploader";
+import { AIStatus } from "@/components/AIStatus";
 import { ForumKbThemeMenu } from "@/components/ForumKbThemeMenu";
 import type { ForumKbSelection } from "@/components/ForumKbThemeSelector";
 import { TipDialogButton } from "@/components/TipDialogButton";
@@ -1118,6 +1119,7 @@ export const StudyLab = () => {
         <div className="space-y-1">
           <div className="flex items-center gap-2">
             <h1 className="text-2xl font-semibold tracking-tight">StudyLab</h1>
+            <AIStatus />
             <TipDialogButton tipId="studylab-oracle" ariaLabel="Entenda o StudyLab" />
           </div>
           <p className="text-sm text-muted-foreground">

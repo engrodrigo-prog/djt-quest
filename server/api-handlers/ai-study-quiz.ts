@@ -2,6 +2,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { createClient } from "@supabase/supabase-js";
 import { parseJsonFromAiContent } from "../lib/ai-curation-provider.js";
+import { classifyOpenAiFailure } from "../lib/openai-failures.js";
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY as string;
 const SUPABASE_URL = process.env.SUPABASE_URL as string;
@@ -872,7 +873,8 @@ ${joinedContext}`,
     }
 
     if (!content) {
-      return res.status(400).json({ error: `OpenAI error: ${lastErr || "no output"}` });
+      const failure = classifyOpenAiFailure(lastErr || "no output");
+      return res.status(400).json({ error: failure.message, meta: { reason_code: failure.code } });
     }
 
     const json: any = parseJsonFromAiContent(content).parsed;

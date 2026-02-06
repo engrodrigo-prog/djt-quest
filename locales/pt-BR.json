@@ -199,6 +199,8 @@
     "errors": {
       "loginFailedTitle": "Não foi possível entrar",
       "loginFailedDesc": "Verifique as credenciais e tente novamente",
+      "invalidCredentialsDesc": "Credenciais inválidas. Se você não tem acesso, use \"Solicitar Cadastro\". Se esqueceu a senha, use \"Esqueci minha senha\".",
+      "missingEmailDesc": "Este perfil não possui e-mail cadastrado para login. Solicite cadastro ou peça ao líder para atualizar seu e-mail.",
       "loginUnexpectedTitle": "Falha inesperada ao entrar",
       "userNotFoundDetailed": "Usuário não encontrado. Verifique matrícula, nome ou e-mail."
     },

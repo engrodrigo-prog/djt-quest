@@ -35,6 +35,9 @@ const DEFAULT_PASSWORD = '123456';
 const normalizeMatricula = (value?: string | null) =>
   (value ?? '').replace(/\D/g, '');
 
+const normalizeEmail = (value?: string | null) =>
+  String(value || '').trim().toLowerCase();
+
 type InviteProfile = "collaborator" | "leader" | "guest";
 
 const normalizeInviteProfile = (raw: string | null): InviteProfile | null => {
@@ -124,13 +127,30 @@ const Auth = () => {
   const attemptLogin = useCallback(async (user: UserOption) => {
     setLoading(true);
     try {
-      const { error } = await signIn(user.email, password);
+      const email = normalizeEmail(user.email);
+      if (!email || !email.includes('@')) {
+        toast.error(t("auth.errors.loginFailedTitle"), {
+          description: t("auth.errors.missingEmailDesc"),
+        });
+        return;
+      }
+
+      const { error } = await signIn(email, password);
 
       if (error) {
-        console.error("Login error:", error);
-        toast.error(t("auth.errors.loginFailedTitle"), {
-          description: error.message ?? t("auth.errors.loginFailedDesc"),
-        });
+        if (import.meta.env.DEV) {
+          console.error("Login error:", error);
+        }
+        const rawMessage = String((error as any)?.message || '');
+        if (/invalid login credentials/i.test(rawMessage)) {
+          toast.error(t("auth.errors.loginFailedTitle"), {
+            description: t("auth.errors.invalidCredentialsDesc"),
+          });
+        } else {
+          toast.error(t("auth.errors.loginFailedTitle"), {
+            description: rawMessage || t("auth.errors.loginFailedDesc"),
+          });
+        }
         return;
       }
 
@@ -156,7 +176,9 @@ const Auth = () => {
         navigate('/dashboard');
       }
     } catch (error) {
-      console.error("Login error:", error);
+      if (import.meta.env.DEV) {
+        console.error("Login error:", error);
+      }
       toast.error(t("auth.errors.loginUnexpectedTitle"), {
         description: error instanceof Error ? error.message : undefined,
       });

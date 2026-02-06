@@ -65,6 +65,7 @@ export function AIStatus({ className }: { className?: string }) {
       >
         {ok ? <Bot className="h-3.5 w-3.5" /> : <AlertTriangle className="h-3.5 w-3.5" />}
         {ok ? 'AI ON' : 'AI OFF'}
+        {!ok && health?.stage && <span className="ml-1 opacity-80">• {health.stage}</span>}
         {checking && <span className="ml-1 animate-pulse">•</span>}
       </span>
     </div>

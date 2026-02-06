@@ -199,6 +199,8 @@
     "errors": {
       "loginFailedTitle": "Unable to log in",
       "loginFailedDesc": "Check your credentials and try again",
+      "invalidCredentialsDesc": "Invalid credentials. If you don't have access yet, use \"Request Signup\". If you forgot your password, use \"Forgot password\".",
+      "missingEmailDesc": "This profile has no email configured for login. Request signup or ask your leader to update your email.",
       "loginUnexpectedTitle": "Unexpected login failure",
       "userNotFoundDetailed": "User not found. Check registration number, name, or email."
     },

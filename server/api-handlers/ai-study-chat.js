@@ -4,6 +4,7 @@ import { extractPdfText, extractDocxText, extractJsonText, extractPlainText } fr
 import { extractImageTextWithAi, parseJsonFromAiContent } from "../lib/ai-curation-provider.js";
 import { DJT_RULES_ARTICLE } from "../../shared/djt-rules.js";
 import { normalizeChatModel, pickChatModel } from "../lib/openai-models.js";
+import { classifyOpenAiFailure } from "../lib/openai-failures.js";
 const require2 = createRequire(import.meta.url);
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -1157,22 +1158,23 @@ ${metaParts.join("\n\n")}` : ""}`;
 	          lastErrKind = "parse";
 	          lastErrTxt = "Resposta inv\xE1lida da IA (JSON n\xE3o parse\xE1vel).";
 	        }
-	        if (!parsed || typeof parsed !== "object") {
-	          const txt = lastErrTxt || "OpenAI request failed";
-	          const errKind = lastErrKind || "openai";
-	          if (errKind === "openai") {
-	            console.warn("Study ingest OpenAI error", txt);
-	            try {
-	              await updateStudySourceWithFallback(admin, source_id, {
-	                full_text: trimmed,
-	                ingest_status: "failed",
-	                ingest_error: `OpenAI error: ${txt}`.slice(0, 900),
-	                ingested_at: (/* @__PURE__ */ new Date()).toISOString()
-	              });
-	            } catch {
-	            }
-	            return res.status(200).json({ success: false, error: `OpenAI error: ${txt}` });
-	          }
+		        if (!parsed || typeof parsed !== "object") {
+		          const txt = lastErrTxt || "OpenAI request failed";
+		          const failure = classifyOpenAiFailure(txt);
+		          const errKind = lastErrKind || "openai";
+		          if (errKind === "openai") {
+		            console.warn("Study ingest OpenAI error", txt);
+		            try {
+		              await updateStudySourceWithFallback(admin, source_id, {
+		                full_text: trimmed,
+		                ingest_status: "failed",
+		                ingest_error: `${failure.message}${failure.raw ? ` (${failure.raw})` : ""}`.slice(0, 900),
+		                ingested_at: (/* @__PURE__ */ new Date()).toISOString()
+		              });
+		            } catch {
+		            }
+		            return res.status(200).json({ success: false, error: failure.message, meta: { reason_code: failure.code } });
+		          }
 	          console.warn("Study ingest invalid JSON response", { model: lastModel, err: txt });
 	          try {
 	            await updateStudySourceWithFallback(admin, source_id, {
@@ -1971,24 +1973,26 @@ ${webSummary.text}`
       }
       if (content) break;
       if (aborted) break;
-    }
-    if (!content) {
-      return res.status(200).json({
-        success: false,
-        error: `OpenAI error: ${lastErrTxt || "unknown"}`,
-        meta: {
-          model_candidates: modelCandidates,
-          used_web_summary: usedWebSummary,
-          use_web: Boolean(use_web),
-          oracle_best_score: oracleBestScore,
-          aborted,
-          attempts,
-          timeout_ms: STUDYLAB_OPENAI_TIMEOUT_MS,
-          max_output_tokens: usedMaxTokens,
-          latency_ms: Date.now() - t0
-        }
-      });
-    }
+	    }
+	    if (!content) {
+	      const failure = classifyOpenAiFailure(lastErrTxt || "unknown");
+	      return res.status(200).json({
+	        success: false,
+	        error: failure.message,
+	        meta: {
+	          model_candidates: modelCandidates,
+	          used_web_summary: usedWebSummary,
+	          use_web: Boolean(use_web),
+	          oracle_best_score: oracleBestScore,
+	          aborted,
+	          attempts,
+	          timeout_ms: STUDYLAB_OPENAI_TIMEOUT_MS,
+	          max_output_tokens: usedMaxTokens,
+	          latency_ms: Date.now() - t0,
+	          reason_code: failure.code
+	        }
+	      });
+	    }
     const isUuid = (value) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || "").trim());
     let resolvedSessionId = typeof session_id === "string" && session_id.trim() && isUuid(session_id.trim()) ? session_id.trim() : null;
     if (!resolvedSessionId) {

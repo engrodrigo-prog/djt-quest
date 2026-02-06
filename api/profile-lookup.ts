@@ -68,9 +68,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { data, error } = await q.order(orderBy, { ascending: true }).limit(limit);
     if (error) return res.status(400).json({ error: error.message || "Falha ao buscar perfis" });
 
-    return res.status(200).json({ users: Array.isArray(data) ? data : [] });
+    const users = Array.isArray(data) ? data : [];
+    const sanitized = users.map((u: any) => ({
+      ...u,
+      name: typeof u?.name === "string" ? u.name.trim() : u?.name,
+      email: typeof u?.email === "string" ? u.email.trim().toLowerCase() : u?.email,
+      matricula: typeof u?.matricula === "string" ? u.matricula.trim() : u?.matricula,
+    }));
+
+    return res.status(200).json({ users: sanitized });
   } catch (e: any) {
     return res.status(500).json({ error: e?.message || "Internal error" });
   }
 }
-

@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/integrations/supabase/client';
 import { MIN_PASSWORD_LENGTH, mapPasswordUpdateError, validateNewPassword } from '@/lib/passwordPolicy';
 import { updatePassword } from '@/lib/supabaseAuth';
 
@@ -15,7 +16,7 @@ interface ChangePasswordCardProps {
 export function ChangePasswordCard({ compact = false }: ChangePasswordCardProps) {
   const [form, setForm] = useState({ password: '', confirm: '' });
   const [loading, setLoading] = useState(false);
-  const { refreshUserSession } = useAuth();
+  const { refreshUserSession, profile } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -32,6 +33,16 @@ export function ChangePasswordCard({ compact = false }: ChangePasswordCardProps)
         toast.error(mapped.title, { description: mapped.description });
         return;
       }
+
+      // If the app flagged this user as "must_change_password", clear it after success.
+      try {
+        if (profile?.id) {
+          await supabase.from('profiles').update({ must_change_password: false }).eq('id', profile.id);
+        }
+      } catch {
+        // best-effort
+      }
+
       await refreshUserSession();
       toast.success('Senha atualizada com sucesso!');
       setForm({ password: '', confirm: '' });

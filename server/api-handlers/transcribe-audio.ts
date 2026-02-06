@@ -1,5 +1,6 @@
 // @ts-nocheck
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { classifyOpenAiFailure } from '../lib/openai-failures.js';
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY as string;
 const OPENAI_MODEL_AUDIO = (process.env.OPENAI_MODEL_AUDIO as string) || 'gpt-audio-2025-08-28';
@@ -350,7 +351,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (!transcript) {
-      return res.status(400).json({ error: lastTranscribeErr?.message || 'transcription failed' });
+      const failure = classifyOpenAiFailure(lastTranscribeErr?.message || 'transcription failed');
+      const status =
+        failure.code === 'quota_exceeded' || failure.code === 'rate_limited'
+          ? 429
+          : failure.code === 'invalid_api_key' || failure.code === 'model'
+            ? 503
+            : 400;
+      return res.status(status).json({ error: failure.message, meta: { reason_code: failure.code } });
     }
 
     // Post-processing: organize or summarize
@@ -401,7 +409,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       meta: { transcribe_model: usedTranscribeModel || null },
     });
   } catch (err: any) {
-    return res.status(500).json({ error: err?.message || 'unknown error' });
+    const failure = classifyOpenAiFailure(err?.message || 'unknown error');
+    const status =
+      failure.code === 'quota_exceeded' || failure.code === 'rate_limited'
+        ? 429
+        : failure.code === 'invalid_api_key' || failure.code === 'model'
+          ? 503
+          : 500;
+    return res.status(status).json({ error: failure.message, meta: { reason_code: failure.code } });
   }
 }
 

@@ -339,7 +339,7 @@ const Navigation = () => {
   const bubbleClass = (active: boolean, size: 'sm' | 'md' | 'lg' | 'xl' = 'md') =>
     cn(
       'relative inline-flex items-center justify-center rounded-2xl border border-white/10 bg-slate-800/85 backdrop-blur-md transition-transform duration-150',
-      size === 'xl' ? 'h-16 w-16' : size === 'lg' ? 'h-[52px] w-[52px]' : size === 'md' ? 'h-10 w-10' : 'h-9 w-9',
+      size === 'xl' ? 'h-[72px] w-[72px]' : size === 'lg' ? 'h-[52px] w-[52px]' : size === 'md' ? 'h-10 w-10' : 'h-9 w-9',
       active
         ? 'ring-2 ring-cyan-300/60 shadow-[0_0_18px_rgba(0,255,255,0.24)]'
         : 'ring-0 shadow-[0_8px_20px_rgba(0,0,0,0.35)]',
@@ -713,14 +713,14 @@ const Navigation = () => {
             )}
           </div>
 
-          <div className="flex-1 overflow-y-auto pr-1 [scrollbar-gutter:stable]">
+          <div className="flex-1 overflow-y-auto overscroll-contain pr-1 [scrollbar-gutter:stable]">
             <div className="space-y-2 pb-2">
             {desktopItems.map((item) => (
               <button
                 key={item.key}
                 type="button"
                 className={cn(
-                  'group flex min-h-[66px] w-full items-center justify-start gap-3.5 rounded-xl px-3 py-2.5 text-left text-slate-100 transition-colors hover:bg-white/7 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950',
+                  'group flex min-h-[74px] w-full items-center justify-start gap-4 rounded-xl px-3 py-2.5 text-left text-slate-100 transition-colors hover:bg-white/7 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950',
                   item.active && 'bg-white/10',
                 )}
                 onClick={item.onSelect}
@@ -729,14 +729,14 @@ const Navigation = () => {
                 title={item.label}
               >
                 <span className={bubbleClass(item.active, 'xl')}>
-                  <span className="absolute inset-[1.5px] rounded-2xl overflow-hidden">
+                  <span className="absolute inset-[1px] rounded-2xl overflow-hidden">
                     <img src={item.icon} alt="" aria-hidden className="h-full w-full object-cover" />
                   </span>
                   {(item.badge || 0) > 0 && (
                     <span className={badgeClass(item.alertBadge)}>{(item.badge || 0) > 99 ? '99+' : item.badge}</span>
                   )}
                 </span>
-                <span className="min-w-0 flex-1 truncate text-[14px] font-semibold leading-5">
+                <span className="min-w-0 flex-1 truncate text-[15px] font-semibold leading-5">
                   {item.label}
                 </span>
               </button>
@@ -747,24 +747,24 @@ const Navigation = () => {
           <div className="mt-3 space-y-2 border-t border-white/10 pt-3">
             <button
               type="button"
-              className="group flex min-h-[66px] w-full items-center justify-start gap-3.5 rounded-xl px-3 py-2.5 text-left text-slate-100 transition-colors hover:bg-white/7 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+              className="group flex min-h-[74px] w-full items-center justify-start gap-4 rounded-xl px-3 py-2.5 text-left text-slate-100 transition-colors hover:bg-white/7 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
               onClick={() => setPasswordDialogOpen(true)}
               aria-label={t('profile.changePasswordTitle')}
               title={t('profile.changePasswordTitle')}
             >
               <span className={bubbleClass(false, 'xl')}>
-                <span className="absolute inset-[1.5px] rounded-2xl overflow-hidden">
+                <span className="absolute inset-[1px] rounded-2xl overflow-hidden">
                   <img src={iconProfile} alt="" aria-hidden className="h-full w-full object-cover" />
                 </span>
               </span>
-              <span className="min-w-0 flex-1 truncate text-[14px] font-semibold leading-5">
+              <span className="min-w-0 flex-1 truncate text-[15px] font-semibold leading-5">
                 {t('profile.changePasswordTitle')}
               </span>
             </button>
 
             <button
               type="button"
-              className="group flex min-h-[66px] w-full items-center justify-start gap-3.5 rounded-xl px-3 py-2.5 text-left text-slate-100 transition-colors hover:bg-white/7 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+              className="group flex min-h-[74px] w-full items-center justify-start gap-4 rounded-xl px-3 py-2.5 text-left text-slate-100 transition-colors hover:bg-white/7 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
               onClick={() => {
                 void handleLogout();
               }}
@@ -772,11 +772,11 @@ const Navigation = () => {
               title={t('nav.logout')}
             >
               <span className={bubbleClass(false, 'xl')}>
-                <span className="absolute inset-[1.5px] rounded-2xl overflow-hidden">
+                <span className="absolute inset-[1px] rounded-2xl overflow-hidden">
                   <img src={iconLogout} alt="" aria-hidden className="h-full w-full object-cover" />
                 </span>
               </span>
-              <span className="min-w-0 flex-1 truncate text-[14px] font-semibold leading-5">{t('nav.logout')}</span>
+              <span className="min-w-0 flex-1 truncate text-[15px] font-semibold leading-5">{t('nav.logout')}</span>
             </button>
           </div>
         </div>

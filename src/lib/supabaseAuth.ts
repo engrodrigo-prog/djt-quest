@@ -23,6 +23,20 @@ const safeJsonParse = (text: string) => {
   }
 };
 
+const coerceMessage = (value: unknown) => {
+  if (typeof value === 'string') return value;
+  if (value == null) return '';
+  try {
+    return JSON.stringify(value);
+  } catch {
+    try {
+      return String(value);
+    } catch {
+      return '';
+    }
+  }
+};
+
 const looksLikeTokenIssue = (status: number, message: string) => {
   const lower = message.toLowerCase();
   return status === 401 || lower.includes('jwt') || lower.includes('token') || lower.includes('expired');
@@ -35,6 +49,9 @@ const looksLikeReauthRequired = (status: number, code: string, message: string) 
     status === 403 ||
     lowerCode.includes('reauth') ||
     lower.includes('reauth') ||
+    lower.includes('recent authentication') ||
+    lower.includes('recently authenticated') ||
+    lower.includes('aal2') ||
     lower.includes('secure password change')
   );
 };
@@ -66,11 +83,12 @@ export async function updatePassword(password: string): Promise<UpdatePasswordRe
     const putPassword = async (accessToken: string) => fetch(`${supabaseUrl}/auth/v1/user`, {
       method: 'PUT',
       headers: {
+        Accept: 'application/json',
         apikey: anonKey,
         Authorization: `Bearer ${accessToken}`,
         'Content-Type': 'application/json;charset=UTF-8',
       },
-      body: JSON.stringify({ password }),
+      body: JSON.stringify({ password: String(password) }),
     });
 
     const firstToken = await getToken(false);
@@ -86,12 +104,13 @@ export async function updatePassword(password: string): Promise<UpdatePasswordRe
     let json = safeJsonParse(text);
     let status = resp.status;
     let code = typeof (json as any)?.code === 'string' ? String((json as any).code) : '';
-    let serverMessage =
-      (json as any)?.msg ||
-      (json as any)?.message ||
-      (json as any)?.error_description ||
-      (json as any)?.error ||
-      (typeof text === 'string' ? text : '');
+    let serverMessage = coerceMessage(
+      (json as any)?.msg ??
+        (json as any)?.message ??
+        (json as any)?.error_description ??
+        (json as any)?.error ??
+        (typeof text === 'string' ? text : ''),
+    ).trim();
 
     // Retry once with refreshed session when token looks stale.
     if (!resp.ok && looksLikeTokenIssue(status, serverMessage)) {
@@ -102,12 +121,13 @@ export async function updatePassword(password: string): Promise<UpdatePasswordRe
         json = safeJsonParse(text);
         status = resp.status;
         code = typeof (json as any)?.code === 'string' ? String((json as any).code) : '';
-        serverMessage =
-          (json as any)?.msg ||
-          (json as any)?.message ||
-          (json as any)?.error_description ||
-          (json as any)?.error ||
-          (typeof text === 'string' ? text : '');
+        serverMessage = coerceMessage(
+          (json as any)?.msg ??
+            (json as any)?.message ??
+            (json as any)?.error_description ??
+            (json as any)?.error ??
+            (typeof text === 'string' ? text : ''),
+        ).trim();
       }
     }
 

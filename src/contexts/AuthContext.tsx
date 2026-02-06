@@ -417,7 +417,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const signIn = async (email: string, password: string) => {
+  const signIn = async (emailRaw: string, password: string) => {
+    const email = String(emailRaw || '').trim().toLowerCase();
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     return { error };
   };
@@ -426,11 +427,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const redirectUrl = `${window.location.origin}/`;
     
     const { data, error } = await supabase.auth.signUp({
-      email,
+      email: String(email || '').trim().toLowerCase(),
       password,
       options: {
         emailRedirectTo: redirectUrl,
-        data: { name }
+        data: { name: String(name || '').trim() }
       }
     });
     return { data, error };
