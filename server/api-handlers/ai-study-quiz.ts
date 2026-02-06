@@ -7,6 +7,8 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY as string;
 const SUPABASE_URL = process.env.SUPABASE_URL as string;
 const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY) as string;
 
+const supportsReasoningEffort = (model: unknown) => /^(ft:)?o\d/i.test(String(model || "").trim());
+
 const LETTERS = ["A", "B", "C", "D"] as const;
 type Letter = (typeof LETTERS)[number];
 
@@ -366,7 +368,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               tool_choice: { type: tool },
               max_tool_calls: 1,
               text: { verbosity: "low" },
-              reasoning: { effort: "low" },
+              reasoning: supportsReasoningEffort(model) ? { effort: "low" } : undefined,
               max_output_tokens: 900,
             }),
           });

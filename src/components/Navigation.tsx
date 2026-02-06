@@ -339,7 +339,7 @@ const Navigation = () => {
   const bubbleClass = (active: boolean, size: 'sm' | 'md' | 'lg' | 'xl' = 'md') =>
     cn(
       'relative inline-flex items-center justify-center rounded-2xl border border-white/10 bg-slate-800/85 backdrop-blur-md transition-transform duration-150',
-      size === 'xl' ? 'h-14 w-14' : size === 'lg' ? 'h-12 w-12' : size === 'md' ? 'h-10 w-10' : 'h-9 w-9',
+      size === 'xl' ? 'h-16 w-16' : size === 'lg' ? 'h-[52px] w-[52px]' : size === 'md' ? 'h-10 w-10' : 'h-9 w-9',
       active
         ? 'ring-2 ring-cyan-300/60 shadow-[0_0_18px_rgba(0,255,255,0.24)]'
         : 'ring-0 shadow-[0_8px_20px_rgba(0,0,0,0.35)]',
@@ -679,7 +679,7 @@ const Navigation = () => {
         style={{ paddingTop: 'max(env(safe-area-inset-top), 0px)' }}
         aria-label="Navegação lateral"
       >
-        <div className="relative flex h-full flex-col overflow-hidden rounded-2xl border border-white/10 bg-slate-950/88 p-3.5 shadow-2xl backdrop-blur-xl">
+        <div className="relative flex h-full flex-col overflow-hidden rounded-2xl border border-white/10 bg-slate-950/88 p-4 shadow-2xl backdrop-blur-xl">
           <div aria-hidden className="pointer-events-none absolute inset-0 -z-10">
             <div
               className="absolute inset-0"
@@ -694,8 +694,8 @@ const Navigation = () => {
             <div className="absolute inset-0 bg-gradient-to-br from-slate-950/70 to-slate-900/60" />
           </div>
 
-          <div className="mb-2 flex items-center justify-between">
-            <p className="pl-1 text-sm font-semibold tracking-wide text-slate-100">Menu</p>
+          <div className="mb-3 flex items-center justify-between">
+            <p className="pl-1 text-base font-semibold tracking-wide text-slate-100">Menu</p>
             {navHidden && (
               <Button
                 type="button"
@@ -714,13 +714,13 @@ const Navigation = () => {
           </div>
 
           <div className="flex-1 overflow-y-auto pr-1 [scrollbar-gutter:stable]">
-            <div className="space-y-1.5 pb-2">
+            <div className="space-y-2 pb-2">
             {desktopItems.map((item) => (
               <button
                 key={item.key}
                 type="button"
                 className={cn(
-                  'group flex min-h-[52px] w-full items-center justify-start gap-3 rounded-xl px-2.5 py-2 text-left text-slate-100 transition-colors hover:bg-white/7 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950',
+                  'group flex min-h-[66px] w-full items-center justify-start gap-3.5 rounded-xl px-3 py-2.5 text-left text-slate-100 transition-colors hover:bg-white/7 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950',
                   item.active && 'bg-white/10',
                 )}
                 onClick={item.onSelect}
@@ -728,15 +728,15 @@ const Navigation = () => {
                 aria-current={item.active ? 'page' : undefined}
                 title={item.label}
               >
-                <span className={bubbleClass(item.active, 'lg')}>
-                  <span className="absolute inset-[2px] rounded-2xl overflow-hidden">
+                <span className={bubbleClass(item.active, 'xl')}>
+                  <span className="absolute inset-[1.5px] rounded-2xl overflow-hidden">
                     <img src={item.icon} alt="" aria-hidden className="h-full w-full object-cover" />
                   </span>
                   {(item.badge || 0) > 0 && (
                     <span className={badgeClass(item.alertBadge)}>{(item.badge || 0) > 99 ? '99+' : item.badge}</span>
                   )}
                 </span>
-                <span className="min-w-0 flex-1 truncate text-[13px] font-semibold leading-5">
+                <span className="min-w-0 flex-1 truncate text-[14px] font-semibold leading-5">
                   {item.label}
                 </span>
               </button>
@@ -747,36 +747,36 @@ const Navigation = () => {
           <div className="mt-3 space-y-2 border-t border-white/10 pt-3">
             <button
               type="button"
-              className="group flex min-h-[52px] w-full items-center justify-start gap-3 rounded-xl px-2.5 py-2 text-left text-slate-100 transition-colors hover:bg-white/7 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+              className="group flex min-h-[66px] w-full items-center justify-start gap-3.5 rounded-xl px-3 py-2.5 text-left text-slate-100 transition-colors hover:bg-white/7 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
               onClick={() => setPasswordDialogOpen(true)}
               aria-label={t('profile.changePasswordTitle')}
               title={t('profile.changePasswordTitle')}
             >
-              <span className={bubbleClass(false, 'lg')}>
-                <span className="absolute inset-[2px] rounded-2xl overflow-hidden">
+              <span className={bubbleClass(false, 'xl')}>
+                <span className="absolute inset-[1.5px] rounded-2xl overflow-hidden">
                   <img src={iconProfile} alt="" aria-hidden className="h-full w-full object-cover" />
                 </span>
               </span>
-              <span className="min-w-0 flex-1 truncate text-[13px] font-semibold leading-5">
+              <span className="min-w-0 flex-1 truncate text-[14px] font-semibold leading-5">
                 {t('profile.changePasswordTitle')}
               </span>
             </button>
 
             <button
               type="button"
-              className="group flex min-h-[52px] w-full items-center justify-start gap-3 rounded-xl px-2.5 py-2 text-left text-slate-100 transition-colors hover:bg-white/7 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+              className="group flex min-h-[66px] w-full items-center justify-start gap-3.5 rounded-xl px-3 py-2.5 text-left text-slate-100 transition-colors hover:bg-white/7 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
               onClick={() => {
                 void handleLogout();
               }}
               aria-label={t('nav.logout')}
               title={t('nav.logout')}
             >
-              <span className={bubbleClass(false, 'lg')}>
-                <span className="absolute inset-[2px] rounded-2xl overflow-hidden">
+              <span className={bubbleClass(false, 'xl')}>
+                <span className="absolute inset-[1.5px] rounded-2xl overflow-hidden">
                   <img src={iconLogout} alt="" aria-hidden className="h-full w-full object-cover" />
                 </span>
               </span>
-              <span className="min-w-0 flex-1 truncate text-[13px] font-semibold leading-5">{t('nav.logout')}</span>
+              <span className="min-w-0 flex-1 truncate text-[14px] font-semibold leading-5">{t('nav.logout')}</span>
             </button>
           </div>
         </div>

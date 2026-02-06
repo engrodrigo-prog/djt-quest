@@ -3,6 +3,7 @@ import { parseJsonFromAiContent } from "../lib/ai-curation-provider.js";
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
+const supportsReasoningEffort = (model) => /^(ft:)?o\d/i.test(String(model || "").trim());
 const LETTERS = ["A", "B", "C", "D"];
 const XP_TABLE_MILHAO = [100, 200, 300, 400, 500, 1e3, 2e3, 3e3, 5e3, 1e4];
 const BANNED_TERMS_RE = /smart\s*line|smartline|smarline/i;
@@ -271,13 +272,13 @@ async function handler(req, res) {
               model,
               input,
               tools: [{ type: tool }],
-              tool_choice: { type: tool },
-              max_tool_calls: 1,
-              text: { verbosity: "low" },
-              reasoning: { effort: "low" },
-              max_output_tokens: 900
-            })
-          });
+	              tool_choice: { type: tool },
+	              max_tool_calls: 1,
+	              text: { verbosity: "low" },
+	              reasoning: supportsReasoningEffort(model) ? { effort: "low" } : void 0,
+	              max_output_tokens: 900
+	            })
+	          });
           const json = await resp.json().catch(() => null);
           if (!resp.ok) {
             const msg = json?.error?.message || json?.message || "";

@@ -124,6 +124,24 @@ const deriveDivisionId = (p: Partial<PeopleRow>) => {
   );
 };
 
+const deriveTeamId = (p: Partial<PeopleRow>) => {
+  const divisionId = deriveDivisionId(p);
+  const candidates = [
+    normalizeOrgId(p?.team_id),
+    normalizeOrgId(p?.coord_id),
+    normalizeOrgId((p as any)?.sigla_area),
+  ].filter((v): v is string => Boolean(v));
+  if (candidates.length === 0) return null;
+
+  // Prefer the most specific org node (e.g. DJTB-SAN) when team_id is only the division (e.g. DJTB).
+  const specific = candidates.find((id) => id.includes('-') && id !== divisionId);
+  if (specific) return specific;
+
+  const nonDivision = candidates.find((id) => id !== divisionId);
+  if (nonDivision) return nonDivision;
+  return candidates[0] || null;
+};
+
 const DIV_ORDER = ['DJT', 'DJTV', 'DJTB'];
 const divisionOrderIndex = (id: unknown) => {
   const i = DIV_ORDER.indexOf(String(id || '').toUpperCase());
@@ -265,7 +283,7 @@ const buildQuizOrgTree = (people: PeopleRow[]) => {
     const divNode = ensureChild(root, `division:${divisionId}`, 'division', divisionLabel);
     addPersonStats(divNode, p);
 
-    const teamId = normalizeOrgId(p?.team_id) || '—';
+    const teamId = deriveTeamId(p) || '—';
     const shouldSkipTeam = teamId !== '—' && divisionId !== '—' && teamId === divisionId;
     const parent = shouldSkipTeam
       ? divNode

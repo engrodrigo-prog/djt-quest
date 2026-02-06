@@ -44,6 +44,8 @@ const OPENAI_MODEL_STUDYLAB_INGEST = normalizeChatModel(
 const OPENAI_MODEL_STUDYLAB_EMBEDDINGS =
   (process.env.OPENAI_MODEL_STUDYLAB_EMBEDDINGS as string) || "text-embedding-3-small";
 
+const supportsReasoningEffort = (model: unknown) => /^(ft:)?o\d/i.test(String(model || "").trim());
+
 function chooseModel(preferPremium = false) {
   const premium = process.env.OPENAI_MODEL_PREMIUM;
   const fast = process.env.OPENAI_MODEL_FAST;
@@ -556,7 +558,7 @@ const fetchWebSearchSummary = async (query: string, opts?: { timeoutMs?: number 
           tool_choice: { type: tool },
           max_tool_calls: 1,
           text: { verbosity: "low" },
-          reasoning: { effort: "low" },
+          reasoning: supportsReasoningEffort(model) ? { effort: "low" } : undefined,
           max_output_tokens: 900,
         }),
       });
@@ -2377,7 +2379,7 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
             model,
             input: inputPayload,
             text: { verbosity },
-            reasoning: { effort: reasoningEffort },
+            reasoning: supportsReasoningEffort(model) ? { effort: reasoningEffort } : undefined,
             max_output_tokens: modelMaxTokens,
           }, openAiTimeout);
         } catch (e: any) {

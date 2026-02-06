@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { normalizeChatModel } from './openai-models.js';
+const supportsReasoningEffort = (model) => /^(ft:)?o\d/i.test(String(model || '').trim());
 const stripDiacritics = (s) =>
   String(s ?? '')
     .normalize('NFD')
@@ -172,17 +173,17 @@ const fetchProofreadContent = async (params) => {
         "Content-Type": "application/json",
         Authorization: `Bearer ${openaiKey}`,
       },
-      body: JSON.stringify({
-        model,
-        input: [
-          { role: "system", content: [{ type: "input_text", text: system }] },
-          { role: "user", content: [{ type: "input_text", text: userJson }] },
-        ],
-        text: { verbosity: "low" },
-        reasoning: { effort: "low" },
-        max_output_tokens: responsesMaxOutputTokens,
-      }),
-    });
+	      body: JSON.stringify({
+	        model,
+	        input: [
+	          { role: "system", content: [{ type: "input_text", text: system }] },
+	          { role: "user", content: [{ type: "input_text", text: userJson }] },
+	        ],
+	        text: { verbosity: "low" },
+	        reasoning: supportsReasoningEffort(model) ? { effort: "low" } : void 0,
+	        max_output_tokens: responsesMaxOutputTokens,
+	      }),
+	    });
     if (!resp.ok) {
       const msg = await parseOpenAiErrorText(resp);
       throw new Error(msg ? `${model}: ${msg}` : `${model}: HTTP ${resp.status}`);

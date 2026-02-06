@@ -1547,7 +1547,11 @@ export default function SEPBookIG() {
         return { ok: false, reason: "failed" as const, error: json?.error };
       }
       if (!usedAI) {
-        return { ok: false, reason: "unavailable" as const };
+        return {
+          ok: false,
+          reason: "unavailable" as const,
+          error: json?.error || json?.meta?.reason || "IA indisponível no momento. Tente novamente mais tarde.",
+        };
       }
       const cleaned = String(json.cleaned.description || base).trim();
       return { ok: true, cleaned, changed: cleaned !== base };
@@ -2353,7 +2357,7 @@ export default function SEPBookIG() {
         } else {
           toast({
             title: "Não foi possível revisar",
-            description: "IA indisponível no momento. Tente novamente mais tarde.",
+            description: result.error || "IA indisponível no momento. Tente novamente mais tarde.",
             variant: "destructive",
           });
         }
@@ -2383,7 +2387,7 @@ export default function SEPBookIG() {
         } else {
           toast({
             title: "Não foi possível revisar",
-            description: "IA indisponível no momento. Tente novamente mais tarde.",
+            description: result.error || "IA indisponível no momento. Tente novamente mais tarde.",
             variant: "destructive",
           });
         }
@@ -2413,7 +2417,7 @@ export default function SEPBookIG() {
         } else {
           toast({
             title: "Não foi possível revisar",
-            description: "IA indisponível no momento. Tente novamente mais tarde.",
+            description: result.error || "IA indisponível no momento. Tente novamente mais tarde.",
             variant: "destructive",
           });
         }
@@ -2442,7 +2446,7 @@ export default function SEPBookIG() {
         } else {
           toast({
             title: "Não foi possível revisar",
-            description: "IA indisponível no momento. Tente novamente mais tarde.",
+            description: result.error || "IA indisponível no momento. Tente novamente mais tarde.",
             variant: "destructive",
           });
         }
