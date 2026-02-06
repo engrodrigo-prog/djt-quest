@@ -10,7 +10,7 @@ const classifyUpstreamFailure = (status, bodyText) => {
     if (status === 429) {
         return { stage: 'rate_limit', error: 'OpenAI rate limit no momento' };
     }
-    if (status === 400 && lower.includes('model')) {
+    if ((status === 400 || status === 404) && lower.includes('model')) {
         return { stage: 'model', error: 'Modelo de IA inválido ou sem permissão no projeto' };
     }
     return { stage: 'upstream', error: `OpenAI HTTP ${status}` };
@@ -22,19 +22,18 @@ export default async function handler(req, res) {
         if (!key)
             return res.status(200).json({ ok: false, stage: 'env', error: 'OPENAI_API_KEY ausente' });
         const model = String(process.env.OPENAI_MODEL_FAST || process.env.OPENAI_TEXT_MODEL || 'gpt-4o-mini').trim();
+        const usesResponsesApi = /^(ft:)?o\d/i.test(model) || /^gpt-5/i.test(model);
         const ctl = new AbortController();
         const timer = setTimeout(() => ctl.abort(), 8000);
-        const probe = await fetch('https://api.openai.com/v1/chat/completions', {
+        const probe = await fetch(usesResponsesApi ? 'https://api.openai.com/v1/responses' : 'https://api.openai.com/v1/chat/completions', {
             method: 'POST',
             headers: {
                 Authorization: `Bearer ${key}`,
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({
-                model,
-                messages: [{ role: 'user', content: 'health check' }],
-                max_tokens: 1,
-            }),
+            body: JSON.stringify(usesResponsesApi
+                ? { model, input: 'health check', max_output_tokens: 1 }
+                : { model, messages: [{ role: 'user', content: 'health check' }], max_tokens: 1 }),
             signal: ctl.signal,
         }).finally(() => clearTimeout(timer));
         if (!probe.ok) {
