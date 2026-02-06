@@ -31,6 +31,13 @@ const OPENAI_MODEL_STUDYLAB_CHAT = normalizeChatModel(process.env.OPENAI_MODEL_S
 const OPENAI_MODEL_STUDYLAB_INGEST = normalizeChatModel(process.env.OPENAI_MODEL_STUDYLAB_INGEST || "", "gpt-4.1-mini");
 const OPENAI_MODEL_STUDYLAB_EMBEDDINGS = process.env.OPENAI_MODEL_STUDYLAB_EMBEDDINGS || "text-embedding-3-small";
 const supportsReasoningEffort = (model) => /^(ft:)?o\d/i.test(String(model || "").trim());
+const buildResponsesTextConfig = (model, desiredVerbosity) => {
+  const m = String(model || "").trim().toLowerCase();
+  if (!m.startsWith("gpt-5")) return void 0;
+  const v = String(desiredVerbosity || "").trim().toLowerCase();
+  if (v === "low" || v === "medium") return { verbosity: v };
+  return { verbosity: "medium" };
+};
 function chooseModel(preferPremium = false) {
   const premium = process.env.OPENAI_MODEL_PREMIUM;
   const fast = process.env.OPENAI_MODEL_FAST;
@@ -429,7 +436,7 @@ const fetchWebSearchSummary = async (query, opts) => {
           tools: [{ type: tool }],
           tool_choice: { type: tool },
           max_tool_calls: 1,
-          text: { verbosity: "low" },
+          text: buildResponsesTextConfig(model, "low"),
           reasoning: supportsReasoningEffort(model) ? { effort: "low" } : void 0,
           max_output_tokens: 900
         })
@@ -1913,7 +1920,7 @@ ${webSummary.text}`
           resp = await callOpenAiChatCompletion({
             model,
             input: inputPayload,
-            text: { verbosity },
+            text: buildResponsesTextConfig(model, verbosity),
             reasoning: supportsReasoningEffort(model) ? { effort: reasoningEffort } : void 0,
             max_output_tokens: modelMaxTokens
           }, openAiTimeout);

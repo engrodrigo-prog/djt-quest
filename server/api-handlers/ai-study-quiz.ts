@@ -8,6 +8,13 @@ const SUPABASE_URL = process.env.SUPABASE_URL as string;
 const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY) as string;
 
 const supportsReasoningEffort = (model: unknown) => /^(ft:)?o\d/i.test(String(model || "").trim());
+const buildResponsesTextConfig = (model: unknown, desiredVerbosity: unknown) => {
+  const m = String(model || "").trim().toLowerCase();
+  if (!m.startsWith("gpt-5")) return undefined;
+  const v = String(desiredVerbosity || "").trim().toLowerCase();
+  if (v === "low" || v === "medium") return { verbosity: v };
+  return { verbosity: "medium" };
+};
 
 const LETTERS = ["A", "B", "C", "D"] as const;
 type Letter = (typeof LETTERS)[number];
@@ -367,7 +374,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               tools: [{ type: tool }],
               tool_choice: { type: tool },
               max_tool_calls: 1,
-              text: { verbosity: "low" },
+              text: buildResponsesTextConfig(model, "low"),
               reasoning: supportsReasoningEffort(model) ? { effort: "low" } : undefined,
               max_output_tokens: 900,
             }),

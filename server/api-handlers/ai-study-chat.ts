@@ -45,6 +45,14 @@ const OPENAI_MODEL_STUDYLAB_EMBEDDINGS =
   (process.env.OPENAI_MODEL_STUDYLAB_EMBEDDINGS as string) || "text-embedding-3-small";
 
 const supportsReasoningEffort = (model: unknown) => /^(ft:)?o\d/i.test(String(model || "").trim());
+const buildResponsesTextConfig = (model: unknown, desiredVerbosity: unknown) => {
+  const m = String(model || "").trim().toLowerCase();
+  // We only set text.verbosity for GPT-5. Other models have inconsistent support and can fail hard.
+  if (!m.startsWith("gpt-5")) return undefined;
+  const v = String(desiredVerbosity || "").trim().toLowerCase();
+  if (v === "low" || v === "medium") return { verbosity: v };
+  return { verbosity: "medium" };
+};
 
 function chooseModel(preferPremium = false) {
   const premium = process.env.OPENAI_MODEL_PREMIUM;
@@ -557,7 +565,7 @@ const fetchWebSearchSummary = async (query: string, opts?: { timeoutMs?: number 
           tools: [{ type: tool }],
           tool_choice: { type: tool },
           max_tool_calls: 1,
-          text: { verbosity: "low" },
+          text: buildResponsesTextConfig(model, "low"),
           reasoning: supportsReasoningEffort(model) ? { effort: "low" } : undefined,
           max_output_tokens: 900,
         }),
@@ -2378,7 +2386,7 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
           resp = await callOpenAiResponse({
             model,
             input: inputPayload,
-            text: { verbosity },
+            text: buildResponsesTextConfig(model, verbosity),
             reasoning: supportsReasoningEffort(model) ? { effort: reasoningEffort } : undefined,
             max_output_tokens: modelMaxTokens,
           }, openAiTimeout);
