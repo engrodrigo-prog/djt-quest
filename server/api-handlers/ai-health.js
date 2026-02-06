@@ -32,7 +32,16 @@ export default async function handler(req, res) {
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify(usesResponsesApi
-                ? { model, input: 'health check', max_output_tokens: 1 }
+                ? {
+                    model,
+                    input: [
+                        {
+                            role: "user",
+                            content: [{ type: "input_text", text: "health check" }],
+                        },
+                    ],
+                    max_output_tokens: 1,
+                }
                 : { model, messages: [{ role: 'user', content: 'health check' }], max_tokens: 1 }),
             signal: ctl.signal,
         }).finally(() => clearTimeout(timer));
