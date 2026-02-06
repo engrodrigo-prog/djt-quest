@@ -5,7 +5,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-all duration-200 hover:-translate-y-[1px] hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-all duration-200 hover:-translate-y-[1px] hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 active:scale-[0.99] disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
   {
     variants: {
       variant: {
@@ -21,11 +21,11 @@ const buttonVariants = cva(
         gameGhost: "relative bg-foreground/5 text-foreground border border-white/10 hover:border-primary/60 hover:bg-foreground/10 transition-all duration-300",
       },
       size: {
-        // Slightly more breathing room for text buttons (UX)
-        default: "h-10 px-5 py-2",
-        sm: "h-9 rounded-md px-4",
-        lg: "h-11 rounded-md px-8",
-        icon: "h-10 w-10",
+        // Mobile-first hit targets >=44px, then denser on desktop.
+        default: "h-11 px-5 py-2 md:h-10",
+        sm: "h-10 rounded-md px-4 md:h-9",
+        lg: "h-12 rounded-md px-8 md:h-11",
+        icon: "h-11 w-11 md:h-10 md:w-10",
       },
     },
     defaultVariants: {

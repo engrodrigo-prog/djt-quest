@@ -121,7 +121,18 @@ Notas do baseline:
 
 ### Gate 2
 
-- Status: `PENDING`
+- Escopo: componentes base reutilizáveis (`button`, `input`, `textarea`, `select`, `dialog`, `drawer`, `card`, `table`).
+- Entrega:
+  - Alvos de toque mobile >=44px para controles principais.
+  - Ajuste de densidade desktop (`md`) sem inflar espaçamento.
+  - Dialog com `max-h` e scroll interno; drawer com `max-h` e safe-area bottom.
+  - Tabela com container responsivo e melhor legibilidade de células/cabeçalho.
+- Comandos:
+  - `npm run lint` ✅
+  - `npm run typecheck` ✅
+  - `npm run build` ✅
+  - `npm test` ✅
+- Status: **PASS**
 
 ### Gate 3..n
 
