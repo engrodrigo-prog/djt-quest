@@ -155,6 +155,20 @@ Notas do baseline:
   - `npm test` ✅
 - Status: **PASS**
 
+### Gate 4
+
+- Escopo: estabilidade de IA (health/proofread/StudyLab) + legibilidade do drilldown de resultados.
+- Entrega:
+  - Health check da OpenAI com payload mais compatível + fallback para modelo compat (`OPENAI_MODEL_COMPAT`).
+  - Remoção de `reasoning.effort` para evitar `Unsupported parameter` em modelos que não suportam.
+  - Drilldown do quiz: botões expandir/recolher com alvo >= 44px + inferência de subárea por `operational_base` quando aplicável.
+- Comandos:
+  - `npm run lint` ✅
+  - `npm run typecheck` ✅
+  - `npm run build` ✅
+  - `npm test` ✅
+- Status: **PASS**
+
 ## 9) PR + Deploy (Vercel)
 
 - Branch publicada:
@@ -166,7 +180,7 @@ Notas do baseline:
   - URL: `https://djt-quest-6tggprlax-rodrigos-projects-9be3fb9d.vercel.app`
 - Produção:
   - Comando: `npx vercel --prod --yes`
-  - URL do deploy: `https://djt-quest-3wci68ta0-rodrigos-projects-9be3fb9d.vercel.app`
+  - URL do deploy: `https://djt-quest-dwxof1wq8-rodrigos-projects-9be3fb9d.vercel.app`
   - Alias ativo: `https://djt-quest.vercel.app`
 
 ## 10) Smoke test web (pós-deploy)
@@ -174,5 +188,8 @@ Notas do baseline:
 - Validação HTTP básica (`curl -I`) em produção: `/`, `/auth`, `/register`, `/dashboard`, `/forums` => `HTTP/2 200`.
 - Validação HTTP básica (`curl -I`) em preview: `/`, `/auth`, `/dashboard` => `HTTP/2 200`.
 - Validação HTML base (`curl` + `grep`) em preview e produção: `<title>` + `<div id=\"root\"></div>` presentes.
+- Validação IA (produção):
+  - `curl https://djt-quest.vercel.app/api/ai?handler=health` => `ok: true`
+  - `curl https://djt-quest.vercel.app/api/ai?handler=cleanup-text` => `meta.usedAI: true`
 - Limitação atual:
   - Sem sessão autenticada automatizada no ambiente CLI para validar visualmente fluxos internos por viewport (360/390/1024/1440/1920) após deploy.
