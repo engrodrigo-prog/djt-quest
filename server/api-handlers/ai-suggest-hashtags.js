@@ -1,6 +1,7 @@
 import OpenAI from "openai";
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
-const client = OPENAI_API_KEY ? new OpenAI({ apiKey: OPENAI_API_KEY }) : null;
+import { loadLocalEnvIfNeeded } from "../lib/load-local-env.js";
+import { normalizeChatModel } from "../lib/openai-models.js";
+loadLocalEnvIfNeeded();
 const systemPrompt = `
 Voc\xEA \xE9 um assistente de hashtag PT-BR. Gere 5 hashtags curtas (sem espa\xE7os) baseadas no texto fornecido.
 Regras:
@@ -76,10 +77,12 @@ async function handler(req, res) {
     return res.status(400).json({ error: "text is required" });
   }
   try {
+    const key = String(process.env.OPENAI_API_KEY || "").trim();
+    const client = key ? new OpenAI({ apiKey: key }) : null;
     if (!client) {
       return res.status(200).json({ hashtags: buildFallbackHashtags(text), meta: { warning: "OPENAI_API_KEY ausente" } });
     }
-    const model = process.env.OPENAI_PREMIUM_MODEL || "gpt-5-2025-08-07";
+    const model = normalizeChatModel(process.env.OPENAI_MODEL_PREMIUM || process.env.OPENAI_PREMIUM_MODEL || process.env.OPENAI_MODEL_FAST || process.env.OPENAI_TEXT_MODEL || "gpt-4.1-mini", "gpt-4.1-mini");
     const payload = {
       model,
       messages: [
@@ -106,7 +109,9 @@ async function handler(req, res) {
     return res.status(200).json({ hashtags });
   } catch (e) {
     console.error("ai-suggest-hashtags error", e);
-    return res.status(200).json({ hashtags: buildFallbackHashtags(text), meta: { warning: e?.message || "Falha ao sugerir hashtags" } });
+    const message = String(e?.message || "Falha ao sugerir hashtags");
+    const warning = /(invalid[_\s-]?api[_\s-]?key|incorrect\s+api\s+key)/i.test(message) ? "OPENAI_API_KEY inválida ou revogada" : message;
+    return res.status(200).json({ hashtags: buildFallbackHashtags(text), meta: { warning } });
   }
 }
 export {

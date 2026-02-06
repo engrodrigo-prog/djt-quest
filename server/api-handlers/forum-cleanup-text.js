@@ -47,22 +47,26 @@ export default async function handler(req, res) {
             });
         }
         const runner = mode === 'feedback' || mode === 'polish' ? polishPtBrStrings : proofreadPtBrStrings;
-        const { output, usedModel } = await runner({
+        const result = await runner({
             openaiKey: OPENAI_API_KEY,
             model: OPENAI_TEXT_MODEL,
             strings: [safeTitle, safeDescription],
         });
+        const { output, usedModel, error, attemptedModels } = result || {};
         const [nextTitle, nextDescription] = Array.isArray(output) ? output : [safeTitle, safeDescription];
+        const usedAI = Boolean(usedModel);
         return res.status(200).json({
             cleaned: {
                 title: String(nextTitle || safeTitle).trim(),
                 description: String(nextDescription || safeDescription).trim(),
             },
             meta: {
-                usedAI: Boolean(usedModel),
-                model: usedModel || OPENAI_TEXT_MODEL,
+                usedAI,
+                model: usedModel || null,
                 language,
                 mode,
+                reason: usedAI ? null : (error || 'no_model_succeeded'),
+                attempted_models: usedAI ? [] : (Array.isArray(attemptedModels) ? attemptedModels.slice(0, 8) : []),
             },
         });
     }

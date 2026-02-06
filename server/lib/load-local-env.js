@@ -20,6 +20,9 @@ const parseEnvLine = (line) => {
 
 const candidates = [
   ".env",
+  ".env.local",
+  ".env.development.local",
+  ".env.preview.local",
   ".vercel.env.local",
   path.join(".vercel", ".env.development.local"),
   path.join(".vercel", ".env.local"),
@@ -50,4 +53,3 @@ export function loadLocalEnvIfNeeded() {
     // best-effort only
   }
 }
-

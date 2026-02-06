@@ -122,18 +122,156 @@ const collectOutputText = (payload) => {
   return chunks.join("\n").trim();
 };
 
+const parseOpenAiErrorText = async (resp) => {
+  try {
+    const text = await resp.text();
+    const parsed = extractJson(text);
+    const msg = parsed?.error?.message || parsed?.message;
+    if (msg) return String(msg);
+    return String(text || "").trim().slice(0, 240);
+  } catch {
+    return "";
+  }
+};
+
+const normalizeModelCandidate = (raw) => {
+  const normalized = normalizeChatModel(raw, "");
+  return String(normalized || "").trim();
+};
+
+const buildModelFallbacks = (preferredRaw) => {
+  const seen = new Set();
+  const out = [];
+  const candidates = [
+    preferredRaw,
+    process.env.OPENAI_MODEL_FAST,
+    process.env.OPENAI_TEXT_MODEL,
+    process.env.OPENAI_MODEL_PREMIUM,
+    process.env.OPENAI_MODEL_OVERRIDE,
+    "gpt-4.1-mini",
+    "gpt-4o-mini",
+    "gpt-5-nano-2025-08-07",
+    "gpt-5-2025-08-07",
+  ];
+  for (const c of candidates) {
+    const model = normalizeModelCandidate(c);
+    if (!model || seen.has(model)) continue;
+    seen.add(model);
+    out.push(model);
+  }
+  return out;
+};
+
+const fetchProofreadContent = async (params) => {
+  const { openaiKey, model, system, userJson, responsesMaxOutputTokens, chatMaxTokens } = params;
+  const useResponses = /^gpt-5/i.test(String(model));
+  if (useResponses) {
+    const resp = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${openaiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        input: [
+          { role: "system", content: [{ type: "input_text", text: system }] },
+          { role: "user", content: [{ type: "input_text", text: userJson }] },
+        ],
+        text: { verbosity: "low" },
+        reasoning: { effort: "low" },
+        max_output_tokens: responsesMaxOutputTokens,
+      }),
+    });
+    if (!resp.ok) {
+      const msg = await parseOpenAiErrorText(resp);
+      throw new Error(msg ? `${model}: ${msg}` : `${model}: HTTP ${resp.status}`);
+    }
+    const json = await resp.json().catch(() => null);
+    return collectOutputText(json) || "";
+  }
+
+  const body = {
+    model,
+    messages: [
+      { role: "system", content: system },
+      { role: "user", content: userJson },
+    ],
+  };
+  if (/^gpt-5/i.test(String(model))) body.max_completion_tokens = chatMaxTokens;
+  else body.max_tokens = chatMaxTokens;
+  const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${openaiKey}`,
+    },
+    body: JSON.stringify(body),
+  });
+  if (!resp.ok) {
+    const msg = await parseOpenAiErrorText(resp);
+    throw new Error(msg ? `${model}: ${msg}` : `${model}: HTTP ${resp.status}`);
+  }
+  const json = await resp.json().catch(() => null);
+  return String(json?.choices?.[0]?.message?.content || "");
+};
+
+const runCorrectionWithFallbacks = async (params) => {
+  const {
+    openaiKey,
+    inputStrings,
+    preferredModel,
+    systemPrompt,
+    responsesMaxOutputTokens,
+    chatMaxTokens,
+    validator,
+  } = params;
+
+  const userJson = JSON.stringify({ strings: inputStrings });
+  const models = buildModelFallbacks(preferredModel);
+  let lastError = "";
+
+  for (const model of models) {
+    try {
+      const content = await fetchProofreadContent({
+        openaiKey,
+        model,
+        system: systemPrompt,
+        userJson,
+        responsesMaxOutputTokens,
+        chatMaxTokens,
+      });
+      const parsed = extractJson(content || "");
+      const out = Array.isArray(parsed?.strings) ? parsed.strings.map((s) => String(s ?? "")) : null;
+      if (!out || out.length !== inputStrings.length) {
+        lastError = `${model}: resposta sem JSON válido`;
+        continue;
+      }
+      const safe = inputStrings.map((orig, idx) => {
+        const candidate = out[idx] ?? orig;
+        return validator(orig, candidate) ? candidate : orig;
+      });
+      return { output: safe, usedModel: model, attemptedModels: models };
+    } catch (e) {
+      lastError = e?.message || "falha desconhecida";
+    }
+  }
+
+  return { output: inputStrings, error: lastError || "nenhum modelo respondeu com sucesso", attemptedModels: models };
+};
+
 export async function proofreadPtBrStrings(params) {
   const openaiKey = params?.openaiKey || process.env.OPENAI_API_KEY || '';
   const inputStrings = (params?.strings || []).map((s) => String(s ?? ''));
-  if (!openaiKey) return { output: inputStrings };
+  if (!openaiKey) return { output: inputStrings, error: "OPENAI_API_KEY ausente" };
   if (!inputStrings.length) return { output: inputStrings };
 
   const totalChars = inputStrings.reduce((sum, s) => sum + s.length, 0);
   if (totalChars > 24_000 || inputStrings.length > 80) {
-    return { output: inputStrings };
+    return { output: inputStrings, error: "texto muito grande para revisão" };
   }
 
-  const model = normalizeChatModel(
+  const preferredModel = normalizeChatModel(
     params?.model ||
       process.env.OPENAI_MODEL_FAST ||
       process.env.OPENAI_TEXT_MODEL ||
@@ -142,7 +280,7 @@ export async function proofreadPtBrStrings(params) {
     'gpt-5-2025-08-07',
   );
 
-  const system = `Você é um revisor ortográfico em PT-BR.
+  const systemPrompt = `Você é um revisor ortográfico em PT-BR.
 Sua tarefa: corrigir APENAS ortografia, acentuação, concordância nominal/verbal mínima e pontuação básica.
 Regras rígidas:
 - NÃO reescreva frases, NÃO mude o sentido, NÃO simplifique, NÃO resuma.
@@ -150,81 +288,29 @@ Regras rígidas:
 - Se houver dúvida, devolva o texto exatamente como entrou.
 Retorne APENAS JSON válido: {"strings": ["...","..."]} mantendo o mesmo número de itens.`;
 
-  const user = {
-    role: 'user',
-    content: JSON.stringify({ strings: inputStrings }),
-  };
-
-  const useResponses = /^gpt-5/i.test(String(model));
-  let content = "";
-
-  if (useResponses) {
-    const resp = await fetch("https://api.openai.com/v1/responses", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${openaiKey}`
-      },
-      body: JSON.stringify({
-        model,
-        input: [
-          { role: "system", content: [{ type: "input_text", text: system }] },
-          { role: "user", content: [{ type: "input_text", text: user.content }] }
-        ],
-        text: { verbosity: "low" },
-        reasoning: { effort: "low" },
-        max_output_tokens: 1200
-      })
-    });
-    if (!resp.ok) return { output: inputStrings };
-    const json = await resp.json().catch(() => null);
-    content = collectOutputText(json) || "";
-  } else {
-    const body = {
-      model,
-      messages: [
-        { role: "system", content: system },
-        user
-      ]
-    };
-    if (/^gpt-5/i.test(String(model))) body.max_completion_tokens = 1800;
-    else body.max_tokens = 1800;
-    const resp = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${openaiKey}`
-      },
-      body: JSON.stringify(body)
-    });
-    if (!resp.ok) return { output: inputStrings };
-    const json = await resp.json().catch(() => null);
-    content = json?.choices?.[0]?.message?.content || "";
-  }
-  const parsed = extractJson(content || '');
-  const out = Array.isArray(parsed?.strings) ? parsed.strings.map((s) => String(s ?? '')) : null;
-  if (!out || out.length !== inputStrings.length) return { output: inputStrings, usedModel: model };
-
-  const safe = inputStrings.map((orig, idx) => {
-    const candidate = out[idx] ?? orig;
-    return isSafeOrthographicCorrection(orig, candidate) ? candidate : orig;
+  return runCorrectionWithFallbacks({
+    openaiKey,
+    inputStrings,
+    preferredModel,
+    systemPrompt,
+    responsesMaxOutputTokens: 1200,
+    chatMaxTokens: 1800,
+    validator: isSafeOrthographicCorrection,
   });
-
-  return { output: safe, usedModel: model };
 }
 
 export async function polishPtBrStrings(params) {
   const openaiKey = params?.openaiKey || process.env.OPENAI_API_KEY || '';
   const inputStrings = (params?.strings || []).map((s) => String(s ?? ''));
-  if (!openaiKey) return { output: inputStrings };
+  if (!openaiKey) return { output: inputStrings, error: "OPENAI_API_KEY ausente" };
   if (!inputStrings.length) return { output: inputStrings };
 
   const totalChars = inputStrings.reduce((sum, s) => sum + s.length, 0);
   if (totalChars > 18_000 || inputStrings.length > 40) {
-    return { output: inputStrings };
+    return { output: inputStrings, error: "texto muito grande para revisão" };
   }
 
-  const model = normalizeChatModel(
+  const preferredModel = normalizeChatModel(
     params?.model ||
       process.env.OPENAI_MODEL_FAST ||
       process.env.OPENAI_TEXT_MODEL ||
@@ -243,66 +329,13 @@ Regras rígidas:
 - Se houver dúvida, devolva o texto exatamente como entrou.
 Retorne APENAS JSON válido: {"strings": ["...","..."]} mantendo o mesmo número de itens.`;
 
-  const user = {
-    role: 'user',
-    content: JSON.stringify({ strings: inputStrings }),
-  };
-
-  const useResponses = /^gpt-5/i.test(String(model));
-  let content = "";
-
-  if (useResponses) {
-    const resp = await fetch("https://api.openai.com/v1/responses", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${openaiKey}`
-      },
-      body: JSON.stringify({
-        model,
-        input: [
-          { role: "system", content: [{ type: "input_text", text: system }] },
-          { role: "user", content: [{ type: "input_text", text: user.content }] }
-        ],
-        text: { verbosity: "low" },
-        reasoning: { effort: "low" },
-        max_output_tokens: 1400
-      })
-    });
-    if (!resp.ok) return { output: inputStrings };
-    const json = await resp.json().catch(() => null);
-    content = collectOutputText(json) || "";
-  } else {
-    const body = {
-      model,
-      messages: [
-        { role: "system", content: system },
-        user
-      ]
-    };
-    if (/^gpt-5/i.test(String(model))) body.max_completion_tokens = 2000;
-    else body.max_tokens = 2000;
-    const resp = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${openaiKey}`
-      },
-      body: JSON.stringify(body)
-    });
-    if (!resp.ok) return { output: inputStrings };
-    const json = await resp.json().catch(() => null);
-    content = json?.choices?.[0]?.message?.content || "";
-  }
-
-  const parsed = extractJson(content || '');
-  const out = Array.isArray(parsed?.strings) ? parsed.strings.map((s) => String(s ?? '')) : null;
-  if (!out || out.length !== inputStrings.length) return { output: inputStrings, usedModel: model };
-
-  const safe = inputStrings.map((orig, idx) => {
-    const candidate = out[idx] ?? orig;
-    return isSafePolish(orig, candidate) ? candidate : orig;
+  return runCorrectionWithFallbacks({
+    openaiKey,
+    inputStrings,
+    preferredModel,
+    systemPrompt: system,
+    responsesMaxOutputTokens: 1400,
+    chatMaxTokens: 2000,
+    validator: isSafePolish,
   });
-
-  return { output: safe, usedModel: model };
 }

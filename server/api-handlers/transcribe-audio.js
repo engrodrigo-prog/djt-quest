@@ -32,6 +32,108 @@ async function fetchBytesFromUrl(url) {
     const ab = await resp.arrayBuffer();
     return { bytes: new Uint8Array(ab), mime };
 }
+const AUDIO_MIME_BY_EXT = {
+    mp3: 'audio/mpeg',
+    mpeg: 'audio/mpeg',
+    m4a: 'audio/mp4',
+    mp4: 'audio/mp4',
+    aac: 'audio/aac',
+    wav: 'audio/wav',
+    wave: 'audio/wav',
+    ogg: 'audio/ogg',
+    oga: 'audio/ogg',
+    webm: 'audio/webm',
+};
+function toAudioMime(input) {
+    const value = String(input || '').split(';')[0].trim().toLowerCase();
+    if (!value)
+        return null;
+    if (value in AUDIO_MIME_BY_EXT)
+        return AUDIO_MIME_BY_EXT[value];
+    if (value.startsWith('audio/')) {
+        if (value === 'audio/x-m4a')
+            return 'audio/mp4';
+        if (value === 'audio/x-wav')
+            return 'audio/wav';
+        return value;
+    }
+    if (value === 'video/webm')
+        return 'audio/webm';
+    return null;
+}
+function cleanUrlPath(input) {
+    const raw = String(input || '').trim();
+    if (!raw)
+        return '';
+    try {
+        const url = new URL(raw);
+        return `${url.pathname || ''}`.toLowerCase();
+    }
+    catch {
+        return raw.split('?')[0].split('#')[0].toLowerCase();
+    }
+}
+function audioMimeFromUrl(input) {
+    const path = cleanUrlPath(input);
+    const m = path.match(/\.([a-z0-9]{2,8})$/i);
+    if (!m)
+        return null;
+    const ext = String(m[1] || '').toLowerCase();
+    return AUDIO_MIME_BY_EXT[ext] || null;
+}
+function sniffAudioMime(bytes) {
+    if (!bytes || bytes.length < 12)
+        return null;
+    if (bytes[0] === 82 && bytes[1] === 73 && bytes[2] === 70 && bytes[3] === 70)
+        return 'audio/wav';
+    if (bytes[0] === 79 && bytes[1] === 103 && bytes[2] === 103 && bytes[3] === 83)
+        return 'audio/ogg';
+    if (bytes[0] === 26 && bytes[1] === 69 && bytes[2] === 223 && bytes[3] === 163)
+        return 'audio/webm';
+    if (bytes[0] === 73 && bytes[1] === 68 && bytes[2] === 51)
+        return 'audio/mpeg';
+    if (bytes[0] === 255 && (bytes[1] & 224) === 224)
+        return 'audio/mpeg';
+    const tag = String.fromCharCode(bytes[4] || 0, bytes[5] || 0, bytes[6] || 0, bytes[7] || 0);
+    if (tag === 'ftyp')
+        return 'audio/mp4';
+    return null;
+}
+function pickAudioMime(params) {
+    const fromHint = toAudioMime(params.hintMime);
+    if (fromHint)
+        return fromHint;
+    const fromUrl = params.fileUrl ? audioMimeFromUrl(String(params.fileUrl)) : null;
+    if (fromUrl)
+        return fromUrl;
+    const fromBytes = params.bytes ? sniffAudioMime(params.bytes) : null;
+    if (fromBytes)
+        return fromBytes;
+    return 'audio/mpeg';
+}
+function normalizeTranscribeLanguage(raw) {
+    const src = String(raw || '').trim().toLowerCase();
+    if (!src)
+        return undefined;
+    const base = src.replace(/_/g, '-').split('-')[0];
+    const aliases = {
+        'pt-br': 'pt',
+        pt: 'pt',
+        'en-us': 'en',
+        'en-gb': 'en',
+        en: 'en',
+        'zh-cn': 'zh',
+        'zh-tw': 'zh',
+        zh: 'zh',
+    };
+    if (aliases[src])
+        return aliases[src];
+    if (aliases[base])
+        return aliases[base];
+    if (/^[a-z]{2}$/.test(base))
+        return base;
+    return undefined;
+}
 function parseDataUrl(input) {
     let mime = 'audio/mpeg';
     if (!input || typeof input !== 'string') {
@@ -163,6 +265,24 @@ async function transcribeWithTranscriptionsEndpoint(params) {
     const tj = await tr.json().catch(() => null);
     return String(tj?.text || '').trim();
 }
+async function transcribeWithTranscriptionsFallback(params) {
+    let firstErr = null;
+    try {
+        return await transcribeWithTranscriptionsEndpoint(params);
+    }
+    catch (e) {
+        firstErr = e;
+    }
+    if (params.language) {
+        try {
+            return await transcribeWithTranscriptionsEndpoint({ ...params, language: undefined });
+        }
+        catch (e2) {
+            throw e2 || firstErr;
+        }
+    }
+    throw firstErr;
+}
 export default async function handler(req, res) {
     if (req.method === 'OPTIONS')
         return res.status(204).send('');
@@ -171,7 +291,7 @@ export default async function handler(req, res) {
     try {
         if (!OPENAI_API_KEY)
             return res.status(500).json({ error: 'Missing OPENAI_API_KEY' });
-        const { audioBase64, fileUrl, summarize, organize, mode, language } = req.body || {};
+        const { audioBase64, fileUrl, audioMime, summarize, organize, mode, language } = req.body || {};
         // Back-compat and default behavior: organize text unless explicitly summarizing
         const wantedMode = (typeof mode === 'string' && (mode === 'organize' || mode === 'summarize'))
             ? mode
@@ -183,34 +303,17 @@ export default async function handler(req, res) {
         if (fileUrl) {
             const fetched = await fetchBytesFromUrl(fileUrl);
             bytes = fetched.bytes;
-            const headerMime = String(fetched.mime || '').split(';')[0].trim();
-            if (headerMime && headerMime.includes('/')) {
-                mime = headerMime;
-            }
-            else {
-                const urlLower = String(fileUrl).toLowerCase();
-                if (urlLower.endsWith('.wav'))
-                    mime = 'audio/wav';
-                else if (urlLower.endsWith('.ogg') || urlLower.endsWith('.oga'))
-                    mime = 'audio/ogg';
-                else if (urlLower.endsWith('.webm'))
-                    mime = 'audio/webm';
-                else if (urlLower.endsWith('.m4a') || urlLower.endsWith('.mp4'))
-                    mime = 'audio/mp4';
-                else if (urlLower.endsWith('.mp3'))
-                    mime = 'audio/mpeg';
-                else if (urlLower.endsWith('.aac'))
-                    mime = 'audio/aac';
-            }
+            mime = pickAudioMime({ hintMime: fetched.mime || audioMime, fileUrl, bytes });
         }
         else {
             const parsed = parseDataUrl(audioBase64);
             bytes = parsed.bytes;
-            mime = String(parsed.mime || '').split(';')[0].trim() || mime;
+            mime = pickAudioMime({ hintMime: parsed.mime || audioMime, fileUrl: null, bytes });
         }
         if (!bytes || bytes.length === 0) {
             return res.status(400).json({ error: 'empty audio payload' });
         }
+        const safeLanguage = normalizeTranscribeLanguage(language);
         // Transcription (prefer gpt-audio via Responses API when configured; fallback to /audio/transcriptions)
         const preferredAudioModel = String(OPENAI_MODEL_AUDIO || '').trim();
         const preferredTranscribeModel = String(OPENAI_TRANSCRIBE_MODEL || '').trim() || 'whisper-1';
@@ -219,7 +322,7 @@ export default async function handler(req, res) {
         let lastTranscribeErr = null;
         if (preferredAudioModel) {
             try {
-                transcript = await transcribeWithResponses({ bytes, mime, model: preferredAudioModel, language });
+                transcript = await transcribeWithResponses({ bytes, mime, model: preferredAudioModel, language: safeLanguage || language });
                 usedTranscribeModel = preferredAudioModel;
             }
             catch (e) {
@@ -229,14 +332,24 @@ export default async function handler(req, res) {
         }
         if (!transcript) {
             try {
-                transcript = await transcribeWithTranscriptionsEndpoint({ bytes, mime, model: preferredTranscribeModel, language });
+                transcript = await transcribeWithTranscriptionsFallback({
+                    bytes,
+                    mime,
+                    model: preferredTranscribeModel,
+                    language: safeLanguage,
+                });
                 usedTranscribeModel = preferredTranscribeModel;
             }
             catch (e) {
                 lastTranscribeErr = e;
                 if (preferredTranscribeModel !== 'whisper-1') {
                     try {
-                        transcript = await transcribeWithTranscriptionsEndpoint({ bytes, mime, model: 'whisper-1', language });
+                        transcript = await transcribeWithTranscriptionsFallback({
+                            bytes,
+                            mime,
+                            model: 'whisper-1',
+                            language: safeLanguage,
+                        });
                         usedTranscribeModel = 'whisper-1';
                         lastTranscribeErr = null;
                     }

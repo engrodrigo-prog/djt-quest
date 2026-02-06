@@ -1,73 +1,84 @@
 // @ts-nocheck
-import type { VercelRequest, VercelResponse } from '@vercel/node';
-
 import { loadLocalEnvIfNeeded } from '../lib/load-local-env.js';
 import { normalizeChatModel } from '../lib/openai-models.js';
-import { proofreadPtBrStrings } from '../lib/ai-proofread-ptbr.js';
-
+import { proofreadPtBrStrings, polishPtBrStrings } from '../lib/ai-proofread-ptbr.js';
 loadLocalEnvIfNeeded();
-
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
-// Fast model for orthography/cleanup tasks (fallback chain keeps compatibility).
-const OPENAI_TEXT_MODEL = normalizeChatModel(
-  process.env.OPENAI_MODEL_FAST ||
+const OPENAI_TEXT_MODEL = normalizeChatModel(process.env.OPENAI_MODEL_FAST ||
     process.env.OPENAI_TEXT_MODEL ||
     process.env.OPENAI_MODEL_OVERRIDE ||
-    'gpt-5-2025-08-07',
-  'gpt-5-2025-08-07',
-);
-
-export default async function handler(req: VercelRequest, res: VercelResponse) {
-  if (req.method === 'OPTIONS') return res.status(204).send('');
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
-
-  // Mantemos cópias seguras para fallback em qualquer erro
-  let safeTitle = '[sem título]';
-  let safeDescription = '';
-  let language = 'pt-BR';
-
-  try {
-    const input = (req.body || {}) as any;
-    const rawTitle = input.title;
-    const rawDescription = input.description;
-    language = typeof input.language === 'string' && input.language.trim() ? input.language : 'pt-BR';
-
-    safeTitle = typeof rawTitle === 'string' && rawTitle.trim() ? rawTitle : '[sem título]';
-    if (!rawDescription || typeof rawDescription !== 'string') {
-      return res.status(400).json({ error: 'description obrigatório' });
+    'gpt-5-2025-08-07', 'gpt-5-2025-08-07');
+export default async function handler(req, res) {
+    if (req.method === 'OPTIONS')
+        return res.status(204).send('');
+    if (req.method !== 'POST')
+        return res.status(405).json({ error: 'Method not allowed' });
+    // Valores seguros para fallback em qualquer erro
+    let safeTitle = '[sem título]';
+    let safeDescription = '';
+    let language = 'pt-BR';
+    let mode = 'proofread';
+    try {
+        const input = (req.body || {});
+        const rawTitle = input.title;
+        const rawDescription = input.description;
+        mode =
+            typeof input.mode === 'string' && input.mode.trim()
+                ? input.mode.trim().toLowerCase()
+                : 'proofread';
+        language =
+            typeof input.language === 'string' && input.language.trim()
+                ? input.language
+                : 'pt-BR';
+        safeTitle =
+            typeof rawTitle === 'string' && rawTitle.trim()
+                ? rawTitle
+                : '[sem título]';
+        if (!rawDescription || typeof rawDescription !== 'string') {
+            return res.status(400).json({ error: 'description obrigatório' });
+        }
+        safeDescription = rawDescription;
+        if (!OPENAI_API_KEY) {
+            return res.status(200).json({
+                cleaned: {
+                    title: safeTitle.trim(),
+                    description: safeDescription.trim(),
+                },
+                meta: { usedAI: false, reason: 'missing_api_key' },
+            });
+        }
+        const runner = mode === 'feedback' || mode === 'polish' ? polishPtBrStrings : proofreadPtBrStrings;
+        const result = await runner({
+            openaiKey: OPENAI_API_KEY,
+            model: OPENAI_TEXT_MODEL,
+            strings: [safeTitle, safeDescription],
+        });
+        const { output, usedModel, error, attemptedModels } = result || {};
+        const [nextTitle, nextDescription] = Array.isArray(output) ? output : [safeTitle, safeDescription];
+        const usedAI = Boolean(usedModel);
+        return res.status(200).json({
+            cleaned: {
+                title: String(nextTitle || safeTitle).trim(),
+                description: String(nextDescription || safeDescription).trim(),
+            },
+            meta: {
+                usedAI,
+                model: usedModel || null,
+                language,
+                mode,
+                reason: usedAI ? null : (error || 'no_model_succeeded'),
+                attempted_models: usedAI ? [] : (Array.isArray(attemptedModels) ? attemptedModels.slice(0, 8) : []),
+            },
+        });
     }
-    safeDescription = rawDescription;
-
-    if (!OPENAI_API_KEY) {
-      return res.status(200).json({
-        cleaned: { title: safeTitle.trim(), description: safeDescription.trim() },
-        meta: { usedAI: false, reason: 'missing_api_key' },
-      });
+    catch (err) {
+        return res.status(200).json({
+            cleaned: {
+                title: safeTitle.trim(),
+                description: safeDescription.trim(),
+            },
+            meta: { usedAI: false, reason: (err === null || err === void 0 ? void 0 : err.message) || 'unknown', mode },
+        });
     }
-
-    const { output, usedModel } = await proofreadPtBrStrings({
-      openaiKey: OPENAI_API_KEY,
-      model: OPENAI_TEXT_MODEL,
-      strings: [safeTitle, safeDescription],
-    });
-
-    const [nextTitle, nextDescription] = Array.isArray(output) ? output : [safeTitle, safeDescription];
-    return res.status(200).json({
-      cleaned: {
-        title: String(nextTitle || safeTitle).trim(),
-        description: String(nextDescription || safeDescription).trim(),
-      },
-      meta: { usedAI: Boolean(usedModel), model: usedModel || OPENAI_TEXT_MODEL, language },
-    });
-  } catch (err: any) {
-    return res.status(200).json({
-      cleaned: {
-        title: safeTitle.trim(),
-        description: safeDescription.trim(),
-      },
-      meta: { usedAI: false, reason: err?.message || 'unknown' },
-    });
-  }
 }
-
 export const config = { api: { bodyParser: true } };
