@@ -2961,7 +2961,7 @@ export default function SEPBookIG() {
   };
 
   return (
-    <div className="min-h-screen bg-background text-foreground pb-[120px]">
+    <div className="min-h-screen bg-background text-foreground pb-[calc(7.5rem+env(safe-area-inset-bottom))] lg:pb-10 lg:pl-24">
       <SendUserFeedbackDialog
         open={feedbackDialogOpen}
         onOpenChange={(open) => {

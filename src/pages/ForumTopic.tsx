@@ -1201,7 +1201,7 @@ export default function ForumTopic() {
   if (!topic) return null
 
   return (
-    <div className="relative min-h-screen pb-40">
+    <div className="relative min-h-screen pb-[calc(7.5rem+env(safe-area-inset-bottom))] lg:pb-10 lg:pl-24">
       <ThemedBackground theme="atitude" />
       <HelpInfo kind="forum" />
       <SendUserFeedbackDialog
@@ -1240,7 +1240,7 @@ export default function ForumTopic() {
           </div>
         </DialogContent>
       </Dialog>
-      <div className="container relative mx-auto p-4 md:p-6 max-w-5xl space-y-4">
+      <div className="container relative mx-auto px-3 py-4 sm:px-4 md:px-5 md:py-6 lg:px-6 max-w-5xl space-y-4">
         <Card>
           <CardHeader>
             <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
