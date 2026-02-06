@@ -748,23 +748,6 @@ const Navigation = () => {
             <button
               type="button"
               className="group flex min-h-[74px] w-full items-center justify-start gap-4 rounded-xl px-3 py-2.5 text-left text-slate-100 transition-colors hover:bg-white/7 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-              onClick={() => setPasswordDialogOpen(true)}
-              aria-label={t('profile.changePasswordTitle')}
-              title={t('profile.changePasswordTitle')}
-            >
-              <span className={bubbleClass(false, 'xl')}>
-                <span className="absolute inset-[1px] rounded-2xl overflow-hidden">
-                  <img src={iconProfile} alt="" aria-hidden className="h-full w-full object-cover" />
-                </span>
-              </span>
-              <span className="min-w-0 flex-1 truncate text-[15px] font-semibold leading-5">
-                {t('profile.changePasswordTitle')}
-              </span>
-            </button>
-
-            <button
-              type="button"
-              className="group flex min-h-[74px] w-full items-center justify-start gap-4 rounded-xl px-3 py-2.5 text-left text-slate-100 transition-colors hover:bg-white/7 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
               onClick={() => {
                 void handleLogout();
               }}
