@@ -825,27 +825,27 @@ const Dashboard = () => {
   }
 
   return (
-    <div className="relative min-h-screen bg-background pb-40 overflow-x-hidden">
+    <div className="relative min-h-screen bg-background pb-[calc(7.5rem+env(safe-area-inset-bottom))] lg:pb-10 lg:pl-24 overflow-x-hidden">
       <ThemedBackground theme="habilidades" />
       {/* Header */}
       <header className="sticky top-0 z-20 bg-[#0b2a34]/85 text-blue-50 border-b border-cyan-700/30">
-        <div className="container mx-auto px-3 py-3 grid grid-cols-3 items-center">
-          <div className="flex items-center gap-2 justify-self-start">
+        <div className="container mx-auto px-3 sm:px-4 lg:px-6 py-3 grid grid-cols-[minmax(0,1fr)_auto_auto] sm:grid-cols-3 items-center gap-2">
+          <div className="flex min-w-0 items-center gap-2 justify-self-start">
             {isLeader ? (
               <button
                 type="button"
                 onClick={() => navigate('/leader-dashboard')}
-                className="flex items-center gap-2 text-left hover:opacity-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded-md px-1 -mx-1"
+                className="flex min-w-0 items-center gap-2 text-left hover:opacity-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded-md px-1 -mx-1"
                 aria-label={tr("dashboard.leaderAria")}
                 title={tr("dashboard.leaderTitle")}
               >
                 <div className="flex items-center gap-1.5">
-                  <Shield className="h-6 w-6 text-primary" />
-                  <Zap className="h-6 w-6 text-secondary" />
+                  <Shield className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />
+                  <Zap className="h-5 w-5 sm:h-6 sm:w-6 text-secondary" />
                 </div>
-                <div>
-                  <h1 className="text-xl font-bold text-blue-50">DJT - Quest</h1>
-                  <p className="text-[10px] text-blue-100/80 leading-none">
+                <div className="min-w-0">
+                  <h1 className="truncate text-lg sm:text-xl font-bold text-blue-50">DJT - Quest</h1>
+                  <p className="hidden sm:block text-[10px] text-blue-100/80 leading-none">
                     {tr("dashboard.leaderHint")}
                   </p>
                 </div>
@@ -853,19 +853,19 @@ const Dashboard = () => {
             ) : (
               <>
                 <div className="flex items-center gap-1.5">
-                  <Shield className="h-6 w-6 text-primary" />
-                  <Zap className="h-6 w-6 text-secondary" />
+                  <Shield className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />
+                  <Zap className="h-5 w-5 sm:h-6 sm:w-6 text-secondary" />
                 </div>
-                <div>
-                  <h1 className="text-xl font-bold text-blue-50">DJT - Quest</h1>
-                  <p className="text-[10px] text-blue-100/80 leading-none">
+                <div className="min-w-0">
+                  <h1 className="truncate text-lg sm:text-xl font-bold text-blue-50">DJT - Quest</h1>
+                  <p className="hidden sm:block text-[10px] text-blue-100/80 leading-none">
                     CPFL Piratininga e Santa Cruz Subtransmissão
                   </p>
                 </div>
               </>
             )}
           </div>
-          <div className="flex items-center justify-center">
+          <div className="hidden sm:flex items-center justify-center">
             <AIStatus />
           </div>
           <div className="flex items-center gap-2 justify-self-end">
@@ -897,7 +897,7 @@ const Dashboard = () => {
         </div>
       </header>
 
-      <main className="container relative mx-auto px-3 py-4 space-y-4">
+      <main className="container relative mx-auto px-3 sm:px-4 lg:px-6 py-4 space-y-4">
         {/* Barra de progressão sempre no topo */}
         <Card className="bg-gradient-to-r from-primary/10 to-secondary/10">
           <CardHeader className="pb-3">

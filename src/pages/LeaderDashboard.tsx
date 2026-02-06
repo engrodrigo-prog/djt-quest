@@ -574,29 +574,29 @@ export default function LeaderDashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-background text-foreground pb-40">
+    <div className="min-h-screen bg-background text-foreground pb-[calc(7.5rem+env(safe-area-inset-bottom))] lg:pb-10 lg:pl-24">
       {/* Header */}
       <header className="sticky top-0 z-20 bg-[#0b2a34]/85 text-blue-50 border-b border-cyan-700/30 backdrop-blur">
-        <div className="container mx-auto px-3 py-3 flex items-center justify-between">
+        <div className="container mx-auto px-3 sm:px-4 lg:px-6 py-3 flex flex-wrap items-center justify-between gap-2">
           <button
             type="button"
             onClick={() => navigate('/leader-dashboard')}
-            className="flex items-center gap-2 group focus:outline-none"
+            className="flex min-w-0 items-center gap-2 group focus:outline-none"
           >
             <div className="flex items-center gap-1.5">
-              <Shield className="h-6 w-6 text-primary" />
-              <Zap className="h-6 w-6 text-secondary" />
+              <Shield className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />
+              <Zap className="h-5 w-5 sm:h-6 sm:w-6 text-secondary" />
             </div>
-            <div className="text-left">
-              <p className="text-xl font-semibold leading-tight text-blue-50 group-hover:text-white">
+            <div className="min-w-0 text-left">
+              <p className="truncate text-lg sm:text-xl font-semibold leading-tight text-blue-50 group-hover:text-white">
                 DJT - Quest
               </p>
-              <p className="text-[10px] text-blue-100/80 leading-none">
+              <p className="hidden sm:block text-[10px] text-blue-100/80 leading-none">
                 CPFL Piratininga e Santa Cruz Subtransmissão
               </p>
             </div>
           </button>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
             {userProfile && (
               <ProfileDropdown
                 profile={userProfile}
@@ -607,15 +607,15 @@ export default function LeaderDashboard() {
             <Button onClick={() => navigate('/dashboard')} variant="ghost" size="sm" aria-label="Entrar">
               Entrar
             </Button>
-            <Button onClick={() => navigate('/studio')} variant="ghost" size="sm">
+            <Button onClick={() => navigate('/studio')} variant="ghost" size="sm" aria-label="Abrir Studio">
               <Award className="h-4 w-4 mr-2" />
-              Studio
+              <span className="hidden sm:inline">Studio</span>
             </Button>
           </div>
         </div>
       </header>
 
-      <main className="container mx-auto px-3 py-4 space-y-6">
+      <main className="container mx-auto px-3 sm:px-4 lg:px-6 py-4 space-y-6">
         <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
           <div>
             <h2 className="text-3xl font-semibold leading-tight">Dashboard de Liderança</h2>

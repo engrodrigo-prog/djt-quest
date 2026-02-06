@@ -219,8 +219,8 @@ const Evaluations = () => {
   const canSubmit = feedbackPositivo.length >= FEEDBACK_MIN_CHARS && feedbackConstrutivo.length >= FEEDBACK_MIN_CHARS;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-secondary/5 pb-40">
-      <div className="container mx-auto p-4 md:p-6 space-y-6">
+    <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-secondary/5 pb-[calc(7.5rem+env(safe-area-inset-bottom))] lg:pb-10 lg:pl-24">
+      <div className="container mx-auto px-3 py-4 sm:px-4 md:px-5 md:py-6 lg:px-6 space-y-6">
         <div>
           <h1 className="text-3xl md:text-4xl font-bold flex items-center gap-2">
             <Shield className="h-8 w-8 text-primary" />
