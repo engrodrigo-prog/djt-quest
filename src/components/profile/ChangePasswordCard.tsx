@@ -3,10 +3,10 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/com
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
 import { MIN_PASSWORD_LENGTH, mapPasswordUpdateError, validateNewPassword } from '@/lib/passwordPolicy';
+import { updatePassword } from '@/lib/supabaseAuth';
 
 interface ChangePasswordCardProps {
   compact?: boolean;
@@ -26,9 +26,9 @@ export function ChangePasswordCard({ compact = false }: ChangePasswordCardProps)
     }
     setLoading(true);
     try {
-      const { error } = await supabase.auth.updateUser({ password: form.password });
-      if (error) {
-        const mapped = mapPasswordUpdateError(error);
+      const result = await updatePassword(form.password);
+      if (!result.ok) {
+        const mapped = mapPasswordUpdateError(result.error);
         toast.error(mapped.title, { description: mapped.description });
         return;
       }
@@ -70,7 +70,7 @@ export function ChangePasswordCard({ compact = false }: ChangePasswordCardProps)
               required
             />
             <p className="text-xs text-muted-foreground">
-              Use pelo menos {MIN_PASSWORD_LENGTH} caracteres, com letra maiúscula, minúscula e número.
+              Use pelo menos {MIN_PASSWORD_LENGTH} caracteres, com maiúscula, minúscula, número e símbolo.
             </p>
           </div>
           <div className="space-y-2">

@@ -162,7 +162,7 @@ const Studio = () => {
   };
 
   return (
-    <div className="relative min-h-screen bg-transparent pb-[calc(7.5rem+env(safe-area-inset-bottom))] lg:pb-10 lg:pl-24 overflow-x-hidden">
+    <div className="relative min-h-screen bg-transparent pb-[calc(7.5rem+env(safe-area-inset-bottom))] lg:pb-10 lg:pl-[var(--djt-nav-desktop-offset)] overflow-x-hidden">
       <ThemedBackground theme="seguranca" />
       <div className="container relative mx-auto px-3 py-4 sm:px-4 md:px-6 md:py-8 lg:px-8 max-w-7xl space-y-6">
         {/* Se nenhum módulo for escolhido, mostra o dashboard. Caso contrário, mostra o módulo e um voltar. */}

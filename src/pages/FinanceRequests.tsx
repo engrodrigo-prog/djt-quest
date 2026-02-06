@@ -384,7 +384,7 @@ export default function FinanceRequests() {
   };
 
   return (
-    <div className="relative min-h-screen bg-background pb-[calc(7.5rem+env(safe-area-inset-bottom))] lg:pb-10 lg:pl-24 overflow-hidden">
+    <div className="relative min-h-screen bg-background pb-[calc(7.5rem+env(safe-area-inset-bottom))] lg:pb-10 lg:pl-[var(--djt-nav-desktop-offset)] overflow-hidden">
       <ThemedBackground theme="habilidades" />
       <div className="container relative mx-auto px-3 py-4 sm:px-4 lg:px-6 space-y-4 max-w-4xl">
         <div className="flex flex-wrap items-center gap-2">

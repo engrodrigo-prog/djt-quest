@@ -574,7 +574,7 @@ export default function LeaderDashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-background text-foreground pb-[calc(7.5rem+env(safe-area-inset-bottom))] lg:pb-10 lg:pl-24">
+    <div className="min-h-screen bg-background text-foreground pb-[calc(7.5rem+env(safe-area-inset-bottom))] lg:pb-10 lg:pl-[var(--djt-nav-desktop-offset)]">
       {/* Header */}
       <header className="sticky top-0 z-20 bg-[#0b2a34]/85 text-blue-50 border-b border-cyan-700/30 backdrop-blur">
         <div className="container mx-auto px-3 sm:px-4 lg:px-6 py-3 flex flex-wrap items-center justify-between gap-2">

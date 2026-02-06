@@ -1201,7 +1201,7 @@ export default function ForumTopic() {
   if (!topic) return null
 
   return (
-    <div className="relative min-h-screen pb-[calc(7.5rem+env(safe-area-inset-bottom))] lg:pb-10 lg:pl-24">
+    <div className="relative min-h-screen pb-[calc(7.5rem+env(safe-area-inset-bottom))] lg:pb-10 lg:pl-[var(--djt-nav-desktop-offset)]">
       <ThemedBackground theme="atitude" />
       <HelpInfo kind="forum" />
       <SendUserFeedbackDialog

@@ -596,7 +596,7 @@ export default function CampaignDetail() {
   }
 
   return (
-    <div className="relative min-h-screen bg-background pb-[calc(7.5rem+env(safe-area-inset-bottom))] lg:pb-10 lg:pl-24">
+    <div className="relative min-h-screen bg-background pb-[calc(7.5rem+env(safe-area-inset-bottom))] lg:pb-10 lg:pl-[var(--djt-nav-desktop-offset)]">
       <ThemedBackground theme="habilidades" />
       <div className="container relative mx-auto px-3 sm:px-4 lg:px-6 py-4 space-y-6">
         <div className="flex items-center gap-2 mb-2">

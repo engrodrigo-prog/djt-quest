@@ -504,7 +504,7 @@ function ProfileContent() {
 
   if (loading || !profile) {
     return (
-      <div className="relative min-h-screen bg-background p-4 pb-[calc(7.5rem+env(safe-area-inset-bottom))] lg:pb-10 lg:pl-24 overflow-hidden">
+      <div className="relative min-h-screen bg-background p-4 pb-[calc(7.5rem+env(safe-area-inset-bottom))] lg:pb-10 lg:pl-[var(--djt-nav-desktop-offset)] overflow-hidden">
         <ThemedBackground theme="atitude" />
         <div className="container relative max-w-4xl mx-auto py-8 space-y-4">
           <Card className="bg-gradient-to-r from-primary/10 to-secondary/10">
@@ -536,7 +536,7 @@ function ProfileContent() {
   }
 
   return (
-    <div className="relative min-h-screen bg-background p-4 pb-[calc(7.5rem+env(safe-area-inset-bottom))] lg:pb-10 lg:pl-24 overflow-x-hidden">
+    <div className="relative min-h-screen bg-background p-4 pb-[calc(7.5rem+env(safe-area-inset-bottom))] lg:pb-10 lg:pl-[var(--djt-nav-desktop-offset)] overflow-x-hidden">
       <ThemedBackground theme="atitude" />
       <div className="container relative max-w-4xl mx-auto py-8 space-y-6">
         {/* Profile Header */}

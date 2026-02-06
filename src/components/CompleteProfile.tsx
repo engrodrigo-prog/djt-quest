@@ -14,6 +14,7 @@ import { AvatarDisplay } from "@/components/AvatarDisplay";
 import { apiFetch } from "@/lib/api";
 import { getProfileCompletionStatus } from "@/lib/profileCompletion";
 import { MIN_PASSWORD_LENGTH, mapPasswordUpdateError, validateNewPassword } from "@/lib/passwordPolicy";
+import { updatePassword } from "@/lib/supabaseAuth";
 
 interface CompleteProfileProps {
   profile: any;
@@ -23,6 +24,7 @@ export function CompleteProfile({ profile }: CompleteProfileProps) {
   const navigate = useNavigate();
   const { refreshUserSession } = useAuth();
   const [loading, setLoading] = useState(false);
+  const [passwordUpdatedInSession, setPasswordUpdatedInSession] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(
     profile?.avatar_url || profile?.avatar_thumbnail_url || null,
   );
@@ -114,7 +116,7 @@ export function CompleteProfile({ profile }: CompleteProfileProps) {
       }
 
       // Validar senha
-      if (profile.must_change_password) {
+      if (profile.must_change_password && !passwordUpdatedInSession) {
         const validation = validateNewPassword(formData.newPassword, formData.confirmPassword);
         if (!validation.ok) {
           toast.error(validation.message);
@@ -123,16 +125,16 @@ export function CompleteProfile({ profile }: CompleteProfileProps) {
         }
 
         // Atualizar senha
-        const { error: passwordError } = await supabase.auth.updateUser({
-          password: formData.newPassword,
-        });
-
-        if (passwordError) {
-          const mapped = mapPasswordUpdateError(passwordError);
+        const passwordResult = await updatePassword(formData.newPassword);
+        if (!passwordResult.ok) {
+          const mapped = mapPasswordUpdateError(passwordResult.error);
           toast.error(mapped.title, { description: mapped.description });
           setLoading(false);
           return;
         }
+
+        setPasswordUpdatedInSession(true);
+        setFormData((prev) => ({ ...prev, newPassword: "", confirmPassword: "" }));
       }
 
       // Atualizar perfil
@@ -184,11 +186,20 @@ export function CompleteProfile({ profile }: CompleteProfileProps) {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
-            {profile.must_change_password && (
+            {profile.must_change_password && !passwordUpdatedInSession && (
               <Alert>
                 <AlertCircle className="h-4 w-4" />
                 <AlertDescription>
                   Você está usando a senha padrão (123456). Por segurança, escolha uma nova senha <strong>diferente</strong>.
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {profile.must_change_password && passwordUpdatedInSession && (
+              <Alert>
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>
+                  Senha atualizada nesta sessão. Agora finalize os demais dados do perfil.
                 </AlertDescription>
               </Alert>
             )}
@@ -211,13 +222,13 @@ export function CompleteProfile({ profile }: CompleteProfileProps) {
               )}
             </div>
 
-            {profile.must_change_password && (
+            {profile.must_change_password && !passwordUpdatedInSession && (
               <>
                 <div className="space-y-2">
                   <Label htmlFor="newPassword">
                     Nova Senha * 
                     <span className="text-xs text-muted-foreground ml-2">
-                      (não use 123456; use maiúscula, minúscula e número)
+                      (não use 123456; use maiúscula, minúscula, número e símbolo)
                     </span>
                   </Label>
                   <input type="text" name="username" autoComplete="username" hidden readOnly />
