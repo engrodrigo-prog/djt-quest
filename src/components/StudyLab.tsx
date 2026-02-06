@@ -253,6 +253,7 @@ export const StudyLab = () => {
   const [useWeb, setUseWeb] = useState(false);
   const [chatQuality, setChatQuality] = useState<"auto" | "instant" | "thinking">("instant");
   const [kbEnabled, setKbEnabled] = useState(false);
+  const [kbUseThemeFilter, setKbUseThemeFilter] = useState(false);
   const [kbSelection, setKbSelection] = useState<ForumKbSelection | null>(null);
   const chatAbortRef = useRef<AbortController | null>(null);
   const [chatInputFocused, setChatInputFocused] = useState(false);
@@ -1031,6 +1032,10 @@ export const StudyLab = () => {
       toast("Aguarde o upload dos anexos antes de enviar.");
       return;
     }
+    if (kbEnabled && kbUseThemeFilter && (!kbSelection?.tags || kbSelection.tags.length === 0)) {
+      toast("Selecione um tema de fórum ou desative o filtro por tema.");
+      return;
+    }
 
     const effectiveSourceId =
       !oracleMode && selectedSourceId && selectedSourceId !== FIXED_RULES_ID ? selectedSourceId : null;
@@ -1082,7 +1087,8 @@ export const StudyLab = () => {
           save_compendium: false,
           ...(oracleMode ? { use_web: useWeb } : {}),
           quality: chatQuality,
-          ...(kbEnabled && kbSelection?.tags?.length ? { kb_tags: kbSelection.tags, kb_focus: kbSelection.label } : {}),
+          use_forum_kb: kbEnabled,
+          ...(kbEnabled && kbUseThemeFilter && kbSelection?.tags?.length ? { kb_tags: kbSelection.tags, kb_focus: kbSelection.label } : {}),
           messages: payloadMessages,
         }),
       });
@@ -1262,7 +1268,7 @@ export const StudyLab = () => {
             <div className="flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5">
               <Switch id="studylab-kb-toggle" checked={kbEnabled} onCheckedChange={setKbEnabled} />
               <Label htmlFor="studylab-kb-toggle" className="text-xs font-medium">
-                {t("studylab.hashtagFocus")}
+                Conhecimento dos fóruns
               </Label>
             </div>
             {!oracleMode && (
@@ -1301,10 +1307,28 @@ export const StudyLab = () => {
 
           {kbEnabled && (
             <div className="rounded-md border p-3">
-              <p className="mb-2 text-[11px] text-muted-foreground">
-                {t("studylab.hashtagFocusHint")}
-              </p>
-              <ForumKbThemeMenu selection={kbSelection} onSelect={setKbSelection} />
+              <div className="space-y-3">
+                <p className="text-[11px] text-muted-foreground">
+                  Use o conhecimento compartilhado nos fóruns como base de consulta. Você pode usar o acervo geral ou restringir por tema.
+                </p>
+                <div className="flex items-center gap-2 rounded-full border px-3 py-1.5 w-fit">
+                  <Switch
+                    id="studylab-kb-theme-toggle"
+                    checked={kbUseThemeFilter}
+                    onCheckedChange={setKbUseThemeFilter}
+                  />
+                  <Label htmlFor="studylab-kb-theme-toggle" className="text-xs font-medium">
+                    Filtrar por tema (hashtags)
+                  </Label>
+                </div>
+                {kbUseThemeFilter ? (
+                  <ForumKbThemeMenu selected={kbSelection} onSelect={setKbSelection} />
+                ) : (
+                  <p className="text-[11px] text-muted-foreground">
+                    Modo geral ativo: o StudyLab consulta os itens mais relevantes da base de fóruns.
+                  </p>
+                )}
+              </div>
             </div>
           )}
         </CardHeader>

@@ -668,6 +668,7 @@ async function handler(req, res) {
       quality = "auto",
       kb_tags = [],
       kb_focus = "",
+      use_forum_kb = false,
       use_web = false
     } = req.body || {};
     const qualityKey = String(quality || "auto").toLowerCase();
@@ -679,6 +680,7 @@ async function handler(req, res) {
       )
     ).slice(0, 24);
     const forumKbFocus = (kb_focus || "").toString().trim().slice(0, 140);
+    const useForumKb = Boolean(use_forum_kb) || forumKbTags.length > 0;
     const rawAttachments = Array.isArray(attachments) ? attachments : [attachments];
     const normalizedAttachments = uniqueAttachments(
       rawAttachments.map((att) => normalizeAttachment(att)).filter(Boolean)
@@ -691,6 +693,26 @@ async function handler(req, res) {
     let usedOracleSourcesCount = 0;
     let usedOracleCompendiumCount = 0;
     const stripHtml = (html) => html.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+    const fetchForumKnowledgeRows = async (limit = 24) => {
+      if (!admin || !useForumKb) return [];
+      const safeLimit = Math.max(1, Math.min(120, Number(limit) || 24));
+      try {
+        let query = admin.from("knowledge_base").select("source_type, title, post_id, source_id, content, content_html, hashtags, likes_count, is_solution, is_featured, kind, url");
+        if (forumKbTags.length) query = query.overlaps("hashtags", forumKbTags);
+        const { data, error } = await query.order("is_solution", { ascending: false }).order("is_featured", { ascending: false }).order("likes_count", { ascending: false }).limit(safeLimit);
+        if (error) throw error;
+        return Array.isArray(data) ? data : [];
+      } catch {
+        try {
+          let query = admin.from("forum_knowledge_base").select("title, post_id, content, content_html, hashtags, likes_count, is_solution, is_featured");
+          if (forumKbTags.length) query = query.overlaps("hashtags", forumKbTags);
+          const { data } = await query.order("is_solution", { ascending: false }).order("is_featured", { ascending: false }).order("likes_count", { ascending: false }).limit(safeLimit);
+          return Array.isArray(data) ? data : [];
+        } catch {
+          return [];
+        }
+      }
+    };
     const fetchUrlContent = async (rawUrl) => {
       try {
         const controller = new AbortController();
@@ -1620,21 +1642,7 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
       }).filter((x) => keywords.length ? x.score > 0 : true).sort((a, b) => b.score - a.score).slice(0, 3);
       const bestCompendiumScore = rankedCompendium[0]?.score || 0;
       usedOracleCompendiumCount = rankedCompendium.length;
-      let forumKbRows = [];
-      if (forumKbTags.length) {
-        try {
-          const { data: data2, error } = await admin.from("knowledge_base").select("source_type, title, post_id, source_id, content, content_html, hashtags, likes_count, is_solution, is_featured, kind, url").overlaps("hashtags", forumKbTags).order("is_solution", { ascending: false }).order("likes_count", { ascending: false }).limit(120);
-          if (error) throw error;
-          forumKbRows = Array.isArray(data2) ? data2 : [];
-        } catch {
-          try {
-            const { data: data2 } = await admin.from("forum_knowledge_base").select("title, post_id, content, content_html, hashtags, likes_count, is_solution, is_featured").overlaps("hashtags", forumKbTags).order("is_solution", { ascending: false }).order("likes_count", { ascending: false }).limit(120);
-            forumKbRows = Array.isArray(data2) ? data2 : [];
-          } catch {
-            forumKbRows = [];
-          }
-        }
-      }
+      const forumKbRows = await fetchForumKnowledgeRows(120);
       const rankedForumKb = forumKbRows.map((row) => {
         const title = String(row?.title || "").trim();
         const raw = String(row?.content || "").trim();
@@ -1731,7 +1739,7 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
       }
       if (rankedForumKb.length) {
         contextParts.push(
-          "### Base de Conhecimento (hashtags)\n" + rankedForumKb.map((x, idx) => {
+          `### Base de Conhecimento (${forumKbTags.length ? "fóruns por tema" : "fóruns - acervo geral"})\n` + rankedForumKb.map((x, idx) => {
             const row = x.row || {};
             const title = String(row.title || `T\xF3pico ${idx + 1}`);
             const sourceType = String(row.source_type || "forum").toLowerCase();
@@ -1778,17 +1786,9 @@ ${attachmentContext}`
 ${joinedContext}`
         });
       }
-      if (admin && forumKbTags.length) {
+      if (admin && useForumKb) {
         try {
-          let rows = [];
-          try {
-            const { data: data2, error } = await admin.from("knowledge_base").select("source_type, title, post_id, source_id, content, content_html, hashtags, likes_count, is_solution, is_featured, kind, url").overlaps("hashtags", forumKbTags).order("is_solution", { ascending: false }).order("likes_count", { ascending: false }).limit(8);
-            if (error) throw error;
-            rows = Array.isArray(data2) ? data2 : [];
-          } catch {
-            const { data: data2 } = await admin.from("forum_knowledge_base").select("title, post_id, content, content_html, hashtags, likes_count, is_solution, is_featured").overlaps("hashtags", forumKbTags).order("is_solution", { ascending: false }).order("likes_count", { ascending: false }).limit(8);
-            rows = Array.isArray(data2) ? data2 : [];
-          }
+          const rows = await fetchForumKnowledgeRows(8);
           if (rows.length) {
             const context = rows.map((row, idx) => {
               const title = String(row?.title || `T\xF3pico ${idx + 1}`);
@@ -1812,7 +1812,7 @@ ${joinedContext}`
             }).join("\n");
             openaiMessages.push({
               role: "system",
-              content: `A seguir est\xE3o trechos da base de conhecimento (hashtags) para usar como contexto adicional:
+              content: `A seguir est\xE3o trechos da base de conhecimento de f\xF3runs para usar como contexto adicional:
 
 ${context}`
             });
@@ -2028,6 +2028,7 @@ ${webSummary.text}`
           mode,
           source_id: source_id || null,
           use_web: Boolean(use_web),
+          use_forum_kb: useForumKb,
           kb_tags: forumKbTags,
           kb_focus: forumKbFocus,
           model: usedModel

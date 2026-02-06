@@ -3,6 +3,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { createClient } from '@supabase/supabase-js'
 import { DJT_QUEST_SUPABASE_HOST } from '../env-guard.js'
 import { getSupabaseUrlFromEnv } from '../lib/supabase-url.js'
+import { isAllowlistedAdmin } from '../lib/admin-allowlist.js'
 
 const SUPABASE_URL = getSupabaseUrlFromEnv(process.env, { expectedHostname: DJT_QUEST_SUPABASE_HOST, allowLocal: true }) as string
 const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY) as string
@@ -19,17 +20,51 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const token = authHeader.slice(7)
     const { data: userData } = await admin.auth.getUser(token)
     const uid = userData?.user?.id
+    const email = String(userData?.user?.email || '').toLowerCase()
     if (!uid) return res.status(401).json({ error: 'Unauthorized' })
 
     const { id, status } = req.body || {}
     if (!id || !status) return res.status(400).json({ error: 'id and status required' })
+    const nextStatus = String(status || '').trim().toLowerCase()
+    const allowedStatuses = new Set(['active', 'closed', 'canceled', 'cancelled'])
+    if (!allowedStatuses.has(nextStatus)) return res.status(400).json({ error: 'Invalid status' })
 
     // Verify role
     const { data: roles } = await admin.from('user_roles').select('role').eq('user_id', uid)
     const allowed = new Set(['coordenador_djtx','gerente_divisao_djtx','gerente_djt','admin'])
-    if (!roles?.some((r: any) => allowed.has(r.role))) return res.status(403).json({ error: 'Insufficient permissions' })
+    const hasLeadershipRole = Boolean(roles?.some((r: any) => allowed.has(r.role)))
 
-    const { error } = await admin.from('challenges').update({ status }).eq('id', id)
+    const { data: challenge, error: challengeErr } = await admin
+      .from('challenges')
+      .select('id,type,owner_id,created_by')
+      .eq('id', id)
+      .maybeSingle()
+    if (challengeErr) return res.status(400).json({ error: challengeErr.message })
+    if (!challenge?.id) return res.status(404).json({ error: 'Challenge not found' })
+
+    const isQuiz = String(challenge.type || '').toLowerCase().includes('quiz')
+    if (isQuiz) {
+      const { data: profile } = await admin
+        .from('profiles')
+        .select('matricula,email')
+        .eq('id', uid)
+        .maybeSingle()
+      const matricula = String(profile?.matricula || '').trim()
+      const profileEmail = String(profile?.email || '').trim().toLowerCase()
+      const allowlisted = isAllowlistedAdmin({ email: email || profileEmail, matricula })
+      const isOwner = String(challenge.owner_id || '') === uid || String(challenge.created_by || '') === uid
+
+      if ((nextStatus === 'canceled' || nextStatus === 'cancelled') && !allowlisted) {
+        return res.status(403).json({ error: 'Insufficient permissions' })
+      }
+      if (!allowlisted && !hasLeadershipRole && !isOwner) {
+        return res.status(403).json({ error: 'Insufficient permissions' })
+      }
+    } else {
+      if (!hasLeadershipRole) return res.status(403).json({ error: 'Insufficient permissions' })
+    }
+
+    const { error } = await admin.from('challenges').update({ status: nextStatus }).eq('id', id)
     if (error) return res.status(400).json({ error: error.message })
     return res.status(200).json({ success: true })
   } catch (e: any) {

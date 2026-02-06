@@ -404,11 +404,18 @@ async function extractGpsFromImage(file: File): Promise<{ lat: number; lng: numb
   }
 }
 
-async function getCurrentDeviceLocation(): Promise<{ lat: number; lng: number } | null> {
+async function getCurrentDeviceLocation(options?: {
+  enableHighAccuracy?: boolean;
+  timeoutMs?: number;
+  maximumAgeMs?: number;
+}): Promise<{ lat: number; lng: number } | null> {
   try {
     if (typeof navigator === "undefined") return null;
     const geo = (navigator as any)?.geolocation;
     if (!geo?.getCurrentPosition) return null;
+    const enableHighAccuracy = options?.enableHighAccuracy ?? false;
+    const timeoutMs = options?.timeoutMs ?? 8000;
+    const maximumAgeMs = options?.maximumAgeMs ?? 5 * 60 * 1000;
     return await new Promise((resolve) => {
       geo.getCurrentPosition(
         (pos: any) => {
@@ -417,7 +424,7 @@ async function getCurrentDeviceLocation(): Promise<{ lat: number; lng: number } 
           resolve(clampLatLng(lat, lng));
         },
         () => resolve(null),
-        { enableHighAccuracy: false, timeout: 8000, maximumAge: 5 * 60 * 1000 },
+        { enableHighAccuracy, timeout: timeoutMs, maximumAge: maximumAgeMs },
       );
     });
   } catch {
@@ -1364,7 +1371,25 @@ export default function SEPBookIG() {
     const hasConsent = await ensureGpsConsent();
     if (!hasConsent) return null;
 
-    // Prefer EXIF GPS from the image, if present.
+    const hasImage = composerMedia.some((m) => m.kind === "image");
+    if (hasImage) {
+      // Prefer current device GPS at publish time for mobile posting.
+      const coords = await getCurrentDeviceLocation({
+        enableHighAccuracy: true,
+        timeoutMs: 12000,
+        maximumAgeMs: 0,
+      });
+      if (coords) {
+        return {
+          location_lat: coords.lat,
+          location_lng: coords.lng,
+          location_label: "Local atual",
+          __gps_url: null,
+        };
+      }
+    }
+
+    // Fallback: use EXIF GPS if current location is unavailable.
     if (composerGpsSource?.gps) {
       return {
         location_lat: composerGpsSource.gps.lat,
@@ -1375,20 +1400,6 @@ export default function SEPBookIG() {
       };
     }
 
-    // Fallback: some images (ex.: WhatsApp/webp) do not preserve EXIF GPS.
-    // If the user consented, try current device location so the post can appear on the map.
-    const hasImage = composerMedia.some((m) => m.kind === "image");
-    if (hasImage) {
-      const coords = await getCurrentDeviceLocation();
-      if (coords) {
-        return {
-          location_lat: coords.lat,
-          location_lng: coords.lng,
-          location_label: "Local atual",
-          __gps_url: null,
-        };
-      }
-    }
     return null;
   }, [composerGpsSource, composerMedia, ensureGpsConsent]);
 

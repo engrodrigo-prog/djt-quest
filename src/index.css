@@ -130,6 +130,12 @@ All colors MUST be HSL.
     border-color: hsl(var(--border));
   }
 
+  html,
+  body,
+  #root {
+    overflow-x: hidden;
+  }
+
   body {
     background-color: hsl(var(--background));
     color: hsl(var(--foreground));
@@ -191,4 +197,14 @@ All colors MUST be HSL.
       font-size: 1.875rem;
     }
   }
+}
+
+/* Shared helper to hide scrollbars while preserving scroll behavior. */
+.hide-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
 }

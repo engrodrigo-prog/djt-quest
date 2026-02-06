@@ -14,7 +14,6 @@ import bgMenu from '@/assets/backgrounds/BG Menu.webp';
 
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { ChangePasswordCard } from '@/components/profile/ChangePasswordCard';
 import { useAuth } from '@/contexts/AuthContext';
 import { useI18n } from '@/contexts/I18nContext';
@@ -22,7 +21,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { apiFetch } from '@/lib/api';
 import { useSfx } from '@/lib/sfx';
 import { cn } from '@/lib/utils';
-import { Menu, MoreHorizontal, X } from 'lucide-react';
+import { Menu, X } from 'lucide-react';
 
 type NavEntry = {
   key: string;
@@ -42,7 +41,6 @@ const Navigation = () => {
   const { play: playSfx } = useSfx();
 
   const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
-  const [moreSheetOpen, setMoreSheetOpen] = useState(false);
   const [studioBadge, setStudioBadge] = useState(0);
   const [evalBadge, setEvalBadge] = useState(0);
   const [forumBadge, setForumBadge] = useState(0);
@@ -53,6 +51,7 @@ const Navigation = () => {
   const [sepbookMentions, setSepbookMentions] = useState(0);
   const [navHidden, setNavHidden] = useState(false);
   const [navExpanded, setNavExpanded] = useState(false);
+  const [desktopNavScale, setDesktopNavScale] = useState(1);
 
   const playSfxRef = useRef(playSfx);
   const notifTotalRef = useRef<number | null>(null);
@@ -60,6 +59,7 @@ const Navigation = () => {
   const badgeFetchAbortRef = useRef<AbortController | null>(null);
 
   const showEvaluations = Boolean(isLeader || evalBadge > 0);
+  const desktopItemCount = 7 + (showEvaluations ? 1 : 0) + (studioAccess ? 1 : 0);
 
   useEffect(() => {
     playSfxRef.current = playSfx;
@@ -78,7 +78,6 @@ const Navigation = () => {
       setNavHidden(hidden);
       if (hidden) {
         setNavExpanded(false);
-        setMoreSheetOpen(false);
       }
     };
     window.addEventListener('djt-nav-visibility', onToggle as any);
@@ -322,13 +321,30 @@ const Navigation = () => {
     };
   }, []);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const recalcDesktopScale = () => {
+      const totalRows = Math.max(1, desktopItemCount);
+      const viewportHeight = Math.max(640, Number(window.innerHeight || 0));
+      // Header + paddings + separator + safe margin.
+      const fixedCost = 84;
+      const rowBaseHeight = 54;
+      const rawScale = (viewportHeight - fixedCost) / (totalRows * rowBaseHeight);
+      const nextScale = Math.max(0.68, Math.min(1, Number.isFinite(rawScale) ? rawScale : 1));
+      setDesktopNavScale((prev) => (Math.abs(prev - nextScale) > 0.01 ? nextScale : prev));
+    };
+
+    recalcDesktopScale();
+    window.addEventListener('resize', recalcDesktopScale);
+    return () => window.removeEventListener('resize', recalcDesktopScale);
+  }, [desktopItemCount]);
+
   const isActive = (path: string) => location.pathname === path;
   const isForumActive = location.pathname.startsWith('/forum');
   const isSepbookActive = location.pathname.startsWith('/sepbook');
   const sepbookBadgeTotal = sepbookNew + sepbookMentions;
   const totalBadge =
     studioBadge + evalBadge + forumBadge + notifBadge + homeBadge + studyBadge + sepbookBadgeTotal;
-  const secondaryBadgeTotal = (showEvaluations ? evalBadge : 0) + (studioAccess ? studioBadge : 0) + notifBadge;
 
   const badgeClass = (alert?: boolean) =>
     cn(
@@ -339,14 +355,19 @@ const Navigation = () => {
   const bubbleClass = (active: boolean, size: 'sm' | 'md' | 'lg' | 'xl' = 'md') =>
     cn(
       'relative inline-flex items-center justify-center rounded-2xl border border-white/10 bg-slate-800/85 backdrop-blur-md transition-transform duration-150',
-      size === 'xl' ? 'h-[72px] w-[72px]' : size === 'lg' ? 'h-[52px] w-[52px]' : size === 'md' ? 'h-10 w-10' : 'h-9 w-9',
+      size === 'xl'
+        ? 'h-[calc(42px*var(--djt-nav-scale,1))] w-[calc(42px*var(--djt-nav-scale,1))]'
+        : size === 'lg'
+          ? 'h-[52px] w-[52px]'
+          : size === 'md'
+            ? 'h-10 w-10'
+            : 'h-9 w-9',
       active
         ? 'ring-2 ring-cyan-300/60 shadow-[0_0_18px_rgba(0,255,255,0.24)]'
         : 'ring-0 shadow-[0_8px_20px_rgba(0,0,0,0.35)]',
     );
 
   const goTo = (path: string) => {
-    setMoreSheetOpen(false);
     navigate(path);
   };
 
@@ -363,7 +384,7 @@ const Navigation = () => {
     }
   };
 
-  const primaryMobileItems: NavEntry[] = [
+  const mobileItems: NavEntry[] = [
     {
       key: 'dashboard',
       label: t('nav.dashboard'),
@@ -400,34 +421,6 @@ const Navigation = () => {
       alertBadge: true,
       onSelect: () => goTo('/study'),
     },
-    {
-      key: 'more',
-      label: 'Mais',
-      icon: iconProfile,
-      active: moreSheetOpen,
-      badge: secondaryBadgeTotal,
-      alertBadge: secondaryBadgeTotal > 0,
-      onSelect: () => setMoreSheetOpen(true),
-    },
-  ];
-
-  const mobileSecondaryItems: NavEntry[] = [
-    {
-      key: 'profile',
-      label: t('nav.profile'),
-      icon: iconProfile,
-      active: isActive('/profile'),
-      badge: notifBadge,
-      alertBadge: true,
-      onSelect: () => goTo('/profile'),
-    },
-    {
-      key: 'rankings',
-      label: t('nav.rankings'),
-      icon: iconRanking,
-      active: isActive('/rankings'),
-      onSelect: () => goTo('/rankings'),
-    },
     ...(showEvaluations
       ? [
           {
@@ -455,14 +448,20 @@ const Navigation = () => {
         ]
       : []),
     {
-      key: 'password',
-      label: t('profile.changePasswordTitle'),
+      key: 'profile',
+      label: t('nav.profile'),
       icon: iconProfile,
-      active: false,
-      onSelect: () => {
-        setMoreSheetOpen(false);
-        setPasswordDialogOpen(true);
-      },
+      active: isActive('/profile'),
+      badge: notifBadge,
+      alertBadge: true,
+      onSelect: () => goTo('/profile'),
+    },
+    {
+      key: 'rankings',
+      label: t('nav.rankings'),
+      icon: iconRanking,
+      active: isActive('/rankings'),
+      onSelect: () => goTo('/rankings'),
     },
     {
       key: 'logout',
@@ -470,7 +469,6 @@ const Navigation = () => {
       icon: iconLogout,
       active: false,
       onSelect: () => {
-        setMoreSheetOpen(false);
         void handleLogout();
       },
     },
@@ -555,6 +553,15 @@ const Navigation = () => {
       active: isActive('/rankings'),
       onSelect: () => goTo('/rankings'),
     },
+    {
+      key: 'logout',
+      label: t('nav.logout'),
+      icon: iconLogout,
+      active: false,
+      onSelect: () => {
+        void handleLogout();
+      },
+    },
   ];
 
   if (navHidden && !navExpanded) {
@@ -622,7 +629,6 @@ const Navigation = () => {
                 variant="ghost"
                 className="absolute right-2 top-2 h-9 w-9"
                 onClick={() => {
-                  setMoreSheetOpen(false);
                   setNavExpanded(false);
                 }}
                 aria-label="Fechar menu"
@@ -632,41 +638,33 @@ const Navigation = () => {
               </Button>
             )}
 
-            <div className={cn('grid grid-cols-5 gap-1', navHidden ? 'pr-10' : '')}>
-              {primaryMobileItems.map((item) => (
+            <div
+              className={cn(
+                'hide-scrollbar flex gap-1 overflow-x-auto pb-1',
+                navHidden ? 'pr-10' : '',
+              )}
+            >
+              {mobileItems.map((item) => (
                 <button
                   key={item.key}
                   type="button"
                   className={cn(
-                    'flex min-h-[64px] flex-col items-center justify-center gap-1 rounded-xl px-1 text-[11px] font-semibold leading-4 text-slate-200 transition-colors hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950',
+                    'flex min-h-[70px] min-w-[72px] shrink-0 flex-col items-center justify-center gap-1 rounded-xl px-1.5 text-[11px] font-semibold leading-4 text-slate-200 transition-colors hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950',
                     item.active && 'text-slate-50',
                   )}
                   onClick={item.onSelect}
                   aria-label={item.label}
                   aria-current={item.active ? 'page' : undefined}
                 >
-                  {item.key === 'more' ? (
-                    <span className={bubbleClass(item.active)}>
-                      <MoreHorizontal className="h-5 w-5" />
-                      {(item.badge || 0) > 0 && (
-                        <span className={badgeClass(item.alertBadge)}>
-                          {(item.badge || 0) > 99 ? '99+' : item.badge}
-                        </span>
-                      )}
+                  <span className={bubbleClass(item.active)}>
+                    <span className="absolute inset-[3px] rounded-2xl overflow-hidden">
+                      <img src={item.icon} alt="" aria-hidden className="h-full w-full object-cover" />
                     </span>
-                  ) : (
-                    <span className={bubbleClass(item.active)}>
-                      <span className="absolute inset-[3px] rounded-2xl overflow-hidden">
-                        <img src={item.icon} alt="" aria-hidden className="h-full w-full object-cover" />
-                      </span>
-                      {(item.badge || 0) > 0 && (
-                        <span className={badgeClass(item.alertBadge)}>
-                          {(item.badge || 0) > 99 ? '99+' : item.badge}
-                        </span>
-                      )}
-                    </span>
-                  )}
-                  <span className="max-w-[62px] truncate">{item.label}</span>
+                    {(item.badge || 0) > 0 && (
+                      <span className={badgeClass(item.alertBadge)}>{(item.badge || 0) > 99 ? '99+' : item.badge}</span>
+                    )}
+                  </span>
+                  <span className="max-w-[70px] truncate">{item.label}</span>
                 </button>
               ))}
             </div>
@@ -675,11 +673,11 @@ const Navigation = () => {
       </nav>
 
       <aside
-        className="fixed left-4 top-4 bottom-4 z-30 hidden w-[var(--djt-nav-desktop-w)] lg:block"
-        style={{ paddingTop: 'max(env(safe-area-inset-top), 0px)' }}
+        className="fixed bottom-1 left-2 top-1 z-30 hidden w-[var(--djt-nav-desktop-w)] lg:block"
+        style={{ paddingTop: 'max(env(safe-area-inset-top), 0px)', ['--djt-nav-scale' as any]: desktopNavScale }}
         aria-label="Navegação lateral"
       >
-        <div className="relative flex h-full flex-col overflow-hidden rounded-2xl border border-white/10 bg-slate-950/88 p-4 shadow-2xl backdrop-blur-xl">
+        <div className="relative flex h-full flex-col overflow-hidden rounded-2xl border border-white/10 bg-slate-950/88 p-1.5 shadow-2xl backdrop-blur-xl">
           <div aria-hidden className="pointer-events-none absolute inset-0 -z-10">
             <div
               className="absolute inset-0"
@@ -694,8 +692,10 @@ const Navigation = () => {
             <div className="absolute inset-0 bg-gradient-to-br from-slate-950/70 to-slate-900/60" />
           </div>
 
-          <div className="mb-3 flex items-center justify-between">
-            <p className="pl-1 text-base font-semibold tracking-wide text-slate-100">Menu</p>
+          <div className="mb-0.5 flex items-center justify-between">
+            <p className="pl-1 font-semibold tracking-wide text-slate-100" style={{ fontSize: `${Math.max(10, Math.round(13 * desktopNavScale))}px` }}>
+              Menu
+            </p>
             {navHidden && (
               <Button
                 type="button"
@@ -703,7 +703,6 @@ const Navigation = () => {
                 variant="ghost"
                 className="absolute right-2 top-2 h-8 w-8"
                 onClick={() => {
-                  setMoreSheetOpen(false);
                   setNavExpanded(false);
                 }}
                 aria-label="Fechar menu"
@@ -713,97 +712,39 @@ const Navigation = () => {
             )}
           </div>
 
-          <div className="flex-1 overflow-y-auto overscroll-contain pr-1 [scrollbar-gutter:stable]">
-            <div className="space-y-2 pb-2">
-            {desktopItems.map((item) => (
-              <button
-                key={item.key}
-                type="button"
-                className={cn(
-                  'group flex min-h-[74px] w-full items-center justify-start gap-4 rounded-xl px-3 py-2.5 text-left text-slate-100 transition-colors hover:bg-white/7 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950',
-                  item.active && 'bg-white/10',
-                )}
-                onClick={item.onSelect}
-                aria-label={item.label}
-                aria-current={item.active ? 'page' : undefined}
-                title={item.label}
-              >
-                <span className={bubbleClass(item.active, 'xl')}>
-                  <span className="absolute inset-[1px] rounded-2xl overflow-hidden">
-                    <img src={item.icon} alt="" aria-hidden className="h-full w-full object-cover" />
-                  </span>
-                  {(item.badge || 0) > 0 && (
-                    <span className={badgeClass(item.alertBadge)}>{(item.badge || 0) > 99 ? '99+' : item.badge}</span>
+          <div className="flex-1 overflow-hidden pr-0">
+            <div className="space-y-px pb-0">
+              {desktopItems.map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  className={cn(
+                    'group flex min-h-[calc(42px*var(--djt-nav-scale,1))] w-full items-center justify-start gap-[calc(0.35rem*var(--djt-nav-scale,1))] rounded-xl px-[calc(0.32rem*var(--djt-nav-scale,1))] py-[calc(0.15rem*var(--djt-nav-scale,1))] text-left text-slate-100 transition-colors hover:bg-white/7 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950',
+                    item.active && 'bg-white/10',
                   )}
-                </span>
-                <span className="min-w-0 flex-1 truncate text-[15px] font-semibold leading-5">
-                  {item.label}
-                </span>
-              </button>
-            ))}
-          </div>
+                  onClick={item.onSelect}
+                  aria-label={item.label}
+                  aria-current={item.active ? 'page' : undefined}
+                  title={item.label}
+                >
+                  <span className={bubbleClass(item.active, 'xl')}>
+                    <span className="absolute inset-[1px] rounded-2xl overflow-hidden">
+                      <img src={item.icon} alt="" aria-hidden className="h-full w-full object-cover" />
+                    </span>
+                    {(item.badge || 0) > 0 && (
+                      <span className={badgeClass(item.alertBadge)}>{(item.badge || 0) > 99 ? '99+' : item.badge}</span>
+                    )}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate font-semibold leading-4" style={{ fontSize: `${Math.max(10, Math.round(11 * desktopNavScale))}px` }}>
+                    {item.label}
+                  </span>
+                </button>
+              ))}
+            </div>
           </div>
 
-          <div className="mt-3 space-y-2 border-t border-white/10 pt-3">
-            <button
-              type="button"
-              className="group flex min-h-[74px] w-full items-center justify-start gap-4 rounded-xl px-3 py-2.5 text-left text-slate-100 transition-colors hover:bg-white/7 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-              onClick={() => {
-                void handleLogout();
-              }}
-              aria-label={t('nav.logout')}
-              title={t('nav.logout')}
-            >
-              <span className={bubbleClass(false, 'xl')}>
-                <span className="absolute inset-[1px] rounded-2xl overflow-hidden">
-                  <img src={iconLogout} alt="" aria-hidden className="h-full w-full object-cover" />
-                </span>
-              </span>
-              <span className="min-w-0 flex-1 truncate text-[15px] font-semibold leading-5">{t('nav.logout')}</span>
-            </button>
-          </div>
         </div>
       </aside>
-
-      <Sheet open={moreSheetOpen} onOpenChange={setMoreSheetOpen}>
-        <SheetContent
-          side="bottom"
-          className="rounded-t-2xl border-white/10 bg-slate-950/96 text-slate-100"
-          style={{ paddingBottom: 'max(env(safe-area-inset-bottom), 16px)' }}
-        >
-          <SheetHeader className="text-left">
-            <SheetTitle className="text-slate-100">Mais ações</SheetTitle>
-            <SheetDescription className="text-slate-300">
-              Navegação secundária e atalhos de conta.
-            </SheetDescription>
-          </SheetHeader>
-
-          <div className="mt-4 grid gap-2">
-            {mobileSecondaryItems.map((item) => (
-              <button
-                key={item.key}
-                type="button"
-                className={cn(
-                  'group flex min-h-[48px] w-full items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-left text-sm text-slate-100 transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950',
-                  item.active && 'border-cyan-300/40 bg-white/10',
-                )}
-                onClick={item.onSelect}
-                aria-label={item.label}
-              >
-                <span className={bubbleClass(item.active, 'sm')}>
-                  <span className="absolute inset-[3px] rounded-2xl overflow-hidden">
-                    <img src={item.icon} alt="" aria-hidden className="h-full w-full object-cover" />
-                  </span>
-                  {(item.badge || 0) > 0 && (
-                    <span className={badgeClass(item.alertBadge)}>{(item.badge || 0) > 99 ? '99+' : item.badge}</span>
-                  )}
-                </span>
-                <span className="min-w-0 flex-1 truncate">{item.label}</span>
-              </button>
-            ))}
-          </div>
-        </SheetContent>
-      </Sheet>
 
       <Dialog open={passwordDialogOpen} onOpenChange={setPasswordDialogOpen}>
         <DialogContent className="w-[calc(100%-1.5rem)] max-w-md max-h-[85vh] overflow-y-auto">

@@ -19,6 +19,7 @@ interface Challenge {
   description: string | null;
   type: string;
   status?: string | null;
+  due_date?: string | null;
   xp_reward: number;
   reward_mode?: string | null;
   reward_tier_steps?: number | null;
@@ -38,8 +39,20 @@ export const ChallengeManagement = ({ onlyQuizzes }: ChallengeManagementProps) =
   const [editTitle, setEditTitle] = useState("");
   const [editDescription, setEditDescription] = useState("");
   const [editXp, setEditXp] = useState<string>("0");
+  const [editDueDate, setEditDueDate] = useState<string>("");
   const [modalChallenge, setModalChallenge] = useState<Challenge | null>(null);
   const [modalTab, setModalTab] = useState<"general" | "questions" | "follow">("general");
+
+  const extractYyyyMmDd = (raw: any) => {
+    const s = String(raw || "").trim();
+    if (!s) return "";
+    const m = /^(\d{4}-\d{2}-\d{2})/.exec(s);
+    if (m?.[1]) return m[1];
+    const d = new Date(s);
+    if (Number.isNaN(d.getTime())) return "";
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  };
 
   const isTopLeader = profile?.matricula === "601555";
   const isAllowlistedAdmin = isAllowlistedAdminFromProfile(profile);
@@ -85,6 +98,7 @@ export const ChallengeManagement = ({ onlyQuizzes }: ChallengeManagementProps) =
     setEditTitle(String(c.title || ""));
     setEditDescription(String(c.description || ""));
     setEditXp(String(c.xp_reward ?? 0));
+    setEditDueDate(extractYyyyMmDd((c as any).due_date));
   };
 
   const closeModal = () => {
@@ -108,11 +122,6 @@ export const ChallengeManagement = ({ onlyQuizzes }: ChallengeManagementProps) =
 
   const updateStatus = async (c: Challenge, status: string) => {
     if (!c.id) return;
-    const isQuiz = (c.type || "").toLowerCase().includes("quiz");
-    if (isQuiz && !isAllowlistedAdmin) {
-      alert("Apenas admins (Rodrigo/Cíntia) podem alterar status de quizzes no momento.");
-      return;
-    }
     try {
       const msg =
         status === "active"
@@ -211,12 +220,14 @@ export const ChallengeManagement = ({ onlyQuizzes }: ChallengeManagementProps) =
     setEditTitle(c.title || "");
     setEditDescription(c.description || "");
     setEditXp(String(c.xp_reward ?? 0));
+    setEditDueDate(extractYyyyMmDd((c as any).due_date));
   };
 
   const handleSaveEdit = async (c: Challenge) => {
     const title = editTitle.trim();
     const description = editDescription.trim() || null;
     const xp = parseInt(editXp, 10);
+    const dueDate = String(editDueDate || "").trim();
     if (!title) {
       alert("Informe um título para o desafio/quiz.");
       return;
@@ -231,12 +242,14 @@ export const ChallengeManagement = ({ onlyQuizzes }: ChallengeManagementProps) =
         description: c.description,
         xp_reward: c.xp_reward,
         type: c.type,
+        due_date: (c as any)?.due_date || null,
       };
       const after = {
         title,
         description,
         xp_reward: xp,
         type: c.type,
+        due_date: dueDate || null,
       };
       const { data: userData } = await supabase.auth.getUser();
       const uid = userData.user?.id;
@@ -252,11 +265,22 @@ export const ChallengeManagement = ({ onlyQuizzes }: ChallengeManagementProps) =
         });
         const json = await resp.json().catch(() => ({}));
         if (!resp.ok) throw new Error(json?.error || "Falha ao salvar quiz");
+        if (dueDate) {
+          const dueResp = await apiFetch("/api/admin?handler=studio-update-quiz-vigencia", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ challengeId: c.id, due_date: dueDate }),
+          });
+          const dueJson = await dueResp.json().catch(() => ({}));
+          if (!dueResp.ok) throw new Error(dueJson?.error || "Falha ao atualizar vigência do quiz");
+        }
       } else {
-        const { error } = await supabase
-          .from("challenges")
-          .update({ title, description, xp_reward: xp })
-          .eq("id", c.id);
+        const patch: any = { title, description, xp_reward: xp, due_date: dueDate || null };
+        let { error } = await supabase.from("challenges").update(patch).eq("id", c.id);
+        if (error && /column .*due_date/i.test(String(error.message || ""))) {
+          const fallback = await supabase.from("challenges").update({ title, description, xp_reward: xp }).eq("id", c.id);
+          error = fallback.error;
+        }
         if (error) throw error;
       }
 
@@ -330,6 +354,15 @@ export const ChallengeManagement = ({ onlyQuizzes }: ChallengeManagementProps) =
                       />
                     </div>
                     <div className="flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground">Vigência:</span>
+                      <input
+                        className="w-[140px] text-sm bg-black/40 border border-white/10 rounded px-2 py-2 text-blue-50"
+                        type="date"
+                        value={editDueDate}
+                        onChange={(e) => setEditDueDate(e.target.value)}
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
                       <Button
                         size="sm"
                         variant="secondary"
@@ -339,6 +372,20 @@ export const ChallengeManagement = ({ onlyQuizzes }: ChallengeManagementProps) =
                       </Button>
                       <Button size="sm" variant="outline" onClick={closeModal}>
                         Fechar
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => modalChallenge && updateStatus(modalChallenge, "closed")}
+                      >
+                        Encerrar
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => modalChallenge && updateStatus(modalChallenge, "active")}
+                      >
+                        Reabrir
                       </Button>
                     </div>
                   </div>
@@ -449,7 +496,7 @@ export const ChallengeManagement = ({ onlyQuizzes }: ChallengeManagementProps) =
                         />
                       </>
                     ) : (
-                      <>
+	                        <>
                         <p className="font-semibold text-sm truncate text-blue-50">
                           {c.title}
                         </p>
@@ -512,24 +559,20 @@ export const ChallengeManagement = ({ onlyQuizzes }: ChallengeManagementProps) =
                               </Button>
                             </>
                           )}
-		                          {(!onlyQuizzes || isAllowlistedAdmin) && (
-		                            <>
-		                              <Button
-		                                size="xs"
-		                                variant="outline"
-	                                onClick={() => updateStatus(c, "closed")}
-	                              >
-	                                Encerrar
-	                              </Button>
-	                              <Button
-	                                size="xs"
-	                                variant="secondary"
-	                                onClick={() => updateStatus(c, "active")}
-	                              >
-	                                Reabrir
-	                              </Button>
-	                            </>
-	                          )}
+                              <Button
+                                size="xs"
+                                variant="outline"
+                                onClick={() => updateStatus(c, "closed")}
+                              >
+                                Encerrar
+                              </Button>
+                              <Button
+                                size="xs"
+                                variant="secondary"
+                                onClick={() => updateStatus(c, "active")}
+                              >
+                                Reabrir
+                              </Button>
 	                          {onlyQuizzes && isAllowlistedAdmin && (
 	                            <Button
 	                              size="xs"

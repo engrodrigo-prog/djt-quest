@@ -418,6 +418,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (typeof update.title === 'string' && update.title.trim()) safe.title = update.title.trim()
       if (typeof update.description === 'string') safe.description = update.description
       if (typeof update.status === 'string') safe.status = update.status
+      if (typeof update.is_active === 'boolean') safe.is_active = update.is_active
+      if (typeof update.is_locked === 'boolean') safe.is_locked = update.is_locked
       if (Array.isArray(update.tags)) safe.tags = update.tags
       if (Array.isArray(update.quiz_specialties)) safe.quiz_specialties = update.quiz_specialties
       if (typeof update.chas_dimension === 'string') safe.chas_dimension = update.chas_dimension

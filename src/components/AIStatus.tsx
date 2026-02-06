@@ -3,11 +3,48 @@ import { Bot, AlertTriangle } from 'lucide-react';
 
 type Health = { ok: boolean; latency_ms?: number; stage?: string; error?: string } | null;
 
+const HEALTH_POLL_INTERVAL_MS = 5 * 60_000;
+const HEALTH_CACHE_TTL_MS = 5 * 60_000;
+const HEALTH_CACHE_KEY = 'djt:ai-health-cache:v1';
+let inMemoryHealthCache: { ts: number; value: Health } | null = null;
+
+const readCachedHealth = (): Health => {
+  try {
+    const now = Date.now();
+    if (inMemoryHealthCache && now - inMemoryHealthCache.ts <= HEALTH_CACHE_TTL_MS) {
+      return inMemoryHealthCache.value;
+    }
+    if (typeof window === 'undefined') return null;
+    const raw = window.localStorage.getItem(HEALTH_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    const ts = Number(parsed?.ts || 0);
+    if (!ts || now - ts > HEALTH_CACHE_TTL_MS) return null;
+    const value = (parsed?.value || null) as Health;
+    inMemoryHealthCache = { ts, value };
+    return value;
+  } catch {
+    return null;
+  }
+};
+
+const writeCachedHealth = (value: Health) => {
+  try {
+    const payload = { ts: Date.now(), value };
+    inMemoryHealthCache = payload;
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(HEALTH_CACHE_KEY, JSON.stringify(payload));
+    }
+  } catch {
+    // ignore cache failures
+  }
+};
+
 export function AIStatus({ className }: { className?: string }) {
-  const [health, setHealth] = React.useState<Health>(null);
+  const [health, setHealth] = React.useState<Health>(() => readCachedHealth());
   const [checking, setChecking] = React.useState(false);
 
-  const check = React.useCallback(async () => {
+  const check = React.useCallback(async (opts?: { force?: boolean }) => {
     try {
       if (typeof window !== 'undefined') {
         const isDevWithoutApi = import.meta.env.DEV && !import.meta.env.VITE_API_BASE_URL && window.location.port !== '3000';
@@ -17,9 +54,17 @@ export function AIStatus({ className }: { className?: string }) {
         }
       }
 
+      if (!opts?.force) {
+        const cached = readCachedHealth();
+        if (cached) {
+          setHealth(cached);
+          return;
+        }
+      }
+
       setChecking(true);
       const ctl = new AbortController();
-      const t = setTimeout(() => ctl.abort(), 6000);
+      const t = setTimeout(() => ctl.abort(), 5000);
       const base = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
       const endpoint = base ? `${base}/api/ai?handler=health` : '/api/ai?handler=health';
       const resp = await fetch(endpoint, { method: 'GET', signal: ctl.signal });
@@ -32,20 +77,37 @@ export function AIStatus({ className }: { className?: string }) {
       }
       if (resp.ok) {
         setHealth(json);
+        writeCachedHealth(json);
       } else {
-        setHealth({ ok: false, ...(json || {}), stage: json?.stage || `http-${resp.status}` });
+        const next = { ok: false, ...(json || {}), stage: json?.stage || `http-${resp.status}` };
+        setHealth(next);
+        writeCachedHealth(next);
       }
     } catch (e) {
-      setHealth({ ok: false, stage: 'network', error: (e as any)?.message || 'network error' });
+      const next = { ok: false, stage: 'network', error: (e as any)?.message || 'network error' };
+      setHealth(next);
+      writeCachedHealth(next);
     } finally {
       setChecking(false);
     }
   }, []);
 
   React.useEffect(() => {
-    check();
-    const id = setInterval(check, 60_000);
-    return () => clearInterval(id);
+    if (!readCachedHealth()) {
+      void check({ force: true });
+    }
+    const runIfVisible = () => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      void check();
+    };
+    const id = setInterval(runIfVisible, HEALTH_POLL_INTERVAL_MS);
+    window.addEventListener('focus', runIfVisible);
+    document.addEventListener('visibilitychange', runIfVisible);
+    return () => {
+      clearInterval(id);
+      window.removeEventListener('focus', runIfVisible);
+      document.removeEventListener('visibilitychange', runIfVisible);
+    };
   }, [check]);
 
   const ok = !!health?.ok;
