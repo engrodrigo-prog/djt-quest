@@ -133,7 +133,7 @@ export default function ForumTopic() {
     hashtagDialogResolveRef.current = null
     try {
       resolve?.(choice)
-    } catch {}
+    } catch { /* noop */ }
   }, [])
 
   const formatHashtags = useCallback((tags: string[], withHash: boolean) => {
@@ -235,7 +235,7 @@ export default function ForumTopic() {
         for (const a of authors || []) {
           if (a?.id) authorMap.set(String(a.id), a)
         }
-      } catch {}
+      } catch { /* noop */ }
     }
     let likedSet = new Set<string>()
     if (user?.id && postsData.length) {
@@ -878,7 +878,7 @@ export default function ForumTopic() {
           }
         }
       }
-    } catch {}
+    } catch { /* noop */ }
     try {
       const { data: session } = await supabase.auth.getSession()
       const token = session.session?.access_token
@@ -914,7 +914,7 @@ export default function ForumTopic() {
               body: JSON.stringify({ post_id: (j as any)?.post?.id }),
             })
           }
-        } catch {}
+        } catch { /* noop */ }
         return
       } catch (apiErr:any) {
         // Fallback: direct insert via Supabase client (requires forum_posts to exist and RLS enabled)
@@ -1075,7 +1075,7 @@ export default function ForumTopic() {
           }
         }
       }
-    } catch {}
+    } catch { /* noop */ }
     try {
       const { data: session } = await supabase.auth.getSession(); const token = session.session?.access_token
       if (!token) throw new Error('Não autenticado')
@@ -1132,7 +1132,7 @@ export default function ForumTopic() {
       if (!save.ok) throw new Error(j2?.error || tr('forumTopic.errors.saveReviewFailed'))
 
       setPosts(prev => prev.map(p => p.id === post.id ? { ...p, content_md: trimmedCleaned } : p))
-      try { await load() } catch {}
+      try { await load() } catch { /* noop */ }
       toast({ title: tr('forumTopic.toast.textReviewedTitle'), description: tr('forumTopic.toast.textReviewedDesc') })
     } catch (e:any) {
       toast({

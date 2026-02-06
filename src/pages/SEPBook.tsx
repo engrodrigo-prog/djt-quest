@@ -250,7 +250,7 @@ export default function SEPBook() {
       try {
         const parsed = JSON.parse(draft);
         setContent(parsed.content || "");
-      } catch {}
+      } catch { /* noop */ }
       localStorage.removeItem("sepbook_draft");
     }
   }, [content]);
@@ -499,7 +499,7 @@ export default function SEPBook() {
       setAskedLocationOnce(true);
       try {
         localStorage.setItem("sepbook_location_asked", "1");
-      } catch {}
+      } catch { /* noop */ }
     }
   }, [useLocation, askedLocationOnce]);
 
@@ -660,7 +660,7 @@ export default function SEPBook() {
             finalText = `${finalText}\n${toAdd.join(" ")}`;
           }
         }
-      } catch {}
+      } catch { /* noop */ }
     }
     const replyToCommentId = replyTarget?.postId === post.id ? replyTarget.commentId : null;
     try {
@@ -1242,7 +1242,7 @@ export default function SEPBook() {
             const toAdd = js.hashtags.filter((h: string) => !text.includes(h));
             if (toAdd.length > 0) text = `${text}\n${toAdd.join(" ")}`;
           }
-        } catch {}
+        } catch { /* noop */ }
       }
       const { data: session } = await supabase.auth.getSession();
       const token = session.session?.access_token;

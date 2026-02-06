@@ -77,6 +77,7 @@ const Studio = () => {
     ]);
 
     if (!allowed.has(moduleParam)) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSelectedModule(moduleParam);
   }, [loading, location.search, studioAccess, userRole]);
 

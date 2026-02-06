@@ -168,7 +168,7 @@ export const SystemHealthCheck = () => {
         setForumBonusEnabled(!!data.value.enabled);
         setForumBonusMaxPct(typeof data.value.maxPct === 'number' ? data.value.maxPct : 0.20);
       }
-    } catch {}
+    } catch { /* noop */ }
   };
 
   const saveForumBonusSettings = async () => {

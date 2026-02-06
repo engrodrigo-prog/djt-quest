@@ -613,7 +613,7 @@ export const StudyLab = () => {
   const previewNextId =
     previewIndex >= 0 && previewIndex < visibleSources.length - 1 ? visibleSources[previewIndex + 1]?.id || null : null;
 
-  const useSourceInChat = (source: StudySource) => {
+  const selectSourceInChat = (source: StudySource) => {
     if (!source) return;
     if (source.id === FIXED_RULES_ID) {
       setOracleMode(true);
@@ -1734,7 +1734,7 @@ export const StudyLab = () => {
                             <Button
                               type="button"
                               size="sm"
-                              onClick={() => useSourceInChat(s)}
+                              onClick={() => selectSourceInChat(s)}
                               disabled={s.ingest_status === "pending" || (s.ingest_status === "failed" && s.id !== FIXED_RULES_ID)}
                             >
                               Usar
@@ -1819,7 +1819,7 @@ export const StudyLab = () => {
                     <Button
                       type="button"
                       size="sm"
-                      onClick={() => useSourceInChat(catalogPreviewSource)}
+                      onClick={() => selectSourceInChat(catalogPreviewSource)}
                       disabled={
                         catalogPreviewSource.ingest_status === "pending" ||
                         (catalogPreviewSource.ingest_status === "failed" && catalogPreviewSource.id !== FIXED_RULES_ID)

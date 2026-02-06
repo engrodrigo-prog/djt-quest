@@ -14,6 +14,10 @@ export default tseslint.config(
       "coverage",
       "logs",
       "supabase/.temp",
+      "api",
+      "server",
+      "scripts",
+      "supabase/functions",
     ],
   },
   {

@@ -145,7 +145,7 @@ export const ChallengeForm = () => {
       const xpMap: Record<number, number> = { 1: 10, 2: 20, 3: 30, 4: 40, 5: 50 };
       setValue('xp_reward', xpMap[priority] || 30, { shouldValidate: true });
       localStorage.removeItem('studio_compendium_draft');
-    } catch {}
+    } catch { /* noop */ }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

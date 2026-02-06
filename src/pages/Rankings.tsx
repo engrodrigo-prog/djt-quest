@@ -549,7 +549,7 @@ function Rankings() {
 
           setDivisionRankings([globalRow, ...divisionData]);
         }
-      } catch {}
+      } catch { /* noop */ }
 
       // Leader ranking: total XP across initiatives/quizzes/forum/SEPBook/evaluations (historical breakdown via RPC).
       const completedByReviewer = !evalQueueResult.error

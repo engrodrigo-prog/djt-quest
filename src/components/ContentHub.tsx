@@ -23,7 +23,7 @@ export function ContentHub({ onOpen }: { onOpen: (id: 'campaigns' | 'campaigns-m
           <CardContent className="flex flex-col gap-2">
             <Button
               onClick={() => {
-                try { localStorage.setItem('campaign_form_type', 'individual'); } catch {}
+                try { localStorage.setItem('campaign_form_type', 'individual'); } catch { /* noop */ }
                 onOpen('campaigns');
               }}
               className="w-full"
@@ -33,7 +33,7 @@ export function ContentHub({ onOpen }: { onOpen: (id: 'campaigns' | 'campaigns-m
             <Button
               variant="secondary"
               onClick={() => {
-                try { localStorage.setItem('campaign_form_type', 'team'); } catch {}
+                try { localStorage.setItem('campaign_form_type', 'team'); } catch { /* noop */ }
                 onOpen('campaigns');
               }}
               className="w-full"
