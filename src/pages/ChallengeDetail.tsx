@@ -401,7 +401,7 @@ const ChallengeDetail = () => {
 
   if (loadError) {
     return (
-      <div className="relative min-h-screen bg-background p-4 pb-40 overflow-hidden">
+      <div className="relative min-h-screen bg-background p-4 pb-[calc(7.5rem+env(safe-area-inset-bottom))] lg:pb-10 lg:pl-24 overflow-hidden">
         <ThemedBackground theme="Conhecimento" />
         <div className="container w-full max-w-2xl mx-auto py-8 space-y-6 relative">
           <Button variant="ghost" onClick={() => navigate('/dashboard')}>
@@ -452,7 +452,7 @@ const ChallengeDetail = () => {
   const canSeeQuizAnalytics = Boolean(isAllowlistedAdmin) || Boolean(isLeader) || userRole === 'admin' || String(userRole || '').includes('gerente') || String(userRole || '').includes('coordenador');
 
   return (
-    <div className="relative min-h-screen bg-background p-4 pb-40 overflow-hidden">
+    <div className="relative min-h-screen bg-background p-4 pb-[calc(7.5rem+env(safe-area-inset-bottom))] lg:pb-10 lg:pl-24 overflow-hidden">
       <ThemedBackground theme={theme} />
       <HelpInfo kind={(challenge.type || '').toLowerCase().includes('quiz') ? 'quiz' : 'challenge'} />
       <div

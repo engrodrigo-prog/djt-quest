@@ -384,17 +384,18 @@ export default function FinanceRequests() {
   };
 
   return (
-    <div className="relative min-h-screen bg-background pb-40 overflow-hidden">
+    <div className="relative min-h-screen bg-background pb-[calc(7.5rem+env(safe-area-inset-bottom))] lg:pb-10 lg:pl-24 overflow-hidden">
       <ThemedBackground theme="habilidades" />
-      <div className="container relative mx-auto px-3 py-4 space-y-4 max-w-4xl">
-        <div className="flex items-center justify-between gap-2">
+      <div className="container relative mx-auto px-3 py-4 sm:px-4 lg:px-6 space-y-4 max-w-4xl">
+        <div className="flex flex-wrap items-center gap-2">
           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => window.history.back()}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
-          <h1 className="text-lg font-semibold leading-tight flex-1">Solicitar Reembolso ou Adiantamento</h1>
-          <Button size="sm" onClick={() => setNewOpen(true)} disabled={!canUse}>
+          <h1 className="text-base sm:text-lg font-semibold leading-tight flex-1 min-w-[180px]">Solicitar Reembolso ou Adiantamento</h1>
+          <Button size="sm" onClick={() => setNewOpen(true)} disabled={!canUse} className="ml-auto">
             <Plus className="h-4 w-4 mr-2" />
-            Nova solicitação
+            <span className="hidden sm:inline">Nova solicitação</span>
+            <span className="sm:hidden">Nova</span>
           </Button>
         </div>
 

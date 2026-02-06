@@ -136,4 +136,21 @@ Notas do baseline:
 
 ### Gate 3..n
 
-- Status: `PENDING`
+- Escopo: ajustes por tela (lote principal de páginas autenticadas com `Navigation`).
+- Telas ajustadas:
+  - `Dashboard`, `LeaderDashboard`, `Profile`
+  - `Forums`, `ForumTopic`, `ForumInsights`
+  - `Rankings`, `FinanceRequests`, `CampaignDetail`, `ChallengeDetail`
+  - `Studio`, `StudioCuration`, `Evaluations`, `Study`
+  - `SEPBook`, `SEPBookIG`
+- Entrega:
+  - Padding inferior responsivo com safe-area para evitar overlap com navegação fixa.
+  - Compensação desktop (`lg:pl-24`) para coexistir com rail lateral sem cobrir conteúdo.
+  - Containers padronizados (`px-3 sm:px-4 lg:px-6`) e densidade melhor em desktop.
+  - Ajustes de header mobile (truncamento/compactação) em telas críticas.
+- Comandos:
+  - `npm run lint` ✅
+  - `npm run typecheck` ✅
+  - `npm run build` ✅
+  - `npm test` ✅
+- Status: **PASS**
