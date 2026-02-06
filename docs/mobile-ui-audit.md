@@ -169,6 +169,19 @@ Notas do baseline:
   - `npm test` ✅
 - Status: **PASS**
 
+### Gate 5
+
+- Escopo: otimização da sidebar desktop (1920x1080).
+- Entrega:
+  - Removido o atalho "Alterar senha" da sidebar desktop (mantido no menu de perfil).
+  - Mais espaço vertical para exibir todos os itens sem scroll desnecessário em telas amplas.
+- Comandos:
+  - `npm run lint` ✅
+  - `npm run typecheck` ✅
+  - `npm run build` ✅
+  - `npm test` ✅
+- Status: **PASS**
+
 ## 9) PR + Deploy (Vercel)
 
 - Branch publicada:
@@ -180,7 +193,7 @@ Notas do baseline:
   - URL: `https://djt-quest-6tggprlax-rodrigos-projects-9be3fb9d.vercel.app`
 - Produção:
   - Comando: `npx vercel --prod --yes`
-  - URL do deploy: `https://djt-quest-dwxof1wq8-rodrigos-projects-9be3fb9d.vercel.app`
+  - URL do deploy: `https://djt-quest-2f91nxsny-rodrigos-projects-9be3fb9d.vercel.app`
   - Alias ativo: `https://djt-quest.vercel.app`
 
 ## 10) Smoke test web (pós-deploy)
