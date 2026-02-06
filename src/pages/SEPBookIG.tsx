@@ -521,6 +521,20 @@ function SepbookMapUserActivity({ onActivity }: { onActivity: () => void }) {
   return null;
 }
 
+const pickGpsMediaSource = (items: MediaItem[]) => {
+  const candidates = (items || []).filter(
+    (it) =>
+      it.kind === "image" &&
+      it.gps &&
+      typeof it.gps.lat === "number" &&
+      typeof it.gps.lng === "number" &&
+      !it.error,
+  );
+  if (!candidates.length) return null;
+  const preferred = candidates.find((it) => typeof it.url === "string" && it.url.trim().length > 0) || candidates[0];
+  return { gps: preferred.gps!, url: preferred.url || null, id: preferred.id };
+};
+
 const maybeDownscaleImage = async (file: File, maxImageDimension: number, imageQuality: number): Promise<File> => {
   if (typeof document === "undefined") return file;
   if (!file.type.startsWith("image/")) return file;
@@ -869,25 +883,24 @@ export default function SEPBookIG() {
   const [fallbackTranslations, setFallbackTranslations] = useState<Record<string, string>>({});
   const translationInFlightRef = useRef(0);
 
-  const composerGpsSource = useMemo(() => {
-    const items = composerMedia.filter((m) => m.kind === "image");
-    for (const it of items) {
-      if (it.gps && typeof it.gps.lat === "number" && typeof it.gps.lng === "number") {
-        return { gps: it.gps, url: it.url || null, id: it.id };
-      }
-    }
-    return null;
-  }, [composerMedia]);
+  const composerGpsSource = useMemo(() => pickGpsMediaSource(composerMedia), [composerMedia]);
+  const commentGpsSource = useMemo(() => pickGpsMediaSource(commentMedia), [commentMedia]);
 
-  const commentGpsSource = useMemo(() => {
-    const items = commentMedia.filter((m) => m.kind === "image");
-    for (const it of items) {
-      if (it.gps && typeof it.gps.lat === "number" && typeof it.gps.lng === "number") {
-        return { gps: it.gps, url: it.url || null, id: it.id };
+  const ensureGpsConsent = useCallback(async () => {
+    if (myProfile?.sepbook_gps_consent === true) return true;
+    const uid = String(user?.id || "").trim();
+    if (!uid) return false;
+    try {
+      const { data } = await supabase.from("profiles").select("sepbook_gps_consent").eq("id", uid).maybeSingle();
+      const consent = (data as any)?.sepbook_gps_consent === true;
+      if (consent && myProfile) {
+        setMyProfile((prev) => (prev ? { ...prev, sepbook_gps_consent: true } : prev));
       }
+      return consent;
+    } catch {
+      return false;
     }
-    return null;
-  }, [commentMedia]);
+  }, [myProfile, user?.id]);
 
   const authorOptions = useMemo(() => {
     const map = new Map<
@@ -1325,10 +1338,11 @@ export default function SEPBookIG() {
   }, [commentsByPost, commentsOpenFor, locale, visiblePosts]);
 
   const resolveLocationForNewPost = useCallback(async () => {
-    if (myProfile?.sepbook_gps_consent !== true) return null;
+    const hasConsent = await ensureGpsConsent();
+    if (!hasConsent) return null;
 
     // Prefer EXIF GPS from the image, if present.
-    if (composerGpsSource?.gps && composerGpsSource.url) {
+    if (composerGpsSource?.gps) {
       return {
         location_lat: composerGpsSource.gps.lat,
         location_lng: composerGpsSource.gps.lng,
@@ -1353,11 +1367,12 @@ export default function SEPBookIG() {
       }
     }
     return null;
-  }, [composerGpsSource, composerMedia, myProfile?.sepbook_gps_consent]);
+  }, [composerGpsSource, composerMedia, ensureGpsConsent]);
 
   const resolveLocationForNewComment = useCallback(async () => {
-    if (myProfile?.sepbook_gps_consent !== true) return null;
-    if (commentGpsSource?.gps && commentGpsSource.url) {
+    const hasConsent = await ensureGpsConsent();
+    if (!hasConsent) return null;
+    if (commentGpsSource?.gps) {
       return {
         location_lat: commentGpsSource.gps.lat,
         location_lng: commentGpsSource.gps.lng,
@@ -1379,7 +1394,7 @@ export default function SEPBookIG() {
       }
     }
     return null;
-  }, [commentGpsSource, commentMedia, myProfile?.sepbook_gps_consent]);
+  }, [commentGpsSource, commentMedia, ensureGpsConsent]);
 
   const geoLabelCacheRef = useRef<Record<string, string>>({});
   const geoInFlightRef = useRef<Set<string>>(new Set());

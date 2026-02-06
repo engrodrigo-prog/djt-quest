@@ -342,6 +342,26 @@ export function CampaignEvidenceWizard({
       setAudioUploading(true);
       setAudioTranscribing(true);
       try {
+        const language = localeToSpeechLanguage(getActiveLocale());
+        const transcribeFromBase64 = async () => {
+          const toBase64 = (f: File) =>
+            new Promise<string>((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = () => resolve(String(reader.result));
+              reader.onerror = reject;
+              reader.readAsDataURL(f);
+            });
+          const b64 = await toBase64(file);
+          const fallbackResp = await apiFetch("/api/ai?handler=transcribe-audio", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ audioBase64: b64, audioMime: file.type || null, mode: "organize", language }),
+          });
+          const fallbackJson = await fallbackResp.json().catch(() => ({}));
+          if (!fallbackResp.ok) throw new Error(fallbackJson?.error || "Falha na transcrição");
+          return String(fallbackJson?.text || fallbackJson?.transcript || "").trim();
+        };
+
         // upload audio (optional attachment)
         const ext = (() => {
           const name = String(file.name || "");
@@ -370,14 +390,19 @@ export function CampaignEvidenceWizard({
         setAudioUploading(false);
 
         // transcribe
-        const resp = await apiFetch("/api/ai?handler=transcribe-audio", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ fileUrl: publicUrl, mode: "organize", language: localeToSpeechLanguage(getActiveLocale()) }),
-        });
-        const json = await resp.json().catch(() => ({}));
-        if (!resp.ok) throw new Error(json?.error || "Falha na transcrição");
-        const transcript = String(json?.text || json?.transcript || "").trim();
+        let transcript = "";
+        try {
+          const resp = await apiFetch("/api/ai?handler=transcribe-audio", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ fileUrl: publicUrl, mode: "organize", language }),
+          });
+          const json = await resp.json().catch(() => ({}));
+          if (!resp.ok) throw new Error(json?.error || "Falha na transcrição");
+          transcript = String(json?.text || json?.transcript || "").trim();
+        } catch {
+          transcript = await transcribeFromBase64();
+        }
         if (transcript) {
           setAudioTranscript(transcript);
         }
