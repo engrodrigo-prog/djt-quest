@@ -405,7 +405,7 @@ export const ChallengeManagement = ({ onlyQuizzes }: ChallengeManagementProps) =
               </TabsContent>
 
               <TabsContent value="follow" className="space-y-3">
-                <QuizResultsDashboard challengeId={modalChallenge.id} />
+                <QuizResultsDashboard challengeId={modalChallenge.id} active={modalTab === "follow"} />
               </TabsContent>
             </Tabs>
           ) : null}

@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { getActiveLocale } from "@/lib/i18n/activeLocale";
+import { cn } from "@/lib/utils";
 import { Download, FileText, RefreshCw, Save } from "lucide-react";
 import { FINANCE_COMPANIES, FINANCE_COORDINATIONS, FINANCE_REQUEST_KINDS, FINANCE_STATUSES, normalizeFinanceStatus } from "@/lib/finance/constants";
 
@@ -22,6 +23,24 @@ const formatBrl = (cents: number | null | undefined) => {
 };
 
 const statusLabel = (raw: unknown) => normalizeFinanceStatus(raw) || "—";
+const financeStatusToneClass = (raw: unknown) => {
+  const s = statusLabel(raw);
+  if (s === "Enviado") return "border-blue-600 bg-blue-600 text-white";
+  if (s === "Em Análise") return "border-yellow-400 bg-yellow-400 text-slate-950";
+  if (s === "Aprovado") return "border-emerald-600 bg-emerald-600 text-white";
+  if (s === "Reprovado") return "border-red-600 bg-red-600 text-white";
+  if (s === "Cancelado") return "border-purple-600 bg-purple-600 text-white";
+  return "border-border bg-muted/30 text-foreground";
+};
+const financeStatusDotClass = (raw: unknown) => {
+  const s = statusLabel(raw);
+  if (s === "Enviado") return "bg-white";
+  if (s === "Em Análise") return "bg-slate-900";
+  if (s === "Aprovado") return "bg-white";
+  if (s === "Reprovado") return "bg-white";
+  if (s === "Cancelado") return "bg-white";
+  return "bg-foreground/70";
+};
 
 export function FinanceRequestsManagement() {
   const { toast } = useToast();
@@ -281,7 +300,10 @@ export function FinanceRequestsManagement() {
                     </div>
                   </div>
                   <div className="flex flex-col items-end gap-1">
-                    <Badge className="text-[10px]">{statusLabel(r.status)}</Badge>
+                    <Badge variant="outline" className={cn("text-[10px] inline-flex items-center gap-1.5", financeStatusToneClass(r.status))}>
+                      <span className={cn("inline-block h-1.5 w-1.5 rounded-full", financeStatusDotClass(r.status))} aria-hidden />
+                      {statusLabel(r.status)}
+                    </Badge>
                     <div className="text-[11px] text-muted-foreground">{formatBrl(r.amount_cents)}</div>
                   </div>
                 </div>
@@ -317,7 +339,10 @@ export function FinanceRequestsManagement() {
                     </div>
                   </div>
                   <div className="text-right">
-                    <Badge className="text-[11px]">{statusLabel(detail.request.status)}</Badge>
+                    <Badge variant="outline" className={cn("text-[11px] inline-flex items-center gap-1.5", financeStatusToneClass(detail.request.status))}>
+                      <span className={cn("inline-block h-1.5 w-1.5 rounded-full", financeStatusDotClass(detail.request.status))} aria-hidden />
+                      {statusLabel(detail.request.status)}
+                    </Badge>
                     <div className="text-[12px] text-muted-foreground mt-1">{formatBrl(detail.request.amount_cents)}</div>
                   </div>
                 </div>

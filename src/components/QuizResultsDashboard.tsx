@@ -381,7 +381,7 @@ const flattenTree = (nodes: TreeNode[], expanded: Record<string, true>, depth = 
   return out;
 };
 
-export function QuizResultsDashboard({ challengeId }: { challengeId: string }) {
+export function QuizResultsDashboard({ challengeId, active = true }: { challengeId: string; active?: boolean }) {
   const { orgScope, userRole, isLeader } = useAuth() as any;
 
   const role = String(userRole || '').trim();
@@ -421,6 +421,7 @@ export function QuizResultsDashboard({ challengeId }: { challengeId: string }) {
   }, [orgScope?.coordId, orgScope?.divisionId, orgScope?.teamId, scope]);
 
   const fetchResults = async () => {
+    if (!active) return;
     if (!challengeId) return;
     if (scope !== 'all' && !scopeId) return;
     setLoading(true);
@@ -448,7 +449,24 @@ export function QuizResultsDashboard({ challengeId }: { challengeId: string }) {
   useEffect(() => {
     fetchResults();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [challengeId, includeGuests, includeLeaders, scope, scopeId]);
+  }, [active, challengeId, includeGuests, includeLeaders, scope, scopeId]);
+
+  useEffect(() => {
+    if (!active) return;
+    const onFocusRefresh = () => {
+      void fetchResults();
+    };
+    const onVisibilityRefresh = () => {
+      if (document.visibilityState === 'visible') void fetchResults();
+    };
+    window.addEventListener('focus', onFocusRefresh);
+    document.addEventListener('visibilitychange', onVisibilityRefresh);
+    return () => {
+      window.removeEventListener('focus', onFocusRefresh);
+      document.removeEventListener('visibilitychange', onVisibilityRefresh);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, challengeId, includeGuests, includeLeaders, scope, scopeId]);
 
   const treeRoots = useMemo(() => buildQuizOrgTree((data?.people || []) as PeopleRow[]), [data?.people]);
 

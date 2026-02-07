@@ -318,7 +318,7 @@ export default async function handler(req, res) {
 
     // Submitted attempts (completion marker). We intentionally ignore score/max_score here because
     // older records stored XP instead of "acertos", which breaks accuracy averages.
-    const submittedByUserId = new Map(); // user_id -> submitted_at
+    const submittedByUserId = new Map(); // user_id -> latest submitted_at
     for (const ids of chunk(userIds, 500)) {
       let q = admin
         .from('quiz_attempts')
@@ -344,7 +344,10 @@ export default async function handler(req, res) {
         const prof = byUserId.get(uid);
         if (!uid || !prof) continue;
         const submittedAt = safeIso(row?.submitted_at);
-        if (submittedAt) submittedByUserId.set(uid, submittedAt);
+        if (submittedAt) {
+          const prev = submittedByUserId.get(uid);
+          if (!prev || submittedAt > prev) submittedByUserId.set(uid, submittedAt);
+        }
       }
     }
 
@@ -358,9 +361,13 @@ export default async function handler(req, res) {
       const uid = String(p.id);
       const submittedAt = submittedByUserId.get(uid) || null;
       const s = answerStats.get(uid) || { answered: 0, correct: 0, lastAnsweredAt: null };
-      const completedByAnswers = totalQuestions > 0 && Number(s.answered || 0) >= totalQuestions;
+      const answeredCount = Math.max(0, Number(s.answered || 0) || 0);
+      const completedByAnswers = totalQuestions > 0 && answeredCount >= totalQuestions;
       const completionAt = submittedAt || s.lastAnsweredAt || null;
-      const hasAttempt = (Boolean(submittedAt) || completedByAnswers) && (fromIso || toIso ? inRange(completionAt, fromIso, toIso) : true);
+      // Consider the most recent participation as soon as the user answers at least one question.
+      // This keeps "Acompanhar" in sync even before final submit.
+      const hasAttemptRaw = Boolean(submittedAt) || answeredCount > 0 || completedByAnswers;
+      const hasAttempt = hasAttemptRaw && (fromIso || toIso ? inRange(completionAt, fromIso, toIso) : true);
 
       if (!hasAttempt) continue;
 

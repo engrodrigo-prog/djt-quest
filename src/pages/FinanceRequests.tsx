@@ -17,6 +17,7 @@ import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft, FileText, Plus, XCircle } from "lucide-react";
 import { useI18n } from "@/contexts/I18nContext";
 import { getActiveLocale } from "@/lib/i18n/activeLocale";
+import { cn } from "@/lib/utils";
 import { FINANCE_COMPANIES, FINANCE_COORDINATIONS, FINANCE_EXPENSE_TYPES, FINANCE_REQUEST_KINDS, FINANCE_STATUSES, normalizeFinanceStatus } from "@/lib/finance/constants";
 
 type RequestRow = {
@@ -95,6 +96,24 @@ const formatBrl = (cents: number | null | undefined) => {
 };
 
 const statusLabel = (raw: unknown) => normalizeFinanceStatus(raw) || "—";
+const financeStatusToneClass = (raw: unknown) => {
+  const s = statusLabel(raw);
+  if (s === "Enviado") return "border-blue-600 bg-blue-600 text-white";
+  if (s === "Em Análise") return "border-yellow-400 bg-yellow-400 text-slate-950";
+  if (s === "Aprovado") return "border-emerald-600 bg-emerald-600 text-white";
+  if (s === "Reprovado") return "border-red-600 bg-red-600 text-white";
+  if (s === "Cancelado") return "border-purple-600 bg-purple-600 text-white";
+  return "border-border bg-muted/30 text-foreground";
+};
+const financeStatusDotClass = (raw: unknown) => {
+  const s = statusLabel(raw);
+  if (s === "Enviado") return "bg-white";
+  if (s === "Em Análise") return "bg-slate-900";
+  if (s === "Aprovado") return "bg-white";
+  if (s === "Reprovado") return "bg-white";
+  if (s === "Cancelado") return "bg-white";
+  return "bg-foreground/70";
+};
 
 const EXPENSE_TYPE_I18N_KEY: Record<string, string> = {
   Transporte: "finance.expenseType.transport",
@@ -360,26 +379,33 @@ export default function FinanceRequests() {
     }
   };
 
-  const canCancelSelected = Boolean(detail?.permissions?.can_cancel);
-  const cancelSelected = async () => {
+  const canDeleteSelected = Boolean(detail?.permissions?.can_delete ?? detail?.permissions?.can_cancel);
+  const deleteBlockReason = useMemo(() => {
+    if (!detail?.request || canDeleteSelected) return "";
+    const current = statusLabel(detail.request.status);
+    if (current !== "Enviado") return `Exclusão indisponível: pedido já está em ${current}.`;
+    if (detail.request.analyst_viewed_at) return "Exclusão indisponível: o pedido já foi visualizado por um analista.";
+    return "Exclusão indisponível: o pedido já teve movimentação no fluxo.";
+  }, [canDeleteSelected, detail?.request]);
+  const deleteSelected = async () => {
     const id = String(detailId || "").trim();
     if (!id) return;
-    if (!window.confirm("Cancelar solicitação? (somente se ainda estiver como Enviado)")) return;
+    if (!window.confirm("Excluir solicitação? (somente se ainda estiver como Enviado e ainda não vista por analista)")) return;
     try {
       const resp = await apiFetch("/api/finance-request", {
-        method: "PATCH",
+        method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id }),
       });
       const json = await resp.json().catch(() => ({}));
-      if (!resp.ok) throw new Error(json?.error || "Falha ao cancelar");
-      toast({ title: "Solicitação cancelada" });
+      if (!resp.ok) throw new Error(json?.error || "Falha ao excluir");
+      toast({ title: "Solicitação excluída" });
       setDetailOpen(false);
       setDetailId(null);
       setDetail(null);
       void load();
     } catch (e: any) {
-      toast({ title: "Erro", description: e?.message || "Falha ao cancelar", variant: "destructive" });
+      toast({ title: "Erro", description: e?.message || "Falha ao excluir", variant: "destructive" });
     }
   };
 
@@ -471,9 +497,10 @@ export default function FinanceRequests() {
                       </div>
                         <div className="flex flex-col items-end gap-1">
                         <Badge
-                          variant={statusLabel(r.status) === "Enviado" ? "secondary" : statusLabel(r.status) === "Aprovado" ? "default" : "outline"}
-                          className="text-[10px]"
+                          variant="outline"
+                          className={cn("text-[10px] inline-flex items-center gap-1.5", financeStatusToneClass(r.status))}
                         >
+                          <span className={cn("inline-block h-1.5 w-1.5 rounded-full", financeStatusDotClass(r.status))} aria-hidden />
                           {statusLabel(r.status)}
                         </Badge>
                         <div className="text-[11px] text-muted-foreground">{formatBrl(r.amount_cents)}</div>
@@ -702,7 +729,10 @@ export default function FinanceRequests() {
                   </div>
                 </div>
                 <div className="text-right">
-                  <Badge className="text-[11px]">{statusLabel(detail.request.status)}</Badge>
+                  <Badge variant="outline" className={cn("text-[11px] inline-flex items-center gap-1.5", financeStatusToneClass(detail.request.status))}>
+                    <span className={cn("inline-block h-1.5 w-1.5 rounded-full", financeStatusDotClass(detail.request.status))} aria-hidden />
+                    {statusLabel(detail.request.status)}
+                  </Badge>
                   <div className="text-[12px] text-muted-foreground mt-1">{formatBrl(detail.request.amount_cents)}</div>
                 </div>
               </div>
@@ -784,16 +814,17 @@ export default function FinanceRequests() {
               </div>
 
               <div className="flex justify-end gap-2">
-                {canCancelSelected ? (
-                  <Button type="button" variant="destructive" onClick={cancelSelected}>
-                    <XCircle className="h-4 w-4 mr-2" />
-                    Cancelar
-                  </Button>
-                ) : null}
+                <Button type="button" variant="destructive" onClick={deleteSelected} disabled={!canDeleteSelected} title={deleteBlockReason || undefined}>
+                  <XCircle className="h-4 w-4 mr-2" />
+                  Excluir
+                </Button>
                 <Button type="button" variant="outline" onClick={() => setDetailOpen(false)}>
                   Fechar
                 </Button>
               </div>
+              {!canDeleteSelected && deleteBlockReason ? (
+                <p className="text-[11px] text-muted-foreground text-right">{deleteBlockReason}</p>
+              ) : null}
             </div>
           ) : (
             <p className="text-sm text-muted-foreground">Selecione uma solicitação.</p>

@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -33,6 +33,7 @@ interface IndividualRanking {
   forumXp: number;
   sepbookXp: number;
   evaluationsXp: number;
+  accessXp: number;
 }
 
 interface TeamRanking {
@@ -61,6 +62,8 @@ interface LeaderRanking {
   initiativesXp: number;
   forumXp: number;
   sepbookXp: number;
+  quizPublishXp: number;
+  accessXp: number;
   baseXp: number;
   score: number;
 }
@@ -79,6 +82,25 @@ interface XpBreakdown {
   quizPublishXp: number;
   evaluationsCompleted: number;
   evaluationsXp: number;
+  accessSessions: number;
+  accessXp: number;
+}
+
+type DetailCategory = 'all' | 'campanha' | 'quiz' | 'forum' | 'sepbook' | 'avaliacoes' | 'acesso';
+
+interface XpDetailRow {
+  sourceKey: string;
+  category: Exclude<DetailCategory, 'all'> | string;
+  sourceType: string;
+  sourceId: string | null;
+  createdAt: string | null;
+  points: number;
+  title: string;
+  subtitle: string;
+  campaignId: string | null;
+  campaignTitle: string | null;
+  challengeId: string | null;
+  challengeTitle: string | null;
 }
 
 const GUEST_TEAM_ID = 'CONVIDADOS';
@@ -89,13 +111,14 @@ const computeBaseXpFromBreakdown = (b: any) => {
   const quizXp = Number(b?.quiz_xp || 0);
   const initiativesXp = Number(b?.initiatives_xp || 0);
   const quizPublishXp = Number(b?.quiz_publish_xp || 0);
+  const accessXp = Number(b?.access_xp || 0);
   const forumXp = Number(b?.forum_posts || 0) * 10;
   const sepbookXp =
     Number(b?.sepbook_photo_count || 0) * 5 +
     Number(b?.sepbook_comments || 0) * 2 +
     Number(b?.sepbook_likes || 0);
   const evaluationsXp = Number(b?.evaluations_completed || 0) * LEADER_EVAL_POINTS;
-  return quizXp + initiativesXp + quizPublishXp + forumXp + sepbookXp + evaluationsXp;
+  return quizXp + initiativesXp + quizPublishXp + accessXp + forumXp + sepbookXp + evaluationsXp;
 };
 
 function Rankings() {
@@ -113,6 +136,55 @@ function Rankings() {
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [breakdownLoading, setBreakdownLoading] = useState(false);
   const [selectedBreakdown, setSelectedBreakdown] = useState<XpBreakdown | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
+  const [selectedDetails, setSelectedDetails] = useState<XpDetailRow[]>([]);
+  const [detailCategory, setDetailCategory] = useState<DetailCategory>('all');
+
+  const detailCategories: Array<{ key: DetailCategory; label: string }> = useMemo(
+    () => [
+      { key: 'all', label: 'Tudo' },
+      { key: 'campanha', label: 'Campanha' },
+      { key: 'quiz', label: 'Quiz' },
+      { key: 'forum', label: 'Fórum' },
+      { key: 'sepbook', label: 'SEPBook' },
+      { key: 'avaliacoes', label: 'Avaliações' },
+      { key: 'acesso', label: 'Acesso' },
+    ],
+    [],
+  );
+
+  const filteredDetails = useMemo(
+    () => selectedDetails.filter((row) => detailCategory === 'all' || row.category === detailCategory),
+    [selectedDetails, detailCategory],
+  );
+
+  const detailTotals = useMemo(() => {
+    return selectedDetails.reduce<Record<string, number>>((acc, row) => {
+      const key = row.category || 'outros';
+      acc[key] = (acc[key] || 0) + (Number(row.points) || 0);
+      return acc;
+    }, {});
+  }, [selectedDetails]);
+
+  const formatPoints = (value: number) => {
+    const num = Number(value || 0);
+    if (Number.isInteger(num)) return num.toLocaleString();
+    return num.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  };
+
+  const formatDateTime = (iso: string | null) => {
+    if (!iso) return '-';
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '-';
+    return d.toLocaleString(getActiveLocale(), {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
 
   const fetchRankings = useCallback(async () => {
     try {
@@ -203,6 +275,7 @@ function Rankings() {
               Number(breakdown?.sepbook_comments || 0) * 2 +
               Number(breakdown?.sepbook_likes || 0);
             const evaluationsXp = Number(breakdown?.evaluations_completed || 0) * LEADER_EVAL_POINTS;
+            const accessXp = Number(breakdown?.access_xp || 0);
             return {
               ...profile,
               __points: points,
@@ -214,6 +287,7 @@ function Rankings() {
               __forumXp: forumXp,
               __sepbookXp: sepbookXp,
               __evaluationsXp: evaluationsXp,
+              __accessXp: accessXp,
             };
           })
           .sort((a: any, b: any) => (b.__points || 0) - (a.__points || 0) || String(a.name).localeCompare(String(b.name), getActiveLocale()))
@@ -244,6 +318,7 @@ function Rankings() {
               forumXp: Number((profile as any).__forumXp ?? 0),
               sepbookXp: Number((profile as any).__sepbookXp ?? 0),
               evaluationsXp: Number((profile as any).__evaluationsXp ?? 0),
+              accessXp: Number((profile as any).__accessXp ?? 0),
             };
           });
         setIndividualRankings(ranked);
@@ -615,8 +690,10 @@ function Rankings() {
           const sepbookXp = b
             ? Number(b.sepbook_photo_count || 0) * 5 + Number(b.sepbook_comments || 0) * 2 + Number(b.sepbook_likes || 0)
             : 0;
+          const quizPublishXp = b ? Number(b.quiz_publish_xp || 0) : 0;
+          const accessXp = b ? Number(b.access_xp || 0) : 0;
           const evaluationsXp = completed * LEADER_EVAL_POINTS;
-          const baseXp = quizXp + initiativesXp + forumXp + sepbookXp + evaluationsXp;
+          const baseXp = quizXp + initiativesXp + forumXp + sepbookXp + evaluationsXp + quizPublishXp + accessXp;
           const score = baseXp;
           return {
             userId: p.id,
@@ -627,6 +704,8 @@ function Rankings() {
             initiativesXp,
             forumXp,
             sepbookXp,
+            quizPublishXp,
+            accessXp,
             baseXp,
             score,
           } as LeaderRanking;
@@ -648,16 +727,29 @@ function Rankings() {
   useEffect(() => {
     if (!selectedUserId) {
       setSelectedBreakdown(null);
+      setSelectedDetails([]);
+      setDetailError(null);
+      setDetailCategory('all');
+      setBreakdownLoading(false);
+      setDetailLoading(false);
       return;
     }
     let cancelled = false;
     setBreakdownLoading(true);
+    setDetailLoading(true);
+    setDetailError(null);
+    setDetailCategory('all');
     (async () => {
       try {
         const userId = selectedUserId;
-        const { data: rows, error } = await supabase.rpc('user_points_breakdown', { _user_ids: [userId] } as any);
-        if (error) throw error;
-        const b = Array.isArray(rows) ? rows[0] : null;
+        const [breakdownResult, detailResult] = await Promise.all([
+          supabase.rpc('user_points_breakdown', { _user_ids: [userId] } as any),
+          supabase.rpc('user_points_detail', { _user_id: userId } as any),
+        ]);
+
+        if (breakdownResult.error) throw breakdownResult.error;
+
+        const b = Array.isArray(breakdownResult.data) ? breakdownResult.data[0] : null;
 
         const quizXp = Number(b?.quiz_xp || 0);
         const forumPosts = Number(b?.forum_posts || 0);
@@ -672,6 +764,25 @@ function Rankings() {
         const quizPublishXp = Number(b?.quiz_publish_xp || 0);
         const evaluationsCompleted = Number(b?.evaluations_completed || 0);
         const evaluationsXp = evaluationsCompleted * LEADER_EVAL_POINTS;
+        const accessSessions = Number(b?.access_sessions || 0);
+        const accessXp = Number(b?.access_xp || 0);
+
+        const detailRows = detailResult.error
+          ? []
+          : (Array.isArray(detailResult.data) ? detailResult.data : []).map((row: any) => ({
+              sourceKey: String(row?.source_key || ''),
+              category: String(row?.category || 'campanha'),
+              sourceType: String(row?.source_type || ''),
+              sourceId: row?.source_id ? String(row.source_id) : null,
+              createdAt: row?.created_at ? String(row.created_at) : null,
+              points: Number(row?.points || 0),
+              title: String(row?.title || 'Origem de pontuação'),
+              subtitle: String(row?.subtitle || ''),
+              campaignId: row?.campaign_id ? String(row.campaign_id) : null,
+              campaignTitle: row?.campaign_title ? String(row.campaign_title) : null,
+              challengeId: row?.challenge_id ? String(row.challenge_id) : null,
+              challengeTitle: row?.challenge_title ? String(row.challenge_title) : null,
+            })) as XpDetailRow[];
 
         if (!cancelled) {
           setSelectedBreakdown({
@@ -688,10 +799,25 @@ function Rankings() {
             quizPublishXp,
             evaluationsCompleted,
             evaluationsXp,
+            accessSessions,
+            accessXp,
           });
+          setSelectedDetails(detailRows);
+          if (detailResult.error) {
+            setDetailError('Não foi possível carregar o extrato detalhado.');
+          }
+        }
+      } catch {
+        if (!cancelled) {
+          setSelectedBreakdown(null);
+          setSelectedDetails([]);
+          setDetailError('Não foi possível carregar os detalhes de pontuação.');
         }
       } finally {
-        if (!cancelled) setBreakdownLoading(false);
+        if (!cancelled) {
+          setBreakdownLoading(false);
+          setDetailLoading(false);
+        }
       }
     })();
 
@@ -829,43 +955,130 @@ function Rankings() {
                           )}
                         </div>
                         {selectedBreakdown && (
-                          <div className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
-                            <div>
-                              {tr("rankings.breakdown.quiz")}:{" "}
-                              <span className="font-semibold">{selectedBreakdown.quizXp.toLocaleString()}</span> XP
+                          <div className="mt-3 space-y-4">
+                            <div className="grid gap-3 text-sm sm:grid-cols-2">
+                              <div>
+                                {tr("rankings.breakdown.quiz")}:{" "}
+                                <span className="font-semibold">{selectedBreakdown.quizXp.toLocaleString()}</span> XP
+                              </div>
+                              <div>
+                                {tr("rankings.breakdown.forum")}:{" "}
+                                <span className="font-semibold">{selectedBreakdown.forumPosts}</span>{" "}
+                                → {selectedBreakdown.forumXp.toLocaleString()} XP
+                              </div>
+                              <div>
+                                {tr("rankings.breakdown.sepbookPhotos")}:{" "}
+                                <span className="font-semibold">{selectedBreakdown.sepbookPhotoCount}</span>{" "}
+                                → {selectedBreakdown.sepbookPostXp.toLocaleString()} XP
+                              </div>
+                              <div>
+                                {tr("rankings.breakdown.sepbookComments")}:{" "}
+                                <span className="font-semibold">{selectedBreakdown.sepbookComments}</span>{" "}
+                                → {selectedBreakdown.sepbookCommentXp.toLocaleString()} XP
+                              </div>
+                              <div>
+                                {tr("rankings.breakdown.sepbookLikes")}:{" "}
+                                <span className="font-semibold">{selectedBreakdown.sepbookLikes}</span>{" "}
+                                → {selectedBreakdown.sepbookLikeXp.toLocaleString()} XP
+                              </div>
+                              <div>
+                                {tr("rankings.breakdown.campaigns")}:{" "}
+                                <span className="font-semibold">{selectedBreakdown.campaignsXp.toLocaleString()}</span> XP
+                              </div>
+                              <div>
+                                Publicação de quizzes:{" "}
+                                <span className="font-semibold">{selectedBreakdown.quizPublishXp.toLocaleString()}</span> XP
+                              </div>
+                              <div>
+                                {tr("rankings.breakdown.evaluations")}:{" "}
+                                <span className="font-semibold">{selectedBreakdown.evaluationsCompleted}</span>{" "}
+                                → {selectedBreakdown.evaluationsXp.toLocaleString()} XP
+                              </div>
+                              <div>
+                                Acessos na plataforma:{" "}
+                                <span className="font-semibold">{selectedBreakdown.accessSessions.toLocaleString()}</span>{" "}
+                                → {formatPoints(selectedBreakdown.accessXp)} XP
+                              </div>
                             </div>
-                            <div>
-                              {tr("rankings.breakdown.forum")}:{" "}
-                              <span className="font-semibold">{selectedBreakdown.forumPosts}</span>{" "}
-                              → {selectedBreakdown.forumXp.toLocaleString()} XP
-                            </div>
-                            <div>
-                              {tr("rankings.breakdown.sepbookPhotos")}:{" "}
-                              <span className="font-semibold">{selectedBreakdown.sepbookPhotoCount}</span>{" "}
-                              → {selectedBreakdown.sepbookPostXp.toLocaleString()} XP
-                            </div>
-                            <div>
-                              {tr("rankings.breakdown.sepbookComments")}:{" "}
-                              <span className="font-semibold">{selectedBreakdown.sepbookComments}</span>{" "}
-                              → {selectedBreakdown.sepbookCommentXp.toLocaleString()} XP
-                            </div>
-                            <div>
-                              {tr("rankings.breakdown.sepbookLikes")}:{" "}
-                              <span className="font-semibold">{selectedBreakdown.sepbookLikes}</span>{" "}
-                              → {selectedBreakdown.sepbookLikeXp.toLocaleString()} XP
-                            </div>
-                            <div>
-                              {tr("rankings.breakdown.campaigns")}:{" "}
-                              <span className="font-semibold">{selectedBreakdown.campaignsXp.toLocaleString()}</span> XP
-                            </div>
-                            <div>
-                              Publicação de quizzes:{" "}
-                              <span className="font-semibold">{selectedBreakdown.quizPublishXp.toLocaleString()}</span> XP
-                            </div>
-                            <div>
-                              {tr("rankings.breakdown.evaluations")}:{" "}
-                              <span className="font-semibold">{selectedBreakdown.evaluationsCompleted}</span>{" "}
-                              → {selectedBreakdown.evaluationsXp.toLocaleString()} XP
+
+                            <div className="rounded-md border border-white/10 bg-white/[0.02] p-3">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <div>
+                                  <p className="text-sm font-semibold">Detalhamento por origem</p>
+                                  <p className="text-xs text-muted-foreground">
+                                    Clique nas categorias para auditar onde cada ponto foi conquistado.
+                                  </p>
+                                </div>
+                                {detailLoading && <span className="text-xs text-muted-foreground">Carregando extrato...</span>}
+                              </div>
+
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                {detailCategories.map((cat) => (
+                                  <button
+                                    key={cat.key}
+                                    type="button"
+                                    onClick={() => setDetailCategory(cat.key)}
+                                    className={`rounded-full border px-2 py-1 text-xs transition-colors ${
+                                      detailCategory === cat.key
+                                        ? 'border-primary/60 bg-primary/20 text-foreground'
+                                        : 'border-white/10 bg-white/5 text-muted-foreground hover:text-foreground'
+                                    }`}
+                                  >
+                                    {cat.label}
+                                  </button>
+                                ))}
+                              </div>
+
+                              {Object.keys(detailTotals).length > 0 && (
+                                <div className="mt-3 flex flex-wrap gap-2">
+                                  {detailCategories
+                                    .filter((cat) => cat.key !== 'all')
+                                    .filter((cat) => Number(detailTotals[cat.key] || 0) > 0)
+                                    .map((cat) => (
+                                      <Badge key={cat.key} variant="outline" className="text-xs">
+                                        {cat.label}: {formatPoints(Number(detailTotals[cat.key] || 0))} XP
+                                      </Badge>
+                                    ))}
+                                </div>
+                              )}
+
+                              {detailError && <p className="mt-3 text-xs text-destructive">{detailError}</p>}
+
+                              {!detailLoading && !detailError && filteredDetails.length === 0 && (
+                                <p className="mt-3 text-xs text-muted-foreground">Nenhum lançamento encontrado nesta categoria.</p>
+                              )}
+
+                              {!detailLoading && filteredDetails.length > 0 && (
+                                <div className="mt-3 max-h-80 space-y-2 overflow-y-auto pr-1">
+                                  {filteredDetails.map((row) => (
+                                    <div key={row.sourceKey} className="flex items-start justify-between gap-3 rounded-md border border-white/10 bg-white/[0.03] p-2">
+                                      <div className="min-w-0">
+                                        <p className="truncate text-sm font-medium">{row.title}</p>
+                                        {row.subtitle && <p className="truncate text-xs text-muted-foreground">{row.subtitle}</p>}
+                                        <div className="mt-1 flex flex-wrap gap-1">
+                                          {row.campaignTitle && (
+                                            <Badge variant="secondary" className="text-[10px]">
+                                              Campanha: {row.campaignTitle}
+                                            </Badge>
+                                          )}
+                                          {row.challengeTitle && (
+                                            <Badge variant="outline" className="text-[10px]">
+                                              Desafio/Quiz: {row.challengeTitle}
+                                            </Badge>
+                                          )}
+                                          <Badge variant="outline" className="text-[10px] capitalize">
+                                            {row.category}
+                                          </Badge>
+                                        </div>
+                                      </div>
+                                      <div className="text-right">
+                                        <p className="text-sm font-semibold text-primary">+{formatPoints(row.points)} XP</p>
+                                        <p className="text-[11px] text-muted-foreground">{formatDateTime(row.createdAt)}</p>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
                             </div>
                           </div>
                         )}
@@ -1120,6 +1333,7 @@ function Rankings() {
                                   forumXp: r.forumXp.toLocaleString(),
                                   sepbookXp: r.sepbookXp.toLocaleString(),
                                 })}
+                                {` • Pub: ${formatPoints(r.quizPublishXp)} XP • Acesso: ${formatPoints(r.accessXp)} XP`}
                               </p>
                             </div>
                           </button>

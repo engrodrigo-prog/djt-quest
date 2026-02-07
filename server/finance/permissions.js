@@ -1,4 +1,4 @@
-import { FINANCE_ANALYST_ROLE } from './constants.js';
+import { FINANCE_ANALYST_ROLE, normalizeFinanceStatus } from './constants.js';
 
 const normalizeTeamId = (raw) => String(raw || '').trim().toUpperCase();
 const isGuestTeamId = (raw) => normalizeTeamId(raw) === 'CONVIDADOS';
@@ -52,3 +52,18 @@ export const canManageFinanceRequests = (roles = [], profile) => {
   return false;
 };
 
+export const canOwnerDeleteFinanceRequest = (requestRow, historyRows = [], ownerId) => {
+  const normalizedStatus = normalizeFinanceStatus(requestRow?.status);
+  if (normalizedStatus !== 'Enviado') return false;
+  if (requestRow?.analyst_viewed_at) return false;
+
+  const ownerKey = String(ownerId || '');
+  const touched = (Array.isArray(historyRows) ? historyRows : []).some((h) => {
+    const fromStatus = h?.from_status == null ? null : normalizeFinanceStatus(h.from_status);
+    const toStatus = normalizeFinanceStatus(h?.to_status);
+    const changedBy = String(h?.changed_by || '');
+    const isInitialOwnerEntry = fromStatus == null && toStatus === 'Enviado' && changedBy === ownerKey;
+    return !isInitialOwnerEntry;
+  });
+  return !touched;
+};
