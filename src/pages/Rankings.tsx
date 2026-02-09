@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import Navigation from '@/components/Navigation';
@@ -107,6 +108,17 @@ interface XpDetailRow {
 
 type RankingMetric = 'total' | 'campanha' | 'quiz' | 'forum' | 'sepbook' | 'avaliacoes' | 'acesso';
 type DisplayRanking = IndividualRanking & { displayPoints: number };
+type QuizQuestionView = {
+  challengeId: string | null;
+  challengeTitle: string | null;
+  questionId: string;
+  questionText: string;
+  orderIndex: number | null;
+  options: Array<{ id: string; text: string; explanation: string | null }>;
+  selectedOptionId: string | null;
+  isCorrect: boolean | null;
+  xp: number;
+};
 
 const GUEST_TEAM_ID = 'CONVIDADOS';
 const isGuestTeamId = (id: string | null | undefined) => String(id || '').toUpperCase() === GUEST_TEAM_ID;
@@ -149,6 +161,10 @@ function Rankings() {
   const [selectedDetails, setSelectedDetails] = useState<XpDetailRow[]>([]);
   const [detailCategory, setDetailCategory] = useState<DetailCategory>('all');
   const [rankingMetric, setRankingMetric] = useState<RankingMetric>('total');
+  const [quizQuestionOpen, setQuizQuestionOpen] = useState(false);
+  const [quizQuestionLoading, setQuizQuestionLoading] = useState(false);
+  const [quizQuestionError, setQuizQuestionError] = useState<string | null>(null);
+  const [quizQuestionView, setQuizQuestionView] = useState<QuizQuestionView | null>(null);
 
   const detailCategories: Array<{ key: DetailCategory; label: string }> = useMemo(
     () => [
@@ -984,13 +1000,6 @@ function Rankings() {
       }
 
       if (row.sourceType === 'quiz_answer') {
-        const questionId = d?.question_id ? String(d.question_id) : '';
-        if (challengeId && questionId && user?.id && selectedUserId && String(user.id) === String(selectedUserId)) {
-          return {
-            label: 'Ver questão',
-            to: `/profile?quiz=${encodeURIComponent(challengeId)}&question=${encodeURIComponent(questionId)}`,
-          };
-        }
         if (challengeId) return { label: 'Abrir quiz', to: `/challenge/${encodeURIComponent(challengeId)}` };
         if (campaignId) return { label: 'Abrir campanha', to: `/campaign/${encodeURIComponent(campaignId)}` };
         return null;
@@ -1005,6 +1014,75 @@ function Rankings() {
       if (campaignId) return { label: 'Abrir campanha', to: `/campaign/${encodeURIComponent(campaignId)}` };
       if (challengeId) return { label: 'Abrir desafio', to: `/challenge/${encodeURIComponent(challengeId)}` };
       return null;
+    },
+    [],
+  );
+
+  const openQuizQuestion = useCallback(
+    async (row: XpDetailRow) => {
+      const d: any = row.details || {};
+      const questionId = d?.question_id ? String(d.question_id) : '';
+      if (!questionId) return;
+
+      setDetailDialogOpen(false);
+      setQuizQuestionOpen(true);
+      setQuizQuestionLoading(true);
+      setQuizQuestionError(null);
+      setQuizQuestionView(null);
+
+      try {
+        const { data: question, error: qErr } = await supabase
+          .from('quiz_questions')
+          .select('id, question_text, challenge_id, order_index')
+          .eq('id', questionId)
+          .maybeSingle();
+        if (qErr) throw qErr;
+        if (!question) throw new Error('Questão não encontrada.');
+
+        const { data: options, error: oErr } = await supabase
+          .from('quiz_options')
+          .select('id, option_text, explanation')
+          .eq('question_id', questionId);
+        if (oErr) throw oErr;
+
+        // Only highlight the selected option when viewing your own history (RLS-safe).
+        let selectedOptionId: string | null = null;
+        try {
+          if (row.sourceId && user?.id && selectedUserId && String(user.id) === String(selectedUserId)) {
+            const { data: ans } = await supabase
+              .from('user_quiz_answers')
+              .select('selected_option_id')
+              .eq('id', row.sourceId)
+              .maybeSingle();
+            if (ans?.selected_option_id) selectedOptionId = String(ans.selected_option_id);
+          }
+        } catch {
+          selectedOptionId = null;
+        }
+
+        const isCorrect = typeof d?.is_correct === 'boolean' ? Boolean(d.is_correct) : null;
+        const orderIndex = question?.order_index != null ? Number((question as any).order_index) : null;
+
+        setQuizQuestionView({
+          challengeId: question?.challenge_id ? String((question as any).challenge_id) : row.challengeId,
+          challengeTitle: row.challengeTitle || null,
+          questionId,
+          questionText: String((question as any)?.question_text || ''),
+          orderIndex,
+          options: (Array.isArray(options) ? options : []).map((o: any) => ({
+            id: String(o?.id || ''),
+            text: String(o?.option_text || ''),
+            explanation: o?.explanation != null ? String(o.explanation) : null,
+          })),
+          selectedOptionId,
+          isCorrect,
+          xp: Number(row.points || 0),
+        });
+      } catch (e: any) {
+        setQuizQuestionError(e?.message || 'Não foi possível carregar a questão agora.');
+      } finally {
+        setQuizQuestionLoading(false);
+      }
     },
     [selectedUserId, user?.id],
   );
@@ -1553,6 +1631,11 @@ function Rankings() {
                   <div className="mt-3 max-h-80 space-y-2 overflow-y-auto pr-1">
                     {filteredDetails.map((row) => {
                       const action = buildDetailRowAction(row);
+                      const questionId =
+                        row.sourceType === 'quiz_answer' && (row.details as any)?.question_id
+                          ? String((row.details as any).question_id)
+                          : '';
+                      const canOpenQuestion = row.sourceType === 'quiz_answer' && Boolean(questionId);
                       return (
                         <div
                           key={row.sourceKey}
@@ -1580,10 +1663,22 @@ function Rankings() {
                           <div className="text-right">
                             <p className="text-sm font-semibold text-primary">+{formatPoints(row.points)} XP</p>
                             <p className="text-[11px] text-muted-foreground">{formatDateTime(row.createdAt)}</p>
+                            {canOpenQuestion && (
+                              <button
+                                type="button"
+                                className="mt-1 block w-full text-[11px] text-muted-foreground underline underline-offset-2 hover:text-foreground"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  void openQuizQuestion(row);
+                                }}
+                              >
+                                Ver questão
+                              </button>
+                            )}
                             {action && (
                               <button
                                 type="button"
-                                className="mt-1 text-[11px] text-muted-foreground underline underline-offset-2 hover:text-foreground"
+                                className="mt-1 block w-full text-[11px] text-muted-foreground underline underline-offset-2 hover:text-foreground"
                                 onClick={(event) => {
                                   event.stopPropagation();
                                   setDetailDialogOpen(false);
@@ -1600,6 +1695,92 @@ function Rankings() {
                   </div>
                 )}
               </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog
+          open={quizQuestionOpen}
+          onOpenChange={(open) => {
+            setQuizQuestionOpen(open);
+            if (!open) {
+              setQuizQuestionLoading(false);
+              setQuizQuestionError(null);
+              setQuizQuestionView(null);
+            }
+          }}
+        >
+          <DialogContent className="sm:max-w-3xl max-h-[85vh] overflow-hidden">
+            <DialogHeader>
+              <DialogTitle>{quizQuestionView?.challengeTitle ? `Quiz: ${quizQuestionView.challengeTitle}` : 'Questão do Quiz'}</DialogTitle>
+              <DialogDescription>
+                {quizQuestionLoading
+                  ? 'Carregando…'
+                  : quizQuestionError
+                    ? 'Não foi possível carregar agora.'
+                    : quizQuestionView
+                      ? `XP: +${formatPoints(quizQuestionView.xp)}`
+                      : ''}
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="mt-2 space-y-3 overflow-y-auto pr-1">
+              {quizQuestionLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
+              {quizQuestionError && <p className="text-sm text-destructive">{quizQuestionError}</p>}
+
+              {!quizQuestionLoading && !quizQuestionError && quizQuestionView && (
+                <div className="space-y-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="text-sm font-semibold">
+                      {quizQuestionView.orderIndex != null ? `${quizQuestionView.orderIndex}. ` : ''}
+                      {quizQuestionView.questionText}
+                    </p>
+                    {quizQuestionView.isCorrect != null ? (
+                      <Badge variant={quizQuestionView.isCorrect ? 'default' : 'destructive'}>
+                        {quizQuestionView.isCorrect ? 'Acertou' : 'Errou'}
+                      </Badge>
+                    ) : null}
+                  </div>
+
+                  <div className="space-y-1 text-sm">
+                    {quizQuestionView.options.map((o, idx) => {
+                      const letter = String.fromCharCode(65 + idx);
+                      const selected = quizQuestionView.selectedOptionId && o.id === quizQuestionView.selectedOptionId;
+                      return (
+                        <div
+                          key={o.id}
+                          className={`rounded px-2 py-1 border ${
+                            selected ? 'bg-primary/10 border-primary/30' : 'border-white/10 bg-white/[0.02]'
+                          }`}
+                        >
+                          <p className="text-sm">
+                            <span className="font-mono text-xs mr-2">{letter}.</span>
+                            {o.text}
+                          </p>
+                          {selected && o.explanation && (
+                            <p className="text-xs text-muted-foreground mt-1 whitespace-pre-wrap">{o.explanation}</p>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div className="flex justify-end gap-2">
+                    {quizQuestionView.challengeId ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          setQuizQuestionOpen(false);
+                          navigate(`/challenge/${encodeURIComponent(quizQuestionView.challengeId || '')}`);
+                        }}
+                      >
+                        Abrir quiz
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
+              )}
             </div>
           </DialogContent>
         </Dialog>
