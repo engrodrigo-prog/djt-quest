@@ -46,6 +46,8 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 const CACHE_KEY = 'auth_user_cache';
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 const ROLE_OVERRIDE_KEY = 'auth_role_override';
+const SESSION_DAY_KEY = 'auth_session_day_key';
+const ACCESS_TZ = 'America/Sao_Paulo';
 
 const getCachedAuth = () => {
   try {
@@ -75,15 +77,31 @@ async function withTimeout<T>(promise: Promise<T>, ms = 12000): Promise<T> {
   ]);
 }
 
-const accessKeyForToday = (userId: string, kind: string) => {
-  const day = new Date().toISOString().slice(0, 10);
-  return `access_${kind}_${userId}_${day}`;
+const dayKeyInTimeZone = (date: Date, timeZone = ACCESS_TZ) => {
+  try {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(date);
+    const map = Object.fromEntries(parts.map((p) => [p.type, p.value]));
+    if (map.year && map.month && map.day) return `${map.year}-${map.month}-${map.day}`;
+  } catch {
+    // noop
+  }
+  return date.toISOString().slice(0, 10);
 };
 
-const tryTrackAccess = async (token: string | null | undefined, userId: string | null | undefined, kind: 'session' | 'login' | 'pageview') => {
+const accessKeyForToday = (userId: string) => {
+  const day = dayKeyInTimeZone(new Date(), ACCESS_TZ);
+  return `access_daily_${userId}_${day}`;
+};
+
+const tryTrackAccess = async (token: string | null | undefined, userId: string | null | undefined, kind: 'daily' | 'session' | 'login' | 'pageview') => {
   try {
     if (!token || !userId) return;
-    const key = accessKeyForToday(userId, kind);
+    const key = accessKeyForToday(userId);
     if (localStorage.getItem(key) === '1') return;
     localStorage.setItem(key, '1');
     await fetch('/api/admin?handler=track-access', {
@@ -92,7 +110,7 @@ const tryTrackAccess = async (token: string | null | undefined, userId: string |
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ kind }),
+      body: JSON.stringify({ kind: 'daily', path: window.location.pathname }),
     });
   } catch {
     // best-effort
@@ -355,13 +373,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let active = true;
     (async () => {
       try {
-        const { data: { session: currentSession } } = await supabase.auth.getSession();
+        const { data: { session: rawSession } } = await supabase.auth.getSession();
+        let currentSession = rawSession ?? null;
         if (!active) return;
 
         if (currentSession) {
-          tryTrackAccess(currentSession.access_token, currentSession.user?.id, 'session');
-          await fetchUserSession(currentSession);
-        } else {
+          try {
+            const storedDayKey = localStorage.getItem(SESSION_DAY_KEY);
+            const nowDayKey = dayKeyInTimeZone(new Date(), ACCESS_TZ);
+            if (storedDayKey && storedDayKey !== nowDayKey) {
+              localStorage.removeItem(CACHE_KEY);
+              localStorage.removeItem(ROLE_OVERRIDE_KEY);
+              localStorage.removeItem(SESSION_DAY_KEY);
+              await supabase.auth.signOut();
+              currentSession = null;
+            } else {
+              localStorage.setItem(SESSION_DAY_KEY, nowDayKey);
+            }
+          } catch {
+            // ignore
+          }
+
+          if (currentSession) {
+            tryTrackAccess(currentSession.access_token, currentSession.user?.id, 'daily');
+            await fetchUserSession(currentSession);
+          }
+        }
+
+        if (!currentSession) {
           setUser(null);
           setSession(null);
           setHasActiveSession(false);
@@ -387,7 +426,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         if (session) {
           const oldRole = roleRef.current;
-          tryTrackAccess(session.access_token, session.user?.id, 'session');
+          try {
+            localStorage.setItem(SESSION_DAY_KEY, dayKeyInTimeZone(new Date(), ACCESS_TZ));
+          } catch {
+            // ignore
+          }
+          tryTrackAccess(session.access_token, session.user?.id, 'daily');
           fetchUserSession(session)
             .then((authData) => {
               if (oldRole === 'colaborador' && authData?.role && authData.role.includes('gerente') && !welcomeRef.current) {
@@ -415,6 +459,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       active = false;
       subscription.unsubscribe();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const signIn = async (email: string, password: string) => {
@@ -440,8 +485,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     console.log('🚪 Signing out, clearing cache');
     localStorage.removeItem(CACHE_KEY);
     localStorage.removeItem(ROLE_OVERRIDE_KEY);
+    localStorage.removeItem(SESSION_DAY_KEY);
     await supabase.auth.signOut();
   };
+
+  // Daily forced logout at 00:00 (America/Sao_Paulo) to simplify daily access counting.
+  useEffect(() => {
+    if (!session?.access_token) return;
+    let cancelled = false;
+    const intervalId = window.setInterval(() => {
+      if (cancelled) return;
+      try {
+        const storedDayKey = localStorage.getItem(SESSION_DAY_KEY);
+        const nowDayKey = dayKeyInTimeZone(new Date(), ACCESS_TZ);
+        if (storedDayKey && storedDayKey !== nowDayKey) {
+          void signOut();
+        }
+      } catch {
+        // ignore
+      }
+    }, 30_000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [session?.access_token]);
 
   return (
     <AuthContext.Provider value={{ 
