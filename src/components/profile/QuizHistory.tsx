@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/integrations/supabase/client';
@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { apiFetch } from '@/lib/api';
 import { getActiveLocale } from '@/lib/i18n/activeLocale';
+import { useSearchParams } from 'react-router-dom';
 
 interface QuizHistoryRow {
   id: string;
@@ -53,6 +54,8 @@ type QuizDetail = {
 export function QuizHistory() {
   const { user, userRole, isContentCurator } = useAuth();
   const canSeeAnswerKey = Boolean(userRole === 'admin' || isContentCurator);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const didAutoOpenRef = useRef<string | null>(null);
 
   const [rows, setRows] = useState<QuizHistoryRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -221,6 +224,37 @@ export function QuizHistory() {
     [canSeeAnswerKey, titles, user],
   );
 
+  useEffect(() => {
+    const challengeId = String(searchParams.get('quiz') || '').trim();
+    if (!challengeId) return;
+    if (didAutoOpenRef.current === challengeId) return;
+    didAutoOpenRef.current = challengeId;
+    void openQuizDetail(challengeId);
+  }, [openQuizDetail, searchParams]);
+
+  useEffect(() => {
+    const challengeId = String(searchParams.get('quiz') || '').trim();
+    const questionId = String(searchParams.get('question') || '').trim();
+    if (!challengeId || !questionId) return;
+    if (!detailOpen || detailLoading) return;
+    if (!detail || String(detail.challengeId || '') !== challengeId) return;
+
+    window.setTimeout(() => {
+      try {
+        const el = document.getElementById(`question-${questionId}`);
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } catch {
+        // ignore
+      }
+    }, 80);
+
+    // Clear deep-link params to avoid reopening on back/close.
+    const p = new URLSearchParams(searchParams);
+    p.delete('quiz');
+    p.delete('question');
+    setSearchParams(p, { replace: true });
+  }, [detail, detailLoading, detailOpen, searchParams, setSearchParams]);
+
   return (
     <Card id="quiz-history">
       <CardHeader>
@@ -286,7 +320,7 @@ export function QuizHistory() {
                   const answered = Boolean(selectedId);
                   const isCorrect = answered ? Boolean(ans?.is_correct) : null;
                   return (
-                    <div key={q.id} className="rounded-md border p-3">
+                    <div key={q.id} id={`question-${q.id}`} className="rounded-md border p-3">
                       <div className="flex items-start justify-between gap-3">
                         <p className="text-sm font-semibold">
                           {idx + 1}. {q.question_text}

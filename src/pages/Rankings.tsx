@@ -13,6 +13,7 @@ import { useI18n } from '@/contexts/I18nContext';
 import { getActiveLocale } from '@/lib/i18n/activeLocale';
 import { UserProfilePopover } from '@/components/UserProfilePopover';
 import { DJT_TEAM_GROUP_IDS, buildTeamScope, normalizeTeamId } from '@/lib/constants/points';
+import { useNavigate } from 'react-router-dom';
 
 interface IndividualRanking {
   rank: number;
@@ -30,10 +31,12 @@ interface IndividualRanking {
   isLeader: boolean;
   isGuest: boolean;
   quizXp: number;
+  quizPublishXp: number;
   initiativesXp: number;
   forumXp: number;
   sepbookXp: number;
   evaluationsXp: number;
+  accessXp: number;
 }
 
 interface TeamRanking {
@@ -99,7 +102,11 @@ interface XpDetailRow {
   campaignTitle: string | null;
   challengeId: string | null;
   challengeTitle: string | null;
+  details: Record<string, any> | null;
 }
+
+type RankingMetric = 'total' | 'campanha' | 'quiz' | 'forum' | 'sepbook' | 'avaliacoes' | 'acesso';
+type DisplayRanking = IndividualRanking & { displayPoints: number };
 
 const GUEST_TEAM_ID = 'CONVIDADOS';
 const isGuestTeamId = (id: string | null | undefined) => String(id || '').toUpperCase() === GUEST_TEAM_ID;
@@ -120,8 +127,9 @@ const computeBaseXpFromBreakdown = (b: any) => {
 };
 
 function Rankings() {
-  const { orgScope } = useAuth();
+  const { orgScope, user } = useAuth();
   const { t: tr } = useI18n();
+  const navigate = useNavigate();
   const [individualRankings, setIndividualRankings] = useState<IndividualRanking[]>([]);
   const [guestRankings, setGuestRankings] = useState<IndividualRanking[]>([]);
   const [myTeamRankings, setMyTeamRankings] = useState<IndividualRanking[]>([]);
@@ -140,6 +148,7 @@ function Rankings() {
   const [detailError, setDetailError] = useState<string | null>(null);
   const [selectedDetails, setSelectedDetails] = useState<XpDetailRow[]>([]);
   const [detailCategory, setDetailCategory] = useState<DetailCategory>('all');
+  const [rankingMetric, setRankingMetric] = useState<RankingMetric>('total');
 
   const detailCategories: Array<{ key: DetailCategory; label: string }> = useMemo(
     () => [
@@ -152,6 +161,67 @@ function Rankings() {
       { key: 'acesso', label: 'Acesso' },
     ],
     [],
+  );
+
+  const rankingMetrics: Array<{ key: RankingMetric; label: string }> = useMemo(
+    () => [
+      { key: 'total', label: 'Total' },
+      { key: 'campanha', label: 'Campanha' },
+      { key: 'quiz', label: 'Quiz' },
+      { key: 'forum', label: 'Fórum' },
+      { key: 'sepbook', label: 'SEPBook' },
+      { key: 'avaliacoes', label: 'Avaliações' },
+      { key: 'acesso', label: 'Acesso' },
+    ],
+    [],
+  );
+
+  const metricValue = useCallback((r: IndividualRanking, metric: RankingMetric) => {
+    switch (metric) {
+      case 'campanha':
+        return Number(r.initiativesXp || 0);
+      case 'quiz':
+        return Number(r.quizXp || 0) + Number(r.quizPublishXp || 0);
+      case 'forum':
+        return Number(r.forumXp || 0);
+      case 'sepbook':
+        return Number(r.sepbookXp || 0);
+      case 'avaliacoes':
+        return Number(r.evaluationsXp || 0);
+      case 'acesso':
+        return Number(r.accessXp || 0);
+      case 'total':
+      default:
+        return Number(r.points || 0);
+    }
+  }, []);
+
+  const sortRankingsByMetric = useCallback(
+    (rows: IndividualRanking[]): DisplayRanking[] => {
+      const items = rows.map((r) => ({ ...r, displayPoints: metricValue(r, rankingMetric) }));
+      items.sort(
+        (a, b) =>
+          (b.displayPoints || 0) - (a.displayPoints || 0) ||
+          String(a.name).localeCompare(String(b.name), getActiveLocale()),
+      );
+      return items.map((r, i) => ({ ...r, rank: i + 1 }));
+    },
+    [metricValue, rankingMetric],
+  );
+
+  const displayedIndividualRankings = useMemo(
+    () => sortRankingsByMetric(individualRankings),
+    [individualRankings, sortRankingsByMetric],
+  );
+
+  const displayedGuestRankings = useMemo(
+    () => sortRankingsByMetric(guestRankings),
+    [guestRankings, sortRankingsByMetric],
+  );
+
+  const displayedMyTeamRankings = useMemo(
+    () => sortRankingsByMetric(myTeamRankings),
+    [myTeamRankings, sortRankingsByMetric],
   );
 
   const filteredDetails = useMemo(
@@ -275,6 +345,7 @@ function Rankings() {
             const points = baseXp;
             const xp = Number(profile.xp ?? 0);
             const quizXp = Number(breakdown?.quiz_xp || 0);
+            const quizPublishXp = Number(breakdown?.quiz_publish_xp || 0);
             const initiativesXp = Number(breakdown?.initiatives_xp || 0);
             const forumXp = Number(breakdown?.forum_posts || 0) * 10;
             const sepbookXp =
@@ -282,6 +353,7 @@ function Rankings() {
               Number(breakdown?.sepbook_comments || 0) * 2 +
               Number(breakdown?.sepbook_likes || 0);
             const evaluationsXp = Number(breakdown?.evaluations_completed || 0) * LEADER_EVAL_POINTS;
+            const accessXp = Number(breakdown?.access_xp || 0);
             return {
               ...profile,
               __points: points,
@@ -289,10 +361,12 @@ function Rankings() {
               __isLeader: isLeader,
               __isGuest: isGuest,
               __quizXp: quizXp,
+              __quizPublishXp: quizPublishXp,
               __initiativesXp: initiativesXp,
               __forumXp: forumXp,
               __sepbookXp: sepbookXp,
               __evaluationsXp: evaluationsXp,
+              __accessXp: accessXp,
             };
           })
           .sort((a: any, b: any) => (b.__points || 0) - (a.__points || 0) || String(a.name).localeCompare(String(b.name), getActiveLocale()))
@@ -319,10 +393,12 @@ function Rankings() {
               isLeader: Boolean((profile as any).__isLeader),
               isGuest: Boolean((profile as any).__isGuest),
               quizXp: Number((profile as any).__quizXp ?? 0),
+              quizPublishXp: Number((profile as any).__quizPublishXp ?? 0),
               initiativesXp: Number((profile as any).__initiativesXp ?? 0),
               forumXp: Number((profile as any).__forumXp ?? 0),
               sepbookXp: Number((profile as any).__sepbookXp ?? 0),
               evaluationsXp: Number((profile as any).__evaluationsXp ?? 0),
+              accessXp: Number((profile as any).__accessXp ?? 0),
             };
           });
         setIndividualRankings(ranked);
@@ -783,6 +859,7 @@ function Rankings() {
               campaignTitle: row?.campaign_title ? String(row.campaign_title) : null,
               challengeId: row?.challenge_id ? String(row.challenge_id) : null,
               challengeTitle: row?.challenge_title ? String(row.challenge_title) : null,
+              details: row?.details && typeof row.details === 'object' ? row.details : null,
             })) as XpDetailRow[];
 
         if (!cancelled) {
@@ -843,6 +920,98 @@ function Rankings() {
     return `#${position}`;
   };
 
+  const buildDetailRowAction = useCallback(
+    (row: XpDetailRow): { label: string; to: string } | null => {
+      const d: any = row.details || {};
+      const sourceId = row.sourceId ? String(row.sourceId) : '';
+      const campaignId = row.campaignId ? String(row.campaignId) : '';
+      const challengeId = row.challengeId ? String(row.challengeId) : '';
+
+      if (row.sourceType === 'forum_post') {
+        const topicId = d?.topic_id ? String(d.topic_id) : '';
+        if (topicId && sourceId) return { label: 'Abrir post', to: `/forum/${encodeURIComponent(topicId)}#post-${encodeURIComponent(sourceId)}` };
+        return null;
+      }
+
+      if (row.sourceType === 'sepbook_post_photo') {
+        if (sourceId) return { label: 'Abrir no SEPBook', to: `/sepbook#post-${encodeURIComponent(sourceId)}` };
+        return null;
+      }
+
+      if (row.sourceType === 'sepbook_like') {
+        const postId = sourceId || (d?.post_id ? String(d.post_id) : '');
+        if (postId) return { label: 'Abrir no SEPBook', to: `/sepbook#post-${encodeURIComponent(postId)}` };
+        return null;
+      }
+
+      if (row.sourceType === 'sepbook_comment' || row.sourceType === 'sepbook_comment_like') {
+        const postId = d?.post_id ? String(d.post_id) : '';
+        const commentId = sourceId || (d?.comment_id ? String(d.comment_id) : '');
+        if (postId && commentId) {
+          return {
+            label: 'Abrir comentário',
+            to: `/sepbook?comment=${encodeURIComponent(commentId)}#post-${encodeURIComponent(postId)}`,
+          };
+        }
+        if (postId) return { label: 'Abrir no SEPBook', to: `/sepbook#post-${encodeURIComponent(postId)}` };
+        return null;
+      }
+
+      if (row.sourceType === 'challenge_event') {
+        const eventId = sourceId;
+        if (campaignId && eventId) {
+          return {
+            label: 'Abrir evidência',
+            to: `/campaign/${encodeURIComponent(campaignId)}?event=${encodeURIComponent(eventId)}#event-${encodeURIComponent(eventId)}`,
+          };
+        }
+        if (challengeId) return { label: 'Abrir desafio', to: `/challenge/${encodeURIComponent(challengeId)}` };
+        if (campaignId) return { label: 'Abrir campanha', to: `/campaign/${encodeURIComponent(campaignId)}` };
+        return null;
+      }
+
+      if (row.sourceType === 'evaluation_completed') {
+        const eventId = d?.event_id ? String(d.event_id) : '';
+        if (campaignId && eventId) {
+          return {
+            label: 'Abrir evidência',
+            to: `/campaign/${encodeURIComponent(campaignId)}?event=${encodeURIComponent(eventId)}#event-${encodeURIComponent(eventId)}`,
+          };
+        }
+        if (challengeId) return { label: 'Abrir ação', to: `/challenge/${encodeURIComponent(challengeId)}` };
+        if (campaignId) return { label: 'Abrir campanha', to: `/campaign/${encodeURIComponent(campaignId)}` };
+        return null;
+      }
+
+      if (row.sourceType === 'quiz_answer') {
+        const questionId = d?.question_id ? String(d.question_id) : '';
+        if (challengeId && questionId && user?.id && selectedUserId && String(user.id) === String(selectedUserId)) {
+          return {
+            label: 'Ver questão',
+            to: `/profile?quiz=${encodeURIComponent(challengeId)}&question=${encodeURIComponent(questionId)}`,
+          };
+        }
+        if (challengeId) return { label: 'Abrir quiz', to: `/challenge/${encodeURIComponent(challengeId)}` };
+        if (campaignId) return { label: 'Abrir campanha', to: `/campaign/${encodeURIComponent(campaignId)}` };
+        return null;
+      }
+
+      if (row.sourceType === 'quiz_publish') {
+        if (challengeId) return { label: 'Abrir quiz', to: `/challenge/${encodeURIComponent(challengeId)}` };
+        if (campaignId) return { label: 'Abrir campanha', to: `/campaign/${encodeURIComponent(campaignId)}` };
+        return null;
+      }
+
+      if (campaignId) return { label: 'Abrir campanha', to: `/campaign/${encodeURIComponent(campaignId)}` };
+      if (challengeId) return { label: 'Abrir desafio', to: `/challenge/${encodeURIComponent(challengeId)}` };
+      return null;
+    },
+    [selectedUserId, user?.id],
+  );
+
+  const showRankingMetric =
+    activeTab === 'individual' || activeTab === 'guests' || activeTab === 'myteam';
+
   return (
     <div className="relative min-h-screen pb-40">
       <ThemedBackground theme="conhecimento" />
@@ -857,6 +1026,33 @@ function Rankings() {
             {tr("rankings.subtitle")}
           </p>
         </div>
+
+        {showRankingMetric && (
+          <div className="mb-6 rounded-md border border-white/10 bg-white/[0.02] p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p className="text-sm font-semibold">Filtrar por tipo de XP</p>
+                <p className="text-xs text-muted-foreground">Ordena o ranking pelo tipo selecionado.</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {rankingMetrics.map((m) => (
+                  <button
+                    key={m.key}
+                    type="button"
+                    onClick={() => setRankingMetric(m.key)}
+                    className={`rounded-full border px-2 py-1 text-xs transition-colors ${
+                      rankingMetric === m.key
+                        ? 'border-primary/60 bg-primary/20 text-foreground'
+                        : 'border-white/10 bg-white/5 text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
 
         <Tabs value={activeTab} onValueChange={(v:any)=>setActiveTab(v)} className="w-full">
           <TabsList className="grid w-full grid-cols-6 mb-6">
@@ -900,7 +1096,7 @@ function Rankings() {
                 ) : (
                   <div className="space-y-6">
                     <div className="space-y-6">
-                      {individualRankings.map((ranking) => (
+                      {displayedIndividualRankings.map((ranking) => (
                         <div
                           key={ranking.userId}
                           onClick={() => openUserPointsDetail(ranking.userId, ranking.name)}
@@ -954,7 +1150,7 @@ function Rankings() {
                               openUserPointsDetail(ranking.userId, ranking.name);
                             }}
                           >
-                            <p className="text-lg font-bold">{ranking.points.toLocaleString()} {tr("rankings.pointsLabel")}</p>
+                            <p className="text-lg font-bold">{formatPoints(ranking.displayPoints)} {tr("rankings.pointsLabel")}</p>
                             <p className="text-xs text-muted-foreground">Clique para ver detalhes</p>
                           </button>
                         </div>
@@ -981,7 +1177,7 @@ function Rankings() {
                   <p className="text-center py-8 text-muted-foreground">{tr("rankings.guestsEmpty")}</p>
                 ) : (
                   <div className="space-y-6">
-                    {guestRankings.map((ranking) => (
+                    {displayedGuestRankings.map((ranking) => (
                       <div
                         key={ranking.userId}
                         onClick={() => openUserPointsDetail(ranking.userId, ranking.name)}
@@ -1023,7 +1219,7 @@ function Rankings() {
                             openUserPointsDetail(ranking.userId, ranking.name);
                           }}
                         >
-                          <p className="text-lg font-bold">{ranking.points.toLocaleString()} {tr("rankings.pointsLabel")}</p>
+                          <p className="text-lg font-bold">{formatPoints(ranking.displayPoints)} {tr("rankings.pointsLabel")}</p>
                           <p className="text-xs text-muted-foreground">Clique para ver detalhes</p>
                         </button>
                       </div>
@@ -1052,7 +1248,7 @@ function Rankings() {
                   <p className="text-center py-8 text-muted-foreground">{tr("rankings.myTeamEmpty")}</p>
                 ) : (
                   <div className="space-y-6">
-                    {myTeamRankings.map((ranking) => (
+                    {displayedMyTeamRankings.map((ranking) => (
                       <div
                         key={ranking.userId}
                         className="flex items-center gap-4 p-4 rounded-lg bg-transparent transition-colors"
@@ -1092,7 +1288,7 @@ function Rankings() {
                           className="text-right rounded-md px-2 py-1 hover:bg-white/10"
                           onClick={() => openUserPointsDetail(ranking.userId, ranking.name)}
                         >
-                          <p className="text-lg font-bold">{ranking.points.toLocaleString()} {tr("rankings.pointsLabel")}</p>
+                          <p className="text-lg font-bold">{formatPoints(ranking.displayPoints)} {tr("rankings.pointsLabel")}</p>
                           <p className="text-xs text-muted-foreground">Clique para ver detalhes</p>
                         </button>
                       </div>
@@ -1355,36 +1551,52 @@ function Rankings() {
 
                 {!detailLoading && filteredDetails.length > 0 && (
                   <div className="mt-3 max-h-80 space-y-2 overflow-y-auto pr-1">
-                    {filteredDetails.map((row) => (
-                      <div
-                        key={row.sourceKey}
-                        className="flex items-start justify-between gap-3 rounded-md border border-white/10 bg-white/[0.03] p-2"
-                      >
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-medium">{row.title}</p>
-                          {row.subtitle && <p className="truncate text-xs text-muted-foreground">{row.subtitle}</p>}
-                          <div className="mt-1 flex flex-wrap gap-1">
-                            {row.campaignTitle && (
-                              <Badge variant="secondary" className="text-[10px]">
-                                Campanha: {row.campaignTitle}
+                    {filteredDetails.map((row) => {
+                      const action = buildDetailRowAction(row);
+                      return (
+                        <div
+                          key={row.sourceKey}
+                          className="flex items-start justify-between gap-3 rounded-md border border-white/10 bg-white/[0.03] p-2"
+                        >
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-medium">{row.title}</p>
+                            {row.subtitle && <p className="truncate text-xs text-muted-foreground">{row.subtitle}</p>}
+                            <div className="mt-1 flex flex-wrap gap-1">
+                              {row.campaignTitle && (
+                                <Badge variant="secondary" className="text-[10px]">
+                                  Campanha: {row.campaignTitle}
+                                </Badge>
+                              )}
+                              {row.challengeTitle && (
+                                <Badge variant="outline" className="text-[10px]">
+                                  Desafio/Quiz: {row.challengeTitle}
+                                </Badge>
+                              )}
+                              <Badge variant="outline" className="text-[10px] capitalize">
+                                {row.category}
                               </Badge>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-sm font-semibold text-primary">+{formatPoints(row.points)} XP</p>
+                            <p className="text-[11px] text-muted-foreground">{formatDateTime(row.createdAt)}</p>
+                            {action && (
+                              <button
+                                type="button"
+                                className="mt-1 text-[11px] text-muted-foreground underline underline-offset-2 hover:text-foreground"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setDetailDialogOpen(false);
+                                  navigate(action.to);
+                                }}
+                              >
+                                {action.label}
+                              </button>
                             )}
-                            {row.challengeTitle && (
-                              <Badge variant="outline" className="text-[10px]">
-                                Desafio/Quiz: {row.challengeTitle}
-                              </Badge>
-                            )}
-                            <Badge variant="outline" className="text-[10px] capitalize">
-                              {row.category}
-                            </Badge>
                           </div>
                         </div>
-                        <div className="text-right">
-                          <p className="text-sm font-semibold text-primary">+{formatPoints(row.points)} XP</p>
-                          <p className="text-[11px] text-muted-foreground">{formatDateTime(row.createdAt)}</p>
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>

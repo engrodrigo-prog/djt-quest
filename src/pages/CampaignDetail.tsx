@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,7 @@ import { getActiveLocale } from "@/lib/i18n/activeLocale";
 import { apiFetch } from "@/lib/api";
 import { UserProfilePopover } from "@/components/UserProfilePopover";
 import { CampaignEvidenceWizard } from "@/components/CampaignEvidenceWizard";
+import { AttachmentViewer } from "@/components/AttachmentViewer";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -103,6 +104,8 @@ type EvidenceItem = {
   location_label: string | null;
   location_lat: number | null;
   location_lng: number | null;
+  sap_service_note?: string | null;
+  tags?: string[];
 };
 
 const isImageUrl = (url: string) => /\.(png|jpg|jpeg|webp|gif)(\?|#|$)/i.test(String(url || ""));
@@ -169,6 +172,7 @@ function FitBounds({ points }: { points: Array<[number, number]> }) {
 export default function CampaignDetail() {
   const { campaignId } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { toast } = useToast();
   const { user, roles, userRole } = useAuth() as any;
 
@@ -193,6 +197,21 @@ export default function CampaignDetail() {
   const [evSearch, setEvSearch] = useState<string>("");
   const [evShowLimit, setEvShowLimit] = useState<number>(25);
 
+  const focusedEventId = useMemo(() => {
+    const q = String(searchParams.get("event") || "").trim();
+    if (q) return q;
+    try {
+      const hash = String(window.location.hash || "").trim();
+      if (hash.toLowerCase().startsWith("#event-")) return decodeURIComponent(hash.slice("#event-".length));
+    } catch {
+      // ignore
+    }
+    return "";
+  }, [searchParams]);
+
+  const [evidenceDetailOpen, setEvidenceDetailOpen] = useState(false);
+  const [selectedEvidence, setSelectedEvidence] = useState<EvidenceItem | null>(null);
+
   const [mapOpen, setMapOpen] = useState(false);
   const [evidenceWizardOpen, setEvidenceWizardOpen] = useState(false);
   const [campaignEditOpen, setCampaignEditOpen] = useState(false);
@@ -208,10 +227,12 @@ export default function CampaignDetail() {
   const mapInstanceRef = useRef<L.Map | null>(null);
   const evScopeInitRef = useRef(false);
   const evScopeInitAppliedRef = useRef(false);
+  const didFocusEventRef = useRef<string | null>(null);
 
   useEffect(() => {
     evScopeInitRef.current = false;
     evScopeInitAppliedRef.current = false;
+    didFocusEventRef.current = null;
   }, [campaignId]);
 
   const computeHashTag = (c: Campaign) => {
@@ -492,6 +513,11 @@ export default function CampaignDetail() {
     }
   };
 
+  const openEvidenceDetail = useCallback((ev: EvidenceItem) => {
+    setSelectedEvidence(ev);
+    setEvidenceDetailOpen(true);
+  }, []);
+
   const mapEvidence = useMemo(() => {
     const list = (evidence || [])
       .filter((e) => {
@@ -536,6 +562,26 @@ export default function CampaignDetail() {
       return hay.includes(q);
     });
   }, [evidence, evSearch]);
+
+  useEffect(() => {
+    const eid = String(focusedEventId || "").trim();
+    if (!eid) return;
+    if (!Array.isArray(evidence) || evidence.length === 0) return;
+    if (didFocusEventRef.current === eid) return;
+    const found = (evidence || []).find((e) => String((e as any)?.id || "") === eid) as EvidenceItem | undefined;
+    if (!found) return;
+    didFocusEventRef.current = eid;
+    setEvShowLimit(250);
+    openEvidenceDetail(found);
+    window.setTimeout(() => {
+      try {
+        const el = document.getElementById(`event-${eid}`);
+        if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+      } catch {
+        // ignore
+      }
+    }, 120);
+  }, [evidence, focusedEventId, openEvidenceDetail]);
 
   const userOptions = useMemo(() => {
     const map = new Map<string, { id: string; name: string }>();
@@ -797,7 +843,7 @@ export default function CampaignDetail() {
                 const firstImg = (Array.isArray(ev.evidence_urls) ? ev.evidence_urls : []).find((u) => isImageUrl(u)) || null;
                 const evaluations = Array.isArray(ev.evaluations) ? ev.evaluations : [];
                 return (
-                  <div key={ev.id} className="flex items-start gap-3 rounded-lg border p-2">
+                  <div key={ev.id} id={`event-${ev.id}`} className="flex items-start gap-3 rounded-lg border p-2">
                     {firstImg ? (
                       <img src={firstImg} alt="Evidência" className="h-14 w-14 rounded-md object-cover border" />
                     ) : (
@@ -838,6 +884,14 @@ export default function CampaignDetail() {
                             GPS
                           </Badge>
                         ) : null}
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          className="h-7 px-2 text-[11px]"
+                          onClick={() => openEvidenceDetail(ev)}
+                        >
+                          Ver detalhes
+                        </Button>
                         {ev.sepbook_post_id ? (
                           <Button
                             size="sm"
@@ -1030,6 +1084,133 @@ export default function CampaignDetail() {
           </Card>
         </div>
       </div>
+
+      <Dialog
+        open={evidenceDetailOpen}
+        onOpenChange={(open) => {
+          setEvidenceDetailOpen(open);
+          if (!open) setSelectedEvidence(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-3xl max-h-[85vh] overflow-hidden">
+          <DialogHeader>
+            <DialogTitle>Detalhe da evidência</DialogTitle>
+            <DialogDescription>
+              {selectedEvidence
+                ? `${selectedEvidence.author_name} • ${new Date(selectedEvidence.created_at).toLocaleString(getActiveLocale())}`
+                : "Anexos, avaliações e contexto da evidência."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="mt-2 space-y-3 overflow-y-auto pr-1">
+            {!selectedEvidence ? (
+              <p className="text-sm text-muted-foreground">Selecione uma evidência para ver detalhes.</p>
+            ) : (
+              <>
+                <div className="flex flex-wrap items-center gap-2">
+                  {typeof selectedEvidence.final_points === "number" ? (
+                    <Badge className="text-[11px] bg-primary/10 text-primary border-primary/20">
+                      +{Math.round(selectedEvidence.final_points)} XP
+                    </Badge>
+                  ) : null}
+                  {selectedEvidence.status ? (
+                    <Badge variant="outline" className="text-[11px] capitalize">
+                      {selectedEvidence.status}
+                    </Badge>
+                  ) : null}
+                  {sanitizeLocationLabel(selectedEvidence.location_label) ? (
+                    <Badge variant="secondary" className="text-[11px]">
+                      {sanitizeLocationLabel(selectedEvidence.location_label)}
+                    </Badge>
+                  ) : null}
+                  {selectedEvidence.sap_service_note ? (
+                    <Badge variant="secondary" className="text-[11px]">
+                      SAP: {String(selectedEvidence.sap_service_note).slice(0, 18)}
+                      {String(selectedEvidence.sap_service_note).length > 18 ? "…" : ""}
+                    </Badge>
+                  ) : null}
+                </div>
+
+                {Array.isArray(selectedEvidence.evidence_urls) && selectedEvidence.evidence_urls.length > 0 ? (
+                  <AttachmentViewer
+                    urls={selectedEvidence.evidence_urls}
+                    mediaLayout="carousel"
+                    enableLightbox
+                    showMetadata={false}
+                    className="mt-1"
+                  />
+                ) : (
+                  <p className="text-sm text-muted-foreground">Sem anexos nesta evidência.</p>
+                )}
+
+                {selectedEvidence.sap_service_note ? (
+                  <div className="rounded-md border border-white/10 bg-white/[0.02] p-3">
+                    <p className="text-sm font-semibold">Nota SAP</p>
+                    <p className="mt-1 text-sm text-muted-foreground whitespace-pre-wrap">{selectedEvidence.sap_service_note}</p>
+                  </div>
+                ) : null}
+
+                {Array.isArray(selectedEvidence.tags) && selectedEvidence.tags.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {selectedEvidence.tags.slice(0, 16).map((tag) => (
+                      <Badge key={tag} variant="outline" className="text-[10px]">
+                        {tag}
+                      </Badge>
+                    ))}
+                  </div>
+                ) : null}
+
+                {Array.isArray(selectedEvidence.evaluations) && selectedEvidence.evaluations.length > 0 ? (
+                  <div className="space-y-2">
+                    <p className="text-sm font-semibold">Avaliações</p>
+                    {selectedEvidence.evaluations.map((a) => (
+                      <div
+                        key={a.id || `${a.event_id}-${a.reviewer_id || "x"}-${a.evaluation_number || "x"}`}
+                        className="rounded-md border border-white/10 bg-white/[0.02] p-3"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="text-sm font-semibold">
+                            {a.evaluation_number ? `${a.evaluation_number}ª avaliação` : "Avaliação"}
+                            {a.reviewer_name ? ` • ${a.reviewer_name}` : ""}
+                          </p>
+                          {a.rating != null ? (
+                            <Badge variant="secondary" className="text-[11px]">
+                              Nota {a.rating}
+                            </Badge>
+                          ) : null}
+                        </div>
+                        {a.feedback_positivo ? (
+                          <div className="mt-2">
+                            <p className="text-xs font-semibold">Pontos positivos</p>
+                            <p className="mt-1 text-sm text-muted-foreground whitespace-pre-wrap">{a.feedback_positivo}</p>
+                          </div>
+                        ) : null}
+                        {a.feedback_construtivo ? (
+                          <div className="mt-2">
+                            <p className="text-xs font-semibold">Pontos de melhoria</p>
+                            <p className="mt-1 text-sm text-muted-foreground whitespace-pre-wrap">{a.feedback_construtivo}</p>
+                          </div>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+
+                {selectedEvidence.sepbook_post_id ? (
+                  <div className="flex justify-end">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => navigate(`/sepbook#post-${encodeURIComponent(String(selectedEvidence.sepbook_post_id))}`)}
+                    >
+                      Abrir no SEPBook
+                    </Button>
+                  </div>
+                ) : null}
+              </>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={mapOpen}
