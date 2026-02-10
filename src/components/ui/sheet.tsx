@@ -5,6 +5,9 @@ import * as React from "react";
 
 import { cn } from "@/lib/utils";
 
+const FOCUSABLE_SELECTOR =
+  'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
+
 const Sheet = SheetPrimitive.Root;
 
 const SheetTrigger = SheetPrimitive.Trigger;
@@ -52,18 +55,51 @@ interface SheetContentProps
     VariantProps<typeof sheetVariants> {}
 
 const SheetContent = React.forwardRef<React.ElementRef<typeof SheetPrimitive.Content>, SheetContentProps>(
-  ({ side = "right", className, children, ...props }, ref) => (
-    <SheetPortal>
-      <SheetOverlay />
-      <SheetPrimitive.Content ref={ref} className={cn(sheetVariants({ side }), className)} {...props}>
-        {children}
-        <SheetPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity data-[state=open]:bg-secondary hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none">
-          <X className="h-4 w-4" />
-          <span className="sr-only">Close</span>
-        </SheetPrimitive.Close>
-      </SheetPrimitive.Content>
-    </SheetPortal>
-  ),
+  ({ side = "right", className, children, onOpenAutoFocus, tabIndex, ...props }, forwardedRef) => {
+    const contentRef = React.useRef<React.ElementRef<typeof SheetPrimitive.Content> | null>(null);
+
+    const setRefs = (node: React.ElementRef<typeof SheetPrimitive.Content> | null) => {
+      contentRef.current = node;
+      if (typeof forwardedRef === "function") forwardedRef(node);
+      else if (forwardedRef) (forwardedRef as React.MutableRefObject<typeof node>).current = node;
+    };
+
+    const focusFallback = () => {
+      const el = contentRef.current as unknown as HTMLElement | null;
+      if (!el) return;
+      const active = document.activeElement as HTMLElement | null;
+      if (active && el.contains(active)) return;
+
+      const next = el.querySelector<HTMLElement>(FOCUSABLE_SELECTOR) ?? el;
+      try {
+        next.focus({ preventScroll: true });
+      } catch {
+        // ignore
+      }
+    };
+
+    return (
+      <SheetPortal>
+        <SheetOverlay />
+        <SheetPrimitive.Content
+          ref={setRefs}
+          tabIndex={tabIndex ?? -1}
+          onOpenAutoFocus={(e) => {
+            onOpenAutoFocus?.(e);
+            window.setTimeout(() => focusFallback(), 0);
+          }}
+          className={cn(sheetVariants({ side }), className)}
+          {...props}
+        >
+          {children}
+          <SheetPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity data-[state=open]:bg-secondary hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none">
+            <X className="h-4 w-4" />
+            <span className="sr-only">Close</span>
+          </SheetPrimitive.Close>
+        </SheetPrimitive.Content>
+      </SheetPortal>
+    );
+  },
 );
 SheetContent.displayName = SheetPrimitive.Content.displayName;
 

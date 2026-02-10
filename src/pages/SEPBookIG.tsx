@@ -33,7 +33,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useI18n } from "@/contexts/I18nContext";
 import { translateTextsCached } from "@/lib/i18n/aiTranslate";
 import { localeToOpenAiLanguageTag } from "@/lib/i18n/language";
-import { MapContainer, Marker, Popup, TileLayer, useMap } from "react-leaflet";
+import { MapContainer, Marker, Popup, TileLayer, useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import markerIcon2xUrl from "leaflet/dist/images/marker-icon-2x.png";
@@ -521,6 +521,40 @@ function SepbookMapUserActivity({ onActivity }: { onActivity: () => void }) {
   return null;
 }
 
+function EditLocationMapEvents({
+  coords,
+  onPick,
+}: {
+  coords: { lat: number; lng: number } | null;
+  onPick: (lat: number, lng: number) => void;
+}) {
+  const map = useMap();
+  useEffect(() => {
+    if (!map) return;
+    if (!coords) return;
+    try {
+      map.setView([coords.lat, coords.lng], Math.max(map.getZoom(), 13), { animate: false });
+    } catch {
+      /* ignore */
+    }
+  }, [map, coords?.lat, coords?.lng]);
+
+  useMapEvents({
+    click: (e) => {
+      try {
+        const lat = Number((e as any)?.latlng?.lat);
+        const lng = Number((e as any)?.latlng?.lng);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+        onPick(lat, lng);
+      } catch {
+        /* ignore */
+      }
+    },
+  });
+
+  return null;
+}
+
 const maybeDownscaleImage = async (file: File, maxImageDimension: number, imageQuality: number): Promise<File> => {
   if (typeof document === "undefined") return file;
   if (!file.type.startsWith("image/")) return file;
@@ -820,6 +854,15 @@ export default function SEPBookIG() {
   const [editingPostUploading, setEditingPostUploading] = useState(false);
   const editingPostCameraRef = useRef<HTMLInputElement | null>(null);
   const editingPostGalleryRef = useRef<HTMLInputElement | null>(null);
+  const [postEditLocationPromptOpen, setPostEditLocationPromptOpen] = useState(false);
+  const [postEditLocationPickerOpen, setPostEditLocationPickerOpen] = useState(false);
+  const [postEditLocationCoords, setPostEditLocationCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [pendingPostEdit, setPendingPostEdit] = useState<{
+    postId: string;
+    text: string;
+    attachments: string[];
+    kind: SepPostKind;
+  } | null>(null);
 
   const [commentsOpenFor, setCommentsOpenFor] = useState<string | null>(null);
   const [commentsByPost, setCommentsByPost] = useState<Record<string, SepComment[]>>({});
@@ -865,6 +908,21 @@ export default function SEPBookIG() {
 
   const activePost = useMemo(() => posts.find((p) => p.id === commentsOpenFor) || null, [commentsOpenFor, posts]);
   const editingPost = useMemo(() => posts.find((p) => p.id === editingPostId) || null, [editingPostId, posts]);
+  const canEditSepbookLocation = Boolean(isMod || myProfile?.sepbook_gps_consent === true);
+  const editingPostCoords = useMemo(() => {
+    if (!editingPost) return null;
+    const coords = clampLatLng(Number((editingPost as any).location_lat), Number((editingPost as any).location_lng));
+    return coords ? { lat: coords.lat, lng: coords.lng } : null;
+  }, [editingPost]);
+  const editingPostHasGps = useMemo(() => Boolean(editingPostCoords), [editingPostCoords]);
+
+  useEffect(() => {
+    if (editingPostId) return;
+    setPostEditLocationPromptOpen(false);
+    setPostEditLocationPickerOpen(false);
+    setPostEditLocationCoords(null);
+    setPendingPostEdit(null);
+  }, [editingPostId]);
 
   const [fallbackTranslations, setFallbackTranslations] = useState<Record<string, string>>({});
   const translationInFlightRef = useRef(0);
@@ -1754,43 +1812,76 @@ export default function SEPBookIG() {
       return;
     }
 
-    setEditingPostSaving(true);
-    try {
-      const resp = await apiFetch("/api/sepbook-edit", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          post_id: editingPostId,
-          content_md: text,
-          attachments,
-          post_kind: editingPostKind,
-        }),
-      });
-      const json = await resp.json().catch(() => ({}));
-      if (!resp.ok) throw new Error(json?.error || "Falha ao atualizar publicação");
+    setPendingPostEdit({ postId: editingPostId, text, attachments, kind: editingPostKind });
+    setPostEditLocationCoords(editingPostCoords);
+    setPostEditLocationPromptOpen(true);
+  }, [editingPost, editingPostCoords, editingPostId, editingPostKind, editingPostMedia, editingPostText, editingPostUploading, toast]);
 
-      setPosts((prev) =>
-        prev.map((p) =>
-          p.id === editingPostId
-            ? {
-                ...p,
-                content_md: text,
-                attachments,
-                post_kind: editingPostKind,
-                translations: { ...(p.translations || {}), "pt-BR": text },
-              }
-            : p,
-        ),
-      );
-      setFallbackTranslations((prev) => ({ ...prev, [`post:${editingPostId}`]: text }));
-      closeEditPost({ cleanupUploads: false });
-      toast({ title: "Publicação atualizada" });
-    } catch (e: any) {
-      toast({ title: "Erro ao editar", description: e?.message || "Tente novamente", variant: "destructive" });
-    } finally {
-      setEditingPostSaving(false);
-    }
-  }, [closeEditPost, editingPost, editingPostId, editingPostKind, editingPostMedia, editingPostText, editingPostUploading, toast]);
+  const performPostEditSave = useCallback(
+    async (
+      payload: { postId: string; text: string; attachments: string[]; kind: SepPostKind },
+      location: { lat: number; lng: number } | null | undefined,
+    ) => {
+      if (!payload?.postId) return;
+      setPostEditLocationPromptOpen(false);
+      setPostEditLocationPickerOpen(false);
+      setEditingPostSaving(true);
+      try {
+        const body: any = {
+          post_id: payload.postId,
+          content_md: payload.text,
+          attachments: payload.attachments,
+          post_kind: payload.kind,
+        };
+
+        if (location && Number.isFinite(location.lat) && Number.isFinite(location.lng)) {
+          if (!canEditSepbookLocation) {
+            toast({
+              title: "Localização",
+              description: "Ative o consentimento de GPS no SEPBook para alterar a localização.",
+              variant: "destructive",
+            });
+          } else {
+            body.location_lat = location.lat;
+            body.location_lng = location.lng;
+          }
+        }
+
+        const resp = await apiFetch("/api/sepbook-edit", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const json = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(json?.error || "Falha ao atualizar publicação");
+
+        const updated = (json?.post || null) as any;
+        setPosts((prev) =>
+          prev.map((p) =>
+            p.id === payload.postId
+              ? {
+                  ...p,
+                  ...(updated || {}),
+                  content_md: payload.text,
+                  attachments: payload.attachments,
+                  post_kind: payload.kind,
+                  translations: updated?.translations || { ...(p.translations || {}), "pt-BR": payload.text },
+                }
+              : p,
+          ),
+        );
+        setFallbackTranslations((prev) => ({ ...prev, [`post:${payload.postId}`]: payload.text }));
+        closeEditPost({ cleanupUploads: false });
+        toast({ title: "Publicação atualizada" });
+      } catch (e: any) {
+        toast({ title: "Erro ao editar", description: e?.message || "Tente novamente", variant: "destructive" });
+      } finally {
+        setEditingPostSaving(false);
+        setPendingPostEdit(null);
+      }
+    },
+    [apiFetch, canEditSepbookLocation, closeEditPost, toast],
+  );
 
   const clearEditingPostMedia = useCallback(() => {
     const toRemove = (editingPostMedia || [])
@@ -3662,6 +3753,162 @@ export default function SEPBookIG() {
           </div>
         </DrawerContent>
       </Drawer>
+
+      <Dialog
+        open={postEditLocationPromptOpen}
+        onOpenChange={(open) => {
+          if (!open) setPostEditLocationPromptOpen(false);
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{tr("sepbook.location")}</DialogTitle>
+            <DialogDescription>
+              {editingPostHasGps
+                ? "Antes de salvar, deseja mudar a localização desta publicação?"
+                : "Antes de salvar, deseja definir uma localização para esta publicação?"}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="text-sm">
+            <div className="text-muted-foreground">Atual</div>
+            <div className="mt-1">
+              {editingPostCoords ? (
+                <span className="truncate">
+                  {[sanitizeLocationLabel((editingPost as any)?.location_label), formatLatLng(editingPostCoords.lat, editingPostCoords.lng)]
+                    .filter(Boolean)
+                    .join(" • ") || tr("sepbook.location")}
+                </span>
+              ) : (
+                <span className="text-muted-foreground">Sem localização</span>
+              )}
+            </div>
+            {!canEditSepbookLocation ? (
+              <div className="mt-2 text-[12px] text-muted-foreground">
+                Para alterar localização, ative o consentimento de GPS do SEPBook.
+              </div>
+            ) : null}
+          </div>
+
+          <div className="flex items-center justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => setPostEditLocationPromptOpen(false)} disabled={editingPostSaving}>
+              {tr("sepbook.cancel")}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                if (!canEditSepbookLocation) return;
+                setPostEditLocationCoords((prev) => prev ?? editingPostCoords ?? { lat: mapCenter[0], lng: mapCenter[1] });
+                setPostEditLocationPromptOpen(false);
+                setPostEditLocationPickerOpen(true);
+              }}
+              disabled={editingPostSaving || !canEditSepbookLocation}
+              title={canEditSepbookLocation ? undefined : "Requer consentimento de GPS"}
+            >
+              {editingPostHasGps ? "Mudar no mapa" : "Definir no mapa"}
+            </Button>
+            <Button
+              type="button"
+              onClick={() => {
+                if (!pendingPostEdit) return;
+                void performPostEditSave(pendingPostEdit, undefined);
+              }}
+              disabled={editingPostSaving || !pendingPostEdit}
+            >
+              {editingPostSaving ? tr("common.loading") : tr("sepbook.save")}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={postEditLocationPickerOpen}
+        onOpenChange={(open) => {
+          if (!open) setPostEditLocationPickerOpen(false);
+        }}
+      >
+        <DialogContent className="max-w-3xl p-0 overflow-hidden">
+          <DialogHeader className="px-4 pt-4 pb-2">
+            <DialogTitle>{tr("sepbook.location")}</DialogTitle>
+            <DialogDescription className="text-[12px] text-muted-foreground">
+              Clique no mapa para escolher um ponto. Você também pode arrastar o marcador.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="border-t">
+            <div className="h-[52vh]">
+              <MapContainer
+                center={[postEditLocationCoords?.lat ?? mapCenter[0], postEditLocationCoords?.lng ?? mapCenter[1]]}
+                zoom={13}
+                scrollWheelZoom={true}
+                zoomControl={true}
+                zoomAnimation={false}
+                fadeAnimation={false}
+                markerZoomAnimation={false}
+                className="h-full w-full"
+              >
+                <TileLayer
+                  attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                />
+                <EditLocationMapEvents
+                  coords={postEditLocationCoords}
+                  onPick={(lat, lng) => setPostEditLocationCoords(clampLatLng(lat, lng) || null)}
+                />
+                {postEditLocationCoords ? (
+                  <Marker
+                    position={[postEditLocationCoords.lat, postEditLocationCoords.lng]}
+                    draggable={true}
+                    icon={selectedMarkerIcon}
+                    eventHandlers={{
+                      dragend: (e) => {
+                        try {
+                          const m = (e as any)?.target;
+                          const ll = m?.getLatLng?.();
+                          if (!ll) return;
+                          setPostEditLocationCoords(clampLatLng(ll.lat, ll.lng) || null);
+                        } catch {
+                          /* ignore */
+                        }
+                      },
+                    }}
+                  />
+                ) : null}
+              </MapContainer>
+            </div>
+
+            <div className="px-4 py-3 flex flex-wrap items-center justify-between gap-2">
+              <div className="text-[12px] text-muted-foreground">
+                {postEditLocationCoords ? formatLatLng(postEditLocationCoords.lat, postEditLocationCoords.lng) : "Sem ponto selecionado"}
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setPostEditLocationPickerOpen(false);
+                    setPostEditLocationPromptOpen(true);
+                  }}
+                  disabled={editingPostSaving}
+                >
+                  Voltar
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => {
+                    if (!pendingPostEdit) return;
+                    void performPostEditSave(pendingPostEdit, postEditLocationCoords);
+                  }}
+                  disabled={editingPostSaving || !pendingPostEdit || !postEditLocationCoords}
+                >
+                  {editingPostSaving ? tr("common.loading") : "Salvar com esta localização"}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Drawer
         open={Boolean(commentsOpenFor)}
