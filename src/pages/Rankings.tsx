@@ -1112,53 +1112,53 @@ function Rankings() {
                 <p className="text-sm font-semibold">Filtrar por tipo de XP</p>
                 <p className="text-xs text-muted-foreground">Ordena o ranking pelo tipo selecionado.</p>
               </div>
-              <div className="flex flex-wrap gap-2">
-                {rankingMetrics.map((m) => (
-                  <button
-                    key={m.key}
-                    type="button"
-                    onClick={() => setRankingMetric(m.key)}
-                    className={`rounded-full border px-2 py-1 text-xs transition-colors ${
-                      rankingMetric === m.key
-                        ? 'border-primary/60 bg-primary/20 text-foreground'
-                        : 'border-white/10 bg-white/5 text-muted-foreground hover:text-foreground'
-                    }`}
-                  >
-                    {m.label}
-                  </button>
-                ))}
-              </div>
+	              <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1 sm:flex-wrap sm:overflow-visible">
+	                {rankingMetrics.map((m) => (
+	                  <button
+	                    key={m.key}
+	                    type="button"
+	                    onClick={() => setRankingMetric(m.key)}
+	                    className={`shrink-0 rounded-full border px-2 py-1 text-xs transition-colors ${
+	                      rankingMetric === m.key
+	                        ? 'border-primary/60 bg-primary/20 text-foreground'
+	                        : 'border-white/10 bg-white/5 text-muted-foreground hover:text-foreground'
+	                    }`}
+	                  >
+	                    {m.label}
+	                  </button>
+	                ))}
+	              </div>
             </div>
           </div>
         )}
 
         <Tabs value={activeTab} onValueChange={(v:any)=>setActiveTab(v)} className="w-full">
-          <TabsList className="grid w-full grid-cols-6 mb-6">
-            <TabsTrigger value="individual" className="flex items-center gap-2 min-w-0" title={tr("rankings.tabs.overall")}>
-              <Trophy className="h-4 w-4" />
-              <span className="truncate">{tr("rankings.tabs.overall")}</span>
-            </TabsTrigger>
-            <TabsTrigger value="guests" className="flex items-center gap-2 min-w-0" title={tr("rankings.tabs.guests")}>
-              <Award className="h-4 w-4" />
-              <span className="truncate">{tr("rankings.tabs.guests")}</span>
-            </TabsTrigger>
-            <TabsTrigger value="myteam" className="flex items-center gap-2 min-w-0" title={tr("rankings.tabs.myTeam")}>
-              <Users className="h-4 w-4" />
-              <span className="truncate">{tr("rankings.tabs.myTeam")}</span>
-            </TabsTrigger>
-            <TabsTrigger value="teams" className="flex items-center gap-2 min-w-0" title={tr("rankings.tabs.teams")}>
-              <Users className="h-4 w-4" />
-              <span className="truncate">{tr("rankings.tabs.teams")}</span>
-            </TabsTrigger>
-            <TabsTrigger value="divisions" className="flex items-center gap-2 min-w-0" title={tr("rankings.tabs.divisions")}>
-              <Building2 className="h-4 w-4" />
-              <span className="truncate">{tr("rankings.tabs.divisions")}</span>
-            </TabsTrigger>
-            <TabsTrigger value="leaders" className="flex items-center gap-2 min-w-0" title={tr("rankings.tabs.leaders")}>
-              <Shield className="h-4 w-4" />
-              <span className="truncate">{tr("rankings.tabs.leaders")}</span>
-            </TabsTrigger>
-          </TabsList>
+	          <TabsList className="grid w-full grid-cols-3 sm:grid-cols-6 mb-6 h-auto gap-1">
+	            <TabsTrigger value="individual" className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 min-w-0 px-2 py-2 sm:px-3 sm:py-1.5 text-xs sm:text-sm whitespace-normal" title={tr("rankings.tabs.overall")}>
+	              <Trophy className="h-4 w-4" />
+	              <span className="leading-tight text-center sm:text-left sm:truncate">{tr("rankings.tabs.overall")}</span>
+	            </TabsTrigger>
+	            <TabsTrigger value="guests" className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 min-w-0 px-2 py-2 sm:px-3 sm:py-1.5 text-xs sm:text-sm whitespace-normal" title={tr("rankings.tabs.guests")}>
+	              <Award className="h-4 w-4" />
+	              <span className="leading-tight text-center sm:text-left sm:truncate">{tr("rankings.tabs.guests")}</span>
+	            </TabsTrigger>
+	            <TabsTrigger value="myteam" className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 min-w-0 px-2 py-2 sm:px-3 sm:py-1.5 text-xs sm:text-sm whitespace-normal" title={tr("rankings.tabs.myTeam")}>
+	              <Users className="h-4 w-4" />
+	              <span className="leading-tight text-center sm:text-left sm:truncate">{tr("rankings.tabs.myTeam")}</span>
+	            </TabsTrigger>
+	            <TabsTrigger value="teams" className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 min-w-0 px-2 py-2 sm:px-3 sm:py-1.5 text-xs sm:text-sm whitespace-normal" title={tr("rankings.tabs.teams")}>
+	              <Users className="h-4 w-4" />
+	              <span className="leading-tight text-center sm:text-left sm:truncate">{tr("rankings.tabs.teams")}</span>
+	            </TabsTrigger>
+	            <TabsTrigger value="divisions" className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 min-w-0 px-2 py-2 sm:px-3 sm:py-1.5 text-xs sm:text-sm whitespace-normal" title={tr("rankings.tabs.divisions")}>
+	              <Building2 className="h-4 w-4" />
+	              <span className="leading-tight text-center sm:text-left sm:truncate">{tr("rankings.tabs.divisions")}</span>
+	            </TabsTrigger>
+	            <TabsTrigger value="leaders" className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 min-w-0 px-2 py-2 sm:px-3 sm:py-1.5 text-xs sm:text-sm whitespace-normal" title={tr("rankings.tabs.leaders")}>
+	              <Shield className="h-4 w-4" />
+	              <span className="leading-tight text-center sm:text-left sm:truncate">{tr("rankings.tabs.leaders")}</span>
+	            </TabsTrigger>
+	          </TabsList>
 
           <TabsContent value="individual">
             <Card className="bg-transparent border-transparent shadow-none">
