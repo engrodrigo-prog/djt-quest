@@ -10,11 +10,18 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { AttachmentUploader } from "@/components/AttachmentUploader";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, FileText, Plus, XCircle } from "lucide-react";
+import { ArrowLeft, ChevronDown, FileText, Plus, XCircle } from "lucide-react";
 import { useI18n } from "@/contexts/I18nContext";
 import { getActiveLocale } from "@/lib/i18n/activeLocale";
 import { FINANCE_COMPANIES, FINANCE_COORDINATIONS, FINANCE_EXPENSE_TYPES, FINANCE_REQUEST_KINDS, FINANCE_STATUSES } from "@/lib/finance/constants";
@@ -94,6 +101,55 @@ const formatBrl = (cents: number | null | undefined) => {
   return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 };
 
+const normalizeFinanceStatusLabel = (raw: unknown) => {
+  const s = String(raw || "").trim();
+  if (!s) return "—";
+  // Backward compatibility: old UIs and legacy rows.
+  if (s === "Pago") return "Aprovado";
+  if (s === "Em análise") return "Em Análise";
+  return s;
+};
+
+const financeStatusBadge = (rawStatus: unknown) => {
+  const status = normalizeFinanceStatusLabel(rawStatus);
+  if (status === "Enviado") {
+    return {
+      label: status,
+      variant: "outline" as const,
+      className: "border-blue-400/60 bg-blue-500/10 text-blue-700 dark:text-blue-300",
+    };
+  }
+  if (status === "Em Análise") {
+    return {
+      label: status,
+      variant: "outline" as const,
+      className: "border-orange-400/60 bg-orange-500/10 text-orange-700 dark:text-orange-300",
+    };
+  }
+  if (status === "Aprovado") {
+    return {
+      label: status,
+      variant: "outline" as const,
+      className: "border-emerald-400/60 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+    };
+  }
+  if (status === "Reprovado") {
+    return {
+      label: status,
+      variant: "outline" as const,
+      className: "border-red-400/60 bg-red-500/10 text-red-700 dark:text-red-300",
+    };
+  }
+  if (status === "Cancelado") {
+    return {
+      label: status,
+      variant: "outline" as const,
+      className: "border-purple-400/60 bg-purple-500/10 text-purple-700 dark:text-purple-300",
+    };
+  }
+  return { label: status, variant: "outline" as const, className: "" };
+};
+
 const EXPENSE_TYPE_I18N_KEY: Record<string, string> = {
   Transporte: "finance.expenseType.transport",
   Quilometragem: "finance.expenseType.mileage",
@@ -114,7 +170,7 @@ export default function FinanceRequests() {
   const { toast } = useToast();
   const [items, setItems] = useState<RequestRow[]>([]);
   const [loading, setLoading] = useState(false);
-  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<string[]>([]);
   const [kindFilter, setKindFilter] = useState<string>("all");
 
   const [newOpen, setNewOpen] = useState(false);
@@ -200,7 +256,7 @@ export default function FinanceRequests() {
     setLoading(true);
     try {
       const params = new URLSearchParams();
-      if (statusFilter && statusFilter !== "all") params.set("status", statusFilter);
+      if (statusFilter.length) params.set("status", statusFilter.join(","));
       if (kindFilter && kindFilter !== "all") params.set("request_kind", kindFilter);
       params.set("limit", "200");
       const resp = await apiFetch(`/api/finance-requests?${params.toString()}`);
@@ -413,24 +469,60 @@ export default function FinanceRequests() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="flex flex-col sm:flex-row gap-2">
-              <div className="w-full sm:w-56">
-                <Label className="text-[11px] text-muted-foreground">Status</Label>
-                <Select value={statusFilter} onValueChange={setStatusFilter}>
-                  <SelectTrigger className="h-9 mt-1">
-                    <SelectValue placeholder="Todos" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Todos</SelectItem>
-                    {FINANCE_STATUSES.map((s) => (
-                      <SelectItem key={s} value={s}>{s}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="w-full sm:w-56">
-                <Label className="text-[11px] text-muted-foreground">Tipo Solicitação</Label>
-                <Select value={kindFilter} onValueChange={setKindFilter}>
+	            <div className="flex flex-col sm:flex-row gap-2">
+	              <div className="w-full sm:w-56">
+	                <Label className="text-[11px] text-muted-foreground">Status</Label>
+	                <DropdownMenu>
+	                  <DropdownMenuTrigger asChild>
+	                    <Button
+	                      type="button"
+	                      variant="outline"
+	                      className="mt-1 h-9 w-full justify-between"
+	                    >
+	                      <span className="min-w-0 truncate text-left text-[13px]">
+	                        {statusFilter.length === 0
+	                          ? "Todos"
+	                          : statusFilter.length === 1
+	                            ? statusFilter[0]
+	                            : `${statusFilter.length} selecionados`}
+	                      </span>
+	                      <ChevronDown className="ml-2 h-4 w-4 opacity-70" />
+	                    </Button>
+	                  </DropdownMenuTrigger>
+	                  <DropdownMenuContent align="start" className="w-56">
+	                    <DropdownMenuCheckboxItem
+	                      checked={statusFilter.length === 0}
+	                      onCheckedChange={(checked) => {
+	                        if (checked) setStatusFilter([]);
+	                      }}
+	                      onSelect={(e) => e.preventDefault()}
+	                    >
+	                      Todos
+	                    </DropdownMenuCheckboxItem>
+	                    <DropdownMenuSeparator />
+	                    {FINANCE_STATUSES.map((s) => (
+	                      <DropdownMenuCheckboxItem
+	                        key={s}
+	                        checked={statusFilter.includes(s)}
+	                        onCheckedChange={(checked) => {
+	                          setStatusFilter((prev) => {
+	                            const set = new Set(prev);
+	                            if (checked) set.add(s);
+	                            else set.delete(s);
+	                            return Array.from(set);
+	                          });
+	                        }}
+	                        onSelect={(e) => e.preventDefault()}
+	                      >
+	                        {s}
+	                      </DropdownMenuCheckboxItem>
+	                    ))}
+	                  </DropdownMenuContent>
+	                </DropdownMenu>
+	              </div>
+	              <div className="w-full sm:w-56">
+	                <Label className="text-[11px] text-muted-foreground">Tipo Solicitação</Label>
+	                <Select value={kindFilter} onValueChange={setKindFilter}>
                   <SelectTrigger className="h-9 mt-1">
                     <SelectValue placeholder="Todos" />
                   </SelectTrigger>
@@ -466,13 +558,18 @@ export default function FinanceRequests() {
                           {r.request_kind} • {getExpenseTypeLabel(r.expense_type)} • {r.company} • {r.coordination}
                         </div>
                       </div>
-                      <div className="flex flex-col items-end gap-1">
-                        <Badge variant={r.status === "Enviado" ? "secondary" : r.status === "Pago" ? "default" : "outline"} className="text-[10px]">
-                          {r.status}
-                        </Badge>
-                        <div className="text-[11px] text-muted-foreground">{formatBrl(r.amount_cents)}</div>
-                      </div>
-                    </div>
+	                      <div className="flex flex-col items-end gap-1">
+	                        {(() => {
+	                          const b = financeStatusBadge(r.status);
+	                          return (
+	                            <Badge variant={b.variant} className={`text-[10px] ${b.className}`}>
+	                              {b.label}
+	                            </Badge>
+	                          );
+	                        })()}
+	                        <div className="text-[11px] text-muted-foreground">{formatBrl(r.amount_cents)}</div>
+	                      </div>
+	                    </div>
                     <div className="mt-2 flex items-center justify-between text-[11px] text-muted-foreground">
                       <span>
                         {r.date_start}
@@ -694,12 +791,19 @@ export default function FinanceRequests() {
                   <div className="text-[12px] text-muted-foreground">
                     {detail.request.request_kind} • {getExpenseTypeLabel(detail.request.expense_type)} • {detail.request.company} • {detail.request.coordination}
                   </div>
-                </div>
-                <div className="text-right">
-                  <Badge className="text-[11px]">{detail.request.status}</Badge>
-                  <div className="text-[12px] text-muted-foreground mt-1">{formatBrl(detail.request.amount_cents)}</div>
-                </div>
-              </div>
+	                </div>
+	                <div className="text-right">
+	                  {(() => {
+	                    const b = financeStatusBadge(detail.request.status);
+	                    return (
+	                      <Badge variant={b.variant} className={`text-[11px] ${b.className}`}>
+	                        {b.label}
+	                      </Badge>
+	                    );
+	                  })()}
+	                  <div className="text-[12px] text-muted-foreground mt-1">{formatBrl(detail.request.amount_cents)}</div>
+	                </div>
+	              </div>
 
               {detail.request.last_observation ? (
                 <div className="rounded-md border p-2 text-[12px]">
@@ -760,14 +864,14 @@ export default function FinanceRequests() {
                 <div className="text-[12px] font-medium">Histórico</div>
                 {(detail.history || []).length ? (
                   <div className="mt-2 space-y-1">
-                    {(detail.history || []).map((h: any) => (
-                      <div key={h.id} className="text-[12px] flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <span className="font-medium">{h.to_status}</span>
-                          {h.observation ? <div className="text-muted-foreground whitespace-pre-wrap">{h.observation}</div> : null}
-                        </div>
-                        <div className="text-[11px] text-muted-foreground flex-shrink-0">
-                          {h.created_at ? new Date(h.created_at).toLocaleString(getActiveLocale()) : ""}
+	                    {(detail.history || []).map((h: any) => (
+	                      <div key={h.id} className="text-[12px] flex items-start justify-between gap-2">
+	                        <div className="min-w-0">
+	                          <span className="font-medium">{normalizeFinanceStatusLabel(h.to_status)}</span>
+	                          {h.observation ? <div className="text-muted-foreground whitespace-pre-wrap">{h.observation}</div> : null}
+	                        </div>
+	                        <div className="text-[11px] text-muted-foreground flex-shrink-0">
+	                          {h.created_at ? new Date(h.created_at).toLocaleString(getActiveLocale()) : ""}
                         </div>
                       </div>
                     ))}

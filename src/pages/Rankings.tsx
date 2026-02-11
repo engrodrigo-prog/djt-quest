@@ -328,8 +328,8 @@ function Rankings() {
         isGuestTeamId(p?.sigla_area) ||
         isGuestTeamId(p?.operational_base);
 
-      const profilesData = allProfiles.filter((profile: any) => !isLeaderProfile(profile));
-      const visibleProfiles = profilesData; // Overall rankings: include guests (filter via tab)
+      const nonLeaderProfiles = allProfiles.filter((profile: any) => !isLeaderProfile(profile));
+      const visibleProfiles = allProfiles; // Overall rankings: include all categories (leaders + non-leaders + guests)
       let breakdownByUserId: Record<string, any> = {};
       try {
         const ids = visibleProfiles.map((p: any) => p?.id).filter(Boolean);
@@ -448,7 +448,7 @@ function Rankings() {
           reduce<Record<string, string | null>>((acc, c) => { acc[c.id] = c.division_id; return acc; }, {});
 
         // Build team members map (exclude leaders)
-        const teamMembers = profilesData.reduce<Record<string, string[]>>((acc, p: any) => {
+        const teamMembers = nonLeaderProfiles.reduce<Record<string, string[]>>((acc, p: any) => {
           const isGuest = isGuestProfile(p);
           if (isGuest) {
             if (!acc[GUEST_TEAM_ID]) acc[GUEST_TEAM_ID] = [];
@@ -545,7 +545,7 @@ function Rankings() {
         };
 
         // Team members and member->team map
-        const teamMembers = profilesData.reduce<Record<string, string[]>>((acc, p: any) => {
+        const teamMembers = nonLeaderProfiles.reduce<Record<string, string[]>>((acc, p: any) => {
           const isGuest = isGuestProfile(p);
           if (isGuest) {
             if (!acc[GUEST_TEAM_ID]) acc[GUEST_TEAM_ID] = [];
@@ -1209,6 +1209,11 @@ function Rankings() {
                                   <Badge variant="outline" className="text-xs">
                                     {ranking.tier}
                                   </Badge>
+                                  {ranking.isLeader && (
+                                    <Badge className="text-xs">
+                                      Líder
+                                    </Badge>
+                                  )}
                                   {ranking.isGuest && (
                                     <Badge variant="secondary" className="text-xs">
                                       {tr("rankings.guestBadge")}
@@ -1356,6 +1361,11 @@ function Rankings() {
                                 <Badge variant="outline" className="text-xs">
                                   {ranking.tier}
                                 </Badge>
+                                {ranking.isLeader && (
+                                  <Badge className="text-xs">
+                                    Líder
+                                  </Badge>
+                                )}
                               </div>
                             </div>
                           </button>

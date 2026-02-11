@@ -23,6 +23,21 @@ const attachmentItem = z.object({
   metadata: z.record(z.any()).optional().nullable(),
 });
 
+const normalizeFinanceStatus = (raw) => {
+  const key = String(raw || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ');
+  if (key === 'enviado') return 'Enviado';
+  if (key === 'em analise') return 'Em Análise';
+  if (key === 'aprovado') return 'Aprovado';
+  if (key === 'reprovado') return 'Reprovado';
+  if (key === 'cancelado') return 'Cancelado';
+  return String(raw || '').trim();
+};
+
 export const financeRequestCreateSchema = z
   .object({
     company: z.enum(FINANCE_COMPANIES),
@@ -79,6 +94,9 @@ export const financeRequestCancelSchema = z.object({
 
 export const financeRequestAdminUpdateSchema = z.object({
   id: z.string().uuid(),
-  status: z.enum(FINANCE_STATUSES),
+  status: z
+    .string()
+    .transform((value) => normalizeFinanceStatus(value))
+    .refine((value) => (FINANCE_STATUSES || []).includes(value), 'Status inválido'),
   observation: z.string().trim().max(2000).optional().nullable(),
 });

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { ChevronLeft, ChevronRight, LibraryBig, MessageCircle, Plus, Trash2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, History, LibraryBig, Loader2, MessageCircle, Plus, Trash2 } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -54,6 +54,56 @@ interface StudySource {
 }
 
 type ChatMessage = { role: "user" | "assistant"; content: string; attachments?: string[] };
+type ChatSessionSummary = {
+  id: string;
+  title: string | null;
+  summary: string | null;
+  mode: string | null;
+  source_id: string | null;
+  updated_at: string | null;
+  created_at: string | null;
+};
+
+const parseAttachmentUrls = (raw: any): string[] => {
+  const items = Array.isArray(raw) ? raw : [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const item of items) {
+    const url =
+      typeof item === "string"
+        ? item.trim()
+        : String(item?.url || item?.publicUrl || item?.href || "").trim();
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+    out.push(url);
+  }
+  return out;
+};
+
+const normalizeStoredChatMessages = (rawMessages: any, fallbackAttachments: any): ChatMessage[] => {
+  const rows = Array.isArray(rawMessages) ? rawMessages : [];
+  const fallback = parseAttachmentUrls(fallbackAttachments);
+  const mapped: ChatMessage[] = [];
+  let hasAnyAttachment = false;
+
+  for (const item of rows) {
+    const role = String(item?.role || "").trim().toLowerCase() === "assistant" ? "assistant" : "user";
+    const content = String(item?.content || "").trim();
+    if (!content) continue;
+    const attachments = parseAttachmentUrls(item?.attachments);
+    if (attachments.length) hasAnyAttachment = true;
+    mapped.push(attachments.length ? { role, content, attachments } : { role, content });
+  }
+
+  if (!hasAnyAttachment && fallback.length && mapped.length) {
+    const firstUserIdx = mapped.findIndex((m) => m.role === "user");
+    if (firstUserIdx >= 0) {
+      mapped[firstUserIdx] = { ...mapped[firstUserIdx], attachments: fallback };
+    }
+  }
+
+  return mapped;
+};
 
 const STUDY_CATEGORIES = [
   "MANUAIS",
@@ -240,6 +290,12 @@ export const StudyLab = () => {
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
+  const [chatSessions, setChatSessions] = useState<ChatSessionSummary[]>([]);
+  const [chatSessionsLoading, setChatSessionsLoading] = useState(false);
+  const [chatSessionsError, setChatSessionsError] = useState<string | null>(null);
+  const [chatHistoryOpen, setChatHistoryOpen] = useState(false);
+  const [chatHistorySearch, setChatHistorySearch] = useState("");
+  const [chatSessionLoadingId, setChatSessionLoadingId] = useState<string | null>(null);
   const [chatAttachments, setChatAttachments] = useState<string[]>([]);
   const [chatUploading, setChatUploading] = useState(false);
   const [chatUploadKey, setChatUploadKey] = useState(0);
@@ -254,6 +310,7 @@ export const StudyLab = () => {
   const [kbEnabled, setKbEnabled] = useState(false);
   const [kbSelection, setKbSelection] = useState<ForumKbSelection | null>(null);
   const chatAbortRef = useRef<AbortController | null>(null);
+  const didAutoLoadSessionRef = useRef(false);
   const [chatInputFocused, setChatInputFocused] = useState(false);
 
   useEffect(() => {
@@ -546,6 +603,67 @@ export const StudyLab = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
+  const fetchChatSessions = useCallback(async () => {
+    if (!user?.id) {
+      setChatSessions([]);
+      setChatSessionsError(null);
+      return;
+    }
+    setChatSessionsLoading(true);
+    setChatSessionsError(null);
+    try {
+      const { data, error } = await (supabase as any)
+        .from("study_chat_sessions")
+        .select("id, title, summary, mode, source_id, updated_at, created_at")
+        .eq("user_id", user.id)
+        .order("updated_at", { ascending: false })
+        .limit(120);
+      if (error) throw error;
+      setChatSessions(Array.isArray(data) ? (data as ChatSessionSummary[]) : []);
+    } catch (e: any) {
+      const msg = String(e?.message || e || "");
+      if (/study_chat_sessions|relation/i.test(msg)) {
+        setChatSessionsError("Histórico indisponível (migração do banco não aplicada).");
+      } else {
+        setChatSessionsError("Falha ao carregar histórico.");
+        console.warn("StudyLab: erro ao carregar histórico", msg || e);
+      }
+      setChatSessions([]);
+    } finally {
+      setChatSessionsLoading(false);
+    }
+  }, [user?.id]);
+
+  useEffect(() => {
+    didAutoLoadSessionRef.current = false;
+    setChatHistorySearch("");
+    if (!user?.id) {
+      setChatSessions([]);
+      return;
+    }
+    void fetchChatSessions();
+  }, [fetchChatSessions, user?.id]);
+
+  const filteredChatSessions = useMemo(() => {
+    const q = chatHistorySearch.trim().toLowerCase();
+    if (!q) return chatSessions;
+    return chatSessions.filter((s) =>
+      [s.title || "", s.summary || ""].join(" ").toLowerCase().includes(q),
+    );
+  }, [chatHistorySearch, chatSessions]);
+
+  const formatSessionWhen = useCallback((iso: string | null) => {
+    if (!iso) return "Sem data";
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return "Sem data";
+    return d.toLocaleString(getActiveLocale(), {
+      day: "2-digit",
+      month: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }, []);
+
   const allSources = useMemo(() => [...FIXED_SOURCES, ...sources], [sources]);
   const selectedSource = useMemo(
     () => allSources.find((s) => s.id === selectedSourceId) || null,
@@ -613,7 +731,7 @@ export const StudyLab = () => {
   const previewNextId =
     previewIndex >= 0 && previewIndex < visibleSources.length - 1 ? visibleSources[previewIndex + 1]?.id || null : null;
 
-  const useSourceInChat = (source: StudySource) => {
+  const selectSourceForChat = (source: StudySource) => {
     if (!source) return;
     if (source.id === FIXED_RULES_ID) {
       setOracleMode(true);
@@ -873,12 +991,109 @@ export const StudyLab = () => {
     toast.success(`Catálogo atualizado com IA: ${okCount} ok, ${failed} com falha.`);
   };
 
-  const resetChatAttachments = () => {
+  const resetChatAttachments = useCallback(() => {
     setChatAttachments([]);
     setChatUploadKey((prev) => prev + 1);
-  };
+  }, []);
 
-  const handleNewChat = () => {
+  const openChatSession = useCallback(
+    async (sessionId: string, opts?: { silent?: boolean }) => {
+      const sid = String(sessionId || "").trim();
+      if (!sid || !user?.id) return;
+      setChatSessionLoadingId(sid);
+      try {
+        const { data, error } = await (supabase as any)
+          .from("study_chat_sessions")
+          .select("id, mode, source_id, messages, attachments, metadata")
+          .eq("id", sid)
+          .eq("user_id", user.id)
+          .maybeSingle();
+        if (error) throw error;
+        if (!data) {
+          if (!opts?.silent) toast.error("Conversa não encontrada.");
+          return;
+        }
+
+        const mode = String(data?.mode || "study").toLowerCase();
+        const isOracle = mode === "oracle";
+        const sourceId = typeof data?.source_id === "string" ? data.source_id : null;
+        const metadata = data?.metadata && typeof data.metadata === "object" ? data.metadata : null;
+        const restoredMessages = normalizeStoredChatMessages(data?.messages, data?.attachments);
+
+        try {
+          chatAbortRef.current?.abort();
+        } catch {
+          // ignore
+        }
+        chatAbortRef.current = null;
+        setChatLoading(false);
+        setChatError(null);
+        setChatInput("");
+        setChatMessages(restoredMessages);
+        setChatSessionId(sid);
+        setOracleMode(isOracle);
+        setUseWeb(Boolean(metadata?.use_web) && isOracle);
+        setSelectedSourceId(!isOracle ? sourceId : null);
+        resetChatAttachments();
+        setChatHistoryOpen(false);
+      } catch (e: any) {
+        if (!opts?.silent) toast.error(e?.message || "Falha ao abrir conversa.");
+      } finally {
+        setChatSessionLoadingId(null);
+      }
+    },
+    [resetChatAttachments, user?.id],
+  );
+
+  const handleDeleteChatSession = useCallback(
+    async (sessionId: string) => {
+      const sid = String(sessionId || "").trim();
+      if (!sid || !user?.id) return;
+      const row = chatSessions.find((s) => s.id === sid);
+      const label = String(row?.title || row?.summary || "esta conversa").trim();
+      const ok = window.confirm(`Apagar "${label}" do histórico?\n\nEssa ação não pode ser desfeita.`);
+      if (!ok) return;
+
+      try {
+        const { error } = await (supabase as any)
+          .from("study_chat_sessions")
+          .delete()
+          .eq("id", sid)
+          .eq("user_id", user.id);
+        if (error) throw error;
+        setChatSessions((prev) => prev.filter((s) => s.id !== sid));
+        if (chatSessionId === sid) {
+          try {
+            chatAbortRef.current?.abort();
+          } catch {
+            // ignore
+          }
+          chatAbortRef.current = null;
+          setChatLoading(false);
+          setChatError(null);
+          setChatMessages([]);
+          setChatInput("");
+          setChatSessionId(createChatSessionId());
+          resetChatAttachments();
+          didAutoLoadSessionRef.current = true;
+        }
+      } catch (e: any) {
+        toast.error(e?.message || "Falha ao apagar conversa.");
+      }
+    },
+    [chatSessionId, chatSessions, resetChatAttachments, user?.id],
+  );
+
+  useEffect(() => {
+    if (!user?.id || didAutoLoadSessionRef.current || chatSessionsLoading) return;
+    if (chatMessages.length > 0 || chatInput.trim()) return;
+    const first = chatSessions[0];
+    if (!first?.id) return;
+    didAutoLoadSessionRef.current = true;
+    void openChatSession(first.id, { silent: true });
+  }, [chatInput, chatMessages.length, chatSessions, chatSessionsLoading, openChatSession, user?.id]);
+
+  const handleNewChat = useCallback(() => {
     try {
       chatAbortRef.current?.abort();
     } catch {
@@ -889,8 +1104,99 @@ export const StudyLab = () => {
     setChatInput("");
     setChatError(null);
     setChatSessionId(createChatSessionId());
+    setChatHistoryOpen(false);
+    didAutoLoadSessionRef.current = true;
     resetChatAttachments();
-  };
+  }, [resetChatAttachments]);
+
+  const renderChatHistoryList = useCallback(
+    (opts?: { compact?: boolean }) => {
+      const compact = Boolean(opts?.compact);
+      return (
+        <div className="space-y-3">
+          <Button
+            type="button"
+            className="w-full justify-start"
+            onClick={handleNewChat}
+            disabled={chatLoading || chatUploading}
+          >
+            <Plus className="mr-2 h-4 w-4" />
+            Nova conversa
+          </Button>
+
+          <Input
+            value={chatHistorySearch}
+            onChange={(e) => setChatHistorySearch(e.target.value)}
+            placeholder="Buscar no histórico..."
+            className={compact ? "h-9" : ""}
+          />
+
+          <div className="space-y-1">
+            {chatSessionsLoading ? (
+              <div className="flex items-center gap-2 rounded-md border p-3 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Carregando histórico...
+              </div>
+            ) : filteredChatSessions.length === 0 ? (
+              <div className="rounded-md border p-3 text-sm text-muted-foreground">
+                {chatSessionsError || "Nenhuma conversa encontrada."}
+              </div>
+            ) : (
+              <div className="max-h-[58vh] space-y-1 overflow-y-auto pr-1">
+                {filteredChatSessions.map((session) => {
+                  const active = chatSessionId === session.id;
+                  const loading = chatSessionLoadingId === session.id;
+                  const title = String(session.title || session.summary || "Conversa sem título").trim();
+                  const summary = String(session.summary || "").trim();
+                  return (
+                    <div key={session.id} className="group flex items-start gap-1">
+                      <button
+                        type="button"
+                        onClick={() => void openChatSession(session.id)}
+                        className={[
+                          "flex-1 rounded-md border p-2 text-left transition-colors",
+                          active ? "border-primary bg-primary/10" : "hover:bg-muted/40",
+                        ].join(" ")}
+                      >
+                        <p className="truncate text-sm font-medium">{title}</p>
+                        {summary ? <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{summary}</p> : null}
+                        <p className="mt-1 text-[11px] text-muted-foreground">{formatSessionWhen(session.updated_at)}</p>
+                      </button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 shrink-0 opacity-70 hover:opacity-100"
+                        onClick={() => void handleDeleteChatSession(session.id)}
+                        disabled={loading || chatLoading}
+                        title="Apagar conversa"
+                      >
+                        {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    },
+    [
+      chatHistorySearch,
+      chatLoading,
+      chatSessionId,
+      chatSessionLoadingId,
+      chatSessionsLoading,
+      chatSessionsError,
+      chatUploading,
+      filteredChatSessions,
+      formatSessionWhen,
+      handleDeleteChatSession,
+      handleNewChat,
+      openChatSession,
+    ],
+  );
 
   const stopGenerating = () => {
     try {
@@ -1100,6 +1406,7 @@ export const StudyLab = () => {
       }
       setChatMessages((prev) => [...prev, { role: "assistant", content: answer }]);
       resetChatAttachments();
+      void fetchChatSessions();
     } catch (e: any) {
       if (String(e?.name || "") === "AbortError") {
         setChatError("Geração interrompida.");
@@ -1125,6 +1432,10 @@ export const StudyLab = () => {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Button type="button" variant="outline" className="lg:hidden" onClick={() => setChatHistoryOpen(true)}>
+            <History className="mr-2 h-4 w-4" />
+            Histórico
+          </Button>
           <Button type="button" variant="outline" onClick={() => setCatalogOpen(true)}>
             <LibraryBig className="mr-2 h-4 w-4" />
             Catálogo
@@ -1176,6 +1487,18 @@ export const StudyLab = () => {
           </CardContent>
         </Card>
       )}
+
+      <div className="grid gap-4 lg:grid-cols-[300px_minmax(0,1fr)]">
+      <Card className="hidden lg:flex lg:flex-col lg:sticky lg:top-4">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <History className="h-4 w-4" />
+            Histórico
+          </CardTitle>
+          <CardDescription>Conversas salvas automaticamente por usuário.</CardDescription>
+        </CardHeader>
+        <CardContent>{renderChatHistoryList()}</CardContent>
+      </Card>
 
       <Card className="-mx-3 rounded-none sm:mx-0 sm:rounded-lg">
         <CardHeader className="space-y-2">
@@ -1497,6 +1820,17 @@ export const StudyLab = () => {
           {chatError && <p className="text-sm text-destructive">Erro: {chatError}</p>}
         </CardContent>
       </Card>
+      </div>
+
+      <Sheet open={chatHistoryOpen} onOpenChange={setChatHistoryOpen}>
+        <SheetContent side="left" className="w-full sm:max-w-md">
+          <SheetHeader>
+            <SheetTitle>Histórico</SheetTitle>
+            <SheetDescription>Converse de onde parou em sessões anteriores.</SheetDescription>
+          </SheetHeader>
+          <div className="mt-4">{renderChatHistoryList({ compact: true })}</div>
+        </SheetContent>
+      </Sheet>
 
       <Sheet open={catalogOpen} onOpenChange={setCatalogOpen}>
         <SheetContent side="right" className="w-full sm:max-w-lg">
@@ -1734,7 +2068,7 @@ export const StudyLab = () => {
                             <Button
                               type="button"
                               size="sm"
-                              onClick={() => useSourceInChat(s)}
+                              onClick={() => selectSourceForChat(s)}
                               disabled={s.ingest_status === "pending" || (s.ingest_status === "failed" && s.id !== FIXED_RULES_ID)}
                             >
                               Usar
@@ -1819,7 +2153,7 @@ export const StudyLab = () => {
                     <Button
                       type="button"
                       size="sm"
-                      onClick={() => useSourceInChat(catalogPreviewSource)}
+                      onClick={() => selectSourceForChat(catalogPreviewSource)}
                       disabled={
                         catalogPreviewSource.ingest_status === "pending" ||
                         (catalogPreviewSource.ingest_status === "failed" && catalogPreviewSource.id !== FIXED_RULES_ID)

@@ -6,11 +6,18 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { getActiveLocale } from "@/lib/i18n/activeLocale";
-import { Download, FileText, RefreshCw, Save } from "lucide-react";
+import { ChevronDown, Download, FileText, RefreshCw, Save } from "lucide-react";
 import { FINANCE_COMPANIES, FINANCE_COORDINATIONS, FINANCE_REQUEST_KINDS, FINANCE_STATUSES } from "@/lib/finance/constants";
 
 type RequestRow = any;
@@ -19,6 +26,55 @@ const formatBrl = (cents: number | null | undefined) => {
   const n = typeof cents === "number" ? cents / 100 : 0;
   if (!Number.isFinite(n)) return "—";
   return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+};
+
+const normalizeFinanceStatusLabel = (raw: unknown) => {
+  const s = String(raw || "").trim();
+  if (!s) return "—";
+  // Backward compatibility: old UIs and legacy rows.
+  if (s === "Pago") return "Aprovado";
+  if (s === "Em análise") return "Em Análise";
+  return s;
+};
+
+const financeStatusBadge = (rawStatus: unknown) => {
+  const status = normalizeFinanceStatusLabel(rawStatus);
+  if (status === "Enviado") {
+    return {
+      label: status,
+      variant: "outline" as const,
+      className: "border-blue-400/60 bg-blue-500/10 text-blue-700 dark:text-blue-300",
+    };
+  }
+  if (status === "Em Análise") {
+    return {
+      label: status,
+      variant: "outline" as const,
+      className: "border-orange-400/60 bg-orange-500/10 text-orange-700 dark:text-orange-300",
+    };
+  }
+  if (status === "Aprovado") {
+    return {
+      label: status,
+      variant: "outline" as const,
+      className: "border-emerald-400/60 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+    };
+  }
+  if (status === "Reprovado") {
+    return {
+      label: status,
+      variant: "outline" as const,
+      className: "border-red-400/60 bg-red-500/10 text-red-700 dark:text-red-300",
+    };
+  }
+  if (status === "Cancelado") {
+    return {
+      label: status,
+      variant: "outline" as const,
+      className: "border-purple-400/60 bg-purple-500/10 text-purple-700 dark:text-purple-300",
+    };
+  }
+  return { label: status, variant: "outline" as const, className: "" };
 };
 
 export function FinanceRequestsManagement() {
@@ -30,7 +86,7 @@ export function FinanceRequestsManagement() {
   const [company, setCompany] = useState<string>("all");
   const [coordination, setCoordination] = useState<string>("all");
   const [kind, setKind] = useState<string>("all");
-  const [status, setStatus] = useState<string>("all");
+  const [statusFilters, setStatusFilters] = useState<string[]>([]);
   const [q, setQ] = useState<string>("");
   const [dateFrom, setDateFrom] = useState<string>("");
   const [dateTo, setDateTo] = useState<string>("");
@@ -43,19 +99,24 @@ export function FinanceRequestsManagement() {
   const [nextStatus, setNextStatus] = useState<string>("Enviado");
   const [observation, setObservation] = useState<string>("");
 
+  const statusOptions = useMemo(
+    () => (FINANCE_STATUSES as readonly string[]).filter((s) => String(s) !== "Pago"),
+    [],
+  );
+
   const buildParams = useCallback((extra?: Record<string, string>) => {
     const params = new URLSearchParams();
     params.set("limit", "500");
     if (company !== "all") params.set("company", company);
     if (coordination !== "all") params.set("coordination", coordination);
     if (kind !== "all") params.set("request_kind", kind);
-    if (status !== "all") params.set("status", status);
+    if (statusFilters.length) params.set("status", statusFilters.join(","));
     if (q.trim()) params.set("q", q.trim());
     if (dateFrom) params.set("date_start_from", dateFrom);
     if (dateTo) params.set("date_start_to", dateTo);
     if (extra) Object.entries(extra).forEach(([k, v]) => params.set(k, v));
     return params;
-  }, [company, coordination, dateFrom, dateTo, kind, q, status]);
+  }, [company, coordination, dateFrom, dateTo, kind, q, statusFilters]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -87,8 +148,8 @@ export function FinanceRequestsManagement() {
       const json = await resp.json().catch(() => ({}));
       if (!resp.ok) throw new Error(json?.error || "Falha ao carregar detalhes");
       setDetail(json);
-      const st = String(json?.request?.status || "Enviado");
-      setNextStatus(st);
+      const st = normalizeFinanceStatusLabel(json?.request?.status || "Enviado");
+      setNextStatus(st === "—" ? "Enviado" : st);
       setObservation(String(json?.request?.last_observation || ""));
     } catch (e: any) {
       setDetail(null);
@@ -154,13 +215,13 @@ export function FinanceRequestsManagement() {
   };
 
   const totals = useMemo(() => {
-    const pending = items.filter((r) => !["Pago", "Cancelado", "Reprovado"].includes(String(r.status))).length;
-    const paid = items.filter((r) => String(r.status) === "Pago").length;
+    const pending = items.filter((r) => !["Aprovado", "Cancelado", "Reprovado", "Pago"].includes(String(r.status))).length;
+    const approved = items.filter((r) => ["Aprovado", "Pago"].includes(String(r.status))).length;
     const total = items
       .map((r) => Number(r?.amount_cents))
       .filter((n) => Number.isFinite(n))
       .reduce((a, b) => a + b, 0);
-    return { pending, paid, total };
+    return { pending, approved, total };
   }, [items]);
 
   return (
@@ -205,17 +266,57 @@ export function FinanceRequestsManagement() {
               </SelectContent>
             </Select>
           </div>
-          <div>
-            <Label className="text-[11px] text-muted-foreground">Status</Label>
-            <Select value={status} onValueChange={setStatus}>
-              <SelectTrigger className="h-9 mt-1"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todos</SelectItem>
-                {FINANCE_STATUSES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
+	          <div>
+	            <Label className="text-[11px] text-muted-foreground">Status</Label>
+	            <DropdownMenu>
+	              <DropdownMenuTrigger asChild>
+	                <Button
+	                  type="button"
+	                  variant="outline"
+	                  className="mt-1 h-9 w-full justify-between"
+	                >
+	                  <span className="min-w-0 truncate text-left text-[13px]">
+	                    {statusFilters.length === 0
+	                      ? "Todos"
+	                      : statusFilters.length === 1
+	                        ? statusFilters[0]
+	                        : `${statusFilters.length} selecionados`}
+	                  </span>
+	                  <ChevronDown className="ml-2 h-4 w-4 opacity-70" />
+	                </Button>
+	              </DropdownMenuTrigger>
+	              <DropdownMenuContent align="start" className="w-56">
+	                <DropdownMenuCheckboxItem
+	                  checked={statusFilters.length === 0}
+	                  onCheckedChange={(checked) => {
+	                    if (checked) setStatusFilters([]);
+	                  }}
+	                  onSelect={(e) => e.preventDefault()}
+	                >
+	                  Todos
+	                </DropdownMenuCheckboxItem>
+	                <DropdownMenuSeparator />
+	                {statusOptions.map((s) => (
+	                  <DropdownMenuCheckboxItem
+	                    key={s}
+	                    checked={statusFilters.includes(s)}
+	                    onCheckedChange={(checked) => {
+	                      setStatusFilters((prev) => {
+	                        const set = new Set(prev);
+	                        if (checked) set.add(s);
+	                        else set.delete(s);
+	                        return Array.from(set);
+	                      });
+	                    }}
+	                    onSelect={(e) => e.preventDefault()}
+	                  >
+	                    {s}
+	                  </DropdownMenuCheckboxItem>
+	                ))}
+	              </DropdownMenuContent>
+	            </DropdownMenu>
+	          </div>
+	        </div>
 
         <div className="grid gap-2 md:grid-cols-6">
           <div className="md:col-span-2">
@@ -245,7 +346,7 @@ export function FinanceRequestsManagement() {
         <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
           <Badge variant="secondary" className="text-[10px]">Itens: {items.length}</Badge>
           <Badge variant="outline" className="text-[10px]">Em andamento: {totals.pending}</Badge>
-          <Badge variant="outline" className="text-[10px]">Pagos: {totals.paid}</Badge>
+          <Badge variant="outline" className="text-[10px]">Aprovados: {totals.approved}</Badge>
           <Badge className="text-[10px]">Total (R$): {(totals.total / 100).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Badge>
         </div>
 
@@ -271,7 +372,10 @@ export function FinanceRequestsManagement() {
                     </div>
                   </div>
                   <div className="flex flex-col items-end gap-1">
-                    <Badge className="text-[10px]">{r.status}</Badge>
+                    {(() => {
+                      const b = financeStatusBadge(r.status);
+                      return <Badge variant={b.variant} className={`text-[10px] ${b.className}`}>{b.label}</Badge>;
+                    })()}
                     <div className="text-[11px] text-muted-foreground">{formatBrl(r.amount_cents)}</div>
                   </div>
                 </div>
@@ -307,7 +411,10 @@ export function FinanceRequestsManagement() {
                     </div>
                   </div>
                   <div className="text-right">
-                    <Badge className="text-[11px]">{detail.request.status}</Badge>
+                    {(() => {
+                      const b = financeStatusBadge(detail.request.status);
+                      return <Badge variant={b.variant} className={`text-[11px] ${b.className}`}>{b.label}</Badge>;
+                    })()}
                     <div className="text-[12px] text-muted-foreground mt-1">{formatBrl(detail.request.amount_cents)}</div>
                   </div>
                 </div>
@@ -318,7 +425,7 @@ export function FinanceRequestsManagement() {
                     <Select value={nextStatus} onValueChange={setNextStatus}>
                       <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        {FINANCE_STATUSES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                        {statusOptions.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
                       </SelectContent>
                     </Select>
                   </div>
@@ -359,7 +466,7 @@ export function FinanceRequestsManagement() {
                       {(detail.history || []).map((h: any) => (
                         <div key={h.id} className="text-[12px] flex items-start justify-between gap-2">
                           <div className="min-w-0">
-                            <span className="font-medium">{h.to_status}</span>
+                            <span className="font-medium">{normalizeFinanceStatusLabel(h.to_status)}</span>
                             {h.observation ? <div className="text-muted-foreground whitespace-pre-wrap">{h.observation}</div> : null}
                           </div>
                           <div className="text-[11px] text-muted-foreground flex-shrink-0">

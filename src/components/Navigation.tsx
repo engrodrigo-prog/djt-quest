@@ -39,6 +39,7 @@ const Navigation = () => {
   const [sepbookNew, setSepbookNew] = useState(0);
   const [sepbookMentions, setSepbookMentions] = useState(0);
   const barRef = useRef<HTMLDivElement | null>(null);
+  const originalBodyPaddingLeftRef = useRef<string | null>(null);
   const [itemSize, setItemSize] = useState<number>(60);
   const playSfxRef = useRef(playSfx);
   const notifTotalRef = useRef<number | null>(null);
@@ -68,6 +69,18 @@ const Navigation = () => {
       raf = 0;
       const el = barRef.current;
       if (!el) return;
+      const isDesktop = typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches;
+
+      if (isDesktop) {
+        const height = el.clientHeight; // available height for items
+        // Reserve minimal top/bottom padding and space for labels.
+        const available = Math.max(0, height - 32);
+        const raw = Math.floor(available / Math.max(1, visibleCount) - 28);
+        const clamped = Math.max(44, Math.min(80, raw));
+        setItemSize((prev) => (prev === clamped ? prev : clamped));
+        return;
+      }
+
       const width = el.clientWidth; // available width for items
       // Reserve minimal side padding (8px total) and no gaps between items
       const available = Math.max(0, width - 8);
@@ -119,6 +132,39 @@ const Navigation = () => {
     window.addEventListener('djt-nav-visibility', onToggle as any);
     return () => window.removeEventListener('djt-nav-visibility', onToggle as any);
   }, []);
+
+  // Desktop: move nav to the left, so reserve horizontal space (widescreen-friendly).
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof document === 'undefined') return;
+    if (originalBodyPaddingLeftRef.current == null) {
+      originalBodyPaddingLeftRef.current = document.body.style.paddingLeft || '';
+    }
+    const original = originalBodyPaddingLeftRef.current || '';
+    const mq = window.matchMedia('(min-width: 768px)');
+    const offset = '120px';
+
+    const apply = () => {
+      const shouldOffset = mq.matches && !(navHidden && !navExpanded);
+      document.body.style.paddingLeft = shouldOffset ? offset : original;
+    };
+
+    apply();
+    const onChange = () => apply();
+
+    try {
+      mq.addEventListener('change', onChange);
+      return () => {
+        mq.removeEventListener('change', onChange);
+        document.body.style.paddingLeft = original;
+      };
+    } catch {
+      (mq as any).addListener?.(onChange);
+      return () => {
+        (mq as any).removeListener?.(onChange);
+        document.body.style.paddingLeft = original;
+      };
+    }
+  }, [navExpanded, navHidden]);
 
   useEffect(() => {
     let active = true;
@@ -339,7 +385,7 @@ const Navigation = () => {
 
   const isActive = (path: string) => location.pathname === path;
   const baseButtonClass =
-    "flex-col h-auto py-1 gap-1 snap-center rounded-none first:rounded-l-xl last:rounded-r-xl hover:bg-white/5";
+    "flex-col h-auto py-1 gap-1 snap-center rounded-none first:rounded-l-xl last:rounded-r-xl hover:bg-white/5 md:w-full md:rounded-xl";
   const bubbleClass = (active: boolean) =>
     cn(
       "relative inline-flex items-center justify-center rounded-2xl border border-white/10 bg-slate-800/80 backdrop-blur-md shadow-[0_8px_20px_rgba(0,0,0,0.45)] transition-transform duration-150 hover:scale-105 active:scale-110",
@@ -383,32 +429,39 @@ const Navigation = () => {
 
   return (
     <nav
-      className="fixed bottom-0 left-0 right-0 z-30 min-h-[96px] bg-transparent overflow-visible"
+      className="fixed bottom-0 left-0 right-0 z-30 min-h-[96px] bg-transparent overflow-visible md:top-0 md:bottom-0 md:left-0 md:right-auto md:min-h-0 md:w-[120px]"
       style={{ paddingBottom: 'max(env(safe-area-inset-bottom), 8px)' }}
     >
-      {/* Decorative background for the bottom bar (BG Menu.png), does not block clicks */}
+      {/* Decorative background (mobile bottom bar vs desktop left rail), does not block clicks */}
       <div aria-hidden className="pointer-events-none absolute inset-0 -z-10">
-        <div className="absolute inset-0" style={{
-          backgroundImage: `url(${bgMenu})`,
-          backgroundSize: 'cover',
-          backgroundPosition: 'center',
-          backgroundRepeat: 'no-repeat',
-          filter: 'brightness(0.85) saturate(1.1)'
-        }} />
-        <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-slate-900/70 to-transparent" />
+        <div
+          className="absolute inset-0 md:hidden"
+          style={{
+            backgroundImage: `url(${bgMenu})`,
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+            backgroundRepeat: 'no-repeat',
+            filter: 'brightness(0.85) saturate(1.1)',
+          }}
+        />
+        <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-slate-900/70 to-transparent md:hidden" />
+        <div className="absolute inset-0 hidden md:block bg-gradient-to-b from-slate-950/85 via-slate-950/70 to-slate-950/90" />
       </div>
-      <div ref={barRef} className="relative mx-auto max-w-[1200px] px-2 md:px-4 flex items-center justify-center gap-0 py-0 overflow-x-auto overflow-y-visible min-h-[96px] touch-pan-x">
-        <div className="nav-rail relative flex items-center justify-center gap-0 bg-slate-950/80 border border-white/10 rounded-2xl px-2 py-2 shadow-2xl backdrop-blur-xl min-w-max">
-        {navHidden && (
-          <Button
-            type="button"
-            size="icon"
-            variant="ghost"
-            className="h-9 w-9 mr-1"
-            onClick={() => {
-              setNavExpanded(false);
-              setNavHidden(true);
-            }}
+      <div
+        ref={barRef}
+        className="relative mx-auto max-w-[1200px] px-2 flex items-center justify-center gap-0 py-0 overflow-x-auto overflow-y-visible min-h-[96px] touch-pan-x md:mx-0 md:max-w-none md:h-full md:px-2 md:py-4 md:items-start md:justify-start md:overflow-y-auto md:overflow-x-hidden md:touch-pan-y"
+      >
+        <div className="nav-rail relative flex items-center justify-center gap-0 bg-slate-950/80 border border-white/10 rounded-2xl px-2 py-2 shadow-2xl backdrop-blur-xl min-w-max md:flex-col md:w-full md:min-w-0 md:gap-1 md:px-1">
+	        {navHidden && (
+	          <Button
+	            type="button"
+	            size="icon"
+	            variant="ghost"
+	            className="h-9 w-9 mr-1 md:mr-0 md:mb-1"
+	            onClick={() => {
+	              setNavExpanded(false);
+	              setNavHidden(true);
+	            }}
             aria-label="Fechar menu"
             title="Fechar menu"
           >

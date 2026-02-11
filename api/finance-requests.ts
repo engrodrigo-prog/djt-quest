@@ -50,24 +50,46 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(403).json({ error: 'CONVIDADOS não podem solicitar reembolso/adiantamento.' });
     }
 
-    if (req.method === 'GET') {
-      const status = safeText(pickQueryParam(req.query, 'status'), 40);
-      const kind = safeText(pickQueryParam(req.query, 'request_kind'), 40);
-      const limit = clampLimit(pickQueryParam(req.query, 'limit'), 60, 200);
+	    if (req.method === 'GET') {
+	      const statusRaw = safeText(pickQueryParam(req.query, 'status'), 200) || '';
+	      const kind = safeText(pickQueryParam(req.query, 'request_kind'), 40);
+	      const limit = clampLimit(pickQueryParam(req.query, 'limit'), 60, 200);
 
       let q = db
         .from('finance_requests')
         .select(
           'id,protocol,created_at,updated_at,company,training_operational,request_kind,expense_type,coordination,date_start,date_end,amount_cents,currency,status,last_observation',
         )
-        .eq('created_by', uid)
-        .order('updated_at', { ascending: false })
-        .limit(limit);
-      if (status && status !== 'all') q = q.eq('status', status);
-      if (kind && kind !== 'all') q = q.eq('request_kind', kind);
-      const { data } = await q;
-      return res.status(200).json({ items: Array.isArray(data) ? data : [] });
-    }
+	        .eq('created_by', uid)
+	        .order('updated_at', { ascending: false })
+	        .limit(limit);
+	      const statuses = statusRaw
+	        .split(',')
+	        .map((s) => s.trim())
+	        .filter((s) => s && s !== 'all');
+	      if (statuses.length) {
+	        const dbValues = new Set<string>();
+	        for (const s0 of statuses) {
+	          const s = s0 === 'Em análise' ? 'Em Análise' : s0;
+	          if (s === 'Em Análise') {
+	            dbValues.add('Em Análise');
+	            dbValues.add('Em análise');
+	          } else if (s === 'Aprovado') {
+	            dbValues.add('Aprovado');
+	            dbValues.add('Pago');
+	          } else if (s === 'Pago') {
+	            dbValues.add('Pago');
+	            dbValues.add('Aprovado');
+	          } else {
+	            dbValues.add(s);
+	          }
+	        }
+	        q = q.in('status', Array.from(dbValues));
+	      }
+	      if (kind && kind !== 'all') q = q.eq('request_kind', kind);
+	      const { data } = await q;
+	      return res.status(200).json({ items: Array.isArray(data) ? data : [] });
+	    }
 
     // POST create
     const parsed = financeRequestCreateSchema.safeParse(req.body || {});

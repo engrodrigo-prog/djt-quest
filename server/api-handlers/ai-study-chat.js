@@ -7,7 +7,8 @@ import { normalizeChatModel, pickChatModel } from "../lib/openai-models.js";
 const require2 = createRequire(import.meta.url);
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const SUPABASE_URL = process.env.SUPABASE_URL;
-const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_PUBLISHABLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || SUPABASE_ANON_KEY;
 const STUDYLAB_DEFAULT_CHAT_MODEL = "gpt-5-nano-2025-08-07";
 const STUDYLAB_MAX_COMPLETION_TOKENS = Math.max(
   240,
@@ -697,17 +698,21 @@ async function handler(req, res) {
         throw new Error(err?.message || "N\xE3o foi poss\xEDvel ler a URL fornecida");
       }
     };
-    let uid = null;
-    let isLeaderOrStaff = false;
-    const authHeader = req.headers["authorization"];
-    if (admin && authHeader?.startsWith("Bearer ")) {
-      const token = authHeader.slice(7);
-      try {
-        const { data: userData } = await admin.auth.getUser(token);
-        uid = userData?.user?.id || null;
-      } catch {
-        uid = null;
-      }
+	    let uid = null;
+	    let isLeaderOrStaff = false;
+	    const authHeader = req.headers["authorization"];
+	    const bearerToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+	    const sessionDb = SUPABASE_URL && SUPABASE_ANON_KEY && bearerToken ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+	      auth: { autoRefreshToken: false, persistSession: false },
+	      global: { headers: { Authorization: `Bearer ${bearerToken}` } }
+	    }) : null;
+	    if (admin && bearerToken) {
+	      try {
+	        const { data: userData } = await admin.auth.getUser(bearerToken);
+	        uid = userData?.user?.id || null;
+	      } catch {
+	        uid = null;
+	      }
       if (uid) {
         try {
           const [{ data: profile }, { data: rolesRows }] = await Promise.all([
@@ -1998,17 +2003,33 @@ ${webSummary.text}`
         });
       }
     }
-    if (admin && uid) {
-      try {
-        const logMessages = [...normalizedMessages, { role: "assistant", content }];
-        const nowIso = (/* @__PURE__ */ new Date()).toISOString();
-        let sessionRow = null;
-        try {
-          const { data: existing } = await admin.from("study_chat_sessions").select("id, attachments, title, compendium_source_id").eq("id", resolvedSessionId).maybeSingle();
-          sessionRow = existing || null;
-        } catch {
-          sessionRow = null;
+	    const sessionWriter = sessionDb || admin;
+	    if (sessionWriter && uid) {
+	      try {
+	        const logMessages = normalizedMessages.map((m) => ({ role: m?.role || "user", content: m?.content || "" }));
+	        if (normalizedAttachments.length) {
+	          for (let i = logMessages.length - 1; i >= 0; i -= 1) {
+            if (logMessages[i]?.role !== "user") continue;
+            const mergedMessageAttachments = uniqueAttachments([
+              ...Array.isArray(logMessages[i]?.attachments) ? logMessages[i].attachments : [],
+              ...normalizedAttachments
+            ]);
+            logMessages[i] = {
+              ...logMessages[i],
+              ...(mergedMessageAttachments.length ? { attachments: mergedMessageAttachments } : {})
+            };
+            break;
+          }
         }
+        logMessages.push({ role: "assistant", content });
+	        const nowIso = (/* @__PURE__ */ new Date()).toISOString();
+	        let sessionRow = null;
+	        try {
+	          const { data: existing } = await sessionWriter.from("study_chat_sessions").select("id, attachments, title, compendium_source_id").eq("id", resolvedSessionId).maybeSingle();
+	          sessionRow = existing || null;
+	        } catch {
+	          sessionRow = null;
+	        }
         const mergedAttachments = uniqueAttachments([
           ...Array.isArray(sessionRow?.attachments) ? sessionRow.attachments : [],
           ...normalizedAttachments
@@ -2023,9 +2044,9 @@ ${webSummary.text}`
           kb_focus: forumKbFocus,
           model: usedModel
         };
-        const sessionPayload = {
-          id: resolvedSessionId,
-          user_id: uid,
+	        const sessionPayload = {
+	          id: resolvedSessionId,
+	          user_id: uid,
           mode,
           source_id: source_id || null,
           title,
@@ -2033,16 +2054,16 @@ ${webSummary.text}`
           messages: logMessages,
           attachments: mergedAttachments,
           metadata,
-          updated_at: nowIso
-        };
-        if (sessionRow?.id) {
-          await admin.from("study_chat_sessions").update(sessionPayload).eq("id", resolvedSessionId);
-        } else {
-          await admin.from("study_chat_sessions").insert({
-            ...sessionPayload,
-            created_at: nowIso
-          });
-        }
+	          updated_at: nowIso
+	        };
+	        if (sessionRow?.id) {
+	          await sessionWriter.from("study_chat_sessions").update(sessionPayload).eq("id", resolvedSessionId);
+	        } else {
+	          await sessionWriter.from("study_chat_sessions").insert({
+	            ...sessionPayload,
+	            created_at: nowIso
+	          });
+	        }
         if (save_compendium) {
           const transcript = buildTranscript(logMessages, mergedAttachments);
           const compendiumMeta = {
@@ -2069,24 +2090,24 @@ ${webSummary.text}`
             published: false,
             metadata: compendiumMeta
           };
-          let compendiumId = sessionRow?.compendium_source_id || null;
-          if (compendiumId) {
-            try {
-              await admin.from("study_sources").update({
-                summary,
-                full_text: transcript,
-                last_used_at: nowIso,
-                metadata: compendiumMeta
-              }).eq("id", compendiumId);
-            } catch {
-            }
-          } else {
-            try {
-              const { data: created, error } = await admin.from("study_sources").insert(compendiumPayload).select("id").maybeSingle();
-              if (error) throw error;
-              compendiumId = created?.id || null;
-            } catch (err) {
-              if (/column .*?(category|scope|published|metadata|ingest_status|ingested_at|ingest_error|last_used_at)/i.test(String(err?.message || err))) {
+	          let compendiumId = sessionRow?.compendium_source_id || null;
+	          if (compendiumId) {
+	            try {
+	              await sessionWriter.from("study_sources").update({
+	                summary,
+	                full_text: transcript,
+	                last_used_at: nowIso,
+	                metadata: compendiumMeta
+	              }).eq("id", compendiumId);
+	            } catch {
+	            }
+	          } else {
+	            try {
+	              const { data: created, error } = await sessionWriter.from("study_sources").insert(compendiumPayload).select("id").maybeSingle();
+	              if (error) throw error;
+	              compendiumId = created?.id || null;
+	            } catch (err) {
+	              if (/column .*?(category|scope|published|metadata|ingest_status|ingested_at|ingest_error|last_used_at)/i.test(String(err?.message || err))) {
                 const {
                   category: _c,
                   scope: _s,
@@ -2096,27 +2117,28 @@ ${webSummary.text}`
                   ingested_at: _ia,
                   ingest_error: _ie,
                   last_used_at: _lu,
-                  ...legacyPayload
-                } = compendiumPayload;
-                try {
-                  const { data: created } = await admin.from("study_sources").insert(legacyPayload).select("id").maybeSingle();
-                  compendiumId = created?.id || null;
-                } catch {
-                  compendiumId = null;
-                }
-              }
-            }
-            if (compendiumId) {
-              try {
-                await admin.from("study_chat_sessions").update({ compendium_source_id: compendiumId }).eq("id", resolvedSessionId);
-              } catch {
-              }
-            }
-          }
-        }
-      } catch {
-      }
-    }
+	                  ...legacyPayload
+	                } = compendiumPayload;
+	                try {
+	                  const { data: created } = await sessionWriter.from("study_sources").insert(legacyPayload).select("id").maybeSingle();
+	                  compendiumId = created?.id || null;
+	                } catch {
+	                  compendiumId = null;
+	                }
+	              }
+	            }
+	            if (compendiumId) {
+	              try {
+	                await sessionWriter.from("study_chat_sessions").update({ compendium_source_id: compendiumId }).eq("id", resolvedSessionId);
+	              } catch {
+	              }
+	            }
+	          }
+	        }
+	      } catch (err) {
+	        console.warn("StudyLab: falha ao salvar histórico", err?.message || err);
+	      }
+	    }
     return res.status(200).json({
       success: true,
       answer: content,

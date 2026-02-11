@@ -121,17 +121,42 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const from_status = String(reqRow.status || '');
       const to_status = String(status);
 
-      const { error: updErr } = await admin
+      const legacyDbStatus = (s: string) => {
+        // Backward compatibility: some environments still have the old CHECK constraint casing.
+        if (s === 'Em Análise') return 'Em análise';
+        return s;
+      };
+
+      let dbStatus = to_status;
+      let updResp = await admin
         .from('finance_requests')
-        .update({ status: to_status, last_observation: safeText(observation, 2000) })
+        .update({ status: dbStatus, last_observation: safeText(observation, 2000) })
         .eq('id', id);
-      if (updErr) return res.status(400).json({ error: updErr.message });
+      if (updResp.error) {
+        const msg = String(updResp.error.message || '').toLowerCase();
+        const legacy = legacyDbStatus(dbStatus);
+        if (
+          legacy !== dbStatus &&
+          (msg.includes('check constraint') ||
+            msg.includes('status_check') ||
+            msg.includes('violates') ||
+            msg.includes('violação') ||
+            msg.includes('violacao'))
+        ) {
+          dbStatus = legacy;
+          updResp = await admin
+            .from('finance_requests')
+            .update({ status: dbStatus, last_observation: safeText(observation, 2000) })
+            .eq('id', id);
+        }
+      }
+      if (updResp.error) return res.status(400).json({ error: updResp.error.message });
 
       await admin.from('finance_request_status_history').insert({
         request_id: id,
         changed_by: uid,
         from_status,
-        to_status,
+        to_status: dbStatus,
         observation: safeText(observation, 2000),
       });
 
@@ -141,13 +166,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // GET list / export
     const exportFmt = String(pickQueryParam(req.query, 'export') || '').trim().toLowerCase();
     const limit = clampLimit(pickQueryParam(req.query, 'limit'), 120, 500);
-    const company = safeText(pickQueryParam(req.query, 'company'), 80);
-    const coordination = safeText(pickQueryParam(req.query, 'coordination'), 80);
-    const request_kind = safeText(pickQueryParam(req.query, 'request_kind'), 40);
-    const status = safeText(pickQueryParam(req.query, 'status'), 40);
-    const q = safeText(pickQueryParam(req.query, 'q'), 200);
-    const dateFromRaw = safeText(pickQueryParam(req.query, 'date_start_from'), 30);
-    const dateToRaw = safeText(pickQueryParam(req.query, 'date_start_to'), 30);
+	    const company = safeText(pickQueryParam(req.query, 'company'), 80);
+	    const coordination = safeText(pickQueryParam(req.query, 'coordination'), 80);
+	    const request_kind = safeText(pickQueryParam(req.query, 'request_kind'), 40);
+	    const statusRaw = safeText(pickQueryParam(req.query, 'status'), 200) || '';
+	    const q = safeText(pickQueryParam(req.query, 'q'), 200);
+	    const dateFromRaw = safeText(pickQueryParam(req.query, 'date_start_from'), 30);
+	    const dateToRaw = safeText(pickQueryParam(req.query, 'date_start_to'), 30);
     const isIsoDate = (s?: string | null) => Boolean(s && /^\d{4}-\d{2}-\d{2}$/.test(String(s)));
     const dateFrom = isIsoDate(dateFromRaw) ? String(dateFromRaw) : '';
     const dateTo = isIsoDate(dateToRaw) ? String(dateToRaw) : '';
@@ -165,14 +190,36 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .order('updated_at', { ascending: false })
       .limit(limit);
 
-    if (company && company !== 'all') query = query.eq('company', company);
-    if (coordination && coordination !== 'all') query = query.eq('coordination', coordination);
-    if (request_kind && request_kind !== 'all') query = query.eq('request_kind', request_kind);
-    if (status && status !== 'all') query = query.eq('status', status);
-    if (dateFrom) query = query.gte('date_start', dateFrom);
-    if (dateTo) query = query.lte('date_start', dateTo);
-    if (q) {
-      const needle = q.replace(/[%_]/g, '\\$&');
+	    if (company && company !== 'all') query = query.eq('company', company);
+	    if (coordination && coordination !== 'all') query = query.eq('coordination', coordination);
+	    if (request_kind && request_kind !== 'all') query = query.eq('request_kind', request_kind);
+	    const statuses = statusRaw
+	      .split(',')
+	      .map((s) => s.trim())
+	      .filter((s) => s && s !== 'all');
+	    if (statuses.length) {
+	      const dbValues = new Set<string>();
+	      for (const s0 of statuses) {
+	        const s = s0 === 'Em análise' ? 'Em Análise' : s0;
+	        if (s === 'Em Análise') {
+	          dbValues.add('Em Análise');
+	          dbValues.add('Em análise');
+	        } else if (s === 'Aprovado') {
+	          dbValues.add('Aprovado');
+	          dbValues.add('Pago');
+	        } else if (s === 'Pago') {
+	          dbValues.add('Pago');
+	          dbValues.add('Aprovado');
+	        } else {
+	          dbValues.add(s);
+	        }
+	      }
+	      query = query.in('status', Array.from(dbValues));
+	    }
+	    if (dateFrom) query = query.gte('date_start', dateFrom);
+	    if (dateTo) query = query.lte('date_start', dateTo);
+	    if (q) {
+	      const needle = q.replace(/[%_]/g, '\\$&');
       query = query.or(`created_by_name.ilike.%${needle}%,created_by_email.ilike.%${needle}%`);
     }
 

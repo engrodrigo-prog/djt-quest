@@ -24,4 +24,4 @@ export const FINANCE_COORDINATIONS = [
   'DJTB (Coordenadores)',
   'DJT (Gerentes + Coordenadora)',
 ] as const;
-export const FINANCE_STATUSES = ['Enviado', 'Em análise', 'Aprovado', 'Reprovado', 'Pago', 'Cancelado'] as const;
+export const FINANCE_STATUSES = ['Enviado', 'Em Análise', 'Aprovado', 'Reprovado', 'Cancelado'] as const;
