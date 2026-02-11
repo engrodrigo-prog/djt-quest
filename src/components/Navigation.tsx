@@ -58,10 +58,12 @@ const Navigation = () => {
     // Home, Forums, SEPBook, Study, Profile, Rankings, Logout
     // Optional: Evaluations (leader), Studio (studioAccess)
     let count = 7;
+    // When focus mode expands the nav, we render a close button inside the rail.
+    if (navHidden) count += 1;
     if (showEvaluations) count += 1;
     if (studioAccess) count += 1;
     return count;
-  }, [showEvaluations, studioAccess]);
+  }, [navHidden, showEvaluations, studioAccess]);
 
   useEffect(() => {
     let raf = 0;
@@ -73,10 +75,17 @@ const Navigation = () => {
 
       if (isDesktop) {
         const height = el.clientHeight; // available height for items
-        // Reserve minimal top/bottom padding and space for labels.
-        const available = Math.max(0, height - 32);
-        const raw = Math.floor(available / Math.max(1, visibleCount) - 28);
-        const clamped = Math.max(44, Math.min(80, raw));
+        // Desktop rail: ensure everything fits vertically without scrollbars.
+        const railPadding = 64; // container + rail padding + breathing room
+        const railGap = 2; // md:gap-0.5
+        const labelHeight = 12; // md:leading-3
+        const buttonPaddingY = 4; // md:py-0.5
+        const internalGap = 2; // md:gap-0.5
+        const overheadPerItem = labelHeight + buttonPaddingY + internalGap;
+        const available =
+          Math.max(0, height - railPadding - railGap * Math.max(0, visibleCount - 1));
+        const raw = Math.floor(available / Math.max(1, visibleCount) - overheadPerItem);
+        const clamped = Math.max(20, Math.min(80, raw));
         setItemSize((prev) => (prev === clamped ? prev : clamped));
         return;
       }
@@ -385,7 +394,7 @@ const Navigation = () => {
 
   const isActive = (path: string) => location.pathname === path;
   const baseButtonClass =
-    "flex-col h-auto py-1 gap-1 snap-center rounded-none first:rounded-l-xl last:rounded-r-xl hover:bg-white/5 md:w-full md:rounded-xl";
+    "flex-col h-auto py-1 gap-1 snap-center rounded-none first:rounded-l-xl last:rounded-r-xl hover:bg-white/5 md:w-full md:rounded-xl md:py-0.5 md:gap-0.5";
   const bubbleClass = (active: boolean) =>
     cn(
       "relative inline-flex items-center justify-center rounded-2xl border border-white/10 bg-slate-800/80 backdrop-blur-md shadow-[0_8px_20px_rgba(0,0,0,0.45)] transition-transform duration-150 hover:scale-105 active:scale-110",
@@ -393,7 +402,7 @@ const Navigation = () => {
     );
   const labelClass = (active: boolean) =>
     cn(
-      "text-[11px] font-semibold leading-4 tracking-tight max-w-[92px] truncate",
+      "text-[11px] font-semibold leading-4 tracking-tight max-w-[92px] truncate md:leading-3",
       active ? "text-slate-50" : "text-slate-200/80"
     );
   const badgeClass = (alert?: boolean) =>
@@ -449,15 +458,15 @@ const Navigation = () => {
       </div>
       <div
         ref={barRef}
-        className="relative mx-auto max-w-[1200px] px-2 flex items-center justify-center gap-0 py-0 overflow-x-auto overflow-y-visible min-h-[96px] touch-pan-x md:mx-0 md:max-w-none md:h-full md:px-2 md:py-4 md:items-start md:justify-start md:overflow-y-auto md:overflow-x-hidden md:touch-pan-y"
+        className="relative mx-auto max-w-[1200px] px-2 flex items-center justify-center gap-0 py-0 overflow-x-auto overflow-y-visible min-h-[96px] touch-pan-x md:mx-0 md:max-w-none md:h-full md:px-2 md:py-3 md:items-start md:justify-start md:overflow-hidden md:overflow-x-hidden"
       >
-        <div className="nav-rail relative flex items-center justify-center gap-0 bg-slate-950/80 border border-white/10 rounded-2xl px-2 py-2 shadow-2xl backdrop-blur-xl min-w-max md:flex-col md:w-full md:min-w-0 md:gap-1 md:px-1">
+        <div className="nav-rail relative flex items-center justify-center gap-0 bg-slate-950/80 border border-white/10 rounded-2xl px-2 py-2 shadow-2xl backdrop-blur-xl min-w-max md:flex-col md:w-full md:min-w-0 md:gap-0.5 md:px-1 md:py-1">
 	        {navHidden && (
 	          <Button
 	            type="button"
 	            size="icon"
 	            variant="ghost"
-	            className="h-9 w-9 mr-1 md:mr-0 md:mb-1"
+	            className="h-9 w-9 mr-1 md:mr-0 md:mb-0.5 md:h-8 md:w-8"
 	            onClick={() => {
 	              setNavExpanded(false);
 	              setNavHidden(true);
@@ -530,13 +539,13 @@ const Navigation = () => {
           </span>
           <div className="flex flex-col items-center leading-tight">
             <span className={labelClass(location.pathname.startsWith('/sepbook'))} title={t("nav.sepbook")}>{t("nav.sepbook")}</span>
-            {sepbookMentions > 0 && (
-              <span className="text-[10px] text-emerald-300 font-semibold leading-tight -mt-0.5">
-                {sepbookMentions}@
-              </span>
-            )}
-          </div>
-        </Button>
+	            {sepbookMentions > 0 && (
+	              <span className="text-[10px] text-emerald-300 font-semibold leading-tight -mt-0.5 md:hidden">
+	                {sepbookMentions}@
+	              </span>
+	            )}
+	          </div>
+	        </Button>
 
         <Button
           variant={isActive('/study') ? 'default' : 'ghost'}

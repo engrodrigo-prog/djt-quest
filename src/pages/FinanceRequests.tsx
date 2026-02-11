@@ -116,35 +116,35 @@ const financeStatusBadge = (rawStatus: unknown) => {
     return {
       label: status,
       variant: "outline" as const,
-      className: "border-blue-400/60 bg-blue-500/10 text-blue-700 dark:text-blue-300",
+      className: "border-blue-700 bg-blue-600 text-white",
     };
   }
   if (status === "Em Análise") {
     return {
       label: status,
       variant: "outline" as const,
-      className: "border-orange-400/60 bg-orange-500/10 text-orange-700 dark:text-orange-300",
+      className: "border-orange-700 bg-orange-500 text-white",
     };
   }
   if (status === "Aprovado") {
     return {
       label: status,
       variant: "outline" as const,
-      className: "border-emerald-400/60 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+      className: "border-emerald-700 bg-emerald-600 text-white",
     };
   }
   if (status === "Reprovado") {
     return {
       label: status,
       variant: "outline" as const,
-      className: "border-red-400/60 bg-red-500/10 text-red-700 dark:text-red-300",
+      className: "border-red-700 bg-red-600 text-white",
     };
   }
   if (status === "Cancelado") {
     return {
       label: status,
       variant: "outline" as const,
-      className: "border-purple-400/60 bg-purple-500/10 text-purple-700 dark:text-purple-300",
+      className: "border-purple-700 bg-purple-600 text-white",
     };
   }
   return { label: status, variant: "outline" as const, className: "" };
