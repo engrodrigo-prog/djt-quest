@@ -1,6 +1,5 @@
 import { createSupabaseAdminClient, requireCallerUser } from '../lib/supabase-admin.js';
 import { tryInsertAuditLog } from '../lib/audit-log.js';
-import { isAllowlistedAdmin } from '../lib/admin-allowlist.js';
 
 const allowedKinds = new Set(['daily', 'login', 'session', 'pageview']);
 const ACCESS_TZ = 'America/Sao_Paulo';
@@ -47,31 +46,29 @@ export default async function handler(req, res) {
 
     // Award: 1 XP per day if at least one access event exists.
     // Server-side dedupe is required because clients/devices can differ.
-    if (!isAllowlistedAdmin({ email: caller.email })) {
-      const dayKey = dayKeyInTimeZone(new Date(), ACCESS_TZ);
-      const accessKey = `access_daily_${caller.id}_${dayKey}`;
-      try {
-        const { error: xpErr } = await admin.from('xp_awards').insert({
-          user_id: caller.id,
-          kind: 'access_daily',
-          amount: 1,
-          metadata: {
-            access_key: accessKey,
-            day: dayKey,
-            tz: ACCESS_TZ,
-            source: 'track-access',
-            kind,
-            path,
-          },
-        });
+    const dayKey = dayKeyInTimeZone(new Date(), ACCESS_TZ);
+    const accessKey = `access_daily_${caller.id}_${dayKey}`;
+    try {
+      const { error: xpErr } = await admin.from('xp_awards').insert({
+        user_id: caller.id,
+        kind: 'access_daily',
+        amount: 1,
+        metadata: {
+          access_key: accessKey,
+          day: dayKey,
+          tz: ACCESS_TZ,
+          source: 'track-access',
+          kind,
+          path,
+        },
+      });
 
-        // Ignore duplicate awards for the same day (unique index enforces this).
-        if (xpErr && !String(xpErr.message || '').toLowerCase().includes('duplicate')) {
-          console.warn('track-access: failed to insert access_daily award', xpErr.message || xpErr);
-        }
-      } catch {
-        // best-effort
+      // Ignore duplicate awards for the same day (unique index enforces this).
+      if (xpErr && !String(xpErr.message || '').toLowerCase().includes('duplicate')) {
+        console.warn('track-access: failed to insert access_daily award', xpErr.message || xpErr);
       }
+    } catch {
+      // best-effort
     }
 
     return res.status(200).json({ ok: true });
