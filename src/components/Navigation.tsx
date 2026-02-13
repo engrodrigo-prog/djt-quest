@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, useMemo } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useEffect, useRef, useState, useMemo, useCallback } from 'react';
+import { useLocation } from 'react-router-dom';
 //
 import iconHome from '@/assets/backgrounds/home.webp';
 import iconRanking from '@/assets/backgrounds/Ranking.webp';
@@ -24,7 +24,6 @@ import { useSfx } from '@/lib/sfx';
 import { Menu, X } from 'lucide-react';
 
 const Navigation = () => {
-  const navigate = useNavigate();
   const location = useLocation();
   const { user, studioAccess, isLeader, signOut } = useAuth();
   const { t } = useI18n();
@@ -52,6 +51,33 @@ const Navigation = () => {
   useEffect(() => {
     playSfxRef.current = playSfx;
   }, [playSfx]);
+
+  const hardNavigate = useCallback(async (path: string) => {
+    if (typeof window === 'undefined') return;
+    const nextPath = String(path || '').trim();
+    if (!nextPath.startsWith('/')) return;
+    if (window.location.pathname === nextPath) return;
+
+    // Best-effort: clear CacheStorage (e.g. if a SW ever cached assets).
+    // Do NOT clear localStorage here (it would log users out / reset preferences).
+    try {
+      if ('caches' in window) {
+        const keys = await window.caches.keys();
+        await Promise.all(keys.map((k) => window.caches.delete(k)));
+      }
+    } catch {
+      // ignore
+    }
+
+    // Force a full navigation (not SPA) + cache-bust the HTML request.
+    try {
+      const url = new URL(nextPath, window.location.origin);
+      url.searchParams.set('__djt', String(Date.now()));
+      window.location.href = url.toString();
+    } catch {
+      window.location.href = nextPath;
+    }
+  }, []);
 
   // Calculate dynamic item size so all buttons fit without gaps/scroll on current viewport
   const visibleCount = useMemo(() => {
@@ -477,14 +503,14 @@ const Navigation = () => {
             <X className="h-5 w-5" />
           </Button>
         )}
-        <Button
-          variant={isActive('/dashboard') ? 'default' : 'ghost'}
-          size="sm"
-          onClick={() => navigate('/dashboard')}
-          className={baseButtonClass}
-          aria-label={t("nav.dashboard")}
-          aria-current={isActive('/dashboard') ? 'page' : undefined}
-        >
+	        <Button
+	          variant={isActive('/dashboard') ? 'default' : 'ghost'}
+	          size="sm"
+	          onClick={() => void hardNavigate('/dashboard')}
+	          className={baseButtonClass}
+	          aria-label={t("nav.dashboard")}
+	          aria-current={isActive('/dashboard') ? 'page' : undefined}
+	        >
           <span style={{ width: itemSize, height: itemSize }} className={bubbleClass(isActive('/dashboard'))}>
             <span className="absolute inset-[3px] rounded-2xl overflow-hidden">
               <img src={iconHome} alt={t("nav.dashboard")} className="w-full h-full object-cover" />
@@ -498,14 +524,14 @@ const Navigation = () => {
           <span className={labelClass(isActive('/dashboard'))} title={t("nav.dashboard")}>{t("nav.dashboard")}</span>
         </Button>
         
-        <Button
-          variant={location.pathname.startsWith('/forum') ? 'default' : 'ghost'}
-          size="sm"
-          onClick={() => navigate('/forums')}
-          className={cn(baseButtonClass, 'relative')}
-          aria-label={t("nav.forums")}
-          aria-current={location.pathname.startsWith('/forum') ? 'page' : undefined}
-        >
+	        <Button
+	          variant={location.pathname.startsWith('/forum') ? 'default' : 'ghost'}
+	          size="sm"
+	          onClick={() => void hardNavigate('/forums')}
+	          className={cn(baseButtonClass, 'relative')}
+	          aria-label={t("nav.forums")}
+	          aria-current={location.pathname.startsWith('/forum') ? 'page' : undefined}
+	        >
           <span style={{ width: itemSize, height: itemSize }} className={bubbleClass(location.pathname.startsWith('/forum'))}>
             <span className="absolute inset-[3px] rounded-2xl overflow-hidden">
               <img src={iconForum} alt={t("nav.forums")} className="w-full h-full object-cover" />
@@ -519,14 +545,14 @@ const Navigation = () => {
           <span className={labelClass(location.pathname.startsWith('/forum'))} title={t("nav.forums")}>{t("nav.forums")}</span>
         </Button>
 
-        <Button
-          variant={location.pathname.startsWith('/sepbook') ? 'default' : 'ghost'}
-          size="sm"
-          onClick={() => navigate('/sepbook')}
-          className={cn(baseButtonClass, 'relative')}
-          aria-label={t("nav.sepbook")}
-          aria-current={location.pathname.startsWith('/sepbook') ? 'page' : undefined}
-        >
+	        <Button
+	          variant={location.pathname.startsWith('/sepbook') ? 'default' : 'ghost'}
+	          size="sm"
+	          onClick={() => void hardNavigate('/sepbook')}
+	          className={cn(baseButtonClass, 'relative')}
+	          aria-label={t("nav.sepbook")}
+	          aria-current={location.pathname.startsWith('/sepbook') ? 'page' : undefined}
+	        >
           <span style={{ width: itemSize, height: itemSize }} className={bubbleClass(location.pathname.startsWith('/sepbook'))}>
             <span className="absolute inset-[3px] rounded-2xl overflow-hidden">
               <img src={iconSEPBook} alt={t("nav.sepbook")} className="w-full h-full object-cover" />
@@ -547,14 +573,14 @@ const Navigation = () => {
 	          </div>
 	        </Button>
 
-        <Button
-          variant={isActive('/study') ? 'default' : 'ghost'}
-          size="sm"
-          onClick={() => navigate('/study')}
-          className={baseButtonClass}
-          aria-label={t("nav.study")}
-          aria-current={isActive('/study') ? 'page' : undefined}
-        >
+	        <Button
+	          variant={isActive('/study') ? 'default' : 'ghost'}
+	          size="sm"
+	          onClick={() => void hardNavigate('/study')}
+	          className={baseButtonClass}
+	          aria-label={t("nav.study")}
+	          aria-current={isActive('/study') ? 'page' : undefined}
+	        >
           <span
             style={{ width: itemSize, height: itemSize }}
             className={bubbleClass(isActive('/study'))}
@@ -571,15 +597,15 @@ const Navigation = () => {
           <span className={labelClass(isActive('/study'))} title={t("nav.study")}>{t("nav.study")}</span>
         </Button>
         
-	        {showEvaluations && (
-	          <Button
-	            variant={isActive('/evaluations') ? 'default' : 'ghost'}
-	            size="sm"
-	            onClick={() => navigate('/evaluations')}
-	            className={cn(baseButtonClass, 'relative')}
-            aria-label={t("nav.evaluations")}
-            aria-current={isActive('/evaluations') ? 'page' : undefined}
-          >
+		        {showEvaluations && (
+		          <Button
+		            variant={isActive('/evaluations') ? 'default' : 'ghost'}
+		            size="sm"
+		            onClick={() => void hardNavigate('/evaluations')}
+		            className={cn(baseButtonClass, 'relative')}
+	            aria-label={t("nav.evaluations")}
+	            aria-current={isActive('/evaluations') ? 'page' : undefined}
+	          >
             <span style={{ width: itemSize, height: itemSize }} className={bubbleClass(isActive('/evaluations'))}>
               <span className="absolute inset-[3px] rounded-2xl overflow-hidden">
                 <img src={iconAvaliar} alt={t("nav.evaluations")} className="w-full h-full object-cover" />
@@ -598,14 +624,14 @@ const Navigation = () => {
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button
-                  variant={isActive('/studio') ? 'default' : 'ghost'}
-                  size="sm"
-                  onClick={() => navigate('/studio')}
-                  className={cn(baseButtonClass, "relative")}
-                  aria-label={t("nav.studio")}
-                  aria-current={isActive('/studio') ? 'page' : undefined}
-                >
+	                <Button
+	                  variant={isActive('/studio') ? 'default' : 'ghost'}
+	                  size="sm"
+	                  onClick={() => void hardNavigate('/studio')}
+	                  className={cn(baseButtonClass, "relative")}
+	                  aria-label={t("nav.studio")}
+	                  aria-current={isActive('/studio') ? 'page' : undefined}
+	                >
                   <div className="relative flex items-center justify-center">
                   <span style={{ width: itemSize, height: itemSize }} className={bubbleClass(isActive('/studio'))}>
                     <span className="absolute inset-[3px] rounded-2xl overflow-hidden">
@@ -628,14 +654,14 @@ const Navigation = () => {
           </TooltipProvider>
         )}
         
-        <Button
-          variant={isActive('/profile') ? 'default' : 'ghost'}
-          size="sm"
-          onClick={() => navigate('/profile')}
-          className={baseButtonClass}
-          aria-label={t("nav.profile")}
-          aria-current={isActive('/profile') ? 'page' : undefined}
-        >
+	        <Button
+	          variant={isActive('/profile') ? 'default' : 'ghost'}
+	          size="sm"
+	          onClick={() => void hardNavigate('/profile')}
+	          className={baseButtonClass}
+	          aria-label={t("nav.profile")}
+	          aria-current={isActive('/profile') ? 'page' : undefined}
+	        >
           <span style={{ width: itemSize, height: itemSize }} className={bubbleClass(isActive('/profile'))}>
             <span className="absolute inset-[3px] rounded-2xl overflow-hidden">
               <img src={iconProfile} alt={t("nav.profile")} className="w-full h-full object-cover" />
@@ -649,14 +675,14 @@ const Navigation = () => {
           <span className={labelClass(isActive('/profile'))} title={t("nav.profile")}>{t("nav.profile")}</span>
         </Button>
 
-        <Button
-          variant={isActive('/rankings') ? 'default' : 'ghost'}
-          size="sm"
-          onClick={() => navigate('/rankings')}
-          className={baseButtonClass}
-          aria-label={t("nav.rankings")}
-          aria-current={isActive('/rankings') ? 'page' : undefined}
-        >
+	        <Button
+	          variant={isActive('/rankings') ? 'default' : 'ghost'}
+	          size="sm"
+	          onClick={() => void hardNavigate('/rankings')}
+	          className={baseButtonClass}
+	          aria-label={t("nav.rankings")}
+	          aria-current={isActive('/rankings') ? 'page' : undefined}
+	        >
           <span style={{ width: itemSize, height: itemSize }} className={bubbleClass(isActive('/rankings'))}>
             <span className="absolute inset-[3px] rounded-2xl overflow-hidden">
               <img src={iconRanking} alt={t("nav.rankings")} className="w-full h-full object-cover" />
