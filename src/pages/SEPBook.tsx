@@ -955,7 +955,7 @@ export default function SEPBook() {
       <div
         key={comment.id}
         id={`comment-${comment.id}`}
-        className={`flex items-start gap-2 text-[11px] text-muted-foreground ${isReply ? "ml-6" : ""}`}
+        className={`flex items-start gap-2 text-[12px] text-slate-200/95 ${isReply ? "ml-6" : ""}`}
       >
         {comment.author_avatar && (
           <UserProfilePopover userId={comment.user_id} name={comment.author_name} avatarUrl={comment.author_avatar}>
@@ -984,7 +984,7 @@ export default function SEPBook() {
           </div>
           {isEditing ? (
             <div className="space-y-2">
-              <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+              <div className="flex items-center justify-between text-[10px] text-slate-300">
                 <span>Revisar antes de salvar</span>
                 <Button
                   type="button"
@@ -1000,6 +1000,7 @@ export default function SEPBook() {
                 rows={3}
                 value={editingCommentText}
                 onChange={(e) => setEditingCommentText(e.target.value)}
+                className="min-h-[96px] border-white/25 bg-slate-950/60 text-[14px] leading-6 text-slate-100 placeholder:text-slate-300/70"
               />
               <div className="flex justify-end gap-2">
                 <Button type="button" size="sm" variant="outline" onClick={cancelEditComment}>
@@ -1020,7 +1021,9 @@ export default function SEPBook() {
               {isDeleted ? (
                 <div className="italic opacity-70">Comentário removido</div>
               ) : comment.content_md?.trim() ? (
-                <div className="block">{renderRichText(comment.content_md)}</div>
+                <div className="block rounded-md bg-slate-950/35 px-2.5 py-2 text-[14px] leading-6 text-slate-100 break-words">
+                  {renderRichText(comment.content_md)}
+                </div>
               ) : null}
               {comment.attachments && comment.attachments.length > 0 && (
                 <div className="mt-2">
@@ -1585,7 +1588,7 @@ export default function SEPBook() {
                   </span>
                 </div>
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-xs text-white/80">
                     Você pode digitar ou falar sua publicação. Use a varinha para revisar ortografia e pontuação.
                   </p>
                   <div className="flex flex-wrap items-center gap-2">
@@ -1624,6 +1627,7 @@ export default function SEPBook() {
                   value={content}
                   onChange={(e) => handleContentChange(e.target.value)}
                   placeholder="Compartilhe um aprendizado, uma boa prática ou um registro de bastidor..."
+                  className="min-h-[120px] border-white/35 bg-slate-950/70 text-[15px] leading-7 text-white placeholder:text-slate-300/70"
                 />
                 {campaignOptions.length > 0 && (
                   <div className="space-y-1">
@@ -2005,7 +2009,7 @@ export default function SEPBook() {
                 )}
                 {editingId === p.id ? (
                   <div className="space-y-2">
-                    <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                    <div className="flex items-center justify-between text-[11px] text-slate-300">
                       <span>Use a varinha para revisar o texto desta publicação.</span>
                       <Button
                         type="button"
@@ -2049,6 +2053,7 @@ export default function SEPBook() {
                       rows={3}
                       value={editingText}
                       onChange={(e) => setEditingText(e.target.value)}
+                      className="min-h-[110px] border-white/30 bg-slate-950/65 text-[15px] leading-7 text-slate-100 placeholder:text-slate-300/70"
                     />
                     <AttachmentUploader
                       onAttachmentsChange={setEditingNewAttachments}
@@ -2114,10 +2119,12 @@ export default function SEPBook() {
                   </div>
                 ) : (
                   <>
-                    <div className="text-sm">{renderRichText(p.content_md)}</div>
+                    <div className="rounded-md bg-slate-950/45 px-3 py-2 text-[15px] leading-7 text-slate-100 break-words">
+                      {renderRichText(p.content_md)}
+                    </div>
                     {p.repost && (
                       <div className="mt-2 rounded-lg border bg-muted/30 p-2">
-                        <p className="text-[11px] text-muted-foreground mb-1">
+                        <p className="text-[11px] text-slate-300 mb-1">
                           Repost de{" "}
                           <UserProfilePopover userId={p.repost.user_id} name={p.repost.author_name} avatarUrl={p.repost.author_avatar}>
                             <button type="button" className="font-semibold hover:underline p-0 bg-transparent border-0">
@@ -2126,7 +2133,9 @@ export default function SEPBook() {
                           </UserProfilePopover>
                           {p.repost.author_team ? ` (${p.repost.author_team})` : ""}
                         </p>
-                        <div className="text-sm">{renderRichText(p.repost.content_md)}</div>
+                        <div className="rounded-md bg-slate-950/35 px-2.5 py-2 text-[14px] leading-6 text-slate-100 break-words">
+                          {renderRichText(p.repost.content_md)}
+                        </div>
                         {p.repost.attachments && p.repost.attachments.length > 0 && (
                           <div className="mt-2 flex justify-center">
                             <AttachmentViewer urls={p.repost.attachments} postId={p.repost.id} mediaLayout="carousel" />
@@ -2305,7 +2314,7 @@ export default function SEPBook() {
                       <div className="flex items-start gap-1">
                         <Textarea
                           rows={2}
-                          className="flex-1 text-[11px]"
+                          className="flex-1 min-h-[86px] border-white/25 bg-slate-950/60 text-[14px] leading-6 text-slate-100 placeholder:text-slate-300/70"
                           placeholder={replyTarget?.postId === p.id ? "Escreva sua resposta..." : "Escreva um comentário..."}
                           value={newComment[p.id] || ""}
                           onChange={(e) =>
