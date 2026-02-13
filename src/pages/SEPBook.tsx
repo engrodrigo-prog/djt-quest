@@ -226,6 +226,8 @@ export default function SEPBook() {
   const [selectedParticipants, setSelectedParticipants] = useState<Set<string>>(new Set());
   const [participantOptions, setParticipantOptions] = useState<Array<{ id: string; name: string; sigla_area: string | null }>>([]);
   const [participantSearch, setParticipantSearch] = useState("");
+  const sepbookTextInputClass =
+    "border-white/35 bg-slate-950/78 text-[16px] leading-7 text-slate-100 placeholder:text-slate-300/75 caret-slate-100 [color-scheme:dark] [-webkit-text-fill-color:rgb(241_245_249)] selection:bg-cyan-500/35";
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1000,7 +1002,7 @@ export default function SEPBook() {
                 rows={3}
                 value={editingCommentText}
                 onChange={(e) => setEditingCommentText(e.target.value)}
-                className="min-h-[96px] border-white/25 bg-slate-950/60 text-[14px] leading-6 text-slate-100 placeholder:text-slate-300/70"
+                className={`min-h-[96px] ${sepbookTextInputClass}`}
               />
               <div className="flex justify-end gap-2">
                 <Button type="button" size="sm" variant="outline" onClick={cancelEditComment}>
@@ -1627,7 +1629,7 @@ export default function SEPBook() {
                   value={content}
                   onChange={(e) => handleContentChange(e.target.value)}
                   placeholder="Compartilhe um aprendizado, uma boa prática ou um registro de bastidor..."
-                  className="min-h-[120px] border-white/35 bg-slate-950/70 text-[15px] leading-7 text-white placeholder:text-slate-300/70"
+                  className={`min-h-[120px] ${sepbookTextInputClass}`}
                 />
                 {campaignOptions.length > 0 && (
                   <div className="space-y-1">
@@ -2053,7 +2055,7 @@ export default function SEPBook() {
                       rows={3}
                       value={editingText}
                       onChange={(e) => setEditingText(e.target.value)}
-                      className="min-h-[110px] border-white/30 bg-slate-950/65 text-[15px] leading-7 text-slate-100 placeholder:text-slate-300/70"
+                      className={`min-h-[110px] ${sepbookTextInputClass}`}
                     />
                     <AttachmentUploader
                       onAttachmentsChange={setEditingNewAttachments}
@@ -2314,7 +2316,7 @@ export default function SEPBook() {
                       <div className="flex items-start gap-1">
                         <Textarea
                           rows={2}
-                          className="flex-1 min-h-[86px] border-white/25 bg-slate-950/60 text-[14px] leading-6 text-slate-100 placeholder:text-slate-300/70"
+                          className={`flex-1 min-h-[86px] ${sepbookTextInputClass}`}
                           placeholder={replyTarget?.postId === p.id ? "Escreva sua resposta..." : "Escreva um comentário..."}
                           value={newComment[p.id] || ""}
                           onChange={(e) =>
