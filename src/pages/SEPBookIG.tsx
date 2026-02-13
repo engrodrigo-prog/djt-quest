@@ -3473,7 +3473,7 @@ export default function SEPBookIG() {
           }
         }}
       >
-        <DrawerContent className="h-[92dvh] max-h-[92dvh]">
+        <DrawerContent className="h-[92dvh] max-h-[92dvh] sm:h-auto sm:max-h-[92vh]">
           <DrawerHeader>
             <DrawerTitle>{tr("sepbook.newPost")}</DrawerTitle>
             <DrawerDescription className="sr-only">Criar uma nova postagem, com menções e campanha opcional</DrawerDescription>
@@ -3666,7 +3666,7 @@ export default function SEPBookIG() {
           if (!open) cancelEditPost();
         }}
       >
-        <DrawerContent className="h-[92dvh] max-h-[92dvh]">
+        <DrawerContent className="h-[92dvh] max-h-[92dvh] sm:h-auto sm:max-h-[92vh]">
           <DrawerHeader>
             <DrawerTitle>{tr("sepbook.edit")} </DrawerTitle>
             <DrawerDescription className="sr-only">Editar texto, mídia e menções da publicação</DrawerDescription>
@@ -3986,7 +3986,7 @@ export default function SEPBookIG() {
           }
         }}
       >
-        <DrawerContent className="h-[92dvh] max-h-[92dvh]">
+        <DrawerContent className="h-[92dvh] max-h-[92dvh] sm:h-auto sm:max-h-[92vh]">
           <DrawerHeader>
             <DrawerTitle>
               {activePost
