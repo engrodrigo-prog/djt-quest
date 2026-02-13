@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FocusEvent } from "react";
 import { useLocation as useRouterLocation, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import Navigation from "@/components/Navigation";
@@ -827,6 +827,58 @@ export default function SEPBookIG() {
     if (typeof navigator === "undefined") return false;
     return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || "");
   }, []);
+
+  const sepbookMobileTextareaClass =
+    "!text-[16px] !leading-6 caret-foreground placeholder:text-muted-foreground selection:bg-primary/25";
+
+  const handleMobileTextareaFocus = useCallback(
+    (e: FocusEvent<HTMLTextAreaElement>) => {
+      if (!isMobileDevice) return;
+      const el = e.currentTarget;
+      window.setTimeout(() => {
+        try {
+          el.scrollIntoView({ block: "center", behavior: "smooth" });
+        } catch {
+          // ignore
+        }
+      }, 80);
+    },
+    [isMobileDevice],
+  );
+
+  useEffect(() => {
+    if (!isMobileDevice) return;
+    if (typeof window === "undefined") return;
+    const vv = window.visualViewport;
+    if (!vv) return;
+
+    let raf = 0;
+    const update = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        const raw = window.innerHeight - vv.height - vv.offsetTop;
+        const inset = Math.max(0, Math.round(raw));
+        document.documentElement.style.setProperty("--djt-kb-inset", `${inset}px`);
+      });
+    };
+
+    update();
+    vv.addEventListener("resize", update);
+    vv.addEventListener("scroll", update);
+    window.addEventListener("focusin", update);
+    window.addEventListener("focusout", update);
+    window.addEventListener("orientationchange", update);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      vv.removeEventListener("resize", update);
+      vv.removeEventListener("scroll", update);
+      window.removeEventListener("focusin", update);
+      window.removeEventListener("focusout", update);
+      window.removeEventListener("orientationchange", update);
+      document.documentElement.style.setProperty("--djt-kb-inset", "0px");
+    };
+  }, [isMobileDevice]);
 
   const [composerOpen, setComposerOpen] = useState(false);
   const [composerText, setComposerText] = useState("");
@@ -2093,6 +2145,9 @@ export default function SEPBookIG() {
                 rows={3}
                 value={editingCommentText}
                 onChange={(e) => setEditingCommentText(e.target.value)}
+                onFocus={handleMobileTextareaFocus}
+                style={{ WebkitTextFillColor: "currentColor" }}
+                className={sepbookMobileTextareaClass}
               />
               {editingCommentMentionQuery && editingCommentMentions.items.length > 0 && (
                 <div className="rounded-xl border bg-background">
@@ -2163,7 +2218,7 @@ export default function SEPBookIG() {
                   ) : null}
                 </div>
               ) : text ? (
-                <div className="text-[13px] mt-0.5">{renderRichText(toast, text)}</div>
+                <div className="text-[14px] leading-5 mt-0.5">{renderRichText(toast, text)}</div>
               ) : null}
               {hasAtt ? (
                 <AttachmentViewer urls={comment.attachments || []} postId={comment.post_id} mediaLayout="grid" />
@@ -3360,7 +3415,7 @@ export default function SEPBookIG() {
                     </button>
 
                     {caption ? (
-                      <div className="text-[13px]">
+                      <div className="text-[14px] leading-5">
                         <UserProfilePopover userId={p.user_id} name={p.author_name} avatarUrl={p.author_avatar}>
                           <button type="button" className="font-semibold hover:underline p-0 bg-transparent border-0">
                             {formatName(p.author_name)}
@@ -3418,7 +3473,7 @@ export default function SEPBookIG() {
           }
         }}
       >
-        <DrawerContent className="max-h-[92vh] max-h-[92dvh]">
+        <DrawerContent className="h-[92dvh] max-h-[92dvh]">
           <DrawerHeader>
             <DrawerTitle>{tr("sepbook.newPost")}</DrawerTitle>
             <DrawerDescription className="sr-only">Criar uma nova postagem, com menções e campanha opcional</DrawerDescription>
@@ -3455,8 +3510,10 @@ export default function SEPBookIG() {
                   ref={composerInputRef}
                   value={composerText}
                   onChange={(e) => setComposerText(e.target.value)}
+                  onFocus={handleMobileTextareaFocus}
                   placeholder={tr("sepbook.captionPlaceholder")}
-                  className="min-h-[140px]"
+                  style={{ WebkitTextFillColor: "currentColor" }}
+                  className={`min-h-[140px] ${sepbookMobileTextareaClass}`}
                 />
 
                 {composerCampaignId ? (
@@ -3523,7 +3580,7 @@ export default function SEPBookIG() {
               </div>
             </ScrollArea>
 
-            <div className="border-t bg-background px-3 py-3 space-y-2 pb-[calc(env(safe-area-inset-bottom)+12px)]">
+            <div className="border-t bg-background px-3 py-3 space-y-2 pb-[calc(env(safe-area-inset-bottom)+var(--djt-kb-inset,0px)+12px)]">
               {composerUploading || composerMedia.some((m) => m.uploading) ? (
                 <div className="text-[12px] text-muted-foreground">
                   Enviando mídias... aguarde para publicar.
@@ -3609,7 +3666,7 @@ export default function SEPBookIG() {
           if (!open) cancelEditPost();
         }}
       >
-      <DrawerContent className="max-h-[92vh]">
+        <DrawerContent className="h-[92dvh] max-h-[92dvh]">
           <DrawerHeader>
             <DrawerTitle>{tr("sepbook.edit")} </DrawerTitle>
             <DrawerDescription className="sr-only">Editar texto, mídia e menções da publicação</DrawerDescription>
@@ -3645,8 +3702,10 @@ export default function SEPBookIG() {
                 <Textarea
                   value={editingPostText}
                   onChange={(e) => setEditingPostText(e.target.value)}
+                  onFocus={handleMobileTextareaFocus}
                   placeholder={tr("sepbook.captionPlaceholder")}
-                  className="min-h-[140px]"
+                  style={{ WebkitTextFillColor: "currentColor" }}
+                  className={`min-h-[140px] ${sepbookMobileTextareaClass}`}
                 />
 
                 {editingPostMentionQuery && editingPostMentions.items.length > 0 && (
@@ -3670,7 +3729,7 @@ export default function SEPBookIG() {
               </div>
             </ScrollArea>
 
-            <div className="border-t bg-background px-3 py-3 pb-[calc(env(safe-area-inset-bottom)+12px)]">
+            <div className="border-t bg-background px-3 py-3 pb-[calc(env(safe-area-inset-bottom)+var(--djt-kb-inset,0px)+12px)]">
               {editingPostUploading || editingPostMedia.some((m) => m.uploading) ? (
                 <div className="text-[12px] text-muted-foreground">
                   Enviando mídias... aguarde para salvar.
@@ -3927,7 +3986,7 @@ export default function SEPBookIG() {
           }
         }}
       >
-        <DrawerContent className="max-h-[92vh]">
+        <DrawerContent className="h-[92dvh] max-h-[92dvh]">
           <DrawerHeader>
             <DrawerTitle>
               {activePost
@@ -3950,7 +4009,7 @@ export default function SEPBookIG() {
                     {activePost.author_team ? `• ${activePost.author_team}` : ""}
                   </div>
                   {String(getPostDisplayText(activePost) || "").trim() ? (
-                    <div className="text-[13px] mt-1">{renderRichText(toast, getPostDisplayText(activePost))}</div>
+                    <div className="text-[14px] leading-5 mt-1">{renderRichText(toast, getPostDisplayText(activePost))}</div>
                   ) : null}
                 </div>
               )}
@@ -3989,7 +4048,7 @@ export default function SEPBookIG() {
               )}
             </ScrollArea>
 
-            <div className="border-t bg-background px-3 py-3 space-y-2 pb-[calc(env(safe-area-inset-bottom)+12px)]">
+            <div className="border-t bg-background px-3 py-3 space-y-2 pb-[calc(env(safe-area-inset-bottom)+var(--djt-kb-inset,0px)+12px)]">
               {replyTarget && (
                 <div className="flex items-center justify-between gap-2 rounded-xl border bg-muted/30 px-3 py-2 text-[12px]">
                   <span>
@@ -4130,9 +4189,11 @@ export default function SEPBookIG() {
                   ref={commentInputRef}
                   value={commentText}
                   onChange={(e) => setCommentText(e.target.value)}
+                  onFocus={handleMobileTextareaFocus}
                   placeholder={tr("sepbook.commentPlaceholder")}
                   rows={1}
-                  className="min-h-[42px] max-h-[120px] resize-none"
+                  style={{ WebkitTextFillColor: "currentColor" }}
+                  className={`min-h-[44px] max-h-[140px] resize-none ${sepbookMobileTextareaClass}`}
                 />
                 <Button
                   type="button"
