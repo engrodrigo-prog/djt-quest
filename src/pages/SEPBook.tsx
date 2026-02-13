@@ -227,13 +227,24 @@ export default function SEPBook() {
   const [participantOptions, setParticipantOptions] = useState<Array<{ id: string; name: string; sigla_area: string | null }>>([]);
   const [participantSearch, setParticipantSearch] = useState("");
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const isMobile = window.matchMedia?.("(max-width: 768px)")?.matches ?? false;
+    window.dispatchEvent(
+      new CustomEvent("djt-nav-visibility", { detail: { hidden: Boolean(isMobile && showComposer) } }),
+    );
+    return () => {
+      window.dispatchEvent(new CustomEvent("djt-nav-visibility", { detail: { hidden: false } }));
+    };
+  }, [showComposer]);
+
   const formatName = (name: string | null | undefined) => {
     const parts = String(name || "").trim().split(/\s+/).filter(Boolean);
     if (parts.length <= 1) return parts.join(" ");
     return `${parts[0]} ${parts[parts.length - 1]}`;
   };
 
-  const sortParticipants = (list: Array<{ id: string; name: string; sigla_area: string | null }>) => {
+  const sortParticipants = useCallback((list: Array<{ id: string; name: string; sigla_area: string | null }>) => {
     const myTeam = (profile as any)?.sigla_area?.toString().toLowerCase() || "";
     return [...list].sort((a, b) => {
       const aSame = myTeam && (a.sigla_area || "").toLowerCase() === myTeam;
@@ -242,23 +253,25 @@ export default function SEPBook() {
       if (!aSame && bSame) return 1;
       return a.name.localeCompare(b.name, getActiveLocale(), { sensitivity: "base" });
     });
-  };
+  }, [profile]);
 
-  useEffect(() => {
-    const draft = localStorage.getItem("sepbook_draft");
-    if (draft && !content) {
-      try {
-        const parsed = JSON.parse(draft);
-        setContent(parsed.content || "");
-      } catch {}
-      localStorage.removeItem("sepbook_draft");
-    }
-  }, [content]);
+	  useEffect(() => {
+	    const draft = localStorage.getItem("sepbook_draft");
+	    if (draft && !content) {
+	      try {
+	        const parsed = JSON.parse(draft);
+	        setContent(parsed.content || "");
+	      } catch {
+	        // ignore corrupted draft
+	      }
+	      localStorage.removeItem("sepbook_draft");
+	    }
+	  }, [content]);
 
-  const fetchFeed = async () => {
-    setFeedLoading(true);
-    try {
-      const { data: session } = await supabase.auth.getSession();
+	  const fetchFeed = useCallback(async () => {
+	    setFeedLoading(true);
+	    try {
+	      const { data: session } = await supabase.auth.getSession();
       const token = session.session?.access_token;
       const resp = await fetch("/api/sepbook-feed", {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
@@ -311,14 +324,14 @@ export default function SEPBook() {
       }
     } catch (e: any) {
       toast({ title: "Erro ao carregar SEPBook", description: e?.message || "Tente novamente", variant: "destructive" });
-    } finally {
-      setFeedLoading(false);
-    }
-  };
+	    } finally {
+	      setFeedLoading(false);
+	    }
+	  }, [toast]);
 
-  useEffect(() => {
-    fetchFeed();
-  }, []);
+	  useEffect(() => {
+	    void fetchFeed();
+	  }, [fetchFeed]);
 
   // Campanhas vigentes (para vincular evidências)
   useEffect(() => {
@@ -350,32 +363,37 @@ export default function SEPBook() {
     })();
   }, []);
 
-  // Participantes disponíveis (marcar colegas de qualquer equipe)
-  useEffect(() => {
-    (async () => {
-      try {
-        const { data, error } = await supabase
-          .from("profiles")
-          .select("id, name, sigla_area")
-          .order("name")
-          .limit(200);
-        if (!error && Array.isArray(data)) {
-          setParticipantOptions(sortParticipants(data as any));
-          // Se ainda não houver seleção, destaca o próprio usuário como participante principal
-          if (user?.id) {
-            setSelectedParticipants(new Set([user.id]));
-          }
-        }
-      } catch (e) {
-        console.warn("SEPBook: falha ao carregar participantes", e);
-      }
-    })();
-  }, []);
+	  // Participantes disponíveis (marcar colegas de qualquer equipe)
+	  useEffect(() => {
+	    let cancelled = false;
+	    (async () => {
+	      try {
+	        const { data, error } = await supabase
+	          .from("profiles")
+	          .select("id, name, sigla_area")
+	          .order("name")
+	          .limit(200);
+	        if (cancelled) return;
+	        if (!error && Array.isArray(data)) {
+	          setParticipantOptions(sortParticipants(data as any));
+	          // Se ainda não houver seleção, destaca o próprio usuário como participante principal
+	          if (user?.id) {
+	            setSelectedParticipants((prev) => (prev && prev.size > 0 ? prev : new Set([user.id])));
+	          }
+	        }
+	      } catch (e) {
+	        if (!cancelled) console.warn("SEPBook: falha ao carregar participantes", e);
+	      }
+	    })();
+	    return () => {
+	      cancelled = true;
+	    };
+	  }, [sortParticipants, user?.id]);
 
-  const fetchTrending = async (range: typeof trendRange) => {
-    setTrendingLoading(true);
-    try {
-      const { data: session } = await supabase.auth.getSession();
+	  const fetchTrending = useCallback(async (range: typeof trendRange) => {
+	    setTrendingLoading(true);
+	    try {
+	      const { data: session } = await supabase.auth.getSession();
       const token = session.session?.access_token;
       const resp = await fetch(`/api/sepbook-trending?range=${encodeURIComponent(range)}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
@@ -395,14 +413,14 @@ export default function SEPBook() {
         description: e?.message || "Tente novamente",
         variant: "destructive",
       });
-    } finally {
-      setTrendingLoading(false);
-    }
-  };
+	    } finally {
+	      setTrendingLoading(false);
+	    }
+	  }, [toast]);
 
-  useEffect(() => {
-    fetchTrending(trendRange);
-  }, [trendRange]);
+	  useEffect(() => {
+	    void fetchTrending(trendRange);
+	  }, [fetchTrending, trendRange]);
 
   useEffect(() => {
     (async () => {
@@ -467,14 +485,19 @@ export default function SEPBook() {
     })();
   }, []);
 
-  const resolveLocation = () => {
+  useEffect(() => {
     if (!useLocation) {
       setCoords(null);
       setLocationLabel(null);
       return;
     }
+    if (typeof navigator === "undefined") return;
     if (!navigator.geolocation) {
-      toast({ title: "Geolocalização indisponível", description: "Seu navegador não suporta localização.", variant: "destructive" });
+      toast({
+        title: "Geolocalização indisponível",
+        description: "Seu navegador não suporta localização.",
+        variant: "destructive",
+      });
       setUseLocation(false);
       return;
     }
@@ -486,20 +509,24 @@ export default function SEPBook() {
       },
       (err) => {
         console.warn("Erro ao obter localização", err);
-        toast({ title: "Não foi possível obter localização", description: "Verifique permissões de GPS.", variant: "destructive" });
+        toast({
+          title: "Não foi possível obter localização",
+          description: "Verifique permissões de GPS.",
+          variant: "destructive",
+        });
         setUseLocation(false);
       },
-      { enableHighAccuracy: false, timeout: 8000 }
+      { enableHighAccuracy: false, timeout: 8000 },
     );
-  };
+  }, [toast, useLocation]);
 
   useEffect(() => {
-    if (useLocation && !askedLocationOnce) {
-      resolveLocation();
-      setAskedLocationOnce(true);
-      try {
-        localStorage.setItem("sepbook_location_asked", "1");
-      } catch {}
+    if (!useLocation || askedLocationOnce) return;
+    setAskedLocationOnce(true);
+    try {
+      localStorage.setItem("sepbook_location_asked", "1");
+    } catch {
+      // ignore
     }
   }, [useLocation, askedLocationOnce]);
 
@@ -635,10 +662,10 @@ export default function SEPBook() {
     return () => window.clearTimeout(t);
   }, [commentsByPost, openComments]);
 
-  const handleAddComment = async (post: SepPost) => {
-    const text = (newComment[post.id] || "").trim();
-    const attachments = commentAttachments[post.id] || [];
-    const uploading = commentUploading[post.id];
+	  const handleAddComment = async (post: SepPost) => {
+	    const text = (newComment[post.id] || "").trim();
+	    const attachments = commentAttachments[post.id] || [];
+	    const uploading = commentUploading[post.id];
     if (uploading) {
       toast({ title: "Aguarde o envio das fotos", description: "Estamos concluindo o upload antes de comentar." });
       return;
@@ -654,17 +681,19 @@ export default function SEPBook() {
           body: JSON.stringify({ text }),
         });
         const json = await resp.json();
-        if (resp.ok && Array.isArray(json.hashtags) && json.hashtags.length > 0) {
-          const toAdd = json.hashtags.filter((h: string) => !finalText.includes(h));
-          if (toAdd.length > 0) {
-            finalText = `${finalText}\n${toAdd.join(" ")}`;
-          }
-        }
-      } catch {}
-    }
-    const replyToCommentId = replyTarget?.postId === post.id ? replyTarget.commentId : null;
-    try {
-      const { data: session } = await supabase.auth.getSession();
+	        if (resp.ok && Array.isArray(json.hashtags) && json.hashtags.length > 0) {
+	          const toAdd = json.hashtags.filter((h: string) => !finalText.includes(h));
+	          if (toAdd.length > 0) {
+	            finalText = `${finalText}\n${toAdd.join(" ")}`;
+	          }
+	        }
+	      } catch {
+	        // ignore AI hashtag suggestions failures
+	      }
+	    }
+	    const replyToCommentId = replyTarget?.postId === post.id ? replyTarget.commentId : null;
+	    try {
+	      const { data: session } = await supabase.auth.getSession();
       const token = session.session?.access_token;
       if (!token) throw new Error("Não autenticado");
       const resp = await fetch("/api/sepbook-comments", {
@@ -1152,22 +1181,22 @@ export default function SEPBook() {
     }
   };
 
-  const handlePublish = async () => {
-    const text = content.trim();
-    if (!text && attachments.length === 0 && !repostOf) {
-      toast({ title: "Conteúdo vazio", description: "Escreva algo ou envie uma mídia antes de publicar.", variant: "destructive" });
+	  const handlePublish = async () => {
+	    const text = content.trim();
+	    if (!text && attachments.length === 0 && !repostOf) {
+	      toast({ title: "Conteúdo vazio", description: "Escreva algo ou envie uma mídia antes de publicar.", variant: "destructive" });
       return;
     }
     if (attachmentsUploading) {
       toast({ title: "Aguarde o envio das mídias", description: "Estamos concluindo o upload das fotos/vídeos antes de publicar.", variant: "default" });
       return;
-    }
-    setLoading(true);
-    try {
-      let finalText = text;
-      const { data: session } = await supabase.auth.getSession();
-      const token = session.session?.access_token;
-      if (!token) throw new Error("Não autenticado");
+	    }
+	    setLoading(true);
+	    try {
+	      const finalText = text;
+	      const { data: session } = await supabase.auth.getSession();
+	      const token = session.session?.access_token;
+	      if (!token) throw new Error("Não autenticado");
       const participantsToSend = new Set(selectedParticipants);
       if (user?.id) participantsToSend.add(user.id);
       const resp = await fetch("/api/sepbook-post", {
@@ -1219,10 +1248,10 @@ export default function SEPBook() {
     setEditingNewAttachments([]);
   };
 
-  const handleSaveEdit = async (post: SepPost) => {
-    let text = editingText.trim();
-    const mergedAttachments = [
-      ...(Array.isArray(post.attachments) ? post.attachments : []),
+	  const handleSaveEdit = async (post: SepPost) => {
+	    let text = editingText.trim();
+	    const mergedAttachments = [
+	      ...(Array.isArray(post.attachments) ? post.attachments : []),
       ...editingNewAttachments,
     ];
     if (!text && mergedAttachments.length === 0) {
@@ -1237,16 +1266,18 @@ export default function SEPBook() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ text }),
           });
-          const js = await r.json();
-          if (r.ok && Array.isArray(js.hashtags) && js.hashtags.length > 0) {
-            const toAdd = js.hashtags.filter((h: string) => !text.includes(h));
-            if (toAdd.length > 0) text = `${text}\n${toAdd.join(" ")}`;
-          }
-        } catch {}
-      }
-      const { data: session } = await supabase.auth.getSession();
-      const token = session.session?.access_token;
-      if (!token) throw new Error("Não autenticado");
+	          const js = await r.json();
+	          if (r.ok && Array.isArray(js.hashtags) && js.hashtags.length > 0) {
+	            const toAdd = js.hashtags.filter((h: string) => !text.includes(h));
+	            if (toAdd.length > 0) text = `${text}\n${toAdd.join(" ")}`;
+	          }
+	        } catch {
+	          // ignore AI hashtag suggestions failures
+	        }
+	      }
+	      const { data: session } = await supabase.auth.getSession();
+	      const token = session.session?.access_token;
+	      if (!token) throw new Error("Não autenticado");
       const resp = await fetch("/api/sepbook-edit", {
         method: "POST",
         headers: {
@@ -1721,143 +1752,138 @@ export default function SEPBook() {
                   imageQuality={0.82}
                   onUploadingChange={setAttachmentsUploading}
                 />
-                <p className="text-[11px] text-muted-foreground text-center">
-                  Imagens são otimizadas para até 4K. Vídeos: até 30s (preferencialmente 1080p/FullHD). Limite: 3 fotos + 2 vídeos por post.
-                </p>
-                <div className="flex flex-col items-center justify-center gap-2">
-                  <div className="flex flex-wrap items-center gap-3">
-                    <button
-                      type="button"
-                      onClick={() => setShowTagPicker((v) => !v)}
-                      className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-muted"
-                      title="Sugerir hashtags de campanhas e desafios"
-                    >
-                      <Hash className="h-3 w-3" />
-                      Tags
-                    </button>
-                  </div>
-                  {showTagPicker && tagsSuggestions.length > 0 && (
-                    <div className="flex flex-wrap justify-center gap-1 text-[11px]">
-                      {tagsSuggestions.map((t) => (
-                        <button
-                          key={`${t.kind}-${t.tag}`}
-                          type="button"
-                          onClick={() =>
-                            setContent((prev) => {
-                              const hash = `#${t.tag}`;
-                              if (prev.includes(hash)) return prev;
-                              return [prev.trim(), hash].filter(Boolean).join(" ");
-                            })
-                          }
-                          className="px-2 py-0.5 rounded-full border border-muted-foreground/40 bg-background/60 hover:bg-muted"
-                        >
-                          #{t.tag}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  {hashtagSuggestions.length > 0 && (
-                    <div className="flex flex-col items-center gap-1 text-[11px]">
-                      <div className="flex flex-wrap justify-center gap-1">
-                        {hashtagSuggestions.map((tag, idx) => (
-                          <button
-                            key={tag + idx}
-                            type="button"
-                            onClick={() =>
-                              setContent((prev) => {
-                                if (prev.includes(tag)) return prev;
-                                return [prev.trim(), tag].filter(Boolean).join(" ");
-                              })
-                            }
-                            className="px-2 py-0.5 rounded-full border border-amber-500/50 bg-amber-500/10 hover:bg-amber-500/20"
-                          >
-                            {tag}
-                          </button>
-                        ))}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setHashtagSuggestions([])}
-                        className="mt-1 text-[10px] text-amber-100/80 underline underline-offset-2"
-                      >
-                        Não usar hashtags sugeridas agora
-                      </button>
-                    </div>
-                  )}
-                  {mentionSuggestions.length > 0 && mentionQuery.length >= 1 && (
-                    <div className="flex flex-wrap justify-center gap-1 text-[11px]">
-                      {mentionSuggestions.map((s, idx) => (
-                        <button
-                          key={`${s.kind}-${s.handle}-${idx}`}
-                          type="button"
-                          onClick={() =>
-                            {
-                              setContent((prev) =>
-                                {
-                                  const re = /@([A-Za-z0-9_.-]{1,30})/g;
-                                  const all = Array.from(prev.matchAll(re));
-                                  if (!all.length) {
-                                    return [prev.trim(), `@${s.handle}`].filter(Boolean).join(" ");
-                                  }
-                                  const last = all[all.length - 1];
-                                  const start = last.index ?? 0;
-                                  const before = prev.slice(0, start);
-                                  const after = prev.slice(start + last[0].length);
-                                  return `${before}@${s.handle}${after}`;
-                                }
-                              );
-                              setMentionQuery("");
-                              setMentionSuggestions([]);
-                            }
-                          }
-                          className="px-2 py-0.5 rounded-full border border-muted-foreground/40 bg-background/60 hover:bg-muted"
-                        >
-                          <span className="font-semibold">
-                            {s.label || s.handle}
-                          </span>
-                          {s.kind === "user" && (
-                            <span className="ml-1 opacity-70">@{s.handle}</span>
-                          )}
-                          {s.kind === "team" && (
-                            <span className="ml-1 opacity-70">(equipe @{s.handle})</span>
-                          )}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => fetchHashtagSuggestions(content)}
-                      disabled={hashtagLoading || content.trim().length < 8}
-                      className="text-[11px]"
-                    >
-                      {hashtagLoading ? "Gerando #..." : "Sugerir # com IA"}
-                    </Button>
-                    <Button
-                      onClick={handlePublish}
-                      disabled={loading}
-                      size="sm"
-                      className="px-4"
-                    >
-                      Publicar
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setShowComposer(false)}
-                    >
-                      Cancelar
-                    </Button>
-                  </div>
-                </div>
-              </>
-            ) : (
-              <div className="flex flex-col items-center justify-center gap-3 py-6">
-                <p className="text-xs text-muted-foreground text-center">
-                  Compartilhe bastidores, boas práticas e momentos da sua base no SEPBook.
+	                <p className="text-[11px] text-muted-foreground text-center">
+	                  Imagens são otimizadas para até 4K. Vídeos: até 30s (preferencialmente 1080p/FullHD). Limite: 3 fotos + 2 vídeos por post.
+	                </p>
+	                <div className="space-y-2">
+	                  <div className="flex flex-col items-center justify-center gap-2">
+	                    <div className="flex flex-wrap items-center gap-3">
+	                      <button
+	                        type="button"
+	                        onClick={() => setShowTagPicker((v) => !v)}
+	                        className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-muted"
+	                        title="Sugerir hashtags de campanhas e desafios"
+	                      >
+	                        <Hash className="h-3 w-3" />
+	                        Tags
+	                      </button>
+	                    </div>
+	                    {showTagPicker && tagsSuggestions.length > 0 && (
+	                      <div className="flex flex-wrap justify-center gap-1 text-[11px]">
+	                        {tagsSuggestions.map((t) => (
+	                          <button
+	                            key={`${t.kind}-${t.tag}`}
+	                            type="button"
+	                            onClick={() =>
+	                              setContent((prev) => {
+	                                const hash = `#${t.tag}`;
+	                                if (prev.includes(hash)) return prev;
+	                                return [prev.trim(), hash].filter(Boolean).join(" ");
+	                              })
+	                            }
+	                            className="px-2 py-0.5 rounded-full border border-muted-foreground/40 bg-background/60 hover:bg-muted"
+	                          >
+	                            #{t.tag}
+	                          </button>
+	                        ))}
+	                      </div>
+	                    )}
+	                    {hashtagSuggestions.length > 0 && (
+	                      <div className="flex flex-col items-center gap-1 text-[11px]">
+	                        <div className="flex flex-wrap justify-center gap-1">
+	                          {hashtagSuggestions.map((tag, idx) => (
+	                            <button
+	                              key={tag + idx}
+	                              type="button"
+	                              onClick={() =>
+	                                setContent((prev) => {
+	                                  if (prev.includes(tag)) return prev;
+	                                  return [prev.trim(), tag].filter(Boolean).join(" ");
+	                                })
+	                              }
+	                              className="px-2 py-0.5 rounded-full border border-amber-500/50 bg-amber-500/10 hover:bg-amber-500/20"
+	                            >
+	                              {tag}
+	                            </button>
+	                          ))}
+	                        </div>
+	                        <button
+	                          type="button"
+	                          onClick={() => setHashtagSuggestions([])}
+	                          className="mt-1 text-[10px] text-amber-100/80 underline underline-offset-2"
+	                        >
+	                          Não usar hashtags sugeridas agora
+	                        </button>
+	                      </div>
+	                    )}
+	                    {mentionSuggestions.length > 0 && mentionQuery.length >= 1 && (
+	                      <div className="flex flex-wrap justify-center gap-1 text-[11px]">
+	                        {mentionSuggestions.map((s, idx) => (
+	                          <button
+	                            key={`${s.kind}-${s.handle}-${idx}`}
+	                            type="button"
+	                            onClick={() => {
+	                              setContent((prev) => {
+	                                const re = /@([A-Za-z0-9_.-]{1,30})/g;
+	                                const all = Array.from(prev.matchAll(re));
+	                                if (!all.length) {
+	                                  return [prev.trim(), `@${s.handle}`].filter(Boolean).join(" ");
+	                                }
+	                                const last = all[all.length - 1];
+	                                const start = last.index ?? 0;
+	                                const before = prev.slice(0, start);
+	                                const after = prev.slice(start + last[0].length);
+	                                return `${before}@${s.handle}${after}`;
+	                              });
+	                              setMentionQuery("");
+	                              setMentionSuggestions([]);
+	                            }}
+	                            className="px-2 py-0.5 rounded-full border border-muted-foreground/40 bg-background/60 hover:bg-muted"
+	                          >
+	                            <span className="font-semibold">{s.label || s.handle}</span>
+	                            {s.kind === "user" && <span className="ml-1 opacity-70">@{s.handle}</span>}
+	                            {s.kind === "team" && <span className="ml-1 opacity-70">(equipe @{s.handle})</span>}
+	                          </button>
+	                        ))}
+	                      </div>
+	                    )}
+	                  </div>
+
+	                  <div className="sticky bottom-0 z-20 -mx-6 px-6 pt-2 border-t border-white/10 bg-slate-950/40 backdrop-blur-md pb-[calc(env(safe-area-inset-bottom)+12px)]">
+	                    <div className="flex flex-wrap items-center justify-center gap-2">
+	                      <Button
+	                        size="sm"
+	                        variant="ghost"
+	                        onClick={() => fetchHashtagSuggestions(content)}
+	                        disabled={hashtagLoading || content.trim().length < 8}
+	                        className="text-[11px]"
+	                      >
+	                        {hashtagLoading ? "Gerando #..." : "Sugerir # com IA"}
+	                      </Button>
+	                      <Button
+	                        onClick={handlePublish}
+	                        disabled={loading || attachmentsUploading}
+	                        size="sm"
+	                        className="px-4"
+	                      >
+	                        {attachmentsUploading ? "Enviando..." : "Publicar"}
+	                      </Button>
+	                      <Button
+	                        type="button"
+	                        variant="ghost"
+	                        size="sm"
+	                        onClick={() => setShowComposer(false)}
+	                      >
+	                        Cancelar
+	                      </Button>
+	                    </div>
+	                  </div>
+	                </div>
+	              </>
+	            ) : (
+	              <div className="flex flex-col items-center justify-center gap-3 py-6">
+	                <p className="text-xs text-muted-foreground text-center">
+	                  Compartilhe bastidores, boas práticas e momentos da sua base no SEPBook.
                 </p>
                 <Button
                   type="button"
