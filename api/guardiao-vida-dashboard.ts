@@ -230,8 +230,63 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         },
         query: { name: name || null, date_start: date_start || null, date_end: date_end || null },
         totals: { actions: 0, people_impacted: 0 },
+        publishers: [],
         monthly: [],
       });
+    }
+
+    // Users who already published Guardião da Vida evidences (for multi-select filter UI).
+    // Note: independent from date filters; used only to populate the selector list.
+    const publisherUserIds = new Set<string>();
+    try {
+      const publisherPageSize = 1000;
+      let pFrom = 0;
+      for (let page = 0; page < 20; page++) {
+        const { data, error } = await reader
+          .from("events")
+          .select("user_id,created_at,status")
+          .eq("challenge_id", evidenceChallengeId)
+          .in("status", ["submitted", "awaiting_second_evaluation", "approved", "evaluated"])
+          .order("created_at", { ascending: false })
+          .range(pFrom, pFrom + publisherPageSize - 1);
+        if (error) break;
+        const rows = Array.isArray(data) ? data : [];
+        for (const r of rows) {
+          const id = String((r as any)?.user_id || "").trim();
+          if (id) publisherUserIds.add(id);
+          if (publisherUserIds.size >= 2000) break;
+        }
+        if (publisherUserIds.size >= 2000) break;
+        if (rows.length < publisherPageSize) break;
+        pFrom += publisherPageSize;
+      }
+    } catch {
+      // ignore
+    }
+
+    let publishers: Array<{ id: string; name: string | null; email?: string | null; matricula?: string | null }> = [];
+    try {
+      const ids = Array.from(publisherUserIds).slice(0, 2000);
+      if (ids.length) {
+        const { data, error } = await reader
+          .from("profiles")
+          .select("id,name,email,matricula")
+          .in("id", ids)
+          .limit(2000);
+        if (!error && Array.isArray(data)) {
+          publishers = data
+            .map((p: any) => ({
+              id: String(p?.id || ""),
+              name: p?.name != null ? String(p.name) : null,
+              email: p?.email != null ? String(p.email) : null,
+              matricula: p?.matricula != null ? String(p.matricula) : null,
+            }))
+            .filter((p) => p.id);
+          publishers.sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "pt-BR"));
+        }
+      }
+    } catch {
+      publishers = [];
     }
 
     // Name filter -> user IDs (best-effort).
@@ -276,6 +331,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         },
         query: { name: name || null, date_start: date_start || null, date_end: date_end || null },
         totals: { actions: 0, people_impacted: 0 },
+        publishers,
         monthly: (date_start && date_end ? monthKeysBetween(date_start, date_end) : []).map((m) => ({
           month: m,
           actions: 0,
@@ -430,6 +486,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       },
       query: { name: name || null, date_start: date_start || null, date_end: date_end || null, user_ids: usingExplicitUserIds ? userIdFilter : null },
       totals: { actions, people_impacted: people },
+      publishers,
       users: selectedUsers,
       totals_by_user: usingExplicitUserIds
         ? (userIdFilter || []).reduce((acc: any, id) => {

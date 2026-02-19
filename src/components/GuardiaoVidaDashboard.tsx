@@ -26,6 +26,7 @@ type DashboardResponse = {
   selected_campaign: CampaignLite | null;
   query: { name: string | null; date_start: string | null; date_end: string | null; user_ids?: string[] | null };
   totals: { actions: number; people_impacted: number };
+  publishers?: Array<{ id: string; name: string | null; email?: string | null; matricula?: string | null }> | null;
   users?: Array<{ id: string; name: string | null }> | null;
   totals_by_user?: Record<string, { actions: number; people_impacted: number }> | null;
   monthly: Array<{ month: string; actions: number; people_impacted: number; by_user?: Record<string, { actions: number; people_impacted: number }> }>;
@@ -62,7 +63,7 @@ export function GuardiaoVidaDashboard() {
   const [campaigns, setCampaigns] = useState<CampaignLite[]>([]);
   const [campaignId, setCampaignId] = useState<string>("");
   const [userSearch, setUserSearch] = useState<string>("");
-  const [userSuggestions, setUserSuggestions] = useState<UserPick[]>([]);
+  const [publisherUsers, setPublisherUsers] = useState<UserPick[]>([]);
   const [selectedUsers, setSelectedUsers] = useState<UserPick[]>([]);
   const [metric, setMetric] = useState<"people_impacted" | "actions">("people_impacted");
   const [from, setFrom] = useState<string>(monthStartIso());
@@ -124,6 +125,17 @@ export function GuardiaoVidaDashboard() {
         setCampaigns(nextCampaigns);
         if (selected?.id) setCampaignId(selected.id);
 
+        const pubsRaw = Array.isArray(json.publishers) ? json.publishers : [];
+        const pubs: UserPick[] = pubsRaw
+          .map((r: any) => ({
+            id: String(r?.id || ""),
+            name: r?.name != null ? String(r.name) : null,
+            email: r?.email != null ? String(r.email) : null,
+            matricula: r?.matricula != null ? String(r.matricula) : null,
+          }))
+          .filter((u) => u.id);
+        setPublisherUsers(pubs);
+
         const t = json.totals || { actions: 0, people_impacted: 0 };
         setTotals({
           actions: Number((t as any).actions || 0) || 0,
@@ -135,6 +147,7 @@ export function GuardiaoVidaDashboard() {
         setError(e?.message || "Falha ao carregar dashboard");
         setTotals({ actions: 0, people_impacted: 0 });
         setMonthly([]);
+        setPublisherUsers([]);
       } finally {
         setLoading(false);
       }
@@ -147,41 +160,19 @@ export function GuardiaoVidaDashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => {
-    const q = userSearch.trim();
-    if (!q || q.length < 2) {
-      setUserSuggestions([]);
-      return;
+  const filteredPublisherSuggestions = useMemo(() => {
+    const q = userSearch.trim().toLowerCase();
+    const list = Array.isArray(publisherUsers) ? publisherUsers : [];
+    if (!q) return list.slice(0, 40);
+    const out: UserPick[] = [];
+    for (const u of list) {
+      const hay = `${u.name || ""} ${u.email || ""} ${u.matricula || ""}`.toLowerCase();
+      if (!hay.includes(q)) continue;
+      out.push(u);
+      if (out.length >= 40) break;
     }
-    let cancelled = false;
-    const timer = window.setTimeout(async () => {
-      try {
-        const resp = await apiFetch("/api/profile-lookup", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ mode: "name", query: q, limit: 10 }),
-        });
-        const json = await resp.json().catch(() => ({}));
-        if (!resp.ok) throw new Error(json?.error || "Falha ao buscar usuários");
-        const rows = Array.isArray(json?.users) ? json.users : [];
-        const next: UserPick[] = rows
-          .map((r: any) => ({
-            id: String(r?.id || ""),
-            name: r?.name != null ? String(r.name) : null,
-            email: r?.email != null ? String(r.email) : null,
-            matricula: r?.matricula != null ? String(r.matricula) : null,
-          }))
-          .filter((u) => u.id);
-        if (!cancelled) setUserSuggestions(next);
-      } catch {
-        if (!cancelled) setUserSuggestions([]);
-      }
-    }, 250);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [userSearch]);
+    return out;
+  }, [publisherUsers, userSearch]);
 
   const selectedCampaign = useMemo(
     () => campaigns.find((c) => String(c.id) === String(campaignId)) || null,
@@ -217,7 +208,11 @@ export function GuardiaoVidaDashboard() {
 
             <div className="space-y-2">
               <Label>Usuários (para contabilizar)</Label>
-              <Input value={userSearch} onChange={(e) => setUserSearch(e.target.value)} placeholder="Digite nome ou e-mail (mín. 2 letras)" />
+              <Input
+                value={userSearch}
+                onChange={(e) => setUserSearch(e.target.value)}
+                placeholder={publisherUsers.length ? "Pesquisar na lista (nome, e-mail ou matrícula)" : "Carregando lista…"}
+              />
               {selectedUsers.length > 0 ? (
                 <div className="flex flex-wrap gap-1">
                   {selectedUsers.map((u) => (
@@ -238,9 +233,9 @@ export function GuardiaoVidaDashboard() {
               ) : (
                 <p className="text-[11px] text-muted-foreground">Sem filtro: contabiliza todos os usuários.</p>
               )}
-              {userSuggestions.length > 0 ? (
+              {filteredPublisherSuggestions.length > 0 ? (
                 <div className="rounded-md border bg-background p-1 max-h-36 overflow-auto">
-                  {userSuggestions.map((u) => {
+                  {filteredPublisherSuggestions.map((u) => {
                     const already = selectedUsers.some((s) => s.id === u.id);
                     return (
                       <button
@@ -248,11 +243,13 @@ export function GuardiaoVidaDashboard() {
                         type="button"
                         className="w-full text-left rounded px-2 py-1.5 hover:bg-muted text-sm flex items-center justify-between gap-2"
                         onClick={() => {
-                          if (already) return;
-                          setSelectedUsers((prev) => [...prev, u].slice(0, 8));
+                          setSelectedUsers((prev) => {
+                            const exists = prev.some((x) => x.id === u.id);
+                            if (exists) return prev.filter((x) => x.id !== u.id);
+                            return [...prev, u].slice(0, 12);
+                          });
                         }}
-                        disabled={already}
-                        title={already ? "Já selecionado" : "Adicionar"}
+                        title={already ? "Remover" : "Adicionar"}
                       >
                         <span className="min-w-0">
                           <span className="font-medium truncate block">{u.name || "Usuário"}</span>
@@ -263,6 +260,11 @@ export function GuardiaoVidaDashboard() {
                     );
                   })}
                 </div>
+              ) : null}
+              {publisherUsers.length > 0 ? (
+                <p className="text-[11px] text-muted-foreground">
+                  Lista com {publisherUsers.length} usuários que já registraram evidência nesta campanha.
+                </p>
               ) : null}
             </div>
 
