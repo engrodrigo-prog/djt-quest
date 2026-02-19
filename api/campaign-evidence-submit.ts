@@ -43,6 +43,21 @@ const toNumberOrNull = (value: any) => {
   return Number.isFinite(n) ? n : null;
 };
 
+const normalizeText = (raw: any) =>
+  String(raw || "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+
+const isGuardiaoDaVidaCampaign = (c: any) => {
+  const hay = normalizeText(`${c?.title || ""} ${c?.narrative_tag || ""}`);
+  const compact = hay.replace(/\s+/g, "");
+  return hay.includes("guardiao da vida") || compact.includes("guardiaodavida");
+};
+
 const isMissingColumnError = (error: any, column: string) => {
   const code = String(error?.code || "");
   const msg = String(error?.message || "").toLowerCase();
@@ -95,17 +110,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const locationLatRaw = toNumberOrNull(body?.location_lat);
     const locationLngRaw = toNumberOrNull(body?.location_lng);
     const coords = clampLocation(locationLatRaw, locationLngRaw);
-    const sap_service_note = String(body?.sap_service_note || "").trim() || null;
+    const sap_service_note_in = String(body?.sap_service_note || "").trim() || null;
+    const peopleImpactedRaw = toNumberOrNull(body?.people_impacted ?? body?.people_reached ?? body?.people_atingidas);
+    const people_impacted = peopleImpactedRaw == null ? null : Math.max(0, Math.floor(peopleImpactedRaw));
     const participant_ids_in = toUuidArray(body?.participant_ids, 60);
 
     const reader = SERVICE_ROLE_KEY ? admin : authed;
 
     const { data: camp, error: campErr } = await reader
       .from("campaigns")
-      .select("id,evidence_challenge_id")
+      .select("id,title,narrative_tag,evidence_challenge_id")
       .eq("id", campaign_id)
       .maybeSingle();
     if (campErr || !camp?.id) return res.status(400).json({ error: "Campanha não encontrada" });
+
+    const isGuardiaoDaVida = isGuardiaoDaVidaCampaign(camp);
+    if (isGuardiaoDaVida) {
+      if (!coords) return res.status(400).json({ error: "Geolocalização obrigatória para esta campanha (GPS)." });
+      if (!Number.isFinite(Number(people_impacted)) || Number(people_impacted) < 1) {
+        return res.status(400).json({ error: "Informe a quantidade de pessoas atingidas (mín. 1)." });
+      }
+    }
 
     const challenge_id_raw = String((camp as any)?.evidence_challenge_id || "").trim();
     const challenge_id = UUID_RE.test(challenge_id_raw) ? challenge_id_raw : null;
@@ -141,6 +166,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       location_label,
       location_lat: coords ? coords.lat : null,
       location_lng: coords ? coords.lng : null,
+      people_impacted: people_impacted ?? null,
       publish_sepbook: false,
       attachments,
     };
@@ -157,14 +183,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       challenge_id,
       status: "submitted",
       evidence_urls: attachments,
-      sap_service_note,
+      sap_service_note: isGuardiaoDaVida ? null : sap_service_note_in,
+      people_impacted: people_impacted ?? null,
       payload,
     };
 
-    let evResp = await insertRow(baseRow);
-    if (evResp.error && isMissingColumnError(evResp.error, "evidence_urls")) {
-      const { evidence_urls, ...rowWithoutEvidence } = baseRow;
-      evResp = await insertRow(rowWithoutEvidence);
+    let rowToInsert = { ...baseRow };
+    let evResp: any = null;
+    for (let i = 0; i < 3; i++) {
+      evResp = await insertRow(rowToInsert);
+      if (!evResp.error) break;
+      if ("people_impacted" in rowToInsert && isMissingColumnError(evResp.error, "people_impacted")) {
+        delete (rowToInsert as any).people_impacted;
+        continue;
+      }
+      if ("evidence_urls" in rowToInsert && isMissingColumnError(evResp.error, "evidence_urls")) {
+        delete (rowToInsert as any).evidence_urls;
+        continue;
+      }
+      break;
     }
     const ev = evResp.data;
     const evErr = evResp.error;

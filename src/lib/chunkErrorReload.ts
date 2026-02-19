@@ -36,7 +36,6 @@ function reloadOnce(reason: string) {
   }
 
   try {
-    // eslint-disable-next-line no-console
     console.warn("Recarregando para recuperar erro de chunk:", reason);
   } catch {
     // ignore
@@ -65,4 +64,3 @@ export function installChunkErrorAutoReload() {
     true,
   );
 }
-

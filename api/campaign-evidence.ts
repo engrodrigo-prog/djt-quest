@@ -178,7 +178,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 	      const fetchLimit = Math.min(250, scope === "team" ? Math.max(limit, limit * 4) : limit);
 	      let q = reader
 	        .from("events")
-	        .select("id,user_id,challenge_id,status,created_at,final_points,evidence_urls,payload,sap_service_note")
+	        .select("id,user_id,challenge_id,status,created_at,final_points,evidence_urls,payload,sap_service_note,people_impacted")
 	        .order("created_at", { ascending: false })
 	        .limit(fetchLimit);
 	      if (evidenceChallengeId) {
@@ -197,8 +197,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 	      if (user_id_filter) q = q.eq("user_id", user_id_filter);
 	      if (date_start) q = q.gte("created_at", date_start);
 	      if (date_end) q = q.lte("created_at", date_end);
-	      const { data } = await q;
-	      events = Array.isArray(data) ? data : [];
+	      const { data, error } = await q;
+	      if (error && String((error as any)?.code || "") === "42703") {
+	        // Backwards compatibility: some schemas may not have people_impacted.
+	        const { data: d2 } = await reader
+	          .from("events")
+	          .select("id,user_id,challenge_id,status,created_at,final_points,evidence_urls,payload,sap_service_note")
+	          .order("created_at", { ascending: false })
+	          .limit(fetchLimit);
+	        events = Array.isArray(d2) ? d2 : [];
+	      } else {
+	        events = Array.isArray(data) ? data : [];
+	      }
 	    } catch {
 	      events = [];
 	    }
@@ -325,6 +335,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 	        location_lat: typeof p?.location_lat === "number" ? p.location_lat : null,
 	        location_lng: typeof p?.location_lng === "number" ? p.location_lng : null,
 	        sap_service_note: e.sap_service_note ?? p?.sap_service_note ?? null,
+	        people_impacted: typeof (e as any)?.people_impacted === "number" ? (e as any).people_impacted : p?.people_impacted ?? null,
 	        tags: Array.isArray(p?.tags) ? p.tags : [],
 	      };
 	    });

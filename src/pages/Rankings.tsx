@@ -7,7 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import Navigation from '@/components/Navigation';
 import { ThemedBackground } from '@/components/ThemedBackground';
-import { Trophy, Users, Building2, Award, Shield, Percent } from 'lucide-react';
+import { Trophy, Users, Building2, Award, Shield, Percent, BarChart3 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { useI18n } from '@/contexts/I18nContext';
@@ -15,6 +15,7 @@ import { getActiveLocale } from '@/lib/i18n/activeLocale';
 import { UserProfilePopover } from '@/components/UserProfilePopover';
 import { DJT_TEAM_GROUP_IDS, buildTeamScope, normalizeTeamId } from '@/lib/constants/points';
 import { useNavigate } from 'react-router-dom';
+import { GuardiaoVidaDashboard } from '@/components/GuardiaoVidaDashboard';
 
 interface IndividualRanking {
   rank: number;
@@ -139,7 +140,7 @@ const computeBaseXpFromBreakdown = (b: any) => {
 };
 
 function Rankings() {
-  const { orgScope, user } = useAuth();
+  const { orgScope, user, userRole, roles } = useAuth() as any;
   const { t: tr } = useI18n();
   const navigate = useNavigate();
   const [individualRankings, setIndividualRankings] = useState<IndividualRanking[]>([]);
@@ -149,7 +150,9 @@ function Rankings() {
   const [divisionRankings, setDivisionRankings] = useState<DivisionRanking[]>([]);
   const [leaderRankings, setLeaderRankings] = useState<LeaderRanking[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'individual' | 'guests' | 'myteam' | 'teams' | 'divisions' | 'leaders'>('individual');
+  const [activeTab, setActiveTab] = useState<
+    'individual' | 'guests' | 'myteam' | 'teams' | 'divisions' | 'leaders' | 'guardiaoVida'
+  >('individual');
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [selectedUserName, setSelectedUserName] = useState<string>('');
@@ -165,6 +168,19 @@ function Rankings() {
   const [quizQuestionLoading, setQuizQuestionLoading] = useState(false);
   const [quizQuestionError, setQuizQuestionError] = useState<string | null>(null);
   const [quizQuestionView, setQuizQuestionView] = useState<QuizQuestionView | null>(null);
+
+  const canSeeGuardiaoDashboard = useMemo(() => {
+    const r = String(userRole || '').toLowerCase();
+    if (r === 'admin') return true;
+    if (r.includes('gerente') || r.includes('coordenador')) return true;
+    const list = Array.isArray(roles) ? (roles as string[]) : [];
+    return (
+      list.includes('admin') ||
+      list.includes('gerente_djt') ||
+      list.includes('gerente_divisao_djtx') ||
+      list.includes('coordenador_djtx')
+    );
+  }, [roles, userRole]);
 
   const detailCategories: Array<{ key: DetailCategory; label: string }> = useMemo(
     () => [
@@ -1133,7 +1149,7 @@ function Rankings() {
         )}
 
         <Tabs value={activeTab} onValueChange={(v:any)=>setActiveTab(v)} className="w-full">
-	          <TabsList className="grid w-full grid-cols-3 sm:grid-cols-6 mb-6 h-auto gap-1">
+	          <TabsList className="grid w-full grid-cols-3 sm:grid-cols-7 mb-6 h-auto gap-1">
 	            <TabsTrigger value="individual" className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 min-w-0 px-2 py-2 sm:px-3 sm:py-1.5 text-xs sm:text-sm whitespace-normal" title={tr("rankings.tabs.overall")}>
 	              <Trophy className="h-4 w-4" />
 	              <span className="leading-tight text-center sm:text-left sm:truncate">{tr("rankings.tabs.overall")}</span>
@@ -1158,6 +1174,16 @@ function Rankings() {
 	              <Shield className="h-4 w-4" />
 	              <span className="leading-tight text-center sm:text-left sm:truncate">{tr("rankings.tabs.leaders")}</span>
 	            </TabsTrigger>
+              {canSeeGuardiaoDashboard && (
+                <TabsTrigger
+                  value="guardiaoVida"
+                  className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 min-w-0 px-2 py-2 sm:px-3 sm:py-1.5 text-xs sm:text-sm whitespace-normal"
+                  title="Guardião da Vida"
+                >
+                  <BarChart3 className="h-4 w-4" />
+                  <span className="leading-tight text-center sm:text-left sm:truncate">Guardião da Vida</span>
+                </TabsTrigger>
+              )}
 	          </TabsList>
 
           <TabsContent value="individual">
@@ -1523,6 +1549,21 @@ function Rankings() {
               </CardContent>
             </Card>
           </TabsContent>
+          {canSeeGuardiaoDashboard && (
+            <TabsContent value="guardiaoVida">
+              <Card className="bg-transparent border-transparent shadow-none">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <BarChart3 className="h-5 w-5 text-emerald-500" />
+                    Guardião da Vida
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <GuardiaoVidaDashboard />
+                </CardContent>
+              </Card>
+            </TabsContent>
+          )}
         </Tabs>
 
         <Dialog open={detailDialogOpen} onOpenChange={setDetailDialogOpen}>

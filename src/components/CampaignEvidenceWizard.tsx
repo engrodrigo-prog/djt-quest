@@ -63,11 +63,25 @@ const normalizeHashtag = (raw: string) =>
     .replace(/^#+/, "")
     .toLowerCase()
     .normalize("NFD")
-    // eslint-disable-next-line no-control-regex
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-z0-9_.-]+/g, "_")
     .replace(/^_+|_+$/g, "")
     .slice(0, 40);
+
+const normalizeText = (raw: string) =>
+  String(raw || "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+
+const isGuardiaoDaVidaCampaign = (c: Pick<CampaignLite, "title" | "narrative_tag"> | null | undefined) => {
+  const hay = normalizeText(`${c?.title || ""} ${c?.narrative_tag || ""}`);
+  const compact = hay.replace(/\s+/g, "");
+  return hay.includes("guardiao da vida") || compact.includes("guardiaodavida");
+};
 
 const buildDraftKey = (campaignId: string, userId: string) => `campaign_evidence_draft:${campaignId}:${userId}`;
 
@@ -103,6 +117,7 @@ export function CampaignEvidenceWizard({
 
   const currentUserId = String(user?.id || "");
   const isGuest = useMemo(() => isGuestProfile(profile), [profile]);
+  const isGuardiaoDaVida = useMemo(() => isGuardiaoDaVidaCampaign(campaign), [campaign?.narrative_tag, campaign?.title]);
 
   const [step, setStep] = useState<1 | 2 | 3 | 4 | 5>(1);
   const [participants, setParticipants] = useState<string[]>([]);
@@ -127,6 +142,7 @@ export function CampaignEvidenceWizard({
   const [tagsLoading, setTagsLoading] = useState(false);
 
   const [sapNote, setSapNote] = useState<string>("");
+  const [peopleImpacted, setPeopleImpacted] = useState<string>("");
   const [gpsEnabled, setGpsEnabled] = useState<boolean>(false);
   const [gpsConsentOpen, setGpsConsentOpen] = useState(false);
   const gpsConsentResolverRef = useRef<((ok: boolean) => void) | null>(null);
@@ -169,6 +185,7 @@ export function CampaignEvidenceWizard({
           setImageItems(Array.isArray(d.imageItems) ? d.imageItems : []);
           setText(typeof d.text === "string" ? d.text : "");
           setSapNote(typeof d.sapNote === "string" ? d.sapNote : "");
+          setPeopleImpacted(typeof d.peopleImpacted === "string" ? d.peopleImpacted : "");
           setTags(Array.isArray(d.tags) ? d.tags : []);
           restored = true;
         }
@@ -183,6 +200,7 @@ export function CampaignEvidenceWizard({
       setImageItems([]);
       setText("");
       setSapNote("");
+      setPeopleImpacted("");
       setTags([]);
       setSuggestedHashtags([]);
       setDeviceLocation(null);
@@ -205,13 +223,14 @@ export function CampaignEvidenceWizard({
           imageItems,
           text,
           sapNote,
+          peopleImpacted,
           tags,
         }),
       );
     } catch {
       /* ignore */
     }
-  }, [campaign?.id, currentUserId, imageItems, attachmentUrls, open, participants, sapNote, step, tags, text]);
+  }, [campaign?.id, currentUserId, imageItems, attachmentUrls, open, participants, sapNote, peopleImpacted, step, tags, text]);
 
   // audio preview URL
   useEffect(() => {
@@ -473,18 +492,54 @@ export function CampaignEvidenceWizard({
     return { exif, dev, none, total: items.length };
   }, [gpsByUrl]);
 
+  const primaryGps = useMemo<GpsPoint | null>(() => {
+    for (const g of gpsByUrl.values()) {
+      if (g && g.source !== "unavailable") return g;
+    }
+    if (gpsEnabled && deviceLocation) {
+      return {
+        lat: deviceLocation.lat,
+        lng: deviceLocation.lng,
+        accuracy: deviceLocation.accuracy ?? null,
+        timestamp: deviceLocation.timestamp ?? null,
+        source: "device",
+      };
+    }
+    return null;
+  }, [deviceLocation, gpsByUrl, gpsEnabled]);
+
   const evidenceText = useMemo(() => String(text || "").trim(), [text]);
   const evidenceTextOk = useMemo(() => evidenceText.length >= 50, [evidenceText]);
   const audioTranscriptTextOk = useMemo(() => String(audioTranscript || "").trim().length >= 50, [audioTranscript]);
   const evidenceMediaOk = useMemo(() => attachmentUrls.length >= 1 || Boolean(audioUrl), [attachmentUrls.length, audioUrl]);
   const hasEvidence = useMemo(() => evidenceMediaOk || evidenceTextOk || audioTranscriptTextOk, [audioTranscriptTextOk, evidenceMediaOk, evidenceTextOk]);
 
+  const peopleImpactedValue = useMemo(() => {
+    const n = Number(String(peopleImpacted || "").trim());
+    if (!Number.isFinite(n)) return null;
+    const int = Math.floor(n);
+    if (int < 0) return null;
+    return int;
+  }, [peopleImpacted]);
+
   const canNextFromStep = (s: number) => {
     if (s === 1) return true;
     if (s === 2) return !imagesUploading && !audioUploading && !audioTranscribing;
     if (s === 3) return true;
-    if (s === 4) return sapNote.trim().length <= 60;
-    if (s === 5) return hasEvidence && !imagesUploading && !audioUploading && !audioTranscribing && !submitting;
+    if (s === 4) {
+      if (isGuardiaoDaVida) {
+        return Boolean(primaryGps) && (peopleImpactedValue != null && peopleImpactedValue >= 1) && !gpsLoading;
+      }
+      return sapNote.trim().length <= 60;
+    }
+    if (s === 5) {
+      const base = hasEvidence && !imagesUploading && !audioUploading && !audioTranscribing && !submitting;
+      if (!base) return false;
+      if (isGuardiaoDaVida) {
+        return Boolean(primaryGps) && (peopleImpactedValue != null && peopleImpactedValue >= 1) && !gpsLoading;
+      }
+      return true;
+    }
     return true;
   };
 
@@ -617,9 +672,23 @@ export function CampaignEvidenceWizard({
       toast({ title: "Aguarde a transcrição do áudio", description: "A transcrição está em andamento.", variant: "destructive" });
       return;
     }
+    if (isGuardiaoDaVida) {
+      if (gpsLoading) {
+        toast({ title: "Aguarde o GPS", description: "Estamos obtendo a localização do dispositivo.", variant: "destructive" });
+        return;
+      }
+      if (!primaryGps) {
+        toast({ title: "GPS obrigatório", description: "Esta campanha exige geolocalização para enviar a evidência.", variant: "destructive" });
+        return;
+      }
+      if (peopleImpactedValue == null || peopleImpactedValue < 1) {
+        toast({ title: "Pessoas atingidas", description: "Informe a quantidade de pessoas atingidas (mín. 1).", variant: "destructive" });
+        return;
+      }
+    }
     setSubmitting(true);
     try {
-      const cleanSap = String(sapNote || "").trim();
+      const cleanSap = isGuardiaoDaVida ? "" : String(sapNote || "").trim();
       const parts = isGuest ? [currentUserId] : Array.from(new Set([currentUserId, ...(participants || [])]));
 
       // Remove guests from participants (unless the author is guest).
@@ -653,7 +722,7 @@ export function CampaignEvidenceWizard({
         };
       });
 
-      const gpsFirst = gpsItems.find((g: any) => g && g.source !== "unavailable" && typeof g.lat === "number" && typeof g.lng === "number") || null;
+      const gpsFirst = primaryGps || null;
       const locationLabel = gpsFirst ? (gpsFirst.source === "exif" ? "GPS da foto" : "Local atual") : null;
 
       const attachments = [...attachmentUrls, ...(audioUrl ? [audioUrl] : [])];
@@ -670,7 +739,8 @@ export function CampaignEvidenceWizard({
           location_label: locationLabel,
           location_lat: gpsFirst ? gpsFirst.lat : null,
           location_lng: gpsFirst ? gpsFirst.lng : null,
-          sap_service_note: cleanSap || null,
+          sap_service_note: isGuardiaoDaVida ? null : cleanSap || null,
+          people_impacted: peopleImpactedValue ?? null,
           participant_ids: participantIds.filter((id) => id !== currentUserId),
         }),
       });
@@ -692,7 +762,7 @@ export function CampaignEvidenceWizard({
         locationLng: gpsFirst ? gpsFirst.lng : null,
         tags,
         transcript: audioTranscript || null,
-        sapNote: cleanSap || null,
+        sapNote: isGuardiaoDaVida ? null : cleanSap || null,
       });
       setPublishPromptOpen(true);
 
@@ -713,7 +783,7 @@ export function CampaignEvidenceWizard({
     1: "1/5 Participantes",
     2: "2/5 Evidência",
     3: "3/5 Texto, @ e #",
-    4: "4/5 Metadados (SAP e GPS)",
+    4: isGuardiaoDaVida ? "4/5 Metadados (GPS e pessoas)" : "4/5 Metadados (SAP e GPS)",
     5: "5/5 Revisão",
   };
 
@@ -963,25 +1033,40 @@ export function CampaignEvidenceWizard({
 
           {step === 4 && (
             <div className="space-y-5">
-              <div className="space-y-2">
-                <Label>Nota SAP (opcional)</Label>
-                <Input
-                  value={sapNote}
-                  onChange={(e) => setSapNote(e.target.value)}
-                  placeholder="Ex.: 4001234567"
-                />
-                {sapNote.trim().length > 60 && (
-                  <p className="text-xs text-destructive">Muito longo (máx. 60 caracteres).</p>
-                )}
-                <p className="text-[11px] text-muted-foreground">Campo opcional. Se vazio, não bloqueia o envio.</p>
-              </div>
+              {!isGuardiaoDaVida ? (
+                <div className="space-y-2">
+                  <Label>Nota SAP (opcional)</Label>
+                  <Input value={sapNote} onChange={(e) => setSapNote(e.target.value)} placeholder="Ex.: 4001234567" />
+                  {sapNote.trim().length > 60 && <p className="text-xs text-destructive">Muito longo (máx. 60 caracteres).</p>}
+                  <p className="text-[11px] text-muted-foreground">Campo opcional. Se vazio, não bloqueia o envio.</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <Label>Quantidade de pessoas atingidas *</Label>
+                  <Input
+                    type="number"
+                    inputMode="numeric"
+                    min={1}
+                    step={1}
+                    value={peopleImpacted}
+                    onChange={(e) => setPeopleImpacted(e.target.value)}
+                    placeholder="Ex.: 12"
+                  />
+                  {(peopleImpactedValue == null || peopleImpactedValue < 1) && (
+                    <p className="text-xs text-destructive">Obrigatório (mín. 1).</p>
+                  )}
+                  <p className="text-[11px] text-muted-foreground">Obrigatório para esta campanha.</p>
+                </div>
+              )}
 
               <div className="rounded-md border bg-white/5 p-3 space-y-3">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <p className="text-sm font-semibold">Localização (GPS)</p>
+                    <p className="text-sm font-semibold">Localização (GPS){isGuardiaoDaVida ? " *" : ""}</p>
                     <p className="text-[11px] text-muted-foreground">
-                      Preferimos GPS do EXIF das fotos; se não existir, podemos usar o GPS do dispositivo (com consentimento).
+                      {isGuardiaoDaVida
+                        ? "Obrigatório: use GPS do EXIF das fotos ou ative o GPS do dispositivo."
+                        : "Preferimos GPS do EXIF das fotos; se não existir, podemos usar o GPS do dispositivo (com consentimento)."}
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
@@ -1010,8 +1095,13 @@ export function CampaignEvidenceWizard({
                 {gpsEnabled && gpsLoading && <div className="text-xs text-muted-foreground">Obtendo localização…</div>}
                 {!gpsEnabled && (
                   <div className="text-xs text-muted-foreground">
-                    Se você negar, pode salvar mesmo assim — e será marcado como “GPS indisponível”.
+                    {isGuardiaoDaVida
+                      ? "Se suas fotos não tiverem GPS (EXIF), ative o GPS do dispositivo para conseguir enviar."
+                      : "Se você negar, pode salvar mesmo assim — e será marcado como “GPS indisponível”."}
                   </div>
+                )}
+                {isGuardiaoDaVida && !primaryGps && (
+                  <div className="text-xs text-destructive">GPS obrigatório: não é possível enviar sem geolocalização.</div>
                 )}
               </div>
             </div>
@@ -1029,6 +1119,12 @@ export function CampaignEvidenceWizard({
                   <span>{attachmentUrls.length} anexo(s)</span>
                   <span>•</span>
                   <span>{(isGuest ? 1 : Array.from(new Set([currentUserId, ...(participants || [])])).length)} participante(s)</span>
+                  {isGuardiaoDaVida ? (
+                    <>
+                      <span>•</span>
+                      <span>Pessoas: {peopleImpactedValue ?? "—"}</span>
+                    </>
+                  ) : null}
                   {tags.length > 0 && (
                     <>
                       <span>•</span>

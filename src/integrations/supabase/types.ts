@@ -365,6 +365,7 @@ export type Database = {
           first_evaluator_id: string | null
           id: string
           parent_event_id: string | null
+          people_impacted: number | null
           payload: Json | null
           points_calculated: number | null
           quality_score: number | null
@@ -390,6 +391,7 @@ export type Database = {
           first_evaluator_id?: string | null
           id?: string
           parent_event_id?: string | null
+          people_impacted?: number | null
           payload?: Json | null
           points_calculated?: number | null
           quality_score?: number | null
@@ -415,6 +417,7 @@ export type Database = {
           first_evaluator_id?: string | null
           id?: string
           parent_event_id?: string | null
+          people_impacted?: number | null
           payload?: Json | null
           points_calculated?: number | null
           quality_score?: number | null

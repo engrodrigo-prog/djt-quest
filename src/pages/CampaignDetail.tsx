@@ -105,6 +105,7 @@ type EvidenceItem = {
   location_lat: number | null;
   location_lng: number | null;
   sap_service_note?: string | null;
+  people_impacted?: number | null;
   tags?: string[];
 };
 
@@ -1126,6 +1127,11 @@ export default function CampaignDetail() {
                     <Badge variant="secondary" className="text-[11px]">
                       SAP: {String(selectedEvidence.sap_service_note).slice(0, 18)}
                       {String(selectedEvidence.sap_service_note).length > 18 ? "…" : ""}
+                    </Badge>
+                  ) : null}
+                  {typeof selectedEvidence.people_impacted === "number" && selectedEvidence.people_impacted > 0 ? (
+                    <Badge variant="secondary" className="text-[11px]">
+                      Pessoas: {Number(selectedEvidence.people_impacted).toLocaleString(getActiveLocale())}
                     </Badge>
                   ) : null}
                 </div>
