@@ -4466,8 +4466,8 @@ export default function SEPBookIG() {
                   <MapContainer
                     center={mapCenter}
                     zoom={12}
-                    scrollWheelZoom={false}
-                    zoomControl={false}
+                    scrollWheelZoom={true}
+                    zoomControl={true}
                     zoomAnimation={false}
                     fadeAnimation={false}
                     markerZoomAnimation={false}
