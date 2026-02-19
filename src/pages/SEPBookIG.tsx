@@ -521,6 +521,25 @@ function SepbookMapUserActivity({ onActivity }: { onActivity: () => void }) {
   return null;
 }
 
+function SepbookMapDismissSelection({ onDismiss }: { onDismiss: () => void }) {
+  useMapEvents({
+    click: (e) => {
+      try {
+        const target = (e as any)?.originalEvent?.target;
+        if (target && target instanceof Element) {
+          if (target.closest(".leaflet-control")) return;
+          if (target.closest(".leaflet-marker-icon")) return;
+          if (target.closest(".leaflet-popup")) return;
+        }
+        onDismiss();
+      } catch {
+        onDismiss();
+      }
+    },
+  });
+  return null;
+}
+
 function EditLocationMapEvents({
   coords,
   onPick,
@@ -4463,11 +4482,11 @@ export default function SEPBookIG() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-0 border-t">
               <div className="h-[48vh] md:h-[70vh] border-b md:border-b-0 md:border-r">
                 <div className="relative h-full w-full">
-                  <MapContainer
-                    center={mapCenter}
-                    zoom={12}
-                    scrollWheelZoom={true}
-                    zoomControl={true}
+	                  <MapContainer
+	                    center={mapCenter}
+	                    zoom={12}
+	                    scrollWheelZoom={true}
+	                    zoomControl={true}
                     zoomAnimation={false}
                     fadeAnimation={false}
                     markerZoomAnimation={false}
@@ -4475,16 +4494,17 @@ export default function SEPBookIG() {
                       mapInstanceRef.current = map;
                     }}
                     className="h-full w-full"
-                  >
-                    <TileLayer
-                      attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-                      url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                    />
-                    <SepbookFitBounds
-                      points={mapPosts.map((x) => [Number(x.lat), Number(x.lng)] as [number, number])}
-                      disabled={mapHasInteracted}
-                      token={mapFitToken}
-                    />
+	                  >
+	                    <TileLayer
+	                      attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+	                      url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+	                    />
+	                    <SepbookMapDismissSelection onDismiss={() => setMapSelectedId(null)} />
+	                    <SepbookFitBounds
+	                      points={mapPosts.map((x) => [Number(x.lat), Number(x.lng)] as [number, number])}
+	                      disabled={mapHasInteracted}
+	                      token={mapFitToken}
+	                    />
                     <SepbookMapViewport onBoundsChange={setMapBounds} />
                     <SepbookMapUserActivity onActivity={() => setMapHasInteracted(true)} />
                     {mapPosts.map((x) => (
