@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { apiFetch } from "@/lib/api";
-import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, LabelList, XAxis, YAxis } from "recharts";
 import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { getActiveLocale } from "@/lib/i18n/activeLocale";
 import { Badge } from "@/components/ui/badge";
@@ -57,6 +57,32 @@ const darkGreenPalette = (count: number) => {
     out.push(`hsl(152, 46%, ${light}%)`);
   }
   return out;
+};
+
+const renderBarCenterLabel = (props: any) => {
+  const x = Number(props?.x || 0);
+  const y = Number(props?.y || 0);
+  const width = Number(props?.width || 0);
+  const height = Number(props?.height || 0);
+  const value = Number(props?.value || 0);
+  if (!Number.isFinite(value) || value <= 0) return null;
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width < 16 || height < 18) return null;
+  return (
+    <text
+      x={x + width / 2}
+      y={y + height / 2}
+      textAnchor="middle"
+      dominantBaseline="middle"
+      fontSize={11}
+      fontWeight={600}
+      fill="rgba(255,255,255,0.94)"
+      stroke="rgba(0,0,0,0.35)"
+      strokeWidth={2}
+      paintOrder="stroke"
+    >
+      {value.toLocaleString(getActiveLocale())}
+    </text>
+  );
 };
 
 export function GuardiaoVidaDashboard() {
@@ -413,10 +439,20 @@ export function GuardiaoVidaDashboard() {
                 <ChartTooltip content={<ChartTooltipContent />} />
                 <ChartLegend content={<ChartLegendContent />} />
                 {selectedUsers.length === 0 ? (
-                  <Bar dataKey="total" fill="var(--color-total)" radius={4} />
+                  <Bar dataKey="total" fill="var(--color-total)" radius={4}>
+                    <LabelList content={renderBarCenterLabel} />
+                  </Bar>
                 ) : (
                   selectedUsers.map((u, idx) => (
-                    <Bar key={u.id} dataKey={u.id} stackId="users" fill={`var(--color-${u.id})`} radius={idx === selectedUsers.length - 1 ? 4 : 0} />
+                    <Bar
+                      key={u.id}
+                      dataKey={u.id}
+                      stackId="users"
+                      fill={`var(--color-${u.id})`}
+                      radius={idx === selectedUsers.length - 1 ? 4 : 0}
+                    >
+                      <LabelList content={renderBarCenterLabel} />
+                    </Bar>
                   ))
                 )}
               </BarChart>
