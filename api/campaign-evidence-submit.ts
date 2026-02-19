@@ -181,7 +181,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const baseRow: any = {
       user_id: uid,
       challenge_id,
-      status: "submitted",
+      status: isGuardiaoDaVida ? "approved" : "submitted",
       evidence_urls: attachments,
       sap_service_note: isGuardiaoDaVida ? null : sap_service_note_in,
       people_impacted: people_impacted ?? null,

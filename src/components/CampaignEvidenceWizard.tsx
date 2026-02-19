@@ -749,7 +749,10 @@ export function CampaignEvidenceWizard({
       const eventId = String(json?.event_id || "");
       if (!eventId) throw new Error("Falha ao registrar evidência");
 
-      toast({ title: "Evidência registrada", description: "Enviada para avaliação. Obrigado!" });
+      toast({
+        title: "Evidência registrada",
+        description: isGuardiaoDaVida ? "Registrada no histórico. Obrigado!" : "Enviada para avaliação. Obrigado!",
+      });
       onSubmitted?.({ eventId, sepbookPostId: null });
       setPublishPayload({
         eventId,

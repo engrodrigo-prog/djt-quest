@@ -111,6 +111,21 @@ type EvidenceItem = {
 
 const isImageUrl = (url: string) => /\.(png|jpg|jpeg|webp|gif)(\?|#|$)/i.test(String(url || ""));
 
+const normalizeText = (raw: any) =>
+  String(raw || "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+
+const isGuardiaoDaVidaCampaign = (c: Pick<Campaign, "title" | "narrative_tag"> | null | undefined) => {
+  const hay = normalizeText(`${c?.title || ""} ${c?.narrative_tag || ""}`);
+  const compact = hay.replace(/\s+/g, "");
+  return hay.includes("guardiao da vida") || compact.includes("guardiaodavida");
+};
+
 const sanitizeLocationLabel = (raw: any) => {
   const label = String(raw || "").trim();
   if (!label) return null;
@@ -190,6 +205,8 @@ export default function CampaignDetail() {
     user_team_id: string | null;
   } | null>(null);
   const [evidenceTotals, setEvidenceTotals] = useState<{ items: number; total_xp: number } | null>(null);
+
+  const isGuardiaoDaVida = useMemo(() => isGuardiaoDaVidaCampaign(campaign), [campaign?.narrative_tag, campaign?.title]);
 
   const [evScope, setEvScope] = useState<"mine" | "team" | "all">("mine");
   const [evUserId, setEvUserId] = useState<string>("");
@@ -733,7 +750,9 @@ export default function CampaignDetail() {
               <div className="space-y-1">
                 <CardTitle className="text-sm">Evidências aprovadas</CardTitle>
                 <CardDescription className="text-xs">
-                  Histórico de evidências (aparece após avaliação). O mapa mostra apenas imagens com GPS.
+                  {isGuardiaoDaVida
+                    ? "Histórico de evidências (aparece imediatamente). O mapa mostra apenas imagens com GPS."
+                    : "Histórico de evidências (aparece após avaliação). O mapa mostra apenas imagens com GPS."}
                 </CardDescription>
               </div>
               <Button size="sm" variant="outline" onClick={() => setMapOpen(true)} disabled={mapEvidence.length === 0}>
