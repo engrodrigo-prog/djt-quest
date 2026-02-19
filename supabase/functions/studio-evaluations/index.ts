@@ -29,6 +29,12 @@ const clampInt = (n: number, min: number, max: number) => {
 
 const FEEDBACK_MIN_CHARS = 10;
 
+const normalizeTeamId = (raw: unknown) => String(raw ?? '').trim().toUpperCase();
+const isGuestTeamId = (raw: unknown) => {
+  const id = normalizeTeamId(raw);
+  return id === 'CONVIDADOS' || id === 'EXTERNO';
+};
+
 const scoreToRating10 = (scoresRaw: unknown) => {
   if (!scoresRaw || typeof scoresRaw !== 'object') return null;
   const values = Object.values(scoresRaw as Record<string, unknown>)
@@ -123,8 +129,8 @@ Deno.serve(async (req) => {
       .from('events')
       .select(`
         *,
-        user:profiles!events_user_id_fkey(id, name, coord_id, team_id, division_id, xp, tier),
-        challenge:challenges(id, title, xp_reward, reward_mode, reward_tier_steps, require_two_leader_eval, type)
+        user:profiles!events_user_id_fkey(id, name, coord_id, team_id, division_id, sigla_area, operational_base, xp, tier),
+        challenge:challenges(id, campaign_id, title, xp_reward, reward_mode, reward_tier_steps, require_two_leader_eval, type)
       `)
       .eq('id', eventId)
       .single();
@@ -135,6 +141,7 @@ Deno.serve(async (req) => {
 
     const challenge = event.challenge ?? {
       id: null,
+      campaign_id: null,
       title: 'Evidência de campanha',
       xp_reward: 0,
       reward_mode: null,
@@ -144,6 +151,69 @@ Deno.serve(async (req) => {
     };
     const challengeTitle = String((challenge as any)?.title || 'Evidência de campanha');
     const collaborator = event.user;
+    const isCampaignEvidence = String((event as any)?.payload?.source || '').trim() === 'campaign_evidence';
+    const isCampaignEvent = isCampaignEvidence || Boolean((challenge as any)?.campaign_id);
+
+    // Guest override: campaign actions from guests are evaluated by Rodrigo Nascimento only (single eval).
+    let collaboratorRoles: string[] = [];
+    try {
+      const { data } = await supabase.from('user_roles').select('role').eq('user_id', collaborator.id);
+      collaboratorRoles = Array.isArray(data) ? data.map((r: any) => String(r?.role || '')).filter(Boolean) : [];
+    } catch {
+      collaboratorRoles = [];
+    }
+    const isGuestCollaborator =
+      collaboratorRoles.includes('invited') ||
+      isGuestTeamId((collaborator as any)?.team_id) ||
+      isGuestTeamId((collaborator as any)?.sigla_area) ||
+      isGuestTeamId((collaborator as any)?.operational_base) ||
+      isGuestTeamId((collaborator as any)?.coord_id) ||
+      isGuestTeamId((collaborator as any)?.division_id);
+
+    const guestCampaignOverride = isGuestCollaborator && isCampaignEvent;
+    let rodrigoAdminId: string | null = null;
+
+    if (guestCampaignOverride) {
+      try {
+        const { data } = await supabase
+          .from('profiles')
+          .select('id')
+          .ilike('email', 'rodrigonasc@cpfl.com.br')
+          .limit(1)
+          .maybeSingle();
+        rodrigoAdminId = data?.id ? String(data.id) : null;
+      } catch {
+        rodrigoAdminId = null;
+      }
+
+      if (!rodrigoAdminId) {
+        try {
+          const { data } = await supabase
+            .from('profiles')
+            .select('id')
+            .ilike('name', 'rodrigo% nascimento%')
+            .limit(1)
+            .maybeSingle();
+          rodrigoAdminId = data?.id ? String(data.id) : null;
+        } catch {
+          rodrigoAdminId = null;
+        }
+      }
+
+      // Best-effort: ensure evaluation queue is reassigned according to business rule.
+      try {
+        await supabase.rpc('assign_evaluators_for_event', { _event_id: eventId });
+      } catch {
+        /* ignore */
+      }
+
+      if (rodrigoAdminId && user.id !== rodrigoAdminId) {
+        throw new Error('Ações de convidados em campanhas são avaliadas somente por Rodrigo Nascimento.');
+      }
+      if (!rodrigoAdminId) {
+        throw new Error('Configuração inválida: avaliador admin (Rodrigo) não encontrado.');
+      }
+    }
 
     // Garantir que o líder está atribuído na fila (regra de negócio: líder imediato + líder randômico)
     const { data: queueRow } = await supabase
@@ -200,18 +270,28 @@ Deno.serve(async (req) => {
       }
 
       // Verificar se requer dupla avaliação
-    if (challenge.require_two_leader_eval) {
-        // Contar avaliações existentes
-        const { data: existingEvals, error: evalsError } = await supabase
+      const requiresTwoBase = Boolean((challenge as any)?.require_two_leader_eval);
+      let existingEvals: any[] = [];
+      let evalCount = 0;
+      if (requiresTwoBase || guestCampaignOverride) {
+        const { data, error: evalsError } = await supabase
           .from('action_evaluations')
           .select('*')
           .eq('event_id', eventId)
           .order('created_at');
-
         ensureOk({ error: evalsError }, 'Erro ao buscar avaliações existentes');
+        existingEvals = Array.isArray(data) ? data : [];
+        evalCount = existingEvals.length || 0;
+      }
 
-        const evalCount = existingEvals?.length || 0;
+      if (guestCampaignOverride && existingEvals.some((e: any) => String(e?.reviewer_id || '') === user.id)) {
+        throw new Error('Esta ação já foi avaliada.');
+      }
 
+      const requiresTwo = requiresTwoBase && !guestCampaignOverride;
+
+      if (requiresTwo) {
+        // Contar avaliações existentes
         if (evalCount === 0) {
           // ✅ PRIMEIRA AVALIAÇÃO
           const insertEval = await supabase
