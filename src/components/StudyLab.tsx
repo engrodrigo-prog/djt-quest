@@ -53,7 +53,7 @@ interface StudySource {
   last_used_at: string | null;
 }
 
-type ChatMessage = { role: "user" | "assistant"; content: string; attachments?: string[] };
+type ChatMessage = { role: "user" | "assistant"; content: string; attachments?: string[]; meta?: ChatMessageMeta };
 type ChatSessionSummary = {
   id: string;
   title: string | null;
@@ -62,6 +62,25 @@ type ChatSessionSummary = {
   source_id: string | null;
   updated_at: string | null;
   created_at: string | null;
+};
+
+type ChatMessageMeta = {
+  truncated?: boolean;
+  incomplete_reason?: string | null;
+};
+
+type StudyChatApiMeta = {
+  truncated?: boolean;
+  incomplete_reason?: string | null;
+};
+
+type StudyChatApiResponse = {
+  success?: boolean;
+  answer?: string;
+  content?: string;
+  session_id?: string;
+  meta?: StudyChatApiMeta;
+  error?: string;
 };
 
 const parseAttachmentUrls = (raw: any): string[] => {
@@ -293,6 +312,7 @@ export const StudyLab = () => {
   const [chatSessions, setChatSessions] = useState<ChatSessionSummary[]>([]);
   const [chatSessionsLoading, setChatSessionsLoading] = useState(false);
   const [chatSessionsError, setChatSessionsError] = useState<string | null>(null);
+  const [chatHistoryClearing, setChatHistoryClearing] = useState(false);
   const [chatHistoryOpen, setChatHistoryOpen] = useState(false);
   const [chatHistorySearch, setChatHistorySearch] = useState("");
   const [chatSessionLoadingId, setChatSessionLoadingId] = useState<string | null>(null);
@@ -340,10 +360,6 @@ export const StudyLab = () => {
     if (!catalogOpen) return;
     setCatalogTab("list");
     setCatalogPreviewId(null);
-    setSearch("");
-    setVisibilityFilter("all");
-    setCategoryFilter("ALL");
-    setTopicFilter("ALL");
     setTimeout(() => catalogSearchRef.current?.focus(), 0);
   }, [catalogOpen]);
 
@@ -676,6 +692,7 @@ export const StudyLab = () => {
 
   const matchesSearch = (s: StudySource, q: string) => {
     const meta = s.metadata && typeof s.metadata === "object" ? s.metadata : null;
+    const subtitle = String(meta?.ai?.subtitle || meta?.subtitle || "").trim();
     const tags = Array.isArray(meta?.tags) ? meta.tags : Array.isArray(meta?.ai?.tags) ? meta.ai.tags : [];
     const topicKey = getSourceTopicKey(s);
     const categoryKey = getSourceCategoryKey(s);
@@ -683,6 +700,7 @@ export const StudyLab = () => {
       s.title || "",
       s.summary || "",
       s.url || "",
+      subtitle,
       categoryKey,
       topicKey,
       TOPIC_LABELS[topicKey] || "",
@@ -696,7 +714,7 @@ export const StudyLab = () => {
   const visibleSources = useMemo(() => {
     const now = Date.now();
     const q = search.trim().toLowerCase();
-    return allSources.filter((s) => {
+    const filtered = allSources.filter((s) => {
       if (!isFixedSource(s) && s.expires_at) {
         const exp = Date.parse(String(s.expires_at));
         if (Number.isFinite(exp) && exp <= now) return false;
@@ -711,6 +729,50 @@ export const StudyLab = () => {
       if (q && !matchesSearch(s, q)) return false;
       return true;
     });
+
+    const ts = (s: StudySource) => {
+      const raw = s.last_used_at || s.created_at;
+      const parsed = Date.parse(String(raw || ""));
+      return Number.isFinite(parsed) ? parsed : 0;
+    };
+
+    const searchScore = (s: StudySource, query: string) => {
+      if (!query) return 0;
+      const meta = getSourceMeta(s);
+      const title = String(s.title || "").toLowerCase();
+      const summary = String(s.summary || "").toLowerCase();
+      const url = String(s.url || "").toLowerCase();
+      const subtitle = String(meta?.ai?.subtitle || meta?.subtitle || "").toLowerCase();
+      const tags = Array.isArray(meta?.tags) ? meta.tags : Array.isArray(meta?.ai?.tags) ? meta.ai.tags : [];
+      const tagsHay = tags.map((t) => String(t || "")).join(" ").toLowerCase();
+
+      let score = 0;
+      if (title.includes(query)) score += 24;
+      if (subtitle.includes(query)) score += 14;
+      if (summary.includes(query)) score += 9;
+      if (tagsHay.includes(query)) score += 7;
+      if (url.includes(query)) score += 2;
+      if (s.ingest_status === "ok") score += 2;
+      if (s.ingest_status === "pending") score -= 1;
+      if (s.ingest_status === "failed") score -= 4;
+      return score;
+    };
+
+    const sorted = filtered.slice();
+    sorted.sort((a, b) => {
+      if (q) {
+        const sa = searchScore(a, q);
+        const sb = searchScore(b, q);
+        if (sa !== sb) return sb - sa;
+      }
+      const ta = ts(a);
+      const tb = ts(b);
+      if (ta !== tb) return tb - ta;
+      const aa = String(a.title || "").localeCompare(String(b.title || ""), getActiveLocale(), { sensitivity: "base" });
+      return aa;
+    });
+
+    return sorted;
   }, [allSources, categoryFilter, isPrivateSource, isPublicSource, search, topicFilter, user, visibilityFilter]);
 
   const hasActiveCatalogFilters =
@@ -1109,6 +1171,151 @@ export const StudyLab = () => {
     resetChatAttachments();
   }, [resetChatAttachments]);
 
+  const handleClearAllChatHistory = useCallback(async () => {
+    if (!user?.id) return;
+    if (chatHistoryClearing) return;
+    if (chatSessionsLoading) return;
+    const count = chatSessions.length;
+    if (count === 0) {
+      toast("Nenhuma conversa para apagar.");
+      return;
+    }
+
+    const ok = window.confirm(
+      `Apagar TODO o seu histórico?\n\nIsso remove ${count} conversa(s) do seu histórico.\nEssa ação não pode ser desfeita.`,
+    );
+    if (!ok) return;
+
+    setChatHistoryClearing(true);
+    try {
+      const { error } = await (supabase as any)
+        .from("study_chat_sessions")
+        .delete()
+        .eq("user_id", user.id);
+      if (error) throw error;
+
+      setChatSessions([]);
+      setChatHistorySearch("");
+      handleNewChat();
+      toast.success("Histórico apagado.");
+    } catch (e: any) {
+      toast.error(e?.message || "Falha ao apagar histórico.");
+    } finally {
+      setChatHistoryClearing(false);
+    }
+  }, [chatHistoryClearing, chatSessions.length, chatSessionsLoading, handleNewChat, user?.id]);
+
+  const mergeAssistantContinuation = (previous: string, extra: string) => {
+    const a = String(previous || "").replace(/\s+$/g, "");
+    const b = String(extra || "").replace(/^\s+/g, "");
+    if (!a) return b;
+    if (!b) return a;
+    const sep = a.endsWith("\n") || b.startsWith("\n") ? "\n" : "\n\n";
+    return `${a}${sep}${b}`.trim();
+  };
+
+  const handleContinueFromTruncated = useCallback(
+    async (assistantIndex: number) => {
+      if (!user) {
+        toast("Faça login para usar o chat de estudos.");
+        return;
+      }
+      if (chatLoading || chatUploading || chatHistoryClearing) return;
+      const target = chatMessages[assistantIndex];
+      if (!target || target.role !== "assistant") return;
+
+      const effectiveSourceId =
+        !oracleMode && selectedSourceId && selectedSourceId !== FIXED_RULES_ID ? selectedSourceId : null;
+      const continuePrompt = getActiveLocale().toLowerCase().startsWith("en")
+        ? "Continue from where you stopped. Do not repeat what was already said."
+        : "Continue de onde parou. Não repita o que já foi dito.";
+
+      const payloadMessages = [
+        ...chatMessages.map((m) => ({ role: m.role, content: m.content })),
+        { role: "user", content: continuePrompt },
+      ];
+
+      setChatLoading(true);
+      setChatError(null);
+      try {
+        const controller = new AbortController();
+        chatAbortRef.current = controller;
+        const resp = await apiFetch("/api/ai?handler=study-chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          signal: controller.signal,
+          body: JSON.stringify({
+            mode: oracleMode ? "oracle" : "study",
+            ...(oracleMode ? {} : effectiveSourceId ? { source_id: effectiveSourceId } : {}),
+            session_id: chatSessionId,
+            attachments: [],
+            language: getActiveLocale(),
+            save_compendium: false,
+            ...(oracleMode ? { use_web: useWeb } : {}),
+            quality: chatQuality,
+            ...(kbEnabled && kbSelection?.tags?.length ? { kb_tags: kbSelection.tags, kb_focus: kbSelection.label } : {}),
+            messages: payloadMessages,
+          }),
+        });
+
+        const json = (await resp.json().catch(() => ({}))) as StudyChatApiResponse;
+        if (!resp.ok || json?.success === false) {
+          setChatError(json?.error || "Falha no chat de estudos");
+          return;
+        }
+        const answer = String(json.answer || json.content || "").trim();
+        if (!answer) {
+          setChatError("A IA retornou uma resposta vazia.");
+          return;
+        }
+        if (typeof json?.session_id === "string" && json.session_id.trim()) {
+          setChatSessionId(json.session_id.trim());
+        }
+
+        const truncated = Boolean(json?.meta?.truncated);
+        const incompleteReason =
+          typeof json?.meta?.incomplete_reason === "string" ? json.meta.incomplete_reason : null;
+
+        setChatMessages((prev) => {
+          const next = prev.slice();
+          const cur = next[assistantIndex];
+          if (!cur || cur.role !== "assistant") return prev;
+          const merged = mergeAssistantContinuation(cur.content, answer);
+          const meta: ChatMessageMeta = { ...(cur.meta || {}), truncated, incomplete_reason: incompleteReason };
+          next[assistantIndex] = { ...cur, content: merged, meta };
+          return next;
+        });
+
+        void fetchChatSessions();
+      } catch (e: any) {
+        if (String(e?.name || "") === "AbortError") {
+          setChatError("Geração interrompida.");
+          return;
+        }
+        toast(`Erro no chat de estudos: ${e?.message || e}`);
+      } finally {
+        setChatLoading(false);
+        chatAbortRef.current = null;
+      }
+    },
+    [
+      chatHistoryClearing,
+      chatLoading,
+      chatMessages,
+      chatQuality,
+      chatSessionId,
+      chatUploading,
+      kbEnabled,
+      kbSelection?.label,
+      kbSelection?.tags,
+      oracleMode,
+      selectedSourceId,
+      user,
+      useWeb,
+      fetchChatSessions,
+    ],
+  );
+
   const renderChatHistoryList = useCallback(
     (opts?: { compact?: boolean }) => {
       const compact = Boolean(opts?.compact);
@@ -1130,6 +1337,22 @@ export const StudyLab = () => {
             placeholder="Buscar no histórico..."
             className={compact ? "h-9" : ""}
           />
+
+          <Button
+            type="button"
+            variant="outline"
+            className={[
+              "w-full justify-start",
+              "text-destructive hover:text-destructive",
+              "border-destructive/30 hover:border-destructive/50",
+            ].join(" ")}
+            onClick={handleClearAllChatHistory}
+            disabled={chatLoading || chatUploading || chatSessionsLoading || chatHistoryClearing || chatSessions.length === 0}
+            title="Apagar todo o histórico"
+          >
+            <Trash2 className="mr-2 h-4 w-4" />
+            {chatHistoryClearing ? "Apagando histórico..." : `Limpar tudo (${chatSessions.length})`}
+          </Button>
 
           <div className="space-y-1">
             {chatSessionsLoading ? (
@@ -1184,6 +1407,7 @@ export const StudyLab = () => {
     },
     [
       chatHistorySearch,
+      chatHistoryClearing,
       chatLoading,
       chatSessionId,
       chatSessionLoadingId,
@@ -1192,9 +1416,11 @@ export const StudyLab = () => {
       chatUploading,
       filteredChatSessions,
       formatSessionWhen,
+      handleClearAllChatHistory,
       handleDeleteChatSession,
       handleNewChat,
       openChatSession,
+      chatSessions.length,
     ],
   );
 
@@ -1391,12 +1617,12 @@ export const StudyLab = () => {
           messages: payloadMessages,
         }),
       });
-      const json = await resp.json().catch(() => ({} as any));
+      const json = (await resp.json().catch(() => ({}))) as StudyChatApiResponse;
       if (!resp.ok || json?.success === false) {
         setChatError(json?.error || "Falha no chat de estudos");
         return;
       }
-      const answer = json.answer || json.content || "";
+      const answer = String(json.answer || json.content || "").trim();
       if (!answer) {
         setChatError("A IA retornou uma resposta vazia.");
         return;
@@ -1404,7 +1630,11 @@ export const StudyLab = () => {
       if (typeof json?.session_id === "string" && json.session_id.trim()) {
         setChatSessionId(json.session_id.trim());
       }
-      setChatMessages((prev) => [...prev, { role: "assistant", content: answer }]);
+      const truncated = Boolean(json?.meta?.truncated);
+      const incompleteReason =
+        typeof json?.meta?.incomplete_reason === "string" ? json.meta.incomplete_reason : null;
+      const meta: ChatMessageMeta | undefined = truncated || incompleteReason ? { truncated, incomplete_reason: incompleteReason } : undefined;
+      setChatMessages((prev) => [...prev, { role: "assistant", content: answer, ...(meta ? { meta } : {}) }]);
       resetChatAttachments();
       void fetchChatSessions();
     } catch (e: any) {
@@ -1646,11 +1876,25 @@ export const StudyLab = () => {
               <div key={idx} className={`mb-2 flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
                 <div
                   className={[
-                    "max-w-[85%] rounded-2xl px-3 py-2 text-sm whitespace-pre-line",
+                    "max-w-[85%] rounded-2xl px-3 py-2 text-sm whitespace-pre-wrap break-words",
                     m.role === "user" ? "bg-primary text-primary-foreground" : "bg-background border",
                   ].join(" ")}
                 >
                   {m.content}
+                  {m.role === "assistant" && m.meta?.truncated && (
+                    <div className="mt-2 flex items-center justify-end gap-2">
+                      <span className="text-[11px] text-muted-foreground">Resposta truncada</span>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={chatLoading || chatUploading}
+                        onClick={() => void handleContinueFromTruncated(idx)}
+                      >
+                        Continuar
+                      </Button>
+                    </div>
+                  )}
                   {m.attachments && m.attachments.length > 0 && (
                     <div className="mt-2 flex flex-wrap gap-2">
                       {m.attachments.map((url, aIdx) =>
@@ -1836,7 +2080,7 @@ export const StudyLab = () => {
         <SheetContent side="right" className="w-full sm:max-w-lg">
           <SheetHeader>
             <SheetTitle>Catálogo</SheetTitle>
-            <SheetDescription>Pesquise por árvore (categoria/tema) ou lista. Clique para usar no chat.</SheetDescription>
+            <SheetDescription>Pesquise por árvore (categoria/tema) ou lista. Use “Usar” para selecionar um material e voltar ao chat.</SheetDescription>
           </SheetHeader>
 
           <div className="mt-4 space-y-3">
