@@ -137,6 +137,45 @@ export async function extractPdfText(buffer) {
   return String(data?.text || '').trim();
 }
 
+export async function extractPdfPages(buffer) {
+  const pdfParse = require('pdf-parse');
+  const pages = [];
+
+  const renderPage = async (pageData) => {
+    try {
+      const tc = await pageData.getTextContent({ normalizeWhitespace: false, disableCombineTextItems: false });
+      const items = Array.isArray(tc?.items) ? tc.items : [];
+      let lastY = null;
+      let out = '';
+      for (const it of items) {
+        const str = String(it?.str || '');
+        if (!str) continue;
+        const y = Array.isArray(it?.transform) ? it.transform[5] : null;
+        if (typeof y === 'number' && typeof lastY === 'number' && Math.abs(y - lastY) > 2) out += '\n';
+        else if (out && !out.endsWith('\n')) out += ' ';
+        out += str;
+        lastY = typeof y === 'number' ? y : lastY;
+      }
+      const text = out.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+      const pageNumber = Number(pageData?.pageNumber || pages.length + 1) || pages.length + 1;
+      pages.push({ page_number: pageNumber, text });
+      return text;
+    } catch {
+      const pageNumber = Number(pageData?.pageNumber || pages.length + 1) || pages.length + 1;
+      pages.push({ page_number: pageNumber, text: '' });
+      return '';
+    }
+  };
+
+  const data = await pdfParse(buffer, { pagerender: renderPage });
+  const sorted = pages.slice().sort((a, b) => (a.page_number || 0) - (b.page_number || 0));
+  const text = String(data?.text || '').trim();
+  return {
+    text,
+    pages: sorted.map((p) => ({ page_number: p.page_number, text: String(p.text || '').trim() })),
+  };
+}
+
 export async function extractDocxText(buffer) {
   const mammoth = require('mammoth');
   const result = await mammoth.extractRawText({ buffer });

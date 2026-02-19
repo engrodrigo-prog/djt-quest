@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { createRequire } from "module";
-import { extractPdfText, extractDocxText, extractJsonText, extractPlainText } from "../lib/import-parsers.js";
+import { extractPdfText, extractPdfPages, extractDocxText, extractJsonText, extractPlainText } from "../lib/import-parsers.js";
 import { extractImageTextWithAi, parseJsonFromAiContent } from "../lib/ai-curation-provider.js";
 import { DJT_RULES_ARTICLE } from "../../shared/djt-rules.js";
 import { normalizeChatModel, pickChatModel } from "../lib/openai-models.js";
@@ -190,7 +190,170 @@ const refreshStudySourceEmbeddings = async (admin, sourceId, rawText, opts = {})
       source_id: sourceId,
       chunk_index: idx,
       content,
-      embedding: embeddings[idx]
+      embedding: embeddings[idx],
+      page_number: null
+    })).filter((row) => Array.isArray(row.embedding) && row.embedding.length > 0);
+    if (!rows.length) return;
+    await admin.from("study_source_chunks").insert(rows);
+  } catch {
+  }
+};
+
+const normalizePdfPages = (pages, opts = {}) => {
+  const maxPages = Math.max(1, Math.min(900, Number(opts.maxPages || 700)));
+  const maxCharsPerPage = Math.max(500, Math.min(12e4, Number(opts.maxCharsPerPage || 6e4)));
+  const list = Array.isArray(pages) ? pages : [];
+  const out = [];
+  for (const p of list) {
+    const pageNumber = Number(p?.page_number || p?.page || p?.pageNumber || 0);
+    const text = String(p?.text || p?.content || "").replace(/\u0000/g, "").trim();
+    if (!Number.isFinite(pageNumber) || pageNumber <= 0) continue;
+    out.push({ page_number: pageNumber, text: text.length > maxCharsPerPage ? text.slice(0, maxCharsPerPage) : text });
+    if (out.length >= maxPages) break;
+  }
+  out.sort((a, b) => a.page_number - b.page_number);
+  return out;
+};
+
+const buildPdfPreviewTextFromPages = (pages, maxChars = 2e4) => {
+  const list = normalizePdfPages(pages, { maxPages: 200, maxCharsPerPage: 3e4 });
+  if (!list.length) return "";
+  const out = [];
+  let used = 0;
+  for (const p of list) {
+    const block = String(p.text || "").trim();
+    if (!block) continue;
+    const header = `\n\n[Página ${p.page_number}]\n`;
+    const remaining = Math.max(0, maxChars - used - header.length);
+    if (remaining <= 0) break;
+    const slice = block.length > remaining ? block.slice(0, remaining) : block;
+    out.push(`${header}${slice}`);
+    used += header.length + slice.length;
+    if (used >= maxChars) break;
+  }
+  return out.join("").trim();
+};
+
+const inferPdfOutlineFromPages = (pages) => {
+  const list = normalizePdfPages(pages, { maxPages: 600, maxCharsPerPage: 22e3 });
+  const out = [];
+  const seen = /* @__PURE__ */ new Set();
+  const norm = (s) => String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim();
+  const looksLikeHeading = (line) => {
+    const t = String(line || "").trim();
+    if (t.length < 8 || t.length > 120) return false;
+    if (/^\d+\s*$/.test(t)) return false;
+    if (/^(sum[aá]rio|indice|índice|table of contents)\b/i.test(t)) return false;
+    if (/^cap[ií]tulo\s+\d+/i.test(t)) return true;
+    if (/^\d+(\.\d+){0,3}\s+[\p{L}]/u.test(t)) return true;
+    const letters = t.replace(/[^A-Za-zÀ-ÖØ-öø-ÿ]/g, "");
+    const upper = letters.replace(/[^A-ZÀ-ÖØ-Þ]/g, "");
+    if (letters.length >= 10 && upper.length / Math.max(1, letters.length) > 0.8) return true;
+    return false;
+  };
+  for (const p of list) {
+    const firstLines = String(p.text || "").split("\n").map((l) => l.trim()).filter(Boolean).slice(0, 14);
+    for (const l of firstLines) {
+      if (!looksLikeHeading(l)) continue;
+      const key = norm(l);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      out.push({ title: l.slice(0, 140), page: p.page_number });
+      break;
+    }
+    if (out.length >= 24) break;
+  }
+  return out;
+};
+
+const upsertStudySourcePages = async (admin, sourceId, pages) => {
+  if (!admin || !sourceId) return { ok: false, count: 0 };
+  const normalized = normalizePdfPages(pages);
+  if (!normalized.length) return { ok: true, count: 0 };
+  try {
+    await admin.from("study_source_pages").delete().eq("source_id", sourceId);
+  } catch {
+  }
+  try {
+    const rows = normalized.map((p) => ({
+      source_id: sourceId,
+      page_number: p.page_number,
+      content: p.text
+    }));
+    const { error } = await admin.from("study_source_pages").insert(rows);
+    if (error) throw error;
+    return { ok: true, count: rows.length };
+  } catch {
+    return { ok: false, count: 0 };
+  }
+};
+
+const loadStudySourcePages = async (admin, sourceId, opts = {}) => {
+  if (!admin || !sourceId) return [];
+  const maxPages = Math.max(1, Math.min(450, Number(opts.maxPages || 220)));
+  try {
+    const { data, error } = await admin
+      .from("study_source_pages")
+      .select("page_number, content")
+      .eq("source_id", sourceId)
+      .order("page_number", { ascending: true })
+      .limit(maxPages);
+    if (error) throw error;
+    const rows = Array.isArray(data) ? data : [];
+    return rows.map((r) => ({ page_number: Number(r?.page_number || 0) || 0, text: String(r?.content || "").trim() })).filter((r) => r.page_number > 0);
+  } catch {
+    return [];
+  }
+};
+
+const chunkPdfPagesForEmbeddings = (pages) => {
+  const list = normalizePdfPages(pages, { maxPages: 350, maxCharsPerPage: 6e4 });
+  const maxChunks = 24;
+  const maxChars = 1400;
+  const overlap = 220;
+  const out = [];
+  for (const p of list) {
+    const text = String(p.text || "").replace(/\r\n/g, "\n").trim();
+    if (text.length < 80) continue;
+    let cursor = 0;
+    let perPage = 0;
+    while (cursor < text.length && out.length < maxChunks && perPage < 2) {
+      const sliceEnd = Math.min(text.length, cursor + maxChars);
+      let chunk = text.slice(cursor, sliceEnd);
+      if (sliceEnd < text.length) {
+        const breakIdx = chunk.lastIndexOf("\n\n");
+        if (breakIdx >= 500) chunk = chunk.slice(0, breakIdx);
+      }
+      chunk = chunk.trim();
+      if (chunk) {
+        out.push({ content: chunk, page_number: p.page_number });
+        perPage += 1;
+      }
+      if (sliceEnd >= text.length) break;
+      cursor = Math.max(0, cursor + Math.max(1, chunk.length - overlap));
+    }
+    if (out.length >= maxChunks) break;
+  }
+  return out;
+};
+
+const refreshStudySourceEmbeddingsFromPages = async (admin, sourceId, pages, opts = {}) => {
+  if (!admin || !sourceId) return;
+  const chunks = chunkPdfPagesForEmbeddings(pages);
+  if (!chunks.length) return;
+  try {
+    await admin.from("study_source_chunks").delete().eq("source_id", sourceId);
+  } catch {
+  }
+  try {
+    const embeddings = await embedTexts(chunks.map((c) => c.content), { timeoutMs: opts.timeoutMs });
+    if (!embeddings.length) return;
+    const rows = chunks.map((c, idx) => ({
+      source_id: sourceId,
+      chunk_index: idx,
+      content: c.content,
+      embedding: embeddings[idx],
+      page_number: c.page_number
     })).filter((row) => Array.isArray(row.embedding) && row.embedding.length > 0);
     if (!rows.length) return;
     await admin.from("study_source_chunks").insert(rows);
@@ -662,7 +825,8 @@ async function handler(req, res) {
       quality = "auto",
       kb_tags = [],
       kb_focus = "",
-      use_web = false
+      use_web = false,
+      recatalog = false
     } = req.body || {};
     const qualityKey = String(quality || "auto").toLowerCase();
     const allowDevIngest = mode === "ingest" && process.env.DJT_ALLOW_DEV_INGEST === "1" && process.env.NODE_ENV !== "production" && process.env.VERCEL_ENV !== "production";
@@ -677,6 +841,25 @@ async function handler(req, res) {
     const normalizedAttachments = uniqueAttachments(
       rawAttachments.map((att) => normalizeAttachment(att)).filter(Boolean)
     ).slice(0, 5);
+    const rawQuestionForSearch = (() => {
+      const q = typeof question === "string" ? question.trim() : "";
+      if (q) return q;
+      const list = Array.isArray(messages) ? messages : [];
+      for (let i = list.length - 1; i >= 0; i -= 1) {
+        const m = list[i];
+        const role = String(m?.role || "").toLowerCase().trim();
+        if (role && role !== "user") continue;
+        const c = m?.content;
+        if (typeof c === "string" && c.trim()) return c.trim();
+        if (Array.isArray(c)) {
+          const joined = c.map((x) => typeof x === "string" ? x : String(x?.text || x?.content || "")).filter(Boolean).join("\n").trim();
+          if (joined) return joined;
+        }
+      }
+      return "";
+    })();
+    let extractedSourcePdfPages = null;
+    let selectedSourceLooksPdf = false;
     let joinedContext = "";
     let sourceRow = null;
     let lastUserText = "";
@@ -854,8 +1037,8 @@ ${clipped}`);
       return parts.join("\n\n").trim();
     };
     if (admin && source_id) {
-      const selectV2 = "id, user_id, title, summary, full_text, url, kind, topic, category, metadata, scope, published, ingest_status, ingest_error, ingested_at";
-      const selectV1 = "id, user_id, title, summary, full_text, url, ingest_status, ingest_error, ingested_at";
+      const selectV2 = "id, user_id, title, summary, full_text, url, storage_path, kind, topic, category, metadata, scope, published, ingest_status, ingest_error, ingested_at";
+      const selectV1 = "id, user_id, title, summary, full_text, url, storage_path, ingest_status, ingest_error, ingested_at";
       let sourceRes = await admin.from("study_sources").select(selectV2).eq("id", source_id).maybeSingle();
       if (sourceRes.error && /column .*?(category|metadata)/i.test(String(sourceRes.error.message || sourceRes.error))) {
         sourceRes = await admin.from("study_sources").select(selectV1).eq("id", source_id).maybeSingle();
@@ -866,19 +1049,102 @@ ${clipped}`);
         const published = Boolean(sourceRow.published);
         const canRead = allowDevIngest || Boolean(uid && sourceRow.user_id && sourceRow.user_id === uid) || scope === "org" && (published || isLeaderOrStaff);
         if (canRead) {
+          const supportsMetadata = Boolean(sourceRow && Object.prototype.hasOwnProperty.call(sourceRow, "metadata"));
+          const prevMeta = supportsMetadata && sourceRow?.metadata && typeof sourceRow.metadata === "object" ? sourceRow.metadata : null;
+          const urlExt = inferExt(sourceRow.url || sourceRow.storage_path || "");
+          selectedSourceLooksPdf = urlExt === "pdf";
           let baseText = (sourceRow.full_text || sourceRow.summary || sourceRow.url || "").toString();
-          if (!sourceRow.full_text && sourceRow.url && sourceRow.url.startsWith("http")) {
+          const shouldFetch =
+            sourceRow.url && sourceRow.url.startsWith("http") && (!sourceRow.full_text || mode === "ingest" && recatalog && selectedSourceLooksPdf);
+          if (shouldFetch) {
             try {
               const isFile = String(sourceRow.kind || "").toLowerCase() === "file" || /\.(pdf|docx|xlsx|xls|csv|txt|json|png|jpe?g|webp)(\?|#|$)/i.test(String(sourceRow.url || ""));
-              const fetched = isFile ? await extractFromFileUrl(sourceRow.url, sourceRow.title || "") : await fetchUrlContent(sourceRow.url);
-              if (fetched?.trim()) {
-                baseText = fetched;
-                await updateStudySourceWithFallback(admin, source_id, {
-                  full_text: fetched,
-                  ingest_status: "ok",
-                  ingested_at: (/* @__PURE__ */ new Date()).toISOString(),
-                  ingest_error: null
+              if (isFile && selectedSourceLooksPdf) {
+                const { buffer, contentType } = await fetchBinary(sourceRow.url);
+                const mime = String(contentType || "");
+                if (urlExt === "pdf" || mime.includes("pdf")) {
+                  const extracted = await extractPdfPages(buffer);
+                  extractedSourcePdfPages = Array.isArray(extracted?.pages) ? extracted.pages : null;
+                  const preview = buildPdfPreviewTextFromPages(extractedSourcePdfPages || [], 2e4);
+                  const totalChars = normalizePdfPages(extractedSourcePdfPages || []).reduce((acc, p) => acc + String(p.text || "").length, 0);
+                  const pageCount = normalizePdfPages(extractedSourcePdfPages || []).length;
+                  const scannedLikely = totalChars < 120;
+                  baseText = preview || String(extracted?.text || "").trim().slice(0, 2e4);
+                  if (extractedSourcePdfPages && extractedSourcePdfPages.length) {
+                    await upsertStudySourcePages(admin, source_id, extractedSourcePdfPages);
+                  }
+                  const inferredOutline = inferPdfOutlineFromPages(extractedSourcePdfPages || []);
+                  const prevAi = prevMeta?.ai && typeof prevMeta.ai === "object" ? prevMeta.ai : {};
+                  const prevAiOutline = Array.isArray(prevAi?.outline) ? prevAi.outline : [];
+                  const outlineForAi = inferredOutline.map((o) => ({
+                    title: o?.page ? `${String(o.title || "").trim()} (pág. ${Number(o.page) || o.page})` : String(o?.title || "").trim()
+                  })).filter((o) => o?.title).slice(0, 24);
+                  const nextMeta = supportsMetadata ? {
+                    ...(prevMeta && typeof prevMeta === "object" ? prevMeta : {}),
+                    pdf: {
+                      ...prevMeta?.pdf && typeof prevMeta.pdf === "object" ? prevMeta.pdf : {},
+                      page_count: pageCount || null,
+                      outline: inferredOutline,
+                      indexed_at: (/* @__PURE__ */ new Date()).toISOString()
+                    },
+                    ai: {
+                      ...prevAi,
+                      ...outlineForAi.length && !prevAiOutline.length ? { outline: outlineForAi } : {}
+                    }
+                  } : null;
+                  await updateStudySourceWithFallback(admin, source_id, {
+                    full_text: baseText,
+                    ingest_status: scannedLikely ? "failed" : "ok",
+                    ingested_at: (/* @__PURE__ */ new Date()).toISOString(),
+                    ingest_error: scannedLikely ? "PDF parece escaneado (sem texto selecionável). Envie páginas como imagens (JPG/PNG) para OCR." : null,
+                    ...nextMeta ? { metadata: nextMeta } : {}
+                  });
+                } else {
+                  const fetched = await extractFromFileUrl(sourceRow.url, sourceRow.title || "");
+                  if (fetched?.trim()) {
+                    baseText = fetched;
+                    await updateStudySourceWithFallback(admin, source_id, {
+                      full_text: fetched,
+                      ingest_status: "ok",
+                      ingested_at: (/* @__PURE__ */ new Date()).toISOString(),
+                      ingest_error: null
+                    });
+                  }
+                }
+              } else {
+                const fetched = isFile ? await extractFromFileUrl(sourceRow.url, sourceRow.title || "") : await fetchUrlContent(sourceRow.url);
+                if (fetched?.trim()) {
+                  baseText = fetched;
+                  await updateStudySourceWithFallback(admin, source_id, {
+                    full_text: fetched,
+                    ingest_status: "ok",
+                    ingested_at: (/* @__PURE__ */ new Date()).toISOString(),
+                    ingest_error: null
+                  });
+                }
+              }
+            } catch {
+            }
+          }
+          if (mode !== "ingest" && selectedSourceLooksPdf && rawQuestionForSearch && baseText.trim()) {
+            try {
+              const left = timeLeftMs();
+              if (left > 9e3) {
+                const { data, error } = await admin.rpc("search_study_source_pages_scoped", {
+                  query_text: rawQuestionForSearch,
+                  allowed_source_ids: [source_id],
+                  match_count: 6
                 });
+                if (!error && Array.isArray(data) && data.length) {
+                  const formatted = data.slice(0, 6).map((r) => {
+                    const page = Number(r?.page_number || 0) || 0;
+                    const snippet = String(r?.page_snippet || "").trim();
+                    return page > 0 ? `- Página ${page}: ${snippet}` : snippet ? `- ${snippet}` : "";
+                  }).filter(Boolean).join("\n");
+                  if (formatted.trim()) {
+                    baseText = `Trechos encontrados no PDF (por página):\n${formatted}`.trim();
+                  }
+                }
               }
             } catch {
             }
@@ -892,6 +1158,8 @@ ${clipped}`);
 	            if (category) metaParts.push(`Tipo no cat\xE1logo: ${category}`);
 	            const subtitle = pickSourceSubtitle(meta);
 	            if (subtitle) metaParts.push(`Subt\xEDtulo: ${subtitle}`);
+	            const pdfPages = Number(meta?.pdf?.page_count || 0) || 0;
+	            if (pdfPages > 0) metaParts.push(`PDF: ${pdfPages} p\xE1ginas`);
 	            const topic = String(sourceRow.topic || "").trim();
 	            if (topic) metaParts.push(`Tema: ${topic}`);
 	            const tags = pickSourceTags(meta);
@@ -1262,9 +1530,20 @@ ${metaParts.join("\n\n")}` : ""}`;
           try {
             const left = timeLeftMs();
             if (left > 3500) {
-              await refreshStudySourceEmbeddings(admin, source_id, trimmed, {
-                timeoutMs: Math.min(9e3, Math.max(2500, left - 500))
-              });
+              const timeoutMs = Math.min(9e3, Math.max(2500, left - 500));
+              if (selectedSourceLooksPdf) {
+                let pages = extractedSourcePdfPages;
+                if ((!pages || !pages.length) && recatalog) {
+                  pages = await loadStudySourcePages(admin, source_id, { maxPages: 260 });
+                }
+                if (pages && pages.length) {
+                  await refreshStudySourceEmbeddingsFromPages(admin, source_id, pages, { timeoutMs });
+                } else {
+                  await refreshStudySourceEmbeddings(admin, source_id, trimmed, { timeoutMs });
+                }
+              } else {
+                await refreshStudySourceEmbeddings(admin, source_id, trimmed, { timeoutMs });
+              }
             }
           } catch {
           }
@@ -1321,6 +1600,7 @@ Rules:
 - Be practical and instructive: steps, checks, safety notes when relevant.
 - Do NOT fabricate manufacturer specs, model numbers, or procedures not present in the base/web summary. If you can't find it, say so.
 - If the internal base contains tables/spreadsheets, treat them as data: interpret headers, compute totals/deltas, and make assumptions explicit.
+- When using internal snippets, cite where it came from (source/file and page number when available in the context).
 ${qualityHint}
 ${imageHint}
 ${focusHint}
@@ -1330,6 +1610,7 @@ Output format (plain text, no JSON):
 2) Steps / checklist
 3) Calculations / insights (if applicable)
 4) Safety / attention points (if applicable)
+5) References (source/file + page when available)
 
 Answer in ${language}.` : `Você é o Catálogo de Conhecimento do DJT Quest e atua como monitor de treinamento.
 Você ajuda colaboradores a encontrar respostas usando a base interna (catálogo publicado da organização + materiais do usuário + compêndio aprovado). Quando a base for insuficiente, use o resumo de pesquisa web (quando existir).
@@ -1339,6 +1620,7 @@ Regras:
 - Seja prático e instrutivo: passo a passo, checagens, pontos de segurança quando fizer sentido.
 - NÃO invente especificações, dados de fabricantes/modelos ou procedimentos que não estejam na base/resumo web. Se não encontrar, diga que não encontrou.
 - Se a base interna tiver tabelas/planilhas, trate como dados: interprete cabeçalhos, faça cálculos (somas/deltas) e deixe as suposições explícitas.
+- Ao usar trechos da base interna, cite a referência (Fonte/Arquivo e Página quando aparecer no contexto).
 ${qualityHint}
 ${imageHint}
 ${focusHint}
@@ -1348,6 +1630,7 @@ Formato da resposta (texto livre, sem JSON):
 2) Passo a passo / checklist
 3) Cálculos / insights (se aplicável)
 4) Pontos de atenção / segurança (se aplicável)
+5) Referências (Fonte/Arquivo e Página, quando disponível)
 
 Responda em ${language}.` : langIsEn ? `You are a technical training tutor (Brazilian power sector context).
 Use the selected material (when provided) and the uploaded attachments as primary evidence.
@@ -1458,6 +1741,25 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
 	        addKeyword(match[0]);
 	      }
 	      const keywords = Array.from(keywordSet).slice(0, 12);
+        let allowedOracleSourceIds = [];
+        try {
+          const buildIdQuery = () => {
+            const q = admin.from("study_sources").select("id").order("created_at", { ascending: false }).limit(350);
+            if (uid) {
+              if (isLeaderOrStaff) q.or(`user_id.eq.${uid},scope.eq.org`);
+              else q.or(`user_id.eq.${uid},and(scope.eq.org,published.eq.true)`);
+            } else {
+              q.eq("scope", "org").eq("published", true);
+            }
+            return q;
+          };
+          const { data, error } = await buildIdQuery();
+          if (!error && Array.isArray(data)) {
+            allowedOracleSourceIds = data.map((r) => String(r?.id || "").trim()).filter(Boolean).slice(0, 350);
+          }
+        } catch {
+          allowedOracleSourceIds = [];
+        }
         let semanticSources = [];
         let bestSemanticSim = 0;
         try {
@@ -1466,11 +1768,27 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
             const embeddings = await embedTexts([text], { timeoutMs: Math.min(9e3, Math.max(2500, left - 500)) });
             const queryEmbedding = embeddings?.[0];
             if (Array.isArray(queryEmbedding) && queryEmbedding.length) {
-              const { data: semData, error: semErr } = await admin.rpc("match_study_source_chunks", {
-                query_embedding: queryEmbedding,
-                match_count: 12,
-                match_threshold: 0.32
-              });
+              let semData = [];
+              let semErr = null;
+              if (allowedOracleSourceIds.length) {
+                const scoped = await admin.rpc("match_study_source_chunks_scoped", {
+                  query_embedding: queryEmbedding,
+                  allowed_source_ids: allowedOracleSourceIds,
+                  match_count: 12,
+                  match_threshold: 0.32
+                });
+                semData = scoped?.data;
+                semErr = scoped?.error;
+              }
+              if (semErr) {
+                const legacy = await admin.rpc("match_study_source_chunks", {
+                  query_embedding: queryEmbedding,
+                  match_count: 12,
+                  match_threshold: 0.32
+                });
+                semData = legacy?.data;
+                semErr = legacy?.error;
+              }
               if (!semErr && Array.isArray(semData) && semData.length) {
                 const byId = /* @__PURE__ */ new Map();
                 for (const row of semData) {
@@ -1481,13 +1799,15 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
                     title: String(row?.source_title || "").trim(),
                     summary: String(row?.source_summary || "").trim(),
                     url: String(row?.source_url || "").trim(),
+                    storage_path: String(row?.source_storage_path || "").trim(),
                     best: 0,
                     chunks: []
                   };
                   const sim = Number(row?.similarity || 0);
                   if (Number.isFinite(sim) && sim > entry.best) entry.best = sim;
                   const chunkText = String(row?.chunk_content || "").trim();
-                  if (chunkText && entry.chunks.length < 2) entry.chunks.push(chunkText);
+                  const pageNumber = Number(row?.page_number || 0) || 0;
+                  if (chunkText && entry.chunks.length < 2) entry.chunks.push({ text: chunkText, page_number: pageNumber || null });
                   byId.set(sid, entry);
                 }
                 semanticSources = Array.from(byId.values()).filter((x) => x?.chunks?.length).sort((a, b) => (b.best || 0) - (a.best || 0)).slice(0, 3);
@@ -1498,6 +1818,31 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
         } catch {
           semanticSources = [];
           bestSemanticSim = 0;
+        }
+        let pageHits = [];
+        try {
+          const left = timeLeftMs();
+          const shouldTry = left > 6e3 && allowedOracleSourceIds.length && String(text || "").trim().length >= 4;
+          if (shouldTry) {
+            const { data, error } = await admin.rpc("search_study_source_pages_scoped", {
+              query_text: text,
+              allowed_source_ids: allowedOracleSourceIds,
+              match_count: 10
+            });
+            if (!error && Array.isArray(data)) {
+              pageHits = data.map((r) => ({
+                source_id: String(r?.source_id || "").trim(),
+                title: String(r?.source_title || "").trim(),
+                url: String(r?.source_url || "").trim(),
+                storage_path: String(r?.source_storage_path || "").trim(),
+                page_number: Number(r?.page_number || 0) || 0,
+                snippet: String(r?.page_snippet || "").trim(),
+                rank: Number(r?.rank || 0) || 0
+              })).filter((r) => r.source_id && r.page_number > 0 && r.snippet).slice(0, 8);
+            }
+          }
+        } catch {
+          pageHits = [];
         }
 	      let sourcesForOracle = [];
 	      try {
@@ -1673,15 +2018,61 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
 	        contextParts.push(`### Anexos enviados
 	${attachmentContext}`);
 	      }
+	      if (pageHits.length) {
+	        const formatted = pageHits.slice(0, 8).map((h, idx) => {
+	          const title = String(h.title || `Fonte ${idx + 1}`).trim();
+	          const page = Number(h.page_number || 0) || 0;
+	          const snippet = String(h.snippet || "").trim();
+	          const fileName = (() => {
+	            const sp = String(h.storage_path || "").trim();
+	            if (sp) return sp.split("/").pop() || sp;
+	            const u = String(h.url || "").trim();
+	            if (!u) return "";
+	            try {
+	              const parsed = new URL(u);
+	              return parsed.pathname.split("/").filter(Boolean).pop() || "";
+	            } catch {
+	              return u.split("/").pop() || "";
+	            }
+	          })();
+	          const header = [fileName ? `Arquivo: ${fileName}` : null, page > 0 ? `Página: ${page}` : null].filter(Boolean).join(" • ");
+	          return `- ${title}
+` + (header ? `  ${header}
+` : "") + (snippet ? `  Trecho: ${snippet}
+` : "");
+	        }).join("\n");
+	        if (formatted.trim()) {
+	          contextParts.push(`### Cat\xE1logo de Estudos (p\xE1ginas relevantes)
+${formatted}`.trim());
+	        }
+	      }
 	      if (semanticSources.length) {
 	        contextParts.push(
 	          "### Cat\xE1logo de Estudos (conte\xFAdo do cat\xE1logo)\n" + semanticSources.map((s, idx) => {
 	            const title = String(s.title || `Fonte ${idx + 1}`).trim();
 	            const summary = String(s.summary || "").trim();
 	            const chunks = Array.isArray(s.chunks) ? s.chunks.slice(0, 2) : [];
-	            const chunkText = chunks.map((c, i) => `  Trecho ${i + 1}:\n\`\`\`text\n${String(c || "").trim()}\n\`\`\`\n`).join("");
+	            const fileName = (() => {
+	              const sp = String(s.storage_path || "").trim();
+	              if (sp) return sp.split("/").pop() || sp;
+	              const u = String(s.url || "").trim();
+	              if (!u) return "";
+	              try {
+	                const parsed = new URL(u);
+	                return parsed.pathname.split("/").filter(Boolean).pop() || "";
+	              } catch {
+	                return u.split("/").pop() || "";
+	              }
+	            })();
+	            const chunkText = chunks.map((c, i) => {
+	              const page = Number(c?.page_number || 0) || 0;
+	              const body = String(c?.text || c || "").trim();
+	              const label = page > 0 ? `Trecho ${i + 1} (p\xE1g. ${page})` : `Trecho ${i + 1}`;
+	              return body ? `  ${label}:\n\`\`\`text\n${body}\n\`\`\`\n` : "";
+	            }).filter(Boolean).join("");
 	            return `- ${title}
-` + (summary ? `  Resumo: ${summary}
+` + (fileName ? `  Arquivo: ${fileName}
+` : "") + (summary ? `  Resumo: ${summary}
 ` : "") + (chunkText ? chunkText : "");
 	          }).join("\n")
 	        );
