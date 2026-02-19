@@ -4,12 +4,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { apiFetch } from "@/lib/api";
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { getActiveLocale } from "@/lib/i18n/activeLocale";
 import { Badge } from "@/components/ui/badge";
-import { X } from "lucide-react";
+import { Check, ChevronsUpDown, X } from "lucide-react";
 
 type CampaignLite = {
   id: string;
@@ -62,6 +64,7 @@ export function GuardiaoVidaDashboard() {
   const [error, setError] = useState<string | null>(null);
   const [campaigns, setCampaigns] = useState<CampaignLite[]>([]);
   const [campaignId, setCampaignId] = useState<string>("");
+  const [userPickerOpen, setUserPickerOpen] = useState(false);
   const [userSearch, setUserSearch] = useState<string>("");
   const [publisherUsers, setPublisherUsers] = useState<UserPick[]>([]);
   const [selectedUsers, setSelectedUsers] = useState<UserPick[]>([]);
@@ -174,6 +177,12 @@ export function GuardiaoVidaDashboard() {
     return out;
   }, [publisherUsers, userSearch]);
 
+  const userPickerLabel = useMemo(() => {
+    if (selectedUsers.length === 0) return "Todos os usuários";
+    if (selectedUsers.length === 1) return selectedUsers[0]?.name || selectedUsers[0]?.email || "1 usuário selecionado";
+    return `${selectedUsers.length} usuários selecionados`;
+  }, [selectedUsers]);
+
   const selectedCampaign = useMemo(
     () => campaigns.find((c) => String(c.id) === String(campaignId)) || null,
     [campaignId, campaigns],
@@ -208,11 +217,96 @@ export function GuardiaoVidaDashboard() {
 
             <div className="space-y-2">
               <Label>Usuários (para contabilizar)</Label>
-              <Input
-                value={userSearch}
-                onChange={(e) => setUserSearch(e.target.value)}
-                placeholder={publisherUsers.length ? "Pesquisar na lista (nome, e-mail ou matrícula)" : "Carregando lista…"}
-              />
+              <Popover
+                open={userPickerOpen}
+                onOpenChange={(open) => {
+                  setUserPickerOpen(open);
+                  if (!open) setUserSearch("");
+                }}
+              >
+                <PopoverTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={userPickerOpen}
+                    className="w-full justify-between"
+                    disabled={loading || publisherUsers.length === 0}
+                    title={publisherUsers.length === 0 ? "Carregando lista de usuários…" : "Selecionar usuários"}
+                  >
+                    <span className="truncate">{publisherUsers.length === 0 ? "Carregando lista…" : userPickerLabel}</span>
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent
+                  className="w-[var(--radix-popover-trigger-width)] p-0 z-50 bg-popover border shadow-lg"
+                  align="start"
+                  sideOffset={4}
+                  onOpenAutoFocus={(e) => e.preventDefault()}
+                >
+                  <Command shouldFilter={false}>
+                    <CommandInput
+                      placeholder="Pesquisar (nome, e-mail ou matrícula)"
+                      value={userSearch}
+                      onValueChange={setUserSearch}
+                    />
+                    <CommandList>
+                      <CommandEmpty>Nenhum usuário encontrado.</CommandEmpty>
+                      <CommandGroup
+                        heading={
+                          filteredPublisherSuggestions.length > 0
+                            ? `${filteredPublisherSuggestions.length} opção(ões)`
+                            : undefined
+                        }
+                      >
+                        {filteredPublisherSuggestions.map((u) => {
+                          const already = selectedUsers.some((s) => s.id === u.id);
+                          const label = u.name || u.email || u.matricula || "Usuário";
+                          const hint = u.email || u.matricula || u.id;
+                          return (
+                            <CommandItem
+                              key={u.id}
+                              value={u.id}
+                              onMouseDown={(e) => e.preventDefault()}
+                              onSelect={() => {
+                                setSelectedUsers((prev) => {
+                                  const exists = prev.some((x) => x.id === u.id);
+                                  if (exists) return prev.filter((x) => x.id !== u.id);
+                                  return [...prev, u].slice(0, 12);
+                                });
+                              }}
+                              className={already ? "bg-accent" : undefined}
+                            >
+                              <Check className={`mr-2 h-4 w-4 ${already ? "opacity-100" : "opacity-0"}`} />
+                              <span className="min-w-0">
+                                <span className="font-medium truncate block">{label}</span>
+                                <span className="text-[11px] text-muted-foreground truncate block">{hint}</span>
+                              </span>
+                            </CommandItem>
+                          );
+                        })}
+                      </CommandGroup>
+                    </CommandList>
+                    <div className="flex items-center justify-between gap-2 border-t p-2">
+                      <p className="text-[11px] text-muted-foreground truncate">
+                        Lista: {publisherUsers.length} usuários que já publicaram
+                      </p>
+                      {selectedUsers.length > 0 ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setSelectedUsers([])}
+                          className="h-8 px-2"
+                          title="Limpar seleção"
+                        >
+                          Limpar
+                        </Button>
+                      ) : null}
+                    </div>
+                  </Command>
+                </PopoverContent>
+              </Popover>
               {selectedUsers.length > 0 ? (
                 <div className="flex flex-wrap gap-1">
                   {selectedUsers.map((u) => (
@@ -233,39 +327,6 @@ export function GuardiaoVidaDashboard() {
               ) : (
                 <p className="text-[11px] text-muted-foreground">Sem filtro: contabiliza todos os usuários.</p>
               )}
-              {filteredPublisherSuggestions.length > 0 ? (
-                <div className="rounded-md border bg-background p-1 max-h-36 overflow-auto">
-                  {filteredPublisherSuggestions.map((u) => {
-                    const already = selectedUsers.some((s) => s.id === u.id);
-                    return (
-                      <button
-                        key={u.id}
-                        type="button"
-                        className="w-full text-left rounded px-2 py-1.5 hover:bg-muted text-sm flex items-center justify-between gap-2"
-                        onClick={() => {
-                          setSelectedUsers((prev) => {
-                            const exists = prev.some((x) => x.id === u.id);
-                            if (exists) return prev.filter((x) => x.id !== u.id);
-                            return [...prev, u].slice(0, 12);
-                          });
-                        }}
-                        title={already ? "Remover" : "Adicionar"}
-                      >
-                        <span className="min-w-0">
-                          <span className="font-medium truncate block">{u.name || "Usuário"}</span>
-                          <span className="text-[11px] text-muted-foreground truncate block">{u.email || u.matricula || u.id}</span>
-                        </span>
-                        <span className="text-[11px] text-muted-foreground">{already ? "Selecionado" : "Adicionar"}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              ) : null}
-              {publisherUsers.length > 0 ? (
-                <p className="text-[11px] text-muted-foreground">
-                  Lista com {publisherUsers.length} usuários que já registraram evidência nesta campanha.
-                </p>
-              ) : null}
             </div>
 
             <div className="space-y-2">
