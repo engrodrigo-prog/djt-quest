@@ -11,12 +11,29 @@ const SERVICE_KEY = (SERVICE_ROLE_KEY || ANON_KEY) as string;
 
 const STAFF_ROLES = new Set(["admin", "gerente_djt", "gerente_divisao_djtx", "coordenador_djtx"]);
 const REPORT_TZ = "America/Sao_Paulo";
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const pickQueryParam = (q: any, key: string) => {
   const raw = q?.[key];
   if (typeof raw === "string") return raw;
   if (Array.isArray(raw)) return raw[0];
   return "";
+};
+
+const pickQueryParams = (q: any, key: string) => {
+  const raw = q?.[key];
+  if (typeof raw === "string") return [raw];
+  if (Array.isArray(raw)) return raw.filter((x) => typeof x === "string");
+  return [];
+};
+
+const parseUserIds = (q: any) => {
+  const parts = pickQueryParams(q, "user_ids")
+    .flatMap((x) => String(x || "").split(","))
+    .map((x) => String(x || "").trim())
+    .filter(Boolean);
+  const unique = Array.from(new Set(parts));
+  return unique.filter((x) => UUID_RE.test(x)).slice(0, 12);
 };
 
 const toIsoDayStart = (raw: any) => {
@@ -135,6 +152,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const nameRaw = pickQueryParam(req.query, "name");
     const name = String(nameRaw || "").trim();
+    const explicitUserIds = parseUserIds(req.query);
 
     const date_start = toIsoDayStart(pickQueryParam(req.query, "date_start"));
     const date_end = toIsoDayEnd(pickQueryParam(req.query, "date_end"));
@@ -218,7 +236,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // Name filter -> user IDs (best-effort).
     let userIdFilter: string[] | null = null;
-    if (name) {
+    let usingExplicitUserIds = false;
+    if (explicitUserIds.length) {
+      userIdFilter = explicitUserIds;
+      usingExplicitUserIds = true;
+    } else if (name) {
       try {
         const { data } = await reader
           .from("profiles")
@@ -267,6 +289,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     let actions = 0;
     let people = 0;
     const monthlyMap = new Map<string, { actions: number; people_impacted: number }>();
+    const monthlyByUser = new Map<string, Map<string, { actions: number; people_impacted: number }>>();
+    const totalsByUser = new Map<string, { actions: number; people_impacted: number }>();
 
     const pageSize = 1000;
     let from = 0;
@@ -317,12 +341,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (!created_at) continue;
         const key = monthKeyInTz(created_at);
         const impacted = Math.max(0, Math.floor(Number((row as any)?.people_impacted || 0) || 0));
+        const user_id = String((row as any)?.user_id || "");
         const cur = monthlyMap.get(key) || { actions: 0, people_impacted: 0 };
         cur.actions += 1;
         cur.people_impacted += impacted;
         monthlyMap.set(key, cur);
         actions += 1;
         people += impacted;
+
+        if (usingExplicitUserIds && user_id) {
+          const perMonth = monthlyByUser.get(key) || new Map<string, { actions: number; people_impacted: number }>();
+          const perUser = perMonth.get(user_id) || { actions: 0, people_impacted: 0 };
+          perUser.actions += 1;
+          perUser.people_impacted += impacted;
+          perMonth.set(user_id, perUser);
+          monthlyByUser.set(key, perMonth);
+
+          const tot = totalsByUser.get(user_id) || { actions: 0, people_impacted: 0 };
+          tot.actions += 1;
+          tot.people_impacted += impacted;
+          totalsByUser.set(user_id, tot);
+        }
       }
 
       if (rows.length < pageSize) break;
@@ -331,11 +370,44 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const monthKeys = date_start && date_end ? monthKeysBetween(date_start, date_end) : Array.from(monthlyMap.keys()).sort();
 
-    const monthly = monthKeys.map((m) => ({
-      month: m,
-      actions: monthlyMap.get(m)?.actions || 0,
-      people_impacted: monthlyMap.get(m)?.people_impacted || 0,
-    }));
+    let selectedUsers: Array<{ id: string; name: string | null }> | null = null;
+    if (usingExplicitUserIds) {
+      try {
+        const { data } = await reader
+          .from("profiles")
+          .select("id,name")
+          .in("id", userIdFilter && userIdFilter.length ? userIdFilter : ["00000000-0000-0000-0000-000000000000"])
+          .limit(2000);
+        const rows = Array.isArray(data) ? data : [];
+        const map = new Map<string, { id: string; name: string | null }>();
+        rows.forEach((r: any) => {
+          const id = String(r?.id || "");
+          if (!id) return;
+          map.set(id, { id, name: r?.name != null ? String(r.name) : null });
+        });
+        selectedUsers = (userIdFilter || []).map((id) => map.get(id) || { id, name: null });
+      } catch {
+        selectedUsers = (userIdFilter || []).map((id) => ({ id, name: null }));
+      }
+    }
+
+    const monthly = monthKeys.map((m) => {
+      const base = {
+        month: m,
+        actions: monthlyMap.get(m)?.actions || 0,
+        people_impacted: monthlyMap.get(m)?.people_impacted || 0,
+      } as any;
+      if (usingExplicitUserIds) {
+        const perMonth = monthlyByUser.get(m) || new Map<string, { actions: number; people_impacted: number }>();
+        const by_user: Record<string, { actions: number; people_impacted: number }> = {};
+        (userIdFilter || []).forEach((uid) => {
+          const v = perMonth.get(uid) || { actions: 0, people_impacted: 0 };
+          by_user[uid] = { actions: v.actions || 0, people_impacted: v.people_impacted || 0 };
+        });
+        base.by_user = by_user;
+      }
+      return base;
+    });
 
     return res.status(200).json({
       campaigns: campaigns.map((c: any) => ({
@@ -356,8 +428,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         is_active: selectedCampaign.is_active !== false,
         evidence_challenge_id: evidenceChallengeId,
       },
-      query: { name: name || null, date_start: date_start || null, date_end: date_end || null },
+      query: { name: name || null, date_start: date_start || null, date_end: date_end || null, user_ids: usingExplicitUserIds ? userIdFilter : null },
       totals: { actions, people_impacted: people },
+      users: selectedUsers,
+      totals_by_user: usingExplicitUserIds
+        ? (userIdFilter || []).reduce((acc: any, id) => {
+            acc[id] = totalsByUser.get(id) || { actions: 0, people_impacted: 0 };
+            return acc;
+          }, {})
+        : null,
       monthly,
     });
   } catch (e: any) {

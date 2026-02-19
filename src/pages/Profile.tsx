@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -8,7 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { ThemedBackground } from '@/components/ThemedBackground';
-import { User, Trophy, Star, Target, CheckCircle, Clock, GraduationCap, Filter } from 'lucide-react';
+import { User, Trophy, Star, Target, CheckCircle, Clock, GraduationCap, Filter, Plus, Minus } from 'lucide-react';
 import { AvatarDisplay } from '@/components/AvatarDisplay';
 import { ActionReviewCard } from '@/components/profile/ActionReviewCard';
 import { RetryModal } from '@/components/profile/RetryModal';
@@ -141,6 +141,8 @@ function ProfileContent() {
   const [retryModalOpen, setRetryModalOpen] = useState(false);
   const [selectedEventForRetry, setSelectedEventForRetry] = useState<{ eventId: string; challengeId: string; challengeTitle: string } | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [openTheme, setOpenTheme] = useState<Record<string, boolean>>({});
+  const [openEventDetails, setOpenEventDetails] = useState<Record<string, boolean>>({});
   const [searchParams, setSearchParams] = useSearchParams();
   const [avatarDialogOpen, setAvatarDialogOpen] = useState(searchParams.get('avatar') === 'open');
 
@@ -495,6 +497,40 @@ function ProfileContent() {
     ? events 
     : events.filter(e => e.status === statusFilter);
 
+  const historyByTheme = useCallback((typeRaw: string) => {
+    const type = String(typeRaw || '').trim().toLowerCase();
+    if (type.includes('campanha') || type.includes('campaign')) return { key: 'campanhas', label: 'Campanhas' };
+    if (type.includes('desafio') || type.includes('challenge')) return { key: 'desafios', label: 'Desafios' };
+    if (type.includes('sepbook')) return { key: 'sepbook', label: 'SEPBook' };
+    if (type.includes('forum')) return { key: 'forum', label: 'Fórum' };
+    if (type.includes('quiz')) return { key: 'quiz', label: 'Quizzes' };
+    return { key: 'outros', label: 'Outros' };
+  }, []);
+
+  const themedHistory = useMemo(() => {
+    const buckets = new Map<string, { key: string; label: string; items: UserEvent[] }>();
+    for (const e of filteredEvents) {
+      const t = historyByTheme(e?.challenge?.type || '');
+      const cur = buckets.get(t.key) || { ...t, items: [] };
+      cur.items.push(e);
+      buckets.set(t.key, cur);
+    }
+    const order = ['campanhas', 'desafios', 'sepbook', 'forum', 'quiz', 'outros'];
+    return order
+      .map((k) => buckets.get(k))
+      .filter(Boolean) as Array<{ key: string; label: string; items: UserEvent[] }>;
+  }, [filteredEvents, historyByTheme]);
+
+  const formatEventStatus = useCallback((statusRaw: string) => {
+    const s = String(statusRaw || '').trim().toLowerCase();
+    if (s === 'approved') return { label: 'Aprovado', variant: 'default' as const };
+    if (s === 'rejected') return { label: 'Rejeitado', variant: 'destructive' as const };
+    if (s === 'submitted' || s === 'awaiting_second_evaluation') return { label: 'Em avaliação', variant: 'secondary' as const };
+    if (s === 'retry_in_progress') return { label: 'Refazendo', variant: 'outline' as const };
+    if (s === 'evaluated') return { label: 'Avaliado', variant: 'outline' as const };
+    return { label: statusRaw || 'Status', variant: 'outline' as const };
+  }, []);
+
   const feedbackEvents = events.filter(e => e.evaluation);
   const opportunityEvents = events.filter(e => 
     e.evaluation && 
@@ -744,38 +780,129 @@ function ProfileContent() {
             </Tabs>
           </TabsContent>
 
-          <TabsContent value="history" className="space-y-3">
-            <div className="flex items-center gap-2 mb-4">
-              <Filter className="h-4 w-4 text-muted-foreground" />
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="w-[200px]">
-                  <SelectValue placeholder="Filtrar por status" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos</SelectItem>
-                  <SelectItem value="approved">Aprovados</SelectItem>
-                  <SelectItem value="rejected">Rejeitados</SelectItem>
-                  <SelectItem value="submitted">Em Avaliação</SelectItem>
-                  <SelectItem value="retry_in_progress">Refazendo</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            
-            {filteredEvents.length === 0 ? (
-              <Card>
-                <CardContent className="py-12 text-center text-muted-foreground">
-                  Nenhuma ação registrada ainda
-                </CardContent>
-              </Card>
-            ) : (
-              filteredEvents.map((event) => (
-                <ActionReviewCard 
-                  key={event.id} 
-                  eventId={event.id}
-                />
-              ))
-            )}
-          </TabsContent>
+	          <TabsContent value="history" className="space-y-3">
+	            <div className="flex items-center gap-2 mb-4">
+	              <Filter className="h-4 w-4 text-muted-foreground" />
+	              <Select value={statusFilter} onValueChange={setStatusFilter}>
+	                <SelectTrigger className="w-[200px]">
+	                  <SelectValue placeholder="Filtrar por status" />
+	                </SelectTrigger>
+	                <SelectContent>
+	                  <SelectItem value="all">Todos</SelectItem>
+	                  <SelectItem value="approved">Aprovados</SelectItem>
+	                  <SelectItem value="rejected">Rejeitados</SelectItem>
+	                  <SelectItem value="submitted">Em Avaliação</SelectItem>
+	                  <SelectItem value="retry_in_progress">Refazendo</SelectItem>
+	                </SelectContent>
+	              </Select>
+	            </div>
+	            
+	            {filteredEvents.length === 0 ? (
+	              <Card>
+	                <CardContent className="py-12 text-center text-muted-foreground">
+	                  Nenhuma ação registrada ainda
+	                </CardContent>
+	              </Card>
+	            ) : (
+	              <div className="space-y-3">
+	                {themedHistory.map((group) => {
+	                  const isOpen = Boolean(openTheme[group.key]);
+	                  return (
+	                    <Card key={group.key}>
+	                      <CardHeader className="py-4">
+	                        <div className="flex items-start justify-between gap-3">
+	                          <div className="min-w-0">
+	                            <CardTitle className="text-base">{group.label}</CardTitle>
+	                            <CardDescription className="text-xs">
+	                              {group.items.length} participações
+	                            </CardDescription>
+	                          </div>
+	                          <Button
+	                            type="button"
+	                            variant="ghost"
+	                            size="icon"
+	                            onClick={() => setOpenTheme((prev) => ({ ...prev, [group.key]: !isOpen }))}
+	                            aria-label={isOpen ? 'Recolher' : 'Expandir'}
+	                            title={isOpen ? 'Recolher' : 'Expandir'}
+	                          >
+	                            {isOpen ? <Minus className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+	                          </Button>
+	                        </div>
+	                      </CardHeader>
+	                      {isOpen ? (
+	                        <CardContent className="space-y-3">
+	                          {group.items.map((event) => {
+	                            const status = formatEventStatus(event.status);
+	                            const isQuiz = String(event?.challenge?.type || '').toLowerCase().includes('quiz');
+	                            const detailsOpen = Boolean(openEventDetails[event.id]);
+	                            return (
+	                              <div key={event.id} className="rounded-lg border p-3">
+	                                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+	                                  <div className="min-w-0 space-y-1">
+	                                    <div className="flex flex-wrap items-center gap-2">
+	                                      <p className="font-semibold truncate">{event.challenge?.title || 'Participação'}</p>
+	                                      <Badge variant={status.variant}>{status.label}</Badge>
+	                                    </div>
+	                                    <p className="text-xs text-muted-foreground">
+	                                      {new Date(event.created_at).toLocaleString(getActiveLocale())}
+	                                      {typeof event.points_calculated === 'number' ? ` • ${event.points_calculated} XP` : ''}
+	                                    </p>
+	                                  </div>
+	
+	                                  <div className="flex flex-wrap items-center gap-2">
+	                                    {isQuiz ? (
+	                                      <Button
+	                                        type="button"
+	                                        size="sm"
+	                                        variant="secondary"
+	                                        onClick={() => navigate(`/challenge/${encodeURIComponent(event.challenge.id)}?practice=1`)}
+	                                        title="Treinar novamente sem pontuar"
+	                                      >
+	                                        Treinar
+	                                      </Button>
+	                                    ) : (
+	                                      <Button
+	                                        type="button"
+	                                        size="sm"
+	                                        variant="outline"
+	                                        onClick={() => handleRetryClick(event.id, event.challenge?.title || 'Desafio')}
+	                                        title="Editar/refazer esta participação"
+	                                      >
+	                                        Editar
+	                                      </Button>
+	                                    )}
+	                                    {!isQuiz ? (
+	                                      <Button
+	                                        type="button"
+	                                        size="sm"
+	                                        variant="ghost"
+	                                        onClick={() =>
+	                                          setOpenEventDetails((prev) => ({ ...prev, [event.id]: !detailsOpen }))
+	                                        }
+	                                        title={detailsOpen ? 'Ocultar detalhes' : 'Ver detalhes'}
+	                                      >
+	                                        {detailsOpen ? 'Ocultar' : 'Detalhes'}
+	                                      </Button>
+	                                    ) : null}
+	                                  </div>
+	                                </div>
+	
+	                                {detailsOpen && !isQuiz ? (
+	                                  <div className="mt-3">
+	                                    <ActionReviewCard eventId={event.id} />
+	                                  </div>
+	                                ) : null}
+	                              </div>
+	                            );
+	                          })}
+	                        </CardContent>
+	                      ) : null}
+	                    </Card>
+	                  );
+	                })}
+	              </div>
+	            )}
+	          </TabsContent>
 
           <TabsContent value="badges" className="space-y-3">
             {badges.length === 0 ? (
