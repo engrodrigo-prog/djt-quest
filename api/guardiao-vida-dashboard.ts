@@ -27,6 +27,17 @@ const pickQueryParams = (q: any, key: string) => {
   return [];
 };
 
+const toBool = (raw: any) => {
+  const s = String(raw ?? "").trim().toLowerCase();
+  return s === "1" || s === "true" || s === "yes" || s === "y";
+};
+
+const clampLimit = (v: any, def = 350, max = 1000) => {
+  const n = Number(v);
+  if (!Number.isFinite(n) || n <= 0) return def;
+  return Math.max(1, Math.min(max, Math.floor(n)));
+};
+
 const parseUserIds = (q: any) => {
   const parts = pickQueryParams(q, "user_ids")
     .flatMap((x) => String(x || "").split(","))
@@ -153,6 +164,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const nameRaw = pickQueryParam(req.query, "name");
     const name = String(nameRaw || "").trim();
     const explicitUserIds = parseUserIds(req.query);
+    const includeMap = toBool(pickQueryParam(req.query, "include_map"));
+    const mapLimit = clampLimit(pickQueryParam(req.query, "map_limit"), 350, 1000);
 
     const date_start = toIsoDayStart(pickQueryParam(req.query, "date_start"));
     const date_end = toIsoDayEnd(pickQueryParam(req.query, "date_end"));
@@ -231,6 +244,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         query: { name: name || null, date_start: date_start || null, date_end: date_end || null },
         totals: { actions: 0, people_impacted: 0 },
         publishers: [],
+        map_points: includeMap ? [] : undefined,
         monthly: [],
       });
     }
@@ -332,6 +346,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         query: { name: name || null, date_start: date_start || null, date_end: date_end || null },
         totals: { actions: 0, people_impacted: 0 },
         publishers,
+        map_points: includeMap ? [] : undefined,
         monthly: (date_start && date_end ? monthKeysBetween(date_start, date_end) : []).map((m) => ({
           month: m,
           actions: 0,
@@ -341,6 +356,82 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     const statusFilter = ["submitted", "awaiting_second_evaluation", "approved", "evaluated"];
+
+    let map_points: any[] | undefined = undefined;
+    if (includeMap) {
+      try {
+        let q = reader
+          .from("events")
+          .select("id,user_id,created_at,status,people_impacted,evidence_urls,payload")
+          .eq("challenge_id", evidenceChallengeId)
+          .in("status", statusFilter)
+          .not("payload->>location_lat", "is", null)
+          .not("payload->>location_lng", "is", null)
+          .order("created_at", { ascending: false })
+          .limit(Math.min(2000, mapLimit * 3));
+
+        if (userIdFilter && userIdFilter.length) q = q.in("user_id", userIdFilter);
+        if (date_start) q = q.gte("created_at", date_start);
+        if (date_end) q = q.lte("created_at", date_end);
+
+        const { data } = await q;
+        const rows = Array.isArray(data) ? data : [];
+
+        const points = [];
+        const userIds = new Set<string>();
+        for (const r of rows) {
+          const payload = (r as any)?.payload && typeof (r as any).payload === "object" ? (r as any).payload : {};
+          const lat = Number(payload?.location_lat);
+          const lng = Number(payload?.location_lng);
+          if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+          if (Math.abs(lat) > 90 || Math.abs(lng) > 180) continue;
+          const uid2 = String((r as any)?.user_id || "").trim();
+          if (uid2) userIds.add(uid2);
+
+          const evidenceUrls = Array.isArray((r as any)?.evidence_urls) ? (r as any).evidence_urls : [];
+          const attachments = Array.isArray(payload?.attachments) ? payload.attachments : [];
+          const urls = [...attachments, ...evidenceUrls].map((x) => (typeof x === "string" ? x : x?.url)).filter(Boolean);
+
+          points.push({
+            event_id: String((r as any)?.id || ""),
+            user_id: uid2 || null,
+            created_at: (r as any)?.created_at || null,
+            status: (r as any)?.status || null,
+            people_impacted: (r as any)?.people_impacted ?? null,
+            location_label: payload?.location_label ?? null,
+            location_lat: lat,
+            location_lng: lng,
+            urls,
+          });
+          if (points.length >= mapLimit) break;
+        }
+
+        let profileMap = new Map<string, any>();
+        try {
+          const ids = Array.from(userIds).slice(0, 2000);
+          if (ids.length) {
+            const { data: profs } = await reader.from("profiles").select("id,name,avatar_url,team_id,operational_base").in("id", ids).limit(2000);
+            const list = Array.isArray(profs) ? profs : [];
+            list.forEach((p: any) => profileMap.set(String(p?.id || ""), p));
+          }
+        } catch {
+          profileMap = new Map();
+        }
+
+        map_points = points.map((p: any) => {
+          const prof = p.user_id ? profileMap.get(String(p.user_id)) : null;
+          return {
+            ...p,
+            user_name: prof?.name != null ? String(prof.name) : null,
+            user_avatar: prof?.avatar_url != null ? String(prof.avatar_url) : null,
+            user_team: prof?.team_id != null ? String(prof.team_id) : null,
+            user_base: prof?.operational_base != null ? String(prof.operational_base) : null,
+          };
+        });
+      } catch {
+        map_points = [];
+      }
+    }
 
     let actions = 0;
     let people = 0;
@@ -487,6 +578,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       query: { name: name || null, date_start: date_start || null, date_end: date_end || null, user_ids: usingExplicitUserIds ? userIdFilter : null },
       totals: { actions, people_impacted: people },
       publishers,
+      map_points,
       users: selectedUsers,
       totals_by_user: usingExplicitUserIds
         ? (userIdFilter || []).reduce((acc: any, id) => {

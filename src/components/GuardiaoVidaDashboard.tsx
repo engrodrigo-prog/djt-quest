@@ -6,12 +6,20 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { apiFetch } from "@/lib/api";
 import { Bar, BarChart, CartesianGrid, LabelList, XAxis, YAxis } from "recharts";
 import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { getActiveLocale } from "@/lib/i18n/activeLocale";
 import { Badge } from "@/components/ui/badge";
-import { Check, ChevronsUpDown, X } from "lucide-react";
+import { Check, ChevronsUpDown, MapPinned, X } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { MapContainer, Marker, Popup, TileLayer, useMap } from "react-leaflet";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
+import markerIcon2xUrl from "leaflet/dist/images/marker-icon-2x.png";
+import markerIconUrl from "leaflet/dist/images/marker-icon.png";
+import markerShadowUrl from "leaflet/dist/images/marker-shadow.png";
 
 type CampaignLite = {
   id: string;
@@ -29,6 +37,21 @@ type DashboardResponse = {
   query: { name: string | null; date_start: string | null; date_end: string | null; user_ids?: string[] | null };
   totals: { actions: number; people_impacted: number };
   publishers?: Array<{ id: string; name: string | null; email?: string | null; matricula?: string | null }> | null;
+  map_points?: Array<{
+    event_id: string;
+    user_id: string | null;
+    user_name: string | null;
+    user_avatar: string | null;
+    user_team: string | null;
+    user_base: string | null;
+    created_at: string | null;
+    status: string | null;
+    people_impacted: number | null;
+    location_label: string | null;
+    location_lat: number;
+    location_lng: number;
+    urls: string[];
+  }> | null;
   users?: Array<{ id: string; name: string | null }> | null;
   totals_by_user?: Record<string, { actions: number; people_impacted: number }> | null;
   monthly: Array<{ month: string; actions: number; people_impacted: number; by_user?: Record<string, { actions: number; people_impacted: number }> }>;
@@ -59,6 +82,47 @@ const darkGreenPalette = (count: number) => {
   return out;
 };
 
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: markerIcon2xUrl,
+  iconUrl: markerIconUrl,
+  shadowUrl: markerShadowUrl,
+});
+
+const isImageUrl = (url: string) => /\.(png|jpg|jpeg|webp|gif|avif|heic|heif)(\?|#|$)/i.test(String(url || ""));
+
+function GuardiaoFitBounds({ points }: { points: Array<[number, number]> }) {
+  const map = useMap();
+  useEffect(() => {
+    if (!map) return;
+    if (!points || points.length === 0) return;
+    let cancelled = false;
+    const run = () => {
+      if (cancelled) return;
+      try {
+        const el = map.getContainer?.();
+        if (!el || el.offsetWidth === 0 || el.offsetHeight === 0) {
+          window.setTimeout(run, 120);
+          return;
+        }
+        map.invalidateSize(true);
+        const bounds = L.latLngBounds(points.map((p) => L.latLng(p[0], p[1])));
+        map.fitBounds(bounds, { padding: [24, 24], maxZoom: 14, animate: false });
+      } catch {
+        /* ignore */
+      }
+    };
+    try {
+      map.whenReady(() => window.setTimeout(run, 80));
+    } catch {
+      window.setTimeout(run, 80);
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [map, points]);
+  return null;
+}
+
 const renderBarCenterLabel = (props: any) => {
   const x = Number(props?.x || 0);
   const y = Number(props?.y || 0);
@@ -86,6 +150,7 @@ const renderBarCenterLabel = (props: any) => {
 };
 
 export function GuardiaoVidaDashboard() {
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [campaigns, setCampaigns] = useState<CampaignLite[]>([]);
@@ -99,6 +164,10 @@ export function GuardiaoVidaDashboard() {
   const [to, setTo] = useState<string>(todayIso());
   const [totals, setTotals] = useState<{ actions: number; people_impacted: number }>({ actions: 0, people_impacted: 0 });
   const [monthly, setMonthly] = useState<DashboardResponse["monthly"]>([]);
+  const [mapOpen, setMapOpen] = useState(false);
+  const [mapLoading, setMapLoading] = useState(false);
+  const [mapError, setMapError] = useState<string | null>(null);
+  const [mapPoints, setMapPoints] = useState<NonNullable<DashboardResponse["map_points"]>>([]);
 
   const chartConfig = useMemo(() => {
     if (selectedUsers.length === 0) {
@@ -184,6 +253,49 @@ export function GuardiaoVidaDashboard() {
     [campaignId, from, selectedUsers, to],
   );
 
+  const fetchMapPoints = useCallback(async () => {
+    setMapLoading(true);
+    setMapError(null);
+    try {
+      const qs = new URLSearchParams();
+      const cid = String(campaignId || "").trim();
+      if (cid) qs.set("campaign_id", cid);
+      if (selectedUsers.length > 0) qs.set("user_ids", selectedUsers.map((u) => u.id).join(","));
+      if (from) qs.set("date_start", from);
+      if (to) qs.set("date_end", to);
+      qs.set("include_map", "1");
+      qs.set("map_limit", "500");
+
+      const resp = await apiFetch(`/api/guardiao-vida-dashboard?${qs.toString()}`, { cache: "no-store" });
+      const json = (await resp.json().catch(() => ({}))) as Partial<DashboardResponse> & { error?: string };
+      if (!resp.ok) throw new Error(json?.error || "Falha ao carregar mapa");
+      const pts = Array.isArray(json.map_points) ? (json.map_points as any[]) : [];
+      const cleaned = pts
+        .map((p: any) => ({
+          event_id: String(p?.event_id || ""),
+          user_id: p?.user_id != null ? String(p.user_id) : null,
+          user_name: p?.user_name != null ? String(p.user_name) : null,
+          user_avatar: p?.user_avatar != null ? String(p.user_avatar) : null,
+          user_team: p?.user_team != null ? String(p.user_team) : null,
+          user_base: p?.user_base != null ? String(p.user_base) : null,
+          created_at: p?.created_at != null ? String(p.created_at) : null,
+          status: p?.status != null ? String(p.status) : null,
+          people_impacted: p?.people_impacted != null ? Number(p.people_impacted) : null,
+          location_label: p?.location_label != null ? String(p.location_label) : null,
+          location_lat: Number(p?.location_lat),
+          location_lng: Number(p?.location_lng),
+          urls: Array.isArray(p?.urls) ? p.urls.map((u: any) => String(u || "")).filter(Boolean) : [],
+        }))
+        .filter((p) => p.event_id && Number.isFinite(p.location_lat) && Number.isFinite(p.location_lng));
+      setMapPoints(cleaned);
+    } catch (e: any) {
+      setMapError(e?.message || "Falha ao carregar mapa");
+      setMapPoints([]);
+    } finally {
+      setMapLoading(false);
+    }
+  }, [campaignId, from, selectedUsers, to]);
+
   useEffect(() => {
     void fetchDashboard({ campaignId: "" });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -213,6 +325,14 @@ export function GuardiaoVidaDashboard() {
     () => campaigns.find((c) => String(c.id) === String(campaignId)) || null,
     [campaignId, campaigns],
   );
+
+  const mapEvidence = useMemo(() => {
+    const points = Array.isArray(mapPoints) ? mapPoints : [];
+    return points.map((p) => {
+      const imageUrl = (p.urls || []).find((u) => isImageUrl(u)) || null;
+      return { p, imageUrl };
+    });
+  }, [mapPoints]);
 
   return (
     <div className="space-y-4">
@@ -380,6 +500,19 @@ export function GuardiaoVidaDashboard() {
               <Button type="button" variant="outline" onClick={() => fetchDashboard()} disabled={loading}>
                 {loading ? "Carregando…" : "Atualizar"}
               </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setMapOpen(true);
+                  void fetchMapPoints();
+                }}
+                disabled={loading || !campaignId}
+                title={!campaignId ? "Selecione uma campanha" : "Ver ações no mapa"}
+              >
+                <MapPinned className="h-4 w-4 mr-2" />
+                Mapa
+              </Button>
               {selectedUsers.length > 0 ? (
                 <Button
                   type="button"
@@ -396,6 +529,119 @@ export function GuardiaoVidaDashboard() {
           </div>
         </CardContent>
       </Card>
+
+      <Dialog
+        open={mapOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setMapOpen(false);
+            setMapError(null);
+          } else {
+            setMapOpen(true);
+          }
+        }}
+      >
+        <DialogContent className="max-w-5xl p-0 overflow-hidden">
+          <DialogHeader className="px-4 pt-4 pb-2">
+            <DialogTitle>Mapa — Guardião da Vida</DialogTitle>
+            <DialogDescription className="text-[12px] text-muted-foreground">
+              Mostra as ações com GPS no período/usuários filtrados.
+            </DialogDescription>
+          </DialogHeader>
+
+          {mapLoading ? (
+            <div className="px-4 pb-6 text-sm text-muted-foreground">Carregando mapa…</div>
+          ) : mapError ? (
+            <div className="px-4 pb-6 text-sm text-destructive">{mapError}</div>
+          ) : mapEvidence.length === 0 ? (
+            <div className="px-4 pb-6 text-sm text-muted-foreground">Nenhuma ação com GPS encontrada para o filtro.</div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-0 border-t">
+              <div className="h-[48vh] md:h-[70vh] border-b md:border-b-0 md:border-r">
+                <MapContainer
+                  center={[Number(mapEvidence[0].p.location_lat), Number(mapEvidence[0].p.location_lng)]}
+                  zoom={12}
+                  scrollWheelZoom={false}
+                  zoomAnimation={false}
+                  fadeAnimation={false}
+                  markerZoomAnimation={false}
+                  className="h-full w-full"
+                >
+                  <TileLayer
+                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                  />
+                  <GuardiaoFitBounds
+                    points={mapEvidence.map((x) => [Number(x.p.location_lat), Number(x.p.location_lng)] as [number, number])}
+                  />
+                  {mapEvidence.map((x) => (
+                    <Marker key={x.p.event_id} position={[Number(x.p.location_lat), Number(x.p.location_lng)]}>
+                      <Popup>
+                        <div className="space-y-2">
+                          <div className="text-[12px] font-semibold">{x.p.user_name || "Usuário"}</div>
+                          <div className="text-[12px] text-muted-foreground">{x.p.location_label || "GPS"}</div>
+                          {x.p.people_impacted != null ? (
+                            <div className="text-[12px] text-muted-foreground">Pessoas atingidas: {Number(x.p.people_impacted || 0).toLocaleString(getActiveLocale())}</div>
+                          ) : null}
+                          {x.imageUrl ? (
+                            <img src={x.imageUrl} alt="Ação" className="w-[220px] max-w-full rounded-md border" />
+                          ) : null}
+                          {campaignId ? (
+                            <Button
+                              type="button"
+                              size="sm"
+                              onClick={() =>
+                                navigate(`/campaign/${encodeURIComponent(campaignId)}?event=${encodeURIComponent(String(x.p.event_id))}`)
+                              }
+                            >
+                              Abrir evidência
+                            </Button>
+                          ) : null}
+                        </div>
+                      </Popup>
+                    </Marker>
+                  ))}
+                </MapContainer>
+              </div>
+              <div className="max-h-[48vh] md:max-h-[70vh] overflow-auto p-4 space-y-3">
+                {mapEvidence.map((x) => (
+                  <button
+                    key={`ev-${x.p.event_id}`}
+                    type="button"
+                    className="w-full flex items-center gap-3 rounded-xl border p-2 hover:bg-accent/10 text-left"
+                    onClick={() => {
+                      if (!campaignId) return;
+                      navigate(`/campaign/${encodeURIComponent(campaignId)}?event=${encodeURIComponent(String(x.p.event_id))}`);
+                    }}
+                  >
+                    {x.imageUrl ? (
+                      <img src={x.imageUrl} alt="Ação" className="h-16 w-16 rounded-lg object-cover border" />
+                    ) : (
+                      <div className="h-16 w-16 rounded-lg border bg-muted/30 flex items-center justify-center text-[11px] text-muted-foreground">
+                        GPS
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[13px] font-semibold truncate">{x.p.user_name || "Usuário"}</div>
+                      <div className="text-[12px] text-muted-foreground truncate">{x.p.location_label || "GPS"}</div>
+                      {x.p.created_at ? (
+                        <div className="text-[11px] text-muted-foreground truncate">
+                          {new Date(x.p.created_at).toLocaleString(getActiveLocale(), { dateStyle: "short", timeStyle: "short" })}
+                        </div>
+                      ) : null}
+                    </div>
+                    {x.p.people_impacted != null ? (
+                      <Badge variant="secondary" className="text-[11px] shrink-0">
+                        {Number(x.p.people_impacted || 0).toLocaleString(getActiveLocale())}
+                      </Badge>
+                    ) : null}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <div className="grid gap-3 sm:grid-cols-2">
         <Card>
