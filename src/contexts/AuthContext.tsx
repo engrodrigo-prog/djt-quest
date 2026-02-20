@@ -463,8 +463,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    return { error };
+    try {
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (!error) return { error: null };
+
+      const msg = String((error as any)?.message || '');
+      const name = String((error as any)?.name || '');
+      const maybeNetwork = msg.toLowerCase().includes('failed to fetch') || name.toLowerCase().includes('fetch');
+      if (!maybeNetwork) return { error };
+    } catch (err: any) {
+      const msg = String(err?.message || err);
+      const maybeNetwork = msg.toLowerCase().includes('failed to fetch');
+      if (!maybeNetwork) return { error: err };
+    }
+
+    // Fallback: proxy auth through our own Vercel function to bypass client network blocks.
+    try {
+      const resp = await fetch('/api/auth-login', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+
+      const payload = await resp.json().catch(() => null);
+      if (!resp.ok) return { error: { message: payload?.error || 'Falha ao autenticar' } as any };
+
+      const access_token = payload?.access_token;
+      const refresh_token = payload?.refresh_token;
+      if (!access_token || !refresh_token) return { error: { message: 'Resposta inválida do servidor' } as any };
+
+      const { error: setErr } = await supabase.auth.setSession({ access_token, refresh_token });
+      return { error: setErr ?? null };
+    } catch (err: any) {
+      return { error: { message: err?.message || 'Falha ao autenticar (fallback)' } as any };
+    }
   };
 
   const signUp = async (email: string, password: string, name: string) => {
