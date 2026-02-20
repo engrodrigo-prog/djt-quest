@@ -35,7 +35,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!email || !email.includes('@')) return res.status(400).json({ error: 'Email inválido' });
     if (!password || password.length < 1) return res.status(400).json({ error: 'Senha inválida' });
 
-    const endpoint = `${SUPABASE_URL.replace(/\\/$/, '')}/auth/v1/token?grant_type=password`;
+    const endpoint = `${SUPABASE_URL.replace(/\/$/, '')}/auth/v1/token?grant_type=password`;
 
     const upstream = await fetch(endpoint, {
       method: 'POST',
@@ -77,4 +77,3 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(500).setHeader('Cache-Control', 'no-store').json({ error: e?.message || 'Unexpected error' });
   }
 }
-
