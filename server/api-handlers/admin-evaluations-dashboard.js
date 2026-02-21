@@ -129,6 +129,35 @@ export default async function handler(req, res) {
     }
     for (const e of statusEvents) registerEvent(e);
 
+    // Ensure we load queue rows for the pending status events too (otherwise "Sem líder" can be a false negative
+    // when the global evaluation_queue query is capped/limited).
+    const statusEventIds = Array.from(new Set(statusEvents.map((e) => e?.id).filter(Boolean)));
+    if (statusEventIds.length) {
+      const extraQueueRows = [];
+      for (const ids of chunk(statusEventIds, 200)) {
+        try {
+          const { data: rows, error } = await admin
+            .from('evaluation_queue')
+            .select('id,event_id,assigned_to,assigned_at,completed_at,is_cross_evaluation,created_at')
+            .is('completed_at', null)
+            .in('event_id', ids);
+          if (error) throw error;
+          for (const r of rows || []) extraQueueRows.push(r);
+        } catch (error) {
+          warnings.push(`evaluation_queue.by_event: ${error?.message || error}`);
+        }
+      }
+
+      if (extraQueueRows.length) {
+        const seen = new Set(pendingAssignments.map((r) => r.id));
+        for (const r of extraQueueRows) {
+          if (!r?.id || seen.has(r.id)) continue;
+          seen.add(r.id);
+          pendingAssignments.push(r);
+        }
+      }
+    }
+
     // 3) Challenges
     const challengesById = new Map();
     for (const ids of chunk(Array.from(challengeIds), 200)) {
@@ -239,6 +268,78 @@ export default async function handler(req, res) {
         stage,
       };
     });
+
+    // Best-effort auto-repair: if a pending event has no open queue assignments, try to assign evaluators now.
+    // This is intentionally capped to avoid doing unbounded writes on GET.
+    const needsRepair = pending
+      .filter((p) => pendingStatuses.has(String(p.status || '').toLowerCase()) && (p.assignments || []).length === 0)
+      .slice(0, 12);
+
+    if (needsRepair.length) {
+      for (const p of needsRepair) {
+        try {
+          await admin.rpc('assign_evaluators_for_event', { _event_id: p.event_id });
+        } catch {
+          // ignore (best-effort)
+        }
+      }
+
+      const repairedEventIds = needsRepair.map((p) => p.event_id).filter(Boolean);
+      const repairedQueue = [];
+      for (const ids of chunk(repairedEventIds, 200)) {
+        try {
+          const { data: rows, error } = await admin
+            .from('evaluation_queue')
+            .select('id,event_id,assigned_to,assigned_at,completed_at,is_cross_evaluation,created_at')
+            .is('completed_at', null)
+            .in('event_id', ids);
+          if (error) throw error;
+          for (const r of rows || []) repairedQueue.push(r);
+        } catch (error) {
+          warnings.push(`evaluation_queue.repair_fetch: ${error?.message || error}`);
+        }
+      }
+
+      // Fetch missing profiles for any newly assigned leaders (for display only).
+      const missingProfileIds = Array.from(
+        new Set(repairedQueue.map((r) => r.assigned_to).filter(Boolean).filter((id) => !profilesById.has(id))),
+      );
+      for (const ids of chunk(missingProfileIds, 200)) {
+        try {
+          const { data: rows, error } = await admin
+            .from('profiles')
+            .select('id,name,email,matricula,is_leader,team_id,coord_id,division_id')
+            .in('id', ids);
+          if (error) throw error;
+          for (const p of rows || []) profilesById.set(p.id, p);
+        } catch (error) {
+          warnings.push(`profiles.repair: ${error?.message || error}`);
+        }
+      }
+
+      for (const row of repairedQueue) {
+        const event = eventsById.get(row.event_id);
+        if (!event) continue;
+        const assigned = row.assigned_to ? profilesById.get(row.assigned_to) || null : null;
+        const list = assignmentsByEvent.get(row.event_id) || [];
+        if (!list.some((x) => x.id === row.id)) {
+          list.push({
+            id: row.id,
+            assigned_to: row.assigned_to,
+            assigned_name: assigned?.name || null,
+            assigned_at: row.assigned_at,
+            is_cross_evaluation: Boolean(row.is_cross_evaluation),
+            created_at: row.created_at,
+          });
+          assignmentsByEvent.set(row.event_id, list);
+        }
+      }
+
+      pending = pending.map((p) => ({
+        ...p,
+        assignments: assignmentsByEvent.get(p.event_id) || [],
+      }));
+    }
 
     // Optional filters
     if (leaderFilter) {
