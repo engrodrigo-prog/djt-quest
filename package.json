@@ -27,7 +27,8 @@
     "assets:download:avatars": "node scripts/download-avatars.mjs",
     "sanity:backend": "node scripts/sanity-check.mjs",
     "cleanup:teams": "node scripts/cleanup-teams.mjs",
-    "seed:daniel-curator": "node scripts/ensure-daniel-curator.mjs"
+    "seed:daniel-curator": "node scripts/ensure-daniel-curator.mjs",
+    "release:prod": "node scripts/release-prod.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
