@@ -382,7 +382,7 @@ const ChallengeDetail = () => {
   if (loadError) {
     return (
       <div className="relative min-h-screen bg-background p-4 pb-40 overflow-hidden">
-        <ThemedBackground theme="Conhecimento" />
+        <ThemedBackground theme="conhecimento" />
         <div className="container w-full max-w-2xl mx-auto py-8 space-y-6 relative">
           <Button variant="ghost" onClick={() => navigate('/dashboard')}>
             <ArrowLeft className="h-4 w-4 mr-2" />

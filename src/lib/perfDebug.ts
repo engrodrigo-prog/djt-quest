@@ -56,11 +56,8 @@ export function installPerfDebug(options: PerfDebugOptions = {}): void {
   const layoutThresholdMs = options.layoutThresholdMs ?? 16;
 
   const logSlow = (label: string, details: Record<string, unknown>) => {
-    // eslint-disable-next-line no-console
     console.groupCollapsed(`[perf] ${label}`);
-    // eslint-disable-next-line no-console
     console.table(details);
-    // eslint-disable-next-line no-console
     console.groupEnd();
   };
 
@@ -334,7 +331,6 @@ export function installPerfDebug(options: PerfDebugOptions = {}): void {
     }
   };
 
-  // eslint-disable-next-line no-console
   console.info(
     "[perf] instrumentation enabled (use ?perf=1 or localStorage.perfDebug=1 to toggle)"
   );

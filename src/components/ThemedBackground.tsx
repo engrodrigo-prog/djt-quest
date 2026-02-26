@@ -20,7 +20,13 @@ interface BGProps {
 }
 
 export function ThemedBackground({ theme, className, fixed = true, fit = 'cover', repeat = 'no-repeat' }: BGProps) {
-  const t = themeMap[theme]
+  const isDev = typeof import.meta !== 'undefined' && Boolean((import.meta as any)?.env?.DEV)
+  const themeKey = String(theme || '')
+  const resolved = (themeMap as any)?.[themeKey] as (typeof themeMap)[ThemeKey] | undefined
+  const t = resolved || themeMap.habilidades
+  if (isDev && !resolved) {
+    console.warn(`ThemedBackground: tema inválido "${themeKey}" (fallback: "habilidades")`)
+  }
   return (
     <div
       aria-hidden
