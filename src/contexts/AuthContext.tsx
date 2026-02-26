@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, ReactNode, useRef } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
+import { getAppOrigin } from '@/lib/whatsappShare';
 
 interface OrgScope {
   teamId: string | null;
@@ -500,7 +501,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signUp = async (email: string, password: string, name: string) => {
-    const redirectUrl = `${window.location.origin}/`;
+    const redirectUrl = `${getAppOrigin() || window.location.origin}/`;
     
     const { data, error } = await supabase.auth.signUp({
       email,
