@@ -51,8 +51,6 @@ export function QuizAnalytics({ challengeId }: { challengeId: string }) {
     return () => { mounted = false }
   }, [challengeId])
 
-  if (loading) return <Card><CardContent className="p-4">Carregando...</CardContent></Card>
-
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase()
     if (!term) return data.attempts || []
@@ -62,6 +60,8 @@ export function QuizAnalytics({ challengeId }: { challengeId: string }) {
       return name.includes(term) || team.includes(term)
     })
   }, [data.attempts, search])
+
+  if (loading) return <Card><CardContent className="p-4">Carregando...</CardContent></Card>
 
   return (
     <Card>

@@ -88,6 +88,23 @@ const main = async () => {
   const { results } = runEslintJson();
   const summary = summarize(results);
 
+  // Hard-fail rules (do not allow any occurrences).
+  // These are invariants that can cause production crashes (e.g. hook order violations).
+  const hardFailRules = {
+    "react-hooks/rules-of-hooks": 0,
+  };
+  const hardViolations = Object.entries(hardFailRules).filter(([ruleId, max]) => {
+    const count = Number(summary?.rules?.[ruleId] ?? 0);
+    return Number.isFinite(count) && count > max;
+  });
+  if (hardViolations.length) {
+    console.log("lint:gate HARD FAIL");
+    for (const [ruleId] of hardViolations) {
+      console.log(`${ruleId}: ${summary?.rules?.[ruleId] ?? 0}`);
+    }
+    process.exit(1);
+  }
+
   const baseline = readBaseline();
   if (!baseline || writeBaseline) {
     writeFileSync(baselinePath, JSON.stringify(summary, null, 2) + "\n", "utf8");

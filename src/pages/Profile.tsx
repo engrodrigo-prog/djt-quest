@@ -411,6 +411,45 @@ function ProfileContent() {
     return Boolean(user?.id) && !isGuest;
   })();
 
+  // Filter events
+  const filteredEvents = statusFilter === 'all' 
+    ? events 
+    : events.filter(e => e.status === statusFilter);
+
+  const historyByTheme = useCallback((typeRaw: string) => {
+    const type = String(typeRaw || '').trim().toLowerCase();
+    if (type.includes('campanha') || type.includes('campaign')) return { key: 'campanhas', label: 'Campanhas' };
+    if (type.includes('desafio') || type.includes('challenge')) return { key: 'desafios', label: 'Desafios' };
+    if (type.includes('sepbook')) return { key: 'sepbook', label: 'SEPBook' };
+    if (type.includes('forum')) return { key: 'forum', label: 'Fórum' };
+    if (type.includes('quiz')) return { key: 'quiz', label: 'Quizzes' };
+    return { key: 'outros', label: 'Outros' };
+  }, []);
+
+  const themedHistory = useMemo(() => {
+    const buckets = new Map<string, { key: string; label: string; items: UserEvent[] }>();
+    for (const e of filteredEvents) {
+      const t = historyByTheme(e?.challenge?.type || '');
+      const cur = buckets.get(t.key) || { ...t, items: [] };
+      cur.items.push(e);
+      buckets.set(t.key, cur);
+    }
+    const order = ['campanhas', 'desafios', 'sepbook', 'forum', 'quiz', 'outros'];
+    return order
+      .map((k) => buckets.get(k))
+      .filter(Boolean) as Array<{ key: string; label: string; items: UserEvent[] }>;
+  }, [filteredEvents, historyByTheme]);
+
+  const formatEventStatus = useCallback((statusRaw: string) => {
+    const s = String(statusRaw || '').trim().toLowerCase();
+    if (s === 'approved') return { label: 'Aprovado', variant: 'default' as const };
+    if (s === 'rejected') return { label: 'Rejeitado', variant: 'destructive' as const };
+    if (s === 'submitted' || s === 'awaiting_second_evaluation') return { label: 'Em avaliação', variant: 'secondary' as const };
+    if (s === 'retry_in_progress') return { label: 'Refazendo', variant: 'outline' as const };
+    if (s === 'evaluated') return { label: 'Avaliado', variant: 'outline' as const };
+    return { label: statusRaw || 'Status', variant: 'outline' as const };
+  }, []);
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -491,45 +530,6 @@ function ProfileContent() {
     topStrength: topStrength ? `${topStrength.criteria}: ${topStrength.average.toFixed(1)}/5.0` : null,
     topWeakness: topWeakness ? `${topWeakness.criteria}: ${topWeakness.average.toFixed(1)}/5.0` : null
   };
-
-  // Filter events
-  const filteredEvents = statusFilter === 'all' 
-    ? events 
-    : events.filter(e => e.status === statusFilter);
-
-  const historyByTheme = useCallback((typeRaw: string) => {
-    const type = String(typeRaw || '').trim().toLowerCase();
-    if (type.includes('campanha') || type.includes('campaign')) return { key: 'campanhas', label: 'Campanhas' };
-    if (type.includes('desafio') || type.includes('challenge')) return { key: 'desafios', label: 'Desafios' };
-    if (type.includes('sepbook')) return { key: 'sepbook', label: 'SEPBook' };
-    if (type.includes('forum')) return { key: 'forum', label: 'Fórum' };
-    if (type.includes('quiz')) return { key: 'quiz', label: 'Quizzes' };
-    return { key: 'outros', label: 'Outros' };
-  }, []);
-
-  const themedHistory = useMemo(() => {
-    const buckets = new Map<string, { key: string; label: string; items: UserEvent[] }>();
-    for (const e of filteredEvents) {
-      const t = historyByTheme(e?.challenge?.type || '');
-      const cur = buckets.get(t.key) || { ...t, items: [] };
-      cur.items.push(e);
-      buckets.set(t.key, cur);
-    }
-    const order = ['campanhas', 'desafios', 'sepbook', 'forum', 'quiz', 'outros'];
-    return order
-      .map((k) => buckets.get(k))
-      .filter(Boolean) as Array<{ key: string; label: string; items: UserEvent[] }>;
-  }, [filteredEvents, historyByTheme]);
-
-  const formatEventStatus = useCallback((statusRaw: string) => {
-    const s = String(statusRaw || '').trim().toLowerCase();
-    if (s === 'approved') return { label: 'Aprovado', variant: 'default' as const };
-    if (s === 'rejected') return { label: 'Rejeitado', variant: 'destructive' as const };
-    if (s === 'submitted' || s === 'awaiting_second_evaluation') return { label: 'Em avaliação', variant: 'secondary' as const };
-    if (s === 'retry_in_progress') return { label: 'Refazendo', variant: 'outline' as const };
-    if (s === 'evaluated') return { label: 'Avaliado', variant: 'outline' as const };
-    return { label: statusRaw || 'Status', variant: 'outline' as const };
-  }, []);
 
   const feedbackEvents = events.filter(e => e.evaluation);
   const opportunityEvents = events.filter(e => 
