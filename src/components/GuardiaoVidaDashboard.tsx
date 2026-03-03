@@ -670,7 +670,7 @@ export function GuardiaoVidaDashboard() {
           {chartData.length === 0 ? (
             <p className="text-sm text-muted-foreground">Sem dados no período filtrado.</p>
           ) : (
-            <ChartContainer config={chartConfig} className="w-full">
+            <ChartContainer config={chartConfig} className="min-w-0 w-full aspect-auto h-[360px]">
               <BarChart data={chartData} margin={{ left: 12, right: 12 }}>
                 <CartesianGrid vertical={false} />
                 <XAxis
