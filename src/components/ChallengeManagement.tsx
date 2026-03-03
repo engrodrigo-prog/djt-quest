@@ -364,7 +364,7 @@ export const ChallengeManagement = ({ onlyQuizzes }: ChallengeManagementProps) =
                         ? `+${c.reward_tier_steps || 1} patamar(es)`
                         : `+${c.xp_reward} XP`}
                     </span>
-	                    <div className="flex gap-1 mt-1">
+		                    <div className="flex gap-1 mt-1 flex-wrap justify-end">
 	                      {isEditing ? (
 	                        <>
                           <Button

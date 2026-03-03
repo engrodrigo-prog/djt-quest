@@ -83,7 +83,7 @@ function safePct(n: number | null | undefined) {
 }
 
 export function QuizAnalyticsFull({ challengeId }: { challengeId: string }) {
-  const { orgScope, userRole } = useAuth() as any;
+  const { orgScope, userRole, profile } = useAuth() as any;
 
   const [tab, setTab] = useState<'people' | 'teams' | 'questions'>('people');
   const [loading, setLoading] = useState(false);
@@ -105,26 +105,37 @@ export function QuizAnalyticsFull({ challengeId }: { challengeId: string }) {
 
   const canAll = userRole === 'admin' || String(userRole || '').includes('gerente') || String(userRole || '').includes('coordenador');
 
+  const scopeIds = useMemo(() => {
+    const teamId = orgScope?.teamId ?? profile?.team_id ?? profile?.teamId ?? null;
+    const coordId = orgScope?.coordId ?? profile?.coord_id ?? profile?.coordId ?? null;
+    const divisionId = orgScope?.divisionId ?? profile?.division_id ?? profile?.divisionId ?? null;
+    return {
+      teamId: teamId != null ? String(teamId) : null,
+      coordId: coordId != null ? String(coordId) : null,
+      divisionId: divisionId != null ? String(divisionId) : null,
+    };
+  }, [orgScope?.coordId, orgScope?.divisionId, orgScope?.teamId, profile?.coordId, profile?.coord_id, profile?.divisionId, profile?.division_id, profile?.teamId, profile?.team_id]);
+
   const scopeOptions = useMemo(() => {
     const opts: Array<{ value: Scope; label: string; id: string | null }> = [
-      { value: 'team', label: 'Minha equipe', id: orgScope?.teamId || null },
-      { value: 'coord', label: 'Minha coordenação', id: orgScope?.coordId || null },
-      { value: 'division', label: 'Minha divisão', id: orgScope?.divisionId || null },
+      { value: 'team', label: 'Minha equipe', id: scopeIds.teamId || null },
+      { value: 'coord', label: 'Minha coordenação', id: scopeIds.coordId || null },
+      { value: 'division', label: 'Minha divisão', id: scopeIds.divisionId || null },
     ];
     if (canAll) opts.push({ value: 'all', label: 'Tudo (staff)', id: null });
     return opts;
-  }, [canAll, orgScope?.coordId, orgScope?.divisionId, orgScope?.teamId]);
+  }, [canAll, scopeIds.coordId, scopeIds.divisionId, scopeIds.teamId]);
 
   useEffect(() => {
     if (!canAll) return;
-    if (orgScope?.teamId || orgScope?.coordId || orgScope?.divisionId) return;
+    if (scopeIds.teamId || scopeIds.coordId || scopeIds.divisionId) return;
     if (scope !== 'all') setScope('all');
-  }, [canAll, orgScope?.coordId, orgScope?.divisionId, orgScope?.teamId, scope]);
+  }, [canAll, scope, scopeIds.coordId, scopeIds.divisionId, scopeIds.teamId]);
 
   useEffect(() => {
-    const defaultScopeId = scope === 'team' ? orgScope?.teamId : scope === 'coord' ? orgScope?.coordId : orgScope?.divisionId;
+    const defaultScopeId = scope === 'team' ? scopeIds.teamId : scope === 'coord' ? scopeIds.coordId : scopeIds.divisionId;
     setScopeId(defaultScopeId ? String(defaultScopeId) : '');
-  }, [orgScope?.coordId, orgScope?.divisionId, orgScope?.teamId, scope]);
+  }, [scope, scopeIds.coordId, scopeIds.divisionId, scopeIds.teamId]);
 
   const effectiveScopeId = scope === 'all' ? null : (scopeId || null);
 
