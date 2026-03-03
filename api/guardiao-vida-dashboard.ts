@@ -190,6 +190,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const defaultCampaign = (() => {
       const active = campaigns.find((c: any) => {
         if (c?.is_active === false) return false;
+        if (isGuardiaoDaVidaCampaign(c)) return true;
         const start = c?.start_date ? new Date(String(c.start_date)) : null;
         const end = c?.end_date ? new Date(String(c.end_date)) : null;
         if (start && !Number.isNaN(start.getTime()) && now.getTime() < start.getTime()) return false;

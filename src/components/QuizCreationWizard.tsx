@@ -88,7 +88,7 @@ type ImportQuestionDraft = {
 export function QuizCreationWizard() {
   const [quizId, setQuizId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isSubmittingForCuration, setIsSubmittingForCuration] = useState(false);
+  const [isPublishingQuiz, setIsPublishingQuiz] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [compOpen, setCompOpen] = useState(false);
   const [studySources, setStudySources] = useState<any[]>([]);
@@ -1085,26 +1085,26 @@ export function QuizCreationWizard() {
     }
   };
 
-  const submitForCuration = async () => {
+  const publishQuiz = async () => {
     if (!quizId) return;
-    setIsSubmittingForCuration(true);
+    setIsPublishingQuiz(true);
     try {
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData.session?.access_token;
       if (!token) throw new Error('Não autenticado');
-      const resp = await apiFetch('/api/admin?handler=curation-submit-quiz', {
+      const resp = await apiFetch('/api/admin?handler=studio-publish-quiz', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ challengeId: quizId }),
       });
       const json = await resp.json().catch(() => ({}));
-      if (!resp.ok) throw new Error(json?.error || 'Falha ao submeter');
-      toast.success('Quiz submetido para curadoria');
+      if (!resp.ok) throw new Error(json?.error || 'Falha ao publicar');
+      toast.success('Quiz publicado para todos os usuários');
       navigate('/studio/curadoria');
     } catch (e: any) {
-      toast.error(e?.message || 'Falha ao submeter');
+      toast.error(e?.message || 'Falha ao publicar');
     } finally {
-      setIsSubmittingForCuration(false);
+      setIsPublishingQuiz(false);
     }
   };
 
@@ -1400,7 +1400,7 @@ export function QuizCreationWizard() {
           </CardTitle>
           <CardDescription className="flex items-center justify-between gap-2 flex-wrap">
             <div className="min-w-0">
-              <div>Quando terminar, submeta para curadoria.</div>
+              <div>Quando terminar, publique para todos os usuários.</div>
               <div className="text-[11px] text-muted-foreground">
                 XP por pergunta: {quizXpReward ?? '—'} • Dificuldade: {quizForcedDifficulty === 'basico' ? 'Básico' : quizForcedDifficulty === 'intermediario' ? 'Intermediário' : quizForcedDifficulty === 'avancado' ? 'Avançado' : 'Especialista'} • Vigência: {quizDueDate || '—'}
               </div>
@@ -1409,8 +1409,8 @@ export function QuizCreationWizard() {
               <Button variant="outline" onClick={() => navigate('/studio/curadoria')}>
                 Abrir Hub de Curadoria
               </Button>
-              <Button onClick={submitForCuration} disabled={isSubmittingForCuration}>
-                {isSubmittingForCuration ? 'Submetendo…' : 'Submeter'}
+              <Button onClick={publishQuiz} disabled={isPublishingQuiz}>
+                {isPublishingQuiz ? 'Publicando…' : 'Publicar para todos'}
               </Button>
             </div>
           </CardDescription>
@@ -1421,7 +1421,7 @@ export function QuizCreationWizard() {
               <Label>Vigência (prazo de coleta)</Label>
               <Input type="date" min={todayIso} value={quizDueDate} onChange={(e) => setQuizDueDate(e.target.value)} />
               <p className="text-[11px] text-muted-foreground">
-                Líderes/admin podem ajustar a vigência do quiz após publicar/submeter.
+                Líderes/admin podem ajustar a vigência do quiz após publicar.
               </p>
             </div>
             <Button type="button" disabled={savingVigencia || !quizDueDate} onClick={() => void saveVigencia()}>
@@ -1657,7 +1657,7 @@ export function QuizCreationWizard() {
             <TabsContent value="studylab" className="mt-4">
               <div className="space-y-4">
                 <p className="text-sm text-muted-foreground">
-                  Use materiais enviados (ex.: manual em PDF via URL) como base. As perguntas são inseridas automaticamente neste quiz para revisão e curadoria.
+                  Use materiais enviados (ex.: manual em PDF via URL) como base. As perguntas são inseridas automaticamente neste quiz para revisão final.
                 </p>
 
                 <div className="space-y-2">
@@ -1819,7 +1819,7 @@ export function QuizCreationWizard() {
                               {source?.topic ? ` • ${source.topic}` : ''}
                             </p>
                             <p className="text-[11px] text-muted-foreground">
-                              {Array.isArray(item?.options) ? `${item.options.length} alternativas` : 'Alternativas geradas na curadoria'}
+                              {Array.isArray(item?.options) ? `${item.options.length} alternativas` : 'Alternativas geradas na revisão automática'}
                             </p>
                           </div>
                           <Button type="button" size="sm" variant="outline" disabled={!quizId} onClick={() => handleAddSuggestedQuestion(item)}>

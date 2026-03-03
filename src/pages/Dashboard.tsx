@@ -47,6 +47,21 @@ interface Challenge {
   created_at?: string;
 }
 
+const normalizeCampaignText = (raw: string) =>
+  String(raw || "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+
+const isGuardiaoDaVidaCampaign = (campaign: Pick<Campaign, "title" | "narrative_tag"> | null | undefined) => {
+  const hay = normalizeCampaignText(`${campaign?.title || ""} ${campaign?.narrative_tag || ""}`);
+  const compact = hay.replace(/\s+/g, "");
+  return hay.includes("guardiao da vida") || compact.includes("guardiaodavida");
+};
+
 const Dashboard = () => {
   const { user, signOut, isLeader, studioAccess, userRole, profile: authProfile } = useAuth() as any;
   const navigate = useNavigate();
@@ -590,6 +605,7 @@ const Dashboard = () => {
   const forumPotentialXp = useMemo(() => openForums.length * 500, [openForums]);
 
   const getCampaignStatus = useCallback((c: Campaign): "active" | "closed" => {
+    if (isGuardiaoDaVidaCampaign(c)) return c?.is_active !== false ? "active" : "closed";
     const now = Date.now();
     const start = c?.start_date ? Date.parse(String(c.start_date)) : null;
     const end = c?.end_date ? Date.parse(String(c.end_date)) : null;
@@ -644,10 +660,12 @@ const Dashboard = () => {
       const stats = campaignStats?.[campaignId];
       const total = Math.max(0, Number(stats?.total || 0));
       const approved = Math.max(0, Number(stats?.approved || 0));
-      const isCompleted = total > 0 && approved >= total;
+      const campaign = campaigns.find((c) => c.id === campaignId);
+      const isContinuousCampaign = isGuardiaoDaVidaCampaign(campaign);
+      const isCompleted = !isContinuousCampaign && total > 0 && approved >= total;
       return { total, approved, isCompleted };
     },
-    [campaignStats],
+    [campaignStats, campaigns],
   );
 
   const campaignsMain = useMemo(() => {

@@ -262,24 +262,6 @@ export default function StudioCuration() {
     }
   };
 
-  const onSubmitForCuration = async () => {
-    if (!selectedId) return;
-    try {
-      const resp = await apiFetch('/api/admin?handler=curation-submit-quiz', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ challengeId: selectedId }),
-      });
-      const json = await resp.json().catch(() => ({}));
-      if (!resp.ok) throw new Error(json?.error || 'Falha ao submeter');
-      toast.success('Quiz submetido');
-      await fetchList();
-      await fetchDetail(selectedId);
-    } catch (e: any) {
-      toast.error(e?.message || 'Falha ao submeter');
-    }
-  };
-
   const onUnsubmit = async () => {
     if (!selectedId) return;
     try {
@@ -674,7 +656,7 @@ export default function StudioCuration() {
               <TipDialogButton tipId="studio-curation" ariaLabel="Entenda a Curadoria de Conteúdo" className="inline-flex items-center justify-center rounded-full border border-white/20 bg-black/20 p-1 text-blue-100/80 hover:bg-black/30 hover:text-blue-50" />
             </div>
             <p className="text-sm text-blue-100/80">
-              {canCurate ? 'Revisão e publicação de quizzes' : 'Submeta e acompanhe seus quizzes'}
+              {canCurate ? 'Revisão e publicação de quizzes' : 'Crie, publique e acompanhe seus quizzes'}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -1210,9 +1192,6 @@ export default function StudioCuration() {
                     <Button variant="outline" onClick={onSaveVigencia} disabled={!selectedId || savingDueDate}>
                       {savingDueDate ? 'Salvando vigência…' : 'Salvar vigência'}
                     </Button>
-                  )}
-                  {!canCurate && workflow === 'DRAFT' && (
-                    <Button variant="secondary" onClick={onSubmitForCuration}>Submeter para curadoria</Button>
                   )}
                   {!canCurate && Boolean(detail?.isOwner) && workflow === 'SUBMITTED' && (
                     <Button variant="outline" onClick={onUnsubmit} title="Retorna para DRAFT para você ajustar perguntas e alternativas">

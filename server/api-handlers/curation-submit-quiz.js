@@ -38,23 +38,29 @@ export default async function handler(req, res) {
       .select('id', { head: true, count: 'exact' })
       .eq('challenge_id', id);
     if (countErr) return res.status(400).json({ error: countErr.message });
-    if (!totalQuestions || totalQuestions < 1) return res.status(400).json({ error: 'Adicione ao menos 1 pergunta antes de submeter' });
+    if (!totalQuestions || totalQuestions < 1) return res.status(400).json({ error: 'Adicione ao menos 1 pergunta antes de publicar' });
 
-    // Snapshot baseline at submission
+    // Snapshot baseline at final publish point (auto-publicação).
     try {
       await snapshotQuizVersion(admin, {
         challengeId: id,
         actorId: caller.id,
-        reason: 'submit',
+        reason: 'publish_auto',
         auditAction: 'quiz.version.snapshot',
       });
     } catch {
       // best-effort
     }
 
+    const now = new Date().toISOString();
     const { data: after, error } = await admin
       .from('challenges')
-      .update({ quiz_workflow_status: 'SUBMITTED', submitted_at: new Date().toISOString() })
+      .update({
+        quiz_workflow_status: 'PUBLISHED',
+        submitted_at: now,
+        published_at: now,
+        published_by: caller.id,
+      })
       .eq('id', id)
       .select('*')
       .maybeSingle();
@@ -62,7 +68,7 @@ export default async function handler(req, res) {
 
     await tryInsertAuditLog(admin, {
       actor_id: caller.id,
-      action: 'quiz.submit',
+      action: 'quiz.publish.auto',
       entity_type: 'quiz',
       entity_id: id,
       before_json: before,
