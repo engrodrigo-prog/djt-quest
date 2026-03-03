@@ -165,6 +165,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const name = String(nameRaw || "").trim();
     const explicitUserIds = parseUserIds(req.query);
     const includeMap = toBool(pickQueryParam(req.query, "include_map"));
+    const includeRanking = toBool(pickQueryParam(req.query, "include_ranking"));
+    const rankingLimit = clampLimit(pickQueryParam(req.query, "ranking_limit"), 30, 200);
     const mapLimit = clampLimit(pickQueryParam(req.query, "map_limit"), 350, 1000);
 
     const date_start = toIsoDayStart(pickQueryParam(req.query, "date_start"));
@@ -439,6 +441,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const monthlyMap = new Map<string, { actions: number; people_impacted: number }>();
     const monthlyByUser = new Map<string, Map<string, { actions: number; people_impacted: number }>>();
     const totalsByUser = new Map<string, { actions: number; people_impacted: number }>();
+    const wantTotalsByUser = usingExplicitUserIds || includeRanking;
 
     const pageSize = 1000;
     let from = 0;
@@ -504,7 +507,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           perUser.people_impacted += impacted;
           perMonth.set(user_id, perUser);
           monthlyByUser.set(key, perMonth);
+        }
 
+        if (wantTotalsByUser && user_id) {
           const tot = totalsByUser.get(user_id) || { actions: 0, people_impacted: 0 };
           tot.actions += 1;
           tot.people_impacted += impacted;
@@ -586,6 +591,44 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             acc[id] = totalsByUser.get(id) || { actions: 0, people_impacted: 0 };
             return acc;
           }, {})
+        : null,
+      ranking: includeRanking
+        ? await (async () => {
+            const entries = Array.from(totalsByUser.entries());
+            entries.sort((a, b) => (b[1]?.people_impacted || 0) - (a[1]?.people_impacted || 0) || (b[1]?.actions || 0) - (a[1]?.actions || 0));
+            const top = entries.slice(0, rankingLimit);
+            const ids = top.map(([id]) => id);
+            if (!ids.length) return [];
+            let profRows: any[] = [];
+            try {
+              const { data } = await reader
+                .from("profiles")
+                .select("id,name,avatar_url,team_id,operational_base")
+                .in("id", ids)
+                .limit(2000);
+              profRows = Array.isArray(data) ? data : [];
+            } catch {
+              profRows = [];
+            }
+            const pMap = new Map<string, any>();
+            for (const r of profRows) {
+              const id = String(r?.id || "");
+              if (!id) continue;
+              pMap.set(id, r);
+            }
+            return top.map(([id, stat]) => {
+              const p = pMap.get(id) || {};
+              return {
+                user_id: id,
+                name: p?.name != null ? String(p.name) : null,
+                avatar_url: p?.avatar_url != null ? String(p.avatar_url) : null,
+                team_id: p?.team_id != null ? String(p.team_id) : null,
+                operational_base: p?.operational_base != null ? String(p.operational_base) : null,
+                actions: Number(stat?.actions || 0) || 0,
+                people_impacted: Number(stat?.people_impacted || 0) || 0,
+              };
+            });
+          })()
         : null,
       monthly,
     });

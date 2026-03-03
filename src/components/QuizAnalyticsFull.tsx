@@ -85,7 +85,7 @@ function safePct(n: number | null | undefined) {
 export function QuizAnalyticsFull({ challengeId }: { challengeId: string }) {
   const { orgScope, userRole, profile } = useAuth() as any;
 
-  const [tab, setTab] = useState<'people' | 'teams' | 'questions'>('people');
+  const [tab, setTab] = useState<'people' | 'teams' | 'questions'>('teams');
   const [loading, setLoading] = useState(false);
 
   const [scope, setScope] = useState<Scope>('team');
@@ -334,6 +334,16 @@ export function QuizAnalyticsFull({ challengeId }: { challengeId: string }) {
                 }}
               >
                 Mês atual
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => {
+                  setFrom('');
+                  setTo('');
+                }}
+              >
+                Tudo
               </Button>
             </div>
           </div>

@@ -37,6 +37,15 @@ type DashboardResponse = {
   query: { name: string | null; date_start: string | null; date_end: string | null; user_ids?: string[] | null };
   totals: { actions: number; people_impacted: number };
   publishers?: Array<{ id: string; name: string | null; email?: string | null; matricula?: string | null }> | null;
+  ranking?: Array<{
+    user_id: string;
+    name: string | null;
+    avatar_url: string | null;
+    team_id: string | null;
+    operational_base: string | null;
+    actions: number;
+    people_impacted: number;
+  }> | null;
   map_points?: Array<{
     event_id: string;
     user_id: string | null;
@@ -59,6 +68,11 @@ type DashboardResponse = {
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 const monthStartIso = () => new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10);
+const monthsAgoStartIso = (monthsAgo: number) => {
+  const d = new Date();
+  d.setMonth(d.getMonth() - Math.max(0, Math.floor(monthsAgo || 0)));
+  return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10);
+};
 
 const formatMonthLabel = (ym: string) => {
   try {
@@ -160,10 +174,12 @@ export function GuardiaoVidaDashboard() {
   const [publisherUsers, setPublisherUsers] = useState<UserPick[]>([]);
   const [selectedUsers, setSelectedUsers] = useState<UserPick[]>([]);
   const [metric, setMetric] = useState<"people_impacted" | "actions">("people_impacted");
-  const [from, setFrom] = useState<string>(monthStartIso());
+  const [from, setFrom] = useState<string>(monthsAgoStartIso(11));
   const [to, setTo] = useState<string>(todayIso());
   const [totals, setTotals] = useState<{ actions: number; people_impacted: number }>({ actions: 0, people_impacted: 0 });
   const [monthly, setMonthly] = useState<DashboardResponse["monthly"]>([]);
+  const [ranking, setRanking] = useState<NonNullable<DashboardResponse["ranking"]>>([]);
+  const [rankingSearch, setRankingSearch] = useState<string>("");
   const [mapOpen, setMapOpen] = useState(false);
   const [mapLoading, setMapLoading] = useState(false);
   const [mapError, setMapError] = useState<string | null>(null);
@@ -210,6 +226,8 @@ export function GuardiaoVidaDashboard() {
         const cid = String(opts?.campaignId ?? campaignId ?? "").trim();
         if (cid) qs.set("campaign_id", cid);
         if (selectedUsers.length > 0) qs.set("user_ids", selectedUsers.map((u) => u.id).join(","));
+        qs.set("include_ranking", "1");
+        qs.set("ranking_limit", "30");
         if (from) qs.set("date_start", from);
         if (to) qs.set("date_end", to);
 
@@ -241,10 +259,12 @@ export function GuardiaoVidaDashboard() {
         });
 
         setMonthly(Array.isArray(json.monthly) ? (json.monthly as any) : []);
+        setRanking(Array.isArray((json as any).ranking) ? (((json as any).ranking as any[]) || []) : []);
       } catch (e: any) {
         setError(e?.message || "Falha ao carregar dashboard");
         setTotals({ actions: 0, people_impacted: 0 });
         setMonthly([]);
+        setRanking([]);
         setPublisherUsers([]);
       } finally {
         setLoading(false);
@@ -333,6 +353,18 @@ export function GuardiaoVidaDashboard() {
       return { p, imageUrl };
     });
   }, [mapPoints]);
+
+  const filteredRanking = useMemo(() => {
+    const list = Array.isArray(ranking) ? ranking : [];
+    const q = rankingSearch.trim().toLowerCase();
+    const base = q ? list.filter((r) => `${r.name || ""} ${r.team_id || ""}`.toLowerCase().includes(q)) : list;
+    const sorted = [...base].sort((a, b) => {
+      const am = metric === "actions" ? Number(a.actions || 0) : Number(a.people_impacted || 0);
+      const bm = metric === "actions" ? Number(b.actions || 0) : Number(b.people_impacted || 0);
+      return bm - am || Number(b.people_impacted || 0) - Number(a.people_impacted || 0) || Number(b.actions || 0) - Number(a.actions || 0);
+    });
+    return sorted;
+  }, [metric, ranking, rankingSearch]);
 
   return (
     <div className="space-y-4">
@@ -475,10 +507,72 @@ export function GuardiaoVidaDashboard() {
               )}
             </div>
 
-            <div className="space-y-2">
-              <Label>De</Label>
-              <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
-            </div>
+	            <div className="space-y-2">
+	              <Label>De</Label>
+	              <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+                <div className="flex flex-wrap gap-1">
+                  <Button
+                    type="button"
+                    size="xs"
+                    variant="outline"
+                    disabled={loading}
+                    onClick={() => {
+                      setFrom(monthStartIso());
+                      setTo(todayIso());
+                    }}
+                  >
+                    Mês
+                  </Button>
+                  <Button
+                    type="button"
+                    size="xs"
+                    variant="outline"
+                    disabled={loading}
+                    onClick={() => {
+                      setFrom(monthsAgoStartIso(2));
+                      setTo(todayIso());
+                    }}
+                  >
+                    3M
+                  </Button>
+                  <Button
+                    type="button"
+                    size="xs"
+                    variant="outline"
+                    disabled={loading}
+                    onClick={() => {
+                      setFrom(monthsAgoStartIso(5));
+                      setTo(todayIso());
+                    }}
+                  >
+                    6M
+                  </Button>
+                  <Button
+                    type="button"
+                    size="xs"
+                    variant="outline"
+                    disabled={loading}
+                    onClick={() => {
+                      setFrom(monthsAgoStartIso(11));
+                      setTo(todayIso());
+                    }}
+                  >
+                    Ano
+                  </Button>
+                  <Button
+                    type="button"
+                    size="xs"
+                    variant="secondary"
+                    disabled={loading}
+                    onClick={() => {
+                      setFrom("");
+                      setTo("");
+                    }}
+                  >
+                    Tudo
+                  </Button>
+                </div>
+	            </div>
 
             <div className="space-y-2">
               <Label>Até</Label>
@@ -643,36 +737,96 @@ export function GuardiaoVidaDashboard() {
         </DialogContent>
       </Dialog>
 
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Total de ações</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold">{Number(totals.actions || 0).toLocaleString(getActiveLocale())}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Total de pessoas atingidas</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold">{Number(totals.people_impacted || 0).toLocaleString(getActiveLocale())}</div>
-          </CardContent>
-        </Card>
-      </div>
+	      <div className="grid gap-3 sm:grid-cols-2">
+	        <Card>
+	          <CardHeader>
+	            <CardTitle>Total de ações</CardTitle>
+	          </CardHeader>
+	          <CardContent>
+	            <div className="text-3xl font-bold">{Number(totals.actions || 0).toLocaleString(getActiveLocale())}</div>
+	          </CardContent>
+	        </Card>
+	        <Card>
+	          <CardHeader>
+	            <CardTitle>Total de pessoas atingidas</CardTitle>
+	          </CardHeader>
+	          <CardContent>
+	            <div className="text-3xl font-bold">{Number(totals.people_impacted || 0).toLocaleString(getActiveLocale())}</div>
+	          </CardContent>
+	        </Card>
+	      </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Barras mensais (empilhado por usuário)</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {chartData.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Sem dados no período filtrado.</p>
-          ) : (
-            <ChartContainer config={chartConfig} className="min-w-0 w-full aspect-auto h-[360px]">
-              <BarChart data={chartData} margin={{ left: 12, right: 12 }}>
-                <CartesianGrid vertical={false} />
+        <Card>
+          <CardHeader>
+            <CardTitle>Ranking (Top 30)</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-sm text-muted-foreground">
+                Ordenado por <span className="font-medium">{metric === "actions" ? "Ações" : "Pessoas atingidas"}</span>.
+                {selectedUsers.length > 0 ? " (considera apenas usuários selecionados)" : ""}
+              </p>
+              <Input
+                placeholder="Buscar por nome/equipe…"
+                value={rankingSearch}
+                onChange={(e) => setRankingSearch(e.target.value)}
+                className="sm:max-w-[320px]"
+              />
+            </div>
+
+            {loading && filteredRanking.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Carregando ranking…</p>
+            ) : filteredRanking.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Sem dados no período/filtro atual. Tente “Ano” ou “Tudo”.</p>
+            ) : (
+              <div className="overflow-auto">
+                <table className="w-full text-sm">
+                  <thead className="text-muted-foreground">
+                    <tr className="border-b">
+                      <th className="py-2 pr-3 text-left w-[70px]">Pos.</th>
+                      <th className="py-2 pr-3 text-left min-w-[220px]">Pessoa</th>
+                      <th className="py-2 pr-3 text-left w-[140px]">Equipe</th>
+                      <th className="py-2 pr-3 text-right w-[120px]">Ações</th>
+                      <th className="py-2 pr-0 text-right w-[170px]">Pessoas</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredRanking.slice(0, 30).map((r, idx) => (
+                      <tr key={r.user_id} className="border-b last:border-b-0">
+                        <td className="py-2 pr-3 font-medium">{idx + 1}</td>
+                        <td className="py-2 pr-3">
+                          <div className="font-medium">{r.name || r.user_id}</div>
+                          {r.operational_base ? (
+                            <div className="text-[11px] text-muted-foreground">{r.operational_base}</div>
+                          ) : null}
+                        </td>
+                        <td className="py-2 pr-3">{r.team_id || "—"}</td>
+                        <td className="py-2 pr-3 text-right">{Number(r.actions || 0).toLocaleString(getActiveLocale())}</td>
+                        <td className="py-2 pr-0 text-right">
+                          <Badge variant={Number(r.people_impacted || 0) > 0 ? "secondary" : "outline"}>
+                            {Number(r.people_impacted || 0).toLocaleString(getActiveLocale())}
+                          </Badge>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+	      <Card>
+	        <CardHeader>
+	          <CardTitle>Barras mensais (empilhado por usuário)</CardTitle>
+	        </CardHeader>
+	        <CardContent>
+	          {chartData.length === 0 ? (
+	            <p className="text-sm text-muted-foreground">Sem dados no período filtrado. Tente “Ano” ou “Tudo”.</p>
+	          ) : (
+	            <ChartContainer config={chartConfig} className="min-w-0 w-full aspect-auto h-[360px]">
+	              <BarChart data={chartData} margin={{ left: 12, right: 12 }}>
+	                <CartesianGrid vertical={false} />
                 <XAxis
                   dataKey="month"
                   tickLine={false}
