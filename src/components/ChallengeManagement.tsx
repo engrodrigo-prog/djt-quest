@@ -3,9 +3,11 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useAuth } from "@/contexts/AuthContext";
 import { isAllowlistedAdminFromProfile } from "@/lib/adminAllowlist";
 import { apiFetch } from "@/lib/api";
+import { QuizAnalyticsFull } from "@/components/QuizAnalyticsFull";
 
 type RangeKey = "30" | "60" | "180" | "365" | "all";
 
@@ -34,6 +36,8 @@ export const ChallengeManagement = ({ onlyQuizzes }: ChallengeManagementProps) =
   const [editTitle, setEditTitle] = useState("");
   const [editDescription, setEditDescription] = useState("");
   const [editXp, setEditXp] = useState<string>("0");
+  const [analyticsOpen, setAnalyticsOpen] = useState(false);
+  const [analyticsChallenge, setAnalyticsChallenge] = useState<Challenge | null>(null);
 
   const isTopLeader = profile?.matricula === "601555";
   const isAllowlistedAdmin = isAllowlistedAdminFromProfile(profile);
@@ -287,7 +291,7 @@ export const ChallengeManagement = ({ onlyQuizzes }: ChallengeManagementProps) =
         </div>
       </div>
 
-      <Card>
+	      <Card>
         <CardHeader>
           <CardTitle className="text-base">
             {onlyQuizzes ? "Quizzes" : "Desafios"} ({filtered.length})
@@ -313,10 +317,10 @@ export const ChallengeManagement = ({ onlyQuizzes }: ChallengeManagementProps) =
               Nenhum item no período selecionado.
             </p>
           )}
-          {filtered.map((c) => {
-            const isEditing = editingId === c.id;
-            return (
-              <div key={c.id} className="flex flex-col gap-1 border rounded-md p-3 bg-black/20">
+	          {filtered.map((c) => {
+	            const isEditing = editingId === c.id;
+	            return (
+	              <div key={c.id} className="flex flex-col gap-1 border rounded-md p-3 bg-black/20">
                 <div className="flex items-center justify-between gap-2">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
@@ -360,9 +364,9 @@ export const ChallengeManagement = ({ onlyQuizzes }: ChallengeManagementProps) =
                         ? `+${c.reward_tier_steps || 1} patamar(es)`
                         : `+${c.xp_reward} XP`}
                     </span>
-                    <div className="flex gap-1 mt-1">
-                      {isEditing ? (
-                        <>
+	                    <div className="flex gap-1 mt-1">
+	                      {isEditing ? (
+	                        <>
                           <Button
                             size="xs"
                             variant="secondary"
@@ -378,19 +382,31 @@ export const ChallengeManagement = ({ onlyQuizzes }: ChallengeManagementProps) =
                             Cancelar
                           </Button>
                         </>
-	                      ) : (
-	                        <>
-	                          <Button
-	                            size="xs"
-	                            variant="outline"
-	                            onClick={() => handleEdit(c)}
-	                          >
-	                            Editar
-	                          </Button>
-	                          {(!onlyQuizzes || isAllowlistedAdmin) && (
-	                            <>
-	                              <Button
-	                                size="xs"
+		                      ) : (
+		                        <>
+		                          <Button
+		                            size="xs"
+		                            variant="outline"
+		                            onClick={() => handleEdit(c)}
+		                          >
+		                            Editar
+		                          </Button>
+                              {onlyQuizzes && (
+                                <Button
+                                  size="xs"
+                                  variant="outline"
+                                  onClick={() => {
+                                    setAnalyticsChallenge(c);
+                                    setAnalyticsOpen(true);
+                                  }}
+                                >
+                                  Relatório
+                                </Button>
+                              )}
+		                          {(!onlyQuizzes || isAllowlistedAdmin) && (
+		                            <>
+		                              <Button
+		                                size="xs"
 	                                variant="outline"
 	                                onClick={() => updateStatus(c, "closed")}
 	                              >
@@ -429,10 +445,28 @@ export const ChallengeManagement = ({ onlyQuizzes }: ChallengeManagementProps) =
                   </div>
                 </div>
               </div>
-            );
-          })}
-        </CardContent>
-      </Card>
-    </div>
-  );
-};
+	            );
+	          })}
+	        </CardContent>
+	      </Card>
+
+        <Dialog
+          open={analyticsOpen}
+          onOpenChange={(open) => {
+            setAnalyticsOpen(open);
+            if (!open) setAnalyticsChallenge(null);
+          }}
+        >
+          <DialogContent className="max-w-6xl">
+            <DialogHeader>
+              <DialogTitle>Relatório do quiz</DialogTitle>
+              <DialogDescription className="truncate">
+                {analyticsChallenge?.title || analyticsChallenge?.id || ''}
+              </DialogDescription>
+            </DialogHeader>
+            {analyticsChallenge?.id ? <QuizAnalyticsFull challengeId={analyticsChallenge.id} /> : null}
+          </DialogContent>
+        </Dialog>
+	    </div>
+	  );
+	};

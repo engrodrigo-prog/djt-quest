@@ -4,6 +4,17 @@ import { rolesToSet } from '../lib/rbac.js';
 const STAFF_ROLES = new Set(['admin', 'gerente_djt', 'gerente_divisao_djtx', 'coordenador_djtx']);
 const ALLOWED_ROLES = new Set(['lider_equipe', ...Array.from(STAFF_ROLES)]);
 const GUEST_TEAM_ID = 'CONVIDADOS';
+const toIsoStart = (d) => new Date(`${d}T00:00:00.000Z`).toISOString();
+const toIsoEnd = (d) => new Date(`${d}T23:59:59.999Z`).toISOString();
+
+function getDateParam(req, key) {
+  const v = req.query?.[key];
+  const s = Array.isArray(v) ? v[0] : v;
+  if (!s) return null;
+  const txt = String(s).trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(txt)) return null;
+  return txt;
+}
 
 function getStrParam(req, key) {
   const v = req.query?.[key];
@@ -90,6 +101,11 @@ export default async function handler(req, res) {
     const includeLeaders = getStrParam(req, 'includeLeaders') === '1';
     const includeGuests = getStrParam(req, 'includeGuests') === '1';
     const sort = getStrParam(req, 'sort') || 'score_desc'; // score_desc | submitted_desc | name_asc
+    const includeEligible = getStrParam(req, 'includeEligible') === '1';
+    const from = getDateParam(req, 'from');
+    const to = getDateParam(req, 'to');
+    const fromIso = from ? toIsoStart(from) : null;
+    const toIso = to ? toIsoEnd(to) : null;
 
     // Eligible users
     let usersQuery = admin.from('profiles').select('id, name, team_id, is_leader, coord_id, division_id');
@@ -135,13 +151,17 @@ export default async function handler(req, res) {
     // Attempts for this quiz
     const attempts = [];
     for (const ids of chunk(userIds, 500)) {
-      const { data: rows, error: aErr } = await admin
+      let attemptsQuery = admin
         .from('quiz_attempts')
         .select('user_id, submitted_at, score, max_score')
         .in('user_id', ids)
         .eq('challenge_id', challengeId)
         .not('submitted_at', 'is', null)
         .limit(5000);
+      if (fromIso) attemptsQuery = attemptsQuery.gte('submitted_at', fromIso);
+      if (toIso) attemptsQuery = attemptsQuery.lte('submitted_at', toIso);
+
+      const { data: rows, error: aErr } = await attemptsQuery;
       if (aErr) {
         const msg = String(aErr.message || '');
         if (/quiz_attempts/i.test(msg) && /(does not exist|schema cache|relation)/i.test(msg)) {
@@ -170,6 +190,9 @@ export default async function handler(req, res) {
 
     const participants = new Set(attempts.map((a) => a.user_id)).size;
     const participationRate = eligibleProfiles.length > 0 ? Math.round((participants / eligibleProfiles.length) * 1000) / 10 : 0;
+    const scorePcts = attempts.map((a) => a.scorePct).filter((v) => typeof v === 'number');
+    const avgScorePct =
+      scorePcts.length > 0 ? Math.round((scorePcts.reduce((acc, v) => acc + v, 0) / scorePcts.length) * 10) / 10 : null;
 
     const compareName = (a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'pt-BR');
     const compareSubmitted = (a, b) => String(b.submitted_at || '').localeCompare(String(a.submitted_at || ''), 'en');
@@ -181,14 +204,19 @@ export default async function handler(req, res) {
 
     return res.status(200).json({
       challengeId,
+      from,
+      to,
       scope,
       scopeId: scope === 'all' ? null : effectiveScopeId,
       includeLeaders,
       includeGuests,
+      sort,
       eligibleUsers: eligibleProfiles.length,
       participants,
       participationRate,
+      avgScorePct,
       attempts,
+      ...(includeEligible ? { eligible: eligibleProfiles } : {}),
     });
   } catch (e) {
     return res.status(500).json({ error: e?.message || 'Unknown error' });
@@ -196,4 +224,3 @@ export default async function handler(req, res) {
 }
 
 export const config = { api: { bodyParser: false } };
-
