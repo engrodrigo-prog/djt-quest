@@ -53,6 +53,28 @@ type AttemptsPayload = {
   eligible?: EligibleRow[];
 };
 
+type UserDetailQuestion = {
+  id: string;
+  question_text: string;
+  order_index: number | null;
+  selected_option_id: string | null;
+  is_correct: boolean | null;
+  answered_at: string | null;
+  options: Array<{
+    id: string;
+    option_text: string;
+    explanation: string | null;
+    is_correct: boolean;
+  }>;
+};
+
+type UserQuizDetail = {
+  challengeId: string;
+  title: string;
+  user: EligibleRow;
+  questions: UserDetailQuestion[];
+};
+
 type QuestionUsage = {
   challengeId: string;
   from: string | null;
@@ -104,6 +126,10 @@ export function QuizAnalyticsFull({ challengeId }: { challengeId: string }) {
 
   const [attemptsPayload, setAttemptsPayload] = useState<AttemptsPayload | null>(null);
   const [questionUsage, setQuestionUsage] = useState<QuestionUsage | null>(null);
+  const [userDetailLoading, setUserDetailLoading] = useState(false);
+  const [userDetailError, setUserDetailError] = useState<string | null>(null);
+  const [userDetailTarget, setUserDetailTarget] = useState<AttemptRow | null>(null);
+  const [userDetail, setUserDetail] = useState<UserQuizDetail | null>(null);
 
   const scopeIds = useMemo(() => {
     const teamId = orgScope?.teamId ?? profile?.team_id ?? profile?.teamId ?? null;
@@ -203,6 +229,13 @@ export function QuizAnalyticsFull({ challengeId }: { challengeId: string }) {
     refreshQuestions();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, challengeId, scope, effectiveScopeId, includeLeaders, includeGuests, from, to]);
+
+  useEffect(() => {
+    setUserDetail(null);
+    setUserDetailError(null);
+    setUserDetailTarget(null);
+    setUserDetailLoading(false);
+  }, [challengeId, scope, effectiveScopeId, includeLeaders, includeGuests, from, to]);
 
   const attempts = useMemo(() => attemptsPayload?.attempts || [], [attemptsPayload?.attempts]);
   const eligible = useMemo(() => attemptsPayload?.eligible || [], [attemptsPayload?.eligible]);
@@ -306,9 +339,42 @@ export function QuizAnalyticsFull({ challengeId }: { challengeId: string }) {
     const participants = Number(attemptsPayload?.participants ?? 0) || 0;
     return Math.max(0, total - participants);
   }, [attemptsPayload?.eligibleUsers, attemptsPayload?.participants]);
+  const answeredCountForSelectedUser = useMemo(
+    () => (userDetail?.questions || []).filter((q) => q.selected_option_id).length,
+    [userDetail?.questions],
+  );
 
   const showCompleted = peopleView !== 'pending';
   const showPending = peopleView !== 'completed';
+
+  const openUserDetail = async (row: AttemptRow) => {
+    setUserDetailTarget(row);
+    setUserDetailLoading(true);
+    setUserDetailError(null);
+    setUserDetail(null);
+    try {
+      const qs = new URLSearchParams();
+      qs.set('challengeId', challengeId);
+      qs.set('targetUserId', row.user_id);
+      qs.set('scope', scope);
+      if (scope !== 'all' && effectiveScopeId) qs.set('scopeId', effectiveScopeId);
+      qs.set('includeLeaders', includeLeaders ? '1' : '0');
+      qs.set('includeGuests', includeGuests ? '1' : '0');
+      if (from) qs.set('from', from);
+      if (to) qs.set('to', to);
+
+      const resp = await apiFetch(`/api/admin?handler=reports-quiz-user-detail&${qs.toString()}`, { cache: 'no-store' });
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(json?.error || 'Falha ao carregar respostas do colaborador');
+      setUserDetail(json as UserQuizDetail);
+    } catch (e: any) {
+      console.error('QuizAnalyticsFull: openUserDetail failed', e);
+      setUserDetailError(String(e?.message || 'Falha ao carregar respostas do colaborador'));
+      setUserDetail(null);
+    } finally {
+      setUserDetailLoading(false);
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -470,7 +536,122 @@ export function QuizAnalyticsFull({ challengeId }: { challengeId: string }) {
               {!attemptsPayload ? (
                 <p className="text-sm text-muted-foreground">Carregue o relatório para ver os dados.</p>
               ) : (
-                <div className="grid grid-cols-1 gap-4">
+                <div className="space-y-4">
+                  {(userDetailLoading || userDetailError || userDetail) && (
+                    <div className="rounded-lg border p-4 space-y-4">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold">
+                            {userDetail?.user?.name || userDetailTarget?.name || userDetailTarget?.user_id || 'Colaborador'}
+                          </p>
+                          <div className="mt-1 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                            <span>{userDetail?.title || 'Quiz'}</span>
+                            {(userDetail?.user?.team_id || userDetailTarget?.team_id) ? (
+                              <span>Equipe: {userDetail?.user?.team_id || userDetailTarget?.team_id}</span>
+                            ) : null}
+                            {userDetail?.user?.is_leader || userDetailTarget?.is_leader ? <span>Líder</span> : null}
+                          </div>
+                        </div>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            setUserDetail(null);
+                            setUserDetailError(null);
+                            setUserDetailTarget(null);
+                            setUserDetailLoading(false);
+                          }}
+                        >
+                          Fechar detalhe
+                        </Button>
+                      </div>
+
+                      {userDetailLoading && <p className="text-sm text-muted-foreground">Carregando respostas…</p>}
+                      {userDetailError && <p className="text-sm text-destructive">{userDetailError}</p>}
+
+                      {!userDetailLoading && !userDetailError && userDetail && (
+                        <>
+                          <div className="flex flex-wrap gap-2">
+                            <Badge variant="outline">Perguntas: {userDetail.questions.length}</Badge>
+                            <Badge variant="outline">Respondidas: {answeredCountForSelectedUser}</Badge>
+                            <Badge variant="outline">
+                              Corretas: {userDetail.questions.filter((q) => q.is_correct === true).length}
+                            </Badge>
+                            <Badge variant="outline">
+                              Erradas: {userDetail.questions.filter((q) => q.is_correct === false).length}
+                            </Badge>
+                          </div>
+
+                          <ScrollArea className="h-[360px] pr-3">
+                            <div className="space-y-3">
+                              {userDetail.questions.map((q, idx) => (
+                                <div key={q.id} className="rounded-md border p-3">
+                                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                                    <div className="min-w-0">
+                                      <p className="text-sm font-semibold">
+                                        {idx + 1}. {q.question_text}
+                                      </p>
+                                      {q.answered_at ? (
+                                        <p className="text-[11px] text-muted-foreground">
+                                          {new Date(q.answered_at).toLocaleString(getActiveLocale())}
+                                        </p>
+                                      ) : null}
+                                    </div>
+                                    {q.selected_option_id ? (
+                                      <Badge variant={q.is_correct ? 'default' : 'destructive'}>
+                                        {q.is_correct ? 'Acertou' : 'Errou'}
+                                      </Badge>
+                                    ) : (
+                                      <Badge variant="secondary">Não respondeu</Badge>
+                                    )}
+                                  </div>
+
+                                  <div className="mt-3 space-y-2">
+                                    {(q.options || []).map((option, optionIdx) => {
+                                      const letter = String.fromCharCode(65 + optionIdx);
+                                      const selected = q.selected_option_id && option.id === q.selected_option_id;
+                                      const correct = Boolean(option.is_correct);
+                                      return (
+                                        <div
+                                          key={option.id}
+                                          className={`rounded-md border px-3 py-2 ${
+                                            selected
+                                              ? 'border-primary/40 bg-primary/10'
+                                              : correct
+                                                ? 'border-emerald-500/30 bg-emerald-500/10'
+                                                : 'border-border/60'
+                                          }`}
+                                        >
+                                          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                                            <p className="text-sm min-w-0">
+                                              <span className="font-mono text-xs mr-2">{letter}.</span>
+                                              {option.option_text}
+                                            </p>
+                                            <div className="flex flex-wrap gap-2">
+                                              {correct && <Badge variant="outline">Correta</Badge>}
+                                              {selected && <Badge variant="secondary">Escolhida</Badge>}
+                                            </div>
+                                          </div>
+                                          {selected && option.explanation ? (
+                                            <p className="mt-2 text-xs text-muted-foreground whitespace-pre-wrap">
+                                              {option.explanation}
+                                            </p>
+                                          ) : null}
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </ScrollArea>
+                        </>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 gap-4">
                   {showCompleted && (
                     <div className="space-y-2 min-w-0">
                       <div className="text-sm font-medium">Concluídos ({filteredAttempts.length})</div>
@@ -490,7 +671,15 @@ export function QuizAnalyticsFull({ challengeId }: { challengeId: string }) {
                                         <Badge variant="outline" className="text-[10px] flex-shrink-0">
                                           #{idx + 1}
                                         </Badge>
-                                        <span className="truncate font-medium">{row.name || row.user_id}</span>
+                                        <button
+                                          type="button"
+                                          className="truncate font-medium text-left underline-offset-2 hover:underline"
+                                          onClick={() => {
+                                            void openUserDetail(row);
+                                          }}
+                                        >
+                                          {row.name || row.user_id}
+                                        </button>
                                         {row.is_leader && (
                                           <Badge variant="secondary" className="text-[10px] flex-shrink-0">
                                             Líder
@@ -557,6 +746,7 @@ export function QuizAnalyticsFull({ challengeId }: { challengeId: string }) {
                       </ScrollArea>
                     </div>
                   )}
+                  </div>
                 </div>
               )}
             </CardContent>
