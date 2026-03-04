@@ -16,6 +16,7 @@ import { getActiveLocale } from '@/lib/i18n/activeLocale';
 
 type Scope = 'team' | 'coord' | 'division' | 'all';
 type Sort = 'score_desc' | 'submitted_desc' | 'name_asc';
+type PeopleViewMode = 'all' | 'completed' | 'pending';
 
 type AttemptRow = {
   user_id: string;
@@ -99,7 +100,7 @@ export function QuizAnalyticsFull({ challengeId }: { challengeId: string }) {
 
   const [search, setSearch] = useState('');
   const [teamFilter, setTeamFilter] = useState('');
-  const [pendingOnly, setPendingOnly] = useState(false);
+  const [peopleView, setPeopleView] = useState<PeopleViewMode>('all');
 
   const [attemptsPayload, setAttemptsPayload] = useState<AttemptsPayload | null>(null);
   const [questionUsage, setQuestionUsage] = useState<QuestionUsage | null>(null);
@@ -306,6 +307,9 @@ export function QuizAnalyticsFull({ challengeId }: { challengeId: string }) {
     return Math.max(0, total - participants);
   }, [attemptsPayload?.eligibleUsers, attemptsPayload?.participants]);
 
+  const showCompleted = peopleView !== 'pending';
+  const showPending = peopleView !== 'completed';
+
   return (
     <div className="space-y-4">
       <Card>
@@ -399,11 +403,37 @@ export function QuizAnalyticsFull({ challengeId }: { challengeId: string }) {
                   Incluir convidados
                 </Label>
               </div>
-              <div className="flex items-center gap-2">
-                <Switch id="qa-pending-only" checked={pendingOnly} onCheckedChange={setPendingOnly} />
-                <Label htmlFor="qa-pending-only" className="text-sm text-muted-foreground">
-                  Somente pendentes
-                </Label>
+              <div className="flex items-center gap-2 flex-wrap">
+                <Label className="text-sm text-muted-foreground">Mostrar</Label>
+                <div className="inline-flex items-center rounded-md border p-1">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={peopleView === 'pending' ? 'secondary' : 'ghost'}
+                    className="h-7 px-2"
+                    onClick={() => setPeopleView('pending')}
+                  >
+                    Pendentes
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={peopleView === 'completed' ? 'secondary' : 'ghost'}
+                    className="h-7 px-2"
+                    onClick={() => setPeopleView('completed')}
+                  >
+                    Concluídos
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={peopleView === 'all' ? 'secondary' : 'ghost'}
+                    className="h-7 px-2"
+                    onClick={() => setPeopleView('all')}
+                  >
+                    Tudo
+                  </Button>
+                </div>
               </div>
             </div>
 
@@ -434,97 +464,99 @@ export function QuizAnalyticsFull({ challengeId }: { challengeId: string }) {
           <Card>
             <CardHeader>
               <CardTitle>Ranking por colaborador</CardTitle>
-              <CardDescription>Participantes ranqueados + lista de pendentes</CardDescription>
+              <CardDescription>Use o seletor para ver concluídos, pendentes ou tudo</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               {!attemptsPayload ? (
                 <p className="text-sm text-muted-foreground">Carregue o relatório para ver os dados.</p>
               ) : (
                 <div className="grid grid-cols-1 gap-4">
-                  <div className="space-y-2 min-w-0">
-                    <div className="text-sm font-medium">Participantes ({filteredAttempts.length})</div>
-                    <ScrollArea className="h-[380px] pr-3">
-                      {pendingOnly ? (
-                        <div className="text-sm text-muted-foreground">Ative “Somente pendentes” desabilita esta lista.</div>
-                      ) : filteredAttempts.length === 0 ? (
-                        <div className="text-sm text-muted-foreground">Sem participantes no filtro atual.</div>
-                      ) : (
-                        <div className="space-y-2">
-                          {filteredAttempts.map((row, idx) => {
-                            const pct = typeof row.scorePct === 'number' ? Math.round(row.scorePct) : null;
-                            const when = row.submitted_at ? new Date(row.submitted_at).toLocaleString(getActiveLocale()) : '';
-                            return (
-                              <div key={row.user_id} className="rounded-md border p-3">
-                                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                                  <div className="min-w-0 flex-1">
-                                    <div className="flex items-center gap-2 min-w-0">
-                                      <Badge variant="outline" className="text-[10px] flex-shrink-0">
-                                        #{idx + 1}
+                  {showCompleted && (
+                    <div className="space-y-2 min-w-0">
+                      <div className="text-sm font-medium">Concluídos ({filteredAttempts.length})</div>
+                      <ScrollArea className="h-[380px] pr-3">
+                        {filteredAttempts.length === 0 ? (
+                          <div className="text-sm text-muted-foreground">Sem concluídos no filtro atual.</div>
+                        ) : (
+                          <div className="space-y-2">
+                            {filteredAttempts.map((row, idx) => {
+                              const pct = typeof row.scorePct === 'number' ? Math.round(row.scorePct) : null;
+                              const when = row.submitted_at ? new Date(row.submitted_at).toLocaleString(getActiveLocale()) : '';
+                              return (
+                                <div key={row.user_id} className="rounded-md border p-3">
+                                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                    <div className="min-w-0 flex-1">
+                                      <div className="flex items-center gap-2 min-w-0">
+                                        <Badge variant="outline" className="text-[10px] flex-shrink-0">
+                                          #{idx + 1}
+                                        </Badge>
+                                        <span className="truncate font-medium">{row.name || row.user_id}</span>
+                                        {row.is_leader && (
+                                          <Badge variant="secondary" className="text-[10px] flex-shrink-0">
+                                            Líder
+                                          </Badge>
+                                        )}
+                                      </div>
+                                      <div className="mt-1 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+                                        <span>{row.team_id ? `Equipe: ${row.team_id}` : 'Sem equipe'}</span>
+                                        {when ? <span>{when}</span> : null}
+                                      </div>
+                                    </div>
+                                    <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+                                      <Badge variant="outline" className="text-[10px]">
+                                        {row.score}/{row.max_score || 0}
                                       </Badge>
-                                      <span className="truncate font-medium">{row.name || row.user_id}</span>
-                                      {row.is_leader && (
+                                      <Badge
+                                        variant={
+                                          pct == null ? 'secondary' : pct >= 70 ? 'default' : pct >= 40 ? 'secondary' : 'destructive'
+                                        }
+                                        className="text-[10px]"
+                                      >
+                                        {pct == null ? '—' : `${pct}%`}
+                                      </Badge>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </ScrollArea>
+                    </div>
+                  )}
+
+                  {showPending && (
+                    <div className="space-y-2 min-w-0">
+                      <div className="text-sm font-medium">Pendentes ({filteredPending.length})</div>
+                      <ScrollArea className="h-[380px] pr-3">
+                        {filteredPending.length === 0 ? (
+                          <div className="text-sm text-muted-foreground">Sem pendentes no filtro atual.</div>
+                        ) : (
+                          <div className="space-y-2">
+                            {filteredPending.map((p) => (
+                              <div key={p.id} className="rounded-md border p-3">
+                                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                  <div className="min-w-0">
+                                    <div className="flex items-center gap-2 min-w-0">
+                                      <span className="truncate font-medium">{p.name || p.id}</span>
+                                      {p.is_leader && (
                                         <Badge variant="secondary" className="text-[10px] flex-shrink-0">
                                           Líder
                                         </Badge>
                                       )}
                                     </div>
-                                    <div className="mt-1 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
-                                      <span>{row.team_id ? `Equipe: ${row.team_id}` : 'Sem equipe'}</span>
-                                      {when ? <span>{when}</span> : null}
-                                    </div>
                                   </div>
-                                  <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-                                    <Badge variant="outline" className="text-[10px]">
-                                      {row.score}/{row.max_score || 0}
-                                    </Badge>
-                                    <Badge
-                                      variant={
-                                        pct == null ? 'secondary' : pct >= 70 ? 'default' : pct >= 40 ? 'secondary' : 'destructive'
-                                      }
-                                      className="text-[10px]"
-                                    >
-                                      {pct == null ? '—' : `${pct}%`}
-                                    </Badge>
-                                  </div>
+                                  <Badge variant="outline" className="text-[10px] w-fit">
+                                    {p.team_id ? `Equipe: ${p.team_id}` : 'Sem equipe'}
+                                  </Badge>
                                 </div>
                               </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </ScrollArea>
-                  </div>
-
-                  <div className="space-y-2 min-w-0">
-                    <div className="text-sm font-medium">Pendentes ({filteredPending.length})</div>
-                    <ScrollArea className="h-[380px] pr-3">
-                      {filteredPending.length === 0 ? (
-                        <div className="text-sm text-muted-foreground">Sem pendentes no filtro atual.</div>
-                      ) : (
-                        <div className="space-y-2">
-                          {filteredPending.map((p) => (
-                            <div key={p.id} className="rounded-md border p-3">
-                              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                                <div className="min-w-0">
-                                  <div className="flex items-center gap-2 min-w-0">
-                                    <span className="truncate font-medium">{p.name || p.id}</span>
-                                    {p.is_leader && (
-                                      <Badge variant="secondary" className="text-[10px] flex-shrink-0">
-                                        Líder
-                                      </Badge>
-                                    )}
-                                  </div>
-                                </div>
-                                <Badge variant="outline" className="text-[10px] w-fit">
-                                  {p.team_id ? `Equipe: ${p.team_id}` : 'Sem equipe'}
-                                </Badge>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </ScrollArea>
-                  </div>
+                            ))}
+                          </div>
+                        )}
+                      </ScrollArea>
+                    </div>
+                  )}
                 </div>
               )}
             </CardContent>
