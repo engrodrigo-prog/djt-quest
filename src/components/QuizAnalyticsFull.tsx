@@ -378,9 +378,9 @@ export function QuizAnalyticsFull({ challengeId }: { challengeId: string }) {
                 <SelectTrigger>
                   <SelectValue placeholder="Selecione" />
                 </SelectTrigger>
-                <SelectContent>
+                  <SelectContent>
                   <SelectItem value="score_desc">Score (maior → menor)</SelectItem>
-                  <SelectItem value="submitted_desc">Envio (mais recente)</SelectItem>
+                  <SelectItem value="submitted_desc">Última resposta (mais recente)</SelectItem>
                   <SelectItem value="name_asc">Nome (A → Z)</SelectItem>
                 </SelectContent>
               </Select>

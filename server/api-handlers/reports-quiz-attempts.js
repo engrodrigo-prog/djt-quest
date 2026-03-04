@@ -148,44 +148,83 @@ export default async function handler(req, res) {
       });
     }
 
-    // Attempts for this quiz
-    const attempts = [];
-    for (const ids of chunk(userIds, 500)) {
-      let attemptsQuery = admin
-        .from('quiz_attempts')
-        .select('user_id, submitted_at, score, max_score')
+    // Para evitar contagem "zerada" quando há respostas mas não há quiz_attempts.submitted_at,
+    // calculamos participação e notas a partir de user_quiz_answers (acertos / total de perguntas).
+    const { count: totalQuestionsRaw, error: tqErr } = await admin
+      .from('quiz_questions')
+      .select('id', { count: 'exact', head: true })
+      .eq('challenge_id', challengeId);
+    if (tqErr) {
+      const msg = String(tqErr.message || '');
+      if (/quiz_questions/i.test(msg) && /(does not exist|schema cache|relation)/i.test(msg)) {
+        return res.status(400).json({
+          error: 'Tabela quiz_questions não encontrada. Aplique as migrações de quiz (supabase/migrations/*quiz*).',
+        });
+      }
+      return res.status(400).json({ error: msg || 'Falha ao carregar perguntas do quiz' });
+    }
+    const totalQuestions = Math.max(0, Number(totalQuestionsRaw ?? 0) || 0);
+
+    const statsByUserId = new Map(); // user_id -> { answered:Set, correct:number, lastAnsweredAt:string|null }
+    const safeChunkSize =
+      totalQuestions > 0 ? Math.max(1, Math.min(500, Math.floor(9000 / totalQuestions))) : 500;
+
+    for (const ids of chunk(userIds, safeChunkSize)) {
+      let ansQuery = admin
+        .from('user_quiz_answers')
+        .select('user_id, question_id, is_correct, answered_at')
         .in('user_id', ids)
         .eq('challenge_id', challengeId)
-        .not('submitted_at', 'is', null)
-        .limit(5000);
-      if (fromIso) attemptsQuery = attemptsQuery.gte('submitted_at', fromIso);
-      if (toIso) attemptsQuery = attemptsQuery.lte('submitted_at', toIso);
+        .limit(10000);
+      if (fromIso) ansQuery = ansQuery.gte('answered_at', fromIso);
+      if (toIso) ansQuery = ansQuery.lte('answered_at', toIso);
 
-      const { data: rows, error: aErr } = await attemptsQuery;
+      const { data: answers, error: aErr } = await ansQuery;
       if (aErr) {
         const msg = String(aErr.message || '');
-        if (/quiz_attempts/i.test(msg) && /(does not exist|schema cache|relation)/i.test(msg)) {
+        if (/user_quiz_answers/i.test(msg) && /(does not exist|schema cache|relation)/i.test(msg)) {
           return res.status(400).json({
-            error: 'Tabela quiz_attempts não encontrada. Aplique a migração supabase/migrations/202511110945_quiz_attempts.sql.',
+            error: 'Tabela user_quiz_answers não encontrada. Aplique as migrações de quiz (supabase/migrations/*quiz*).',
           });
         }
-        return res.status(400).json({ error: msg || 'Falha ao carregar tentativas' });
+        return res.status(400).json({ error: msg || 'Falha ao carregar respostas' });
       }
-      for (const row of rows || []) {
+
+      for (const row of answers || []) {
         const uid = String(row?.user_id || '').trim();
         const prof = byUserId.get(uid);
         if (!uid || !prof) continue;
-        attempts.push({
-          user_id: uid,
-          name: prof.name,
-          team_id: prof.team_id,
-          is_leader: prof.is_leader,
-          submitted_at: row?.submitted_at ? String(row.submitted_at) : null,
-          score: Number(row?.score ?? 0) || 0,
-          max_score: Number(row?.max_score ?? 0) || 0,
-          scorePct: toPct(row?.score, row?.max_score),
-        });
+
+        const qid = String(row?.question_id || '').trim();
+        if (!qid) continue;
+
+        const current = statsByUserId.get(uid) || { answered: new Set(), correct: 0, lastAnsweredAt: null };
+        if (!current.answered.has(qid)) {
+          current.answered.add(qid);
+          if (row?.is_correct) current.correct += 1;
+        }
+        const ts = row?.answered_at ? String(row.answered_at) : null;
+        if (ts && (!current.lastAnsweredAt || ts > current.lastAnsweredAt)) current.lastAnsweredAt = ts;
+        statsByUserId.set(uid, current);
       }
+    }
+
+    const attempts = [];
+    for (const [uid, stat] of statsByUserId.entries()) {
+      const prof = byUserId.get(uid);
+      if (!prof) continue;
+      const score = Math.max(0, Number(stat?.correct ?? 0) || 0);
+      const maxScore = totalQuestions;
+      attempts.push({
+        user_id: String(uid),
+        name: prof.name,
+        team_id: prof.team_id,
+        is_leader: prof.is_leader,
+        submitted_at: stat?.lastAnsweredAt ? String(stat.lastAnsweredAt) : null,
+        score,
+        max_score: maxScore,
+        scorePct: toPct(score, maxScore),
+      });
     }
 
     const participants = new Set(attempts.map((a) => a.user_id)).size;
