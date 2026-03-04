@@ -50,6 +50,13 @@ export default async function handler(req, res) {
     const challengeId = getStrParam(req, 'challengeId');
     if (!challengeId) return res.status(400).json({ error: 'challengeId required' });
 
+    const { data: challenge } = await admin
+      .from('challenges')
+      .select('title')
+      .eq('id', challengeId)
+      .maybeSingle();
+    const isMilhao = /milh(ã|a)o/i.test(String(challenge?.title || ''));
+
     const { data: rolesRows } = await admin.from('user_roles').select('role').eq('user_id', caller.id);
     const roleSet = rolesToSet(rolesRows);
     const isStaff = Array.from(roleSet).some((r) => STAFF_ROLES.has(r));
@@ -144,8 +151,11 @@ export default async function handler(req, res) {
         includeGuests,
         eligibleUsers: 0,
         participants: 0,
+        completedUsers: 0,
         participationRate: 0,
+        completionRate: 0,
         attempts: [],
+        inProgress: [],
       });
     }
 
@@ -167,6 +177,7 @@ export default async function handler(req, res) {
     const totalQuestions = Math.max(0, Number(totalQuestionsRaw ?? 0) || 0);
 
     const statsByUserId = new Map(); // user_id -> { answered:Set, correct:number, lastAnsweredAt:string|null }
+    const attemptMetaByUserId = new Map(); // user_id -> { submitted_at:string|null, score:number, max_score:number }
     const safeChunkSize =
       totalQuestions > 0 ? Math.max(1, Math.min(500, Math.floor(9000 / totalQuestions))) : 500;
 
@@ -191,6 +202,29 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: msg || 'Falha ao carregar respostas' });
       }
 
+      const { data: attemptRows, error: attemptErr } = await admin
+        .from('quiz_attempts')
+        .select('user_id, submitted_at, score, max_score')
+        .in('user_id', ids)
+        .eq('challenge_id', challengeId)
+        .limit(10000);
+      if (attemptErr) {
+        const msg = String(attemptErr.message || '');
+        if (!/quiz_attempts/i.test(msg) || !/(does not exist|schema cache|relation)/i.test(msg)) {
+          return res.status(400).json({ error: msg || 'Falha ao carregar tentativas' });
+        }
+      } else {
+        for (const row of attemptRows || []) {
+          const uid = String(row?.user_id || '').trim();
+          if (!uid || !byUserId.has(uid)) continue;
+          attemptMetaByUserId.set(uid, {
+            submitted_at: row?.submitted_at ? String(row.submitted_at) : null,
+            score: Number(row?.score ?? 0) || 0,
+            max_score: Number(row?.max_score ?? 0) || 0,
+          });
+        }
+      }
+
       for (const row of answers || []) {
         const uid = String(row?.user_id || '').trim();
         const prof = byUserId.get(uid);
@@ -211,25 +245,62 @@ export default async function handler(req, res) {
     }
 
     const attempts = [];
-    for (const [uid, stat] of statsByUserId.entries()) {
+    const inProgress = [];
+    let participants = 0;
+
+    for (const uid of userIds) {
+      const stat = statsByUserId.get(uid) || { answered: new Set(), correct: 0, lastAnsweredAt: null };
+      const attemptMeta = attemptMetaByUserId.get(uid) || null;
       const prof = byUserId.get(uid);
       if (!prof) continue;
+
+      const answeredCount = Math.max(0, Number(stat?.answered?.size ?? 0) || 0);
       const score = Math.max(0, Number(stat?.correct ?? 0) || 0);
       const maxScore = totalQuestions;
+      const submittedAt = attemptMeta?.submitted_at || stat?.lastAnsweredAt || null;
+      const hasStarted =
+        answeredCount > 0 ||
+        Boolean(
+          attemptMeta?.submitted_at ||
+          Number(attemptMeta?.score ?? 0) > 0 ||
+          Number(attemptMeta?.max_score ?? 0) > 0,
+        );
+      const completedByAnswers = totalQuestions > 0 && answeredCount >= totalQuestions;
+      const isCompleted = isMilhao ? Boolean(attemptMeta?.submitted_at) || completedByAnswers : completedByAnswers;
+
+      if (hasStarted) participants += 1;
+      if (!hasStarted) continue;
+
+      if (!isCompleted) {
+        inProgress.push({
+          user_id: String(uid),
+          name: prof.name,
+          team_id: prof.team_id,
+          is_leader: prof.is_leader,
+          answeredQuestions: answeredCount,
+          totalQuestions,
+          progressPct: totalQuestions > 0 ? Math.round((answeredCount / totalQuestions) * 1000) / 10 : null,
+          lastAnsweredAt: submittedAt,
+          hadSubmittedAttempt: !isMilhao && Boolean(attemptMeta?.submitted_at),
+        });
+        continue;
+      }
+
       attempts.push({
         user_id: String(uid),
         name: prof.name,
         team_id: prof.team_id,
         is_leader: prof.is_leader,
-        submitted_at: stat?.lastAnsweredAt ? String(stat.lastAnsweredAt) : null,
+        submitted_at: submittedAt ? String(submittedAt) : null,
         score,
         max_score: maxScore,
         scorePct: toPct(score, maxScore),
       });
     }
 
-    const participants = new Set(attempts.map((a) => a.user_id)).size;
+    const completedUsers = attempts.length;
     const participationRate = eligibleProfiles.length > 0 ? Math.round((participants / eligibleProfiles.length) * 1000) / 10 : 0;
+    const completionRate = eligibleProfiles.length > 0 ? Math.round((completedUsers / eligibleProfiles.length) * 1000) / 10 : 0;
     const scorePcts = attempts.map((a) => a.scorePct).filter((v) => typeof v === 'number');
     const avgScorePct =
       scorePcts.length > 0 ? Math.round((scorePcts.reduce((acc, v) => acc + v, 0) / scorePcts.length) * 10) / 10 : null;
@@ -241,9 +312,16 @@ export default async function handler(req, res) {
     if (sort === 'submitted_desc') attempts.sort((a, b) => compareSubmitted(a, b) || compareScore(a, b));
     else if (sort === 'name_asc') attempts.sort(compareName);
     else attempts.sort(compareScore);
+    inProgress.sort(
+      (a, b) =>
+        (Number(b.answeredQuestions ?? 0) - Number(a.answeredQuestions ?? 0)) ||
+        String(b.lastAnsweredAt || '').localeCompare(String(a.lastAnsweredAt || ''), 'en') ||
+        compareName(a, b),
+    );
 
     return res.status(200).json({
       challengeId,
+      isMilhao,
       from,
       to,
       scope,
@@ -253,9 +331,12 @@ export default async function handler(req, res) {
       sort,
       eligibleUsers: eligibleProfiles.length,
       participants,
+      completedUsers,
       participationRate,
+      completionRate,
       avgScorePct,
       attempts,
+      inProgress,
       ...(includeEligible ? { eligible: eligibleProfiles } : {}),
     });
   } catch (e) {

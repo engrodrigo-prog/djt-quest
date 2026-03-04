@@ -12,7 +12,9 @@ export function QuizAnalytics({ challengeId }: { challengeId: string }) {
   const [data, setData] = useState<{
     eligibleUsers: number
     participants: number
+    completedUsers: number
     participationRate: number
+    completionRate: number
     attempts: Array<{
       user_id: string
       name: string
@@ -23,7 +25,7 @@ export function QuizAnalytics({ challengeId }: { challengeId: string }) {
       scorePct: number | null
       is_leader?: boolean
     }>
-  }>({ eligibleUsers: 0, participants: 0, participationRate: 0, attempts: [] })
+  }>({ eligibleUsers: 0, participants: 0, completedUsers: 0, participationRate: 0, completionRate: 0, attempts: [] })
 
   useEffect(() => {
     let mounted = true
@@ -40,7 +42,9 @@ export function QuizAnalytics({ challengeId }: { challengeId: string }) {
           setData({
             eligibleUsers: Number(json?.eligibleUsers ?? 0) || 0,
             participants: Number(json?.participants ?? 0) || 0,
+            completedUsers: Number(json?.completedUsers ?? 0) || 0,
             participationRate: Number(json?.participationRate ?? 0) || 0,
+            completionRate: Number(json?.completionRate ?? 0) || 0,
             attempts: Array.isArray(json?.attempts) ? json.attempts : [],
           })
         }
@@ -67,13 +71,15 @@ export function QuizAnalytics({ challengeId }: { challengeId: string }) {
     <Card>
       <CardHeader>
         <CardTitle>Aderência e notas</CardTitle>
-        <CardDescription>Participantes e pontuação por pessoa</CardDescription>
+        <CardDescription>Quem começou, quem concluiu e a pontuação apenas de quem terminou</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="flex flex-wrap gap-2 text-sm">
           <Badge variant="outline">Elegíveis: {data.eligibleUsers}</Badge>
-          <Badge variant="outline">Participantes: {data.participants}</Badge>
+          <Badge variant="outline">Iniciaram: {data.participants}</Badge>
+          <Badge variant="outline">Concluídos: {data.completedUsers}</Badge>
           <Badge variant="outline">Aderência: {data.participationRate}%</Badge>
+          <Badge variant="outline">Conclusão: {data.completionRate}%</Badge>
         </div>
         <Input
           placeholder="Buscar por nome ou equipe…"
@@ -83,7 +89,7 @@ export function QuizAnalytics({ challengeId }: { challengeId: string }) {
         <ScrollArea className="h-[360px] pr-3">
           <div className="space-y-2">
             {filtered.length === 0 ? (
-              <div className="text-sm text-muted-foreground">Sem notas registradas para este quiz.</div>
+              <div className="text-sm text-muted-foreground">Sem concluídos registrados para este quiz.</div>
             ) : filtered.map((row) => {
               const pct = typeof row.scorePct === 'number' ? Math.round(row.scorePct) : null
               const when = row.submitted_at ? new Date(row.submitted_at).toLocaleString(getActiveLocale()) : ''

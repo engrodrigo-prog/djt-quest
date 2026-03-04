@@ -29,6 +29,18 @@ type AttemptRow = {
   scorePct: number | null;
 };
 
+type InProgressRow = {
+  user_id: string;
+  name: string;
+  team_id: string | null;
+  is_leader?: boolean;
+  answeredQuestions: number;
+  totalQuestions: number;
+  progressPct: number | null;
+  lastAnsweredAt: string | null;
+  hadSubmittedAttempt?: boolean;
+};
+
 type EligibleRow = {
   id: string;
   name: string;
@@ -36,8 +48,18 @@ type EligibleRow = {
   is_leader: boolean;
 };
 
+type PendingRow = EligibleRow & {
+  answeredQuestions: number;
+  totalQuestions: number;
+  progressPct: number | null;
+  lastAnsweredAt: string | null;
+  inProgress: boolean;
+  hadSubmittedAttempt: boolean;
+};
+
 type AttemptsPayload = {
   challengeId: string;
+  isMilhao?: boolean;
   from?: string | null;
   to?: string | null;
   scope: Scope;
@@ -47,9 +69,12 @@ type AttemptsPayload = {
   sort: Sort;
   eligibleUsers: number;
   participants: number;
+  completedUsers: number;
   participationRate: number;
+  completionRate: number;
   avgScorePct: number | null;
   attempts: AttemptRow[];
+  inProgress: InProgressRow[];
   eligible?: EligibleRow[];
 };
 
@@ -238,6 +263,7 @@ export function QuizAnalyticsFull({ challengeId }: { challengeId: string }) {
   }, [challengeId, scope, effectiveScopeId, includeLeaders, includeGuests, from, to]);
 
   const attempts = useMemo(() => attemptsPayload?.attempts || [], [attemptsPayload?.attempts]);
+  const inProgress = useMemo(() => attemptsPayload?.inProgress || [], [attemptsPayload?.inProgress]);
   const eligible = useMemo(() => attemptsPayload?.eligible || [], [attemptsPayload?.eligible]);
 
   const attemptByUserId = useMemo(() => {
@@ -248,10 +274,31 @@ export function QuizAnalyticsFull({ challengeId }: { challengeId: string }) {
     return m;
   }, [attempts]);
 
-  const pending = useMemo(() => {
+  const inProgressByUserId = useMemo(() => {
+    const m = new Map<string, InProgressRow>();
+    for (const row of inProgress) {
+      if (row?.user_id) m.set(String(row.user_id), row);
+    }
+    return m;
+  }, [inProgress]);
+
+  const pending = useMemo<PendingRow[]>(() => {
     if (!eligible.length) return [];
-    return eligible.filter((e) => !attemptByUserId.has(String(e.id)));
-  }, [attemptByUserId, eligible]);
+    return eligible
+      .filter((e) => !attemptByUserId.has(String(e.id)))
+      .map((e) => {
+        const progress = inProgressByUserId.get(String(e.id));
+        return {
+          ...e,
+          answeredQuestions: Number(progress?.answeredQuestions ?? 0) || 0,
+          totalQuestions: Number(progress?.totalQuestions ?? 0) || 0,
+          progressPct: safePct(progress?.progressPct),
+          lastAnsweredAt: progress?.lastAnsweredAt || null,
+          inProgress: Boolean(progress),
+          hadSubmittedAttempt: Boolean(progress?.hadSubmittedAttempt),
+        };
+      });
+  }, [attemptByUserId, eligible, inProgressByUserId]);
 
   const filteredAttempts = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -282,14 +329,30 @@ export function QuizAnalyticsFull({ challengeId }: { challengeId: string }) {
   const teamRows = useMemo(() => {
     const stats = new Map<
       string,
-      { team_id: string; eligible: number; participants: number; participationRate: number; avgScorePct: number | null }
+      {
+        team_id: string;
+        eligible: number;
+        started: number;
+        completed: number;
+        participationRate: number;
+        completionRate: number;
+        avgScorePct: number | null;
+      }
     >();
 
     const ensure = (teamId: string) => {
       const k = teamId || '—';
       const got = stats.get(k);
       if (got) return got;
-      const row = { team_id: k, eligible: 0, participants: 0, participationRate: 0, avgScorePct: null as number | null };
+      const row = {
+        team_id: k,
+        eligible: 0,
+        started: 0,
+        completed: 0,
+        participationRate: 0,
+        completionRate: 0,
+        avgScorePct: null as number | null,
+      };
       stats.set(k, row);
       return row;
     };
@@ -302,7 +365,9 @@ export function QuizAnalyticsFull({ challengeId }: { challengeId: string }) {
     const byTeamSum = new Map<string, { sum: number; n: number }>();
     for (const a of attempts) {
       const teamId = a?.team_id ? String(a.team_id) : '—';
-      ensure(teamId).participants += 1;
+      const row = ensure(teamId);
+      row.started += 1;
+      row.completed += 1;
       const pct = safePct(a.scorePct);
       if (pct != null) {
         const agg = byTeamSum.get(teamId) || { sum: 0, n: 0 };
@@ -312,18 +377,30 @@ export function QuizAnalyticsFull({ challengeId }: { challengeId: string }) {
       }
     }
 
+    for (const row of inProgress) {
+      const teamId = row?.team_id ? String(row.team_id) : '—';
+      ensure(teamId).started += 1;
+    }
+
     const out = Array.from(stats.values()).map((r) => {
       const agg = byTeamSum.get(r.team_id === '—' ? '—' : r.team_id);
       const avg = agg && agg.n > 0 ? Math.round((agg.sum / agg.n) * 10) / 10 : null;
-      const pr = r.eligible > 0 ? Math.round((r.participants / r.eligible) * 1000) / 10 : 0;
-      return { ...r, avgScorePct: avg, participationRate: pr };
+      const pr = r.eligible > 0 ? Math.round((r.started / r.eligible) * 1000) / 10 : 0;
+      const cr = r.eligible > 0 ? Math.round((r.completed / r.eligible) * 1000) / 10 : 0;
+      return { ...r, avgScorePct: avg, participationRate: pr, completionRate: cr };
     });
 
     const q = teamFilter.trim().toLowerCase();
     const filtered = q ? out.filter((r) => String(r.team_id).toLowerCase().includes(q)) : out;
-    filtered.sort((a, b) => b.participationRate - a.participationRate || (Number(b.avgScorePct ?? -1) - Number(a.avgScorePct ?? -1)) || String(a.team_id).localeCompare(String(b.team_id), getActiveLocale()));
+    filtered.sort(
+      (a, b) =>
+        b.completionRate - a.completionRate ||
+        b.participationRate - a.participationRate ||
+        (Number(b.avgScorePct ?? -1) - Number(a.avgScorePct ?? -1)) ||
+        String(a.team_id).localeCompare(String(b.team_id), getActiveLocale()),
+    );
     return filtered;
-  }, [attempts, eligible, teamFilter]);
+  }, [attempts, eligible, inProgress, teamFilter]);
 
   const questionRows = useMemo(() => {
     const qs = questionUsage?.questions || [];
@@ -336,9 +413,9 @@ export function QuizAnalyticsFull({ challengeId }: { challengeId: string }) {
 
   const pendingCount = useMemo(() => {
     const total = Number(attemptsPayload?.eligibleUsers ?? 0) || 0;
-    const participants = Number(attemptsPayload?.participants ?? 0) || 0;
-    return Math.max(0, total - participants);
-  }, [attemptsPayload?.eligibleUsers, attemptsPayload?.participants]);
+    const completed = Number(attemptsPayload?.completedUsers ?? 0) || 0;
+    return Math.max(0, total - completed);
+  }, [attemptsPayload?.completedUsers, attemptsPayload?.eligibleUsers]);
   const answeredCountForSelectedUser = useMemo(
     () => (userDetail?.questions || []).filter((q) => q.selected_option_id).length,
     [userDetail?.questions],
@@ -384,7 +461,7 @@ export function QuizAnalyticsFull({ challengeId }: { challengeId: string }) {
             <div>
               <CardTitle>Aderência, notas e temas</CardTitle>
               <CardDescription>
-                Ranking por colaborador, visão por equipe e todas as perguntas do quiz para orientar capacitação
+                Ranking só com quem concluiu; quem deixou perguntas em aberto continua pendente até finalizar
               </CardDescription>
             </div>
             <div className="flex items-center gap-2">
@@ -511,9 +588,11 @@ export function QuizAnalyticsFull({ challengeId }: { challengeId: string }) {
 
           <div className="flex flex-wrap gap-2 text-sm">
             <Badge variant="outline">Elegíveis: {attemptsPayload?.eligibleUsers ?? '—'}</Badge>
-            <Badge variant="outline">Participantes: {attemptsPayload?.participants ?? '—'}</Badge>
+            <Badge variant="outline">Iniciaram: {attemptsPayload?.participants ?? '—'}</Badge>
+            <Badge variant="outline">Concluídos: {attemptsPayload?.completedUsers ?? '—'}</Badge>
             <Badge variant="outline">Pendentes: {attemptsPayload ? pendingCount : '—'}</Badge>
             <Badge variant="outline">Aderência: {attemptsPayload?.participationRate ?? '—'}%</Badge>
+            <Badge variant="outline">Conclusão: {attemptsPayload?.completionRate ?? '—'}%</Badge>
             <Badge variant="outline">Média (%): {attemptsPayload?.avgScorePct == null ? '—' : `${attemptsPayload.avgScorePct}%`}</Badge>
           </div>
         </CardHeader>
@@ -530,7 +609,7 @@ export function QuizAnalyticsFull({ challengeId }: { challengeId: string }) {
           <Card>
             <CardHeader>
               <CardTitle>Ranking por colaborador</CardTitle>
-              <CardDescription>Use o seletor para ver concluídos, pendentes ou tudo</CardDescription>
+              <CardDescription>Somente quem respondeu tudo entra no ranking; parciais ficam em pendentes</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               {!attemptsPayload ? (
@@ -733,7 +812,26 @@ export function QuizAnalyticsFull({ challengeId }: { challengeId: string }) {
                                           Líder
                                         </Badge>
                                       )}
+                                      {p.inProgress && (
+                                        <Badge variant="outline" className="text-[10px] flex-shrink-0">
+                                          Em andamento
+                                        </Badge>
+                                      )}
                                     </div>
+                                    {(p.inProgress || p.lastAnsweredAt) && (
+                                      <div className="mt-1 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+                                        {p.inProgress && p.totalQuestions > 0 ? (
+                                          <span>
+                                            {p.answeredQuestions}/{p.totalQuestions} respondidas
+                                            {p.progressPct != null ? ` • ${p.progressPct}%` : ''}
+                                          </span>
+                                        ) : null}
+                                        {p.lastAnsweredAt ? (
+                                          <span>{new Date(p.lastAnsweredAt).toLocaleString(getActiveLocale())}</span>
+                                        ) : null}
+                                        {p.hadSubmittedAttempt ? <span>Tentativa reaberta</span> : null}
+                                      </div>
+                                    )}
                                   </div>
                                   <Badge variant="outline" className="text-[10px] w-fit">
                                     {p.team_id ? `Equipe: ${p.team_id}` : 'Sem equipe'}
@@ -772,8 +870,8 @@ export function QuizAnalyticsFull({ challengeId }: { challengeId: string }) {
                         <TableRow>
                           <TableHead>Equipe</TableHead>
                           <TableHead className="text-right">Elegíveis</TableHead>
-                          <TableHead className="text-right">Participantes</TableHead>
-                          <TableHead className="text-right">Aderência</TableHead>
+                          <TableHead className="text-right">Início</TableHead>
+                          <TableHead className="text-right">Conclusão</TableHead>
                           <TableHead className="text-right">Média</TableHead>
                         </TableRow>
                       </TableHeader>
@@ -782,8 +880,8 @@ export function QuizAnalyticsFull({ challengeId }: { challengeId: string }) {
                           <TableRow key={r.team_id}>
                             <TableCell className="font-medium">{r.team_id}</TableCell>
                             <TableCell className="text-right">{r.eligible}</TableCell>
-                            <TableCell className="text-right">{r.participants}</TableCell>
-                            <TableCell className="text-right">{r.participationRate}%</TableCell>
+                            <TableCell className="text-right">{r.started} ({r.participationRate}%)</TableCell>
+                            <TableCell className="text-right">{r.completed} ({r.completionRate}%)</TableCell>
                             <TableCell className="text-right">{r.avgScorePct == null ? '—' : `${r.avgScorePct}%`}</TableCell>
                           </TableRow>
                         ))}
