@@ -46,7 +46,7 @@ export default async function handler(req, res) {
                 meta: { usedAI: false, reason: 'missing_api_key' },
             });
         }
-        const runner = mode === 'feedback' || mode === 'polish' ? polishPtBrStrings : proofreadPtBrStrings;
+        const runner = mode === 'feedback' || mode === 'polish' || mode === 'sepbook' ? polishPtBrStrings : proofreadPtBrStrings;
         const { output, usedModel } = await runner({
             openaiKey: OPENAI_API_KEY,
             model: OPENAI_TEXT_MODEL,

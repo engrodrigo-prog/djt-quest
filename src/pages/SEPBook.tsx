@@ -792,6 +792,7 @@ export default function SEPBook() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          mode: "polish",
           title: "Comentário SEPBook",
           description: text,
           language: localeToOpenAiLanguageTag(getActiveLocale()),
@@ -832,6 +833,7 @@ export default function SEPBook() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          mode: "polish",
           title: "Comentário SEPBook",
           description: text,
           language: localeToOpenAiLanguageTag(getActiveLocale()),
@@ -1134,7 +1136,12 @@ export default function SEPBook() {
       const resp = await apiFetch("/api/ai?handler=cleanup-text", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: "Publicação SEPBook", description: text, language: localeToOpenAiLanguageTag(getActiveLocale()) }),
+        body: JSON.stringify({
+          mode: "polish",
+          title: "Publicação SEPBook",
+          description: text,
+          language: localeToOpenAiLanguageTag(getActiveLocale()),
+        }),
       });
       const j = await resp.json().catch(() => ({}));
       const usedAI = j?.meta?.usedAI !== false;
@@ -1147,11 +1154,11 @@ export default function SEPBook() {
       }
       const cleaned = String(j.cleaned.description || text).trim();
       if (cleaned === text) {
-        toast({ title: "Nenhuma correção necessária", description: "Não encontrei ajustes de ortografia/pontuação para fazer.", variant: "default" });
+        toast({ title: "Nenhuma correção necessária", description: "Não encontrei melhorias relevantes para aplicar sem mudar sua mensagem.", variant: "default" });
         return;
       }
       setContent(cleaned);
-      toast({ title: "Texto revisado", description: "Ortografia e pontuação ajustadas, conteúdo preservado." });
+      toast({ title: "Texto revisado", description: "Ortografia corrigida e texto levemente aprimorado, sem mudar o conteúdo." });
     } catch (e: any) {
       toast({ title: "Não foi possível revisar agora", description: e?.message || "Tente novamente mais tarde.", variant: "destructive" });
     } finally {
@@ -1365,7 +1372,12 @@ export default function SEPBook() {
   const cleanPostWithIA = async (post: SepPost) => {
     setCleaningPostId(post.id);
     try {
-      const body = { title: "Publicação SEPBook", description: post.content_md, language: localeToOpenAiLanguageTag(getActiveLocale()) };
+      const body = {
+        mode: "polish",
+        title: "Publicação SEPBook",
+        description: post.content_md,
+        language: localeToOpenAiLanguageTag(getActiveLocale()),
+      };
       const resp = await apiFetch("/api/ai?handler=cleanup-text", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1382,7 +1394,7 @@ export default function SEPBook() {
       const trimmedCleaned = String(cleaned).trim();
       const trimmedOriginal = String(post.content_md || "").trim();
       if (trimmedCleaned === trimmedOriginal) {
-        toast({ title: "Nenhuma correção necessária", description: "Não encontrei ajustes de ortografia/pontuação para fazer.", variant: "default" });
+        toast({ title: "Nenhuma correção necessária", description: "Não encontrei melhorias relevantes para aplicar sem mudar sua mensagem.", variant: "default" });
         return;
       }
 
@@ -1591,7 +1603,7 @@ export default function SEPBook() {
                 </div>
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                   <p className="text-xs text-white/80">
-                    Você pode digitar ou falar sua publicação. Use a varinha para revisar ortografia e pontuação.
+                    Você pode digitar ou falar sua publicação. Use a varinha para corrigir ortografia e melhorar levemente o texto.
                   </p>
                   <div className="flex flex-wrap items-center gap-2">
                     <VoiceRecorderButton
@@ -1608,7 +1620,7 @@ export default function SEPBook() {
                       className="h-7 w-7"
                       onClick={handleCleanupContent}
                       disabled={cleaning}
-                      title="Revisar ortografia e pontuação (sem mudar conteúdo)"
+                      title="Corrigir ortografia e melhorar levemente o texto (sem mudar conteúdo)"
                     >
                       <Wand2 className="h-4 w-4" />
                     </Button>
@@ -2012,7 +2024,7 @@ export default function SEPBook() {
                 {editingId === p.id ? (
                   <div className="space-y-2">
                     <div className="flex items-center justify-between text-[11px] text-slate-300">
-                      <span>Use a varinha para revisar o texto desta publicação.</span>
+                      <span>Use a varinha para corrigir ortografia e melhorar levemente o texto desta publicação.</span>
                       <Button
                         type="button"
                         size="icon"
@@ -2025,7 +2037,12 @@ export default function SEPBook() {
                             const resp = await apiFetch("/api/ai?handler=cleanup-text", {
                               method: "POST",
                               headers: { "Content-Type": "application/json" },
-                              body: JSON.stringify({ title: "Publicação SEPBook (edição)", description: source, language: localeToOpenAiLanguageTag(getActiveLocale()) }),
+                              body: JSON.stringify({
+                                mode: "polish",
+                                title: "Publicação SEPBook (edição)",
+                                description: source,
+                                language: localeToOpenAiLanguageTag(getActiveLocale()),
+                              }),
                             });
                             const j = await resp.json().catch(() => ({}));
                             const cleaned = j?.cleaned?.description;
@@ -2037,16 +2054,16 @@ export default function SEPBook() {
                             }
                             const next = String(cleaned).trim();
                             if (next === source) {
-                              toast({ title: "Nenhuma correção necessária", description: "Não encontrei ajustes de ortografia/pontuação para fazer.", variant: "default" });
+                              toast({ title: "Nenhuma correção necessária", description: "Não encontrei melhorias relevantes para aplicar sem mudar sua mensagem.", variant: "default" });
                               return;
                             }
                             setEditingText(next);
-                            toast({ title: "Texto revisado", description: "Ortografia e pontuação ajustadas, conteúdo preservado." });
+                            toast({ title: "Texto revisado", description: "Ortografia corrigida e texto levemente aprimorado, sem mudar o conteúdo." });
                           } catch (e: any) {
                             toast({ title: "Não foi possível revisar agora", description: e?.message || "Tente novamente mais tarde.", variant: "destructive" });
                           }
                         }}
-                        title="Revisar ortografia e pontuação (sem mudar conteúdo)"
+                        title="Corrigir ortografia e melhorar levemente o texto (sem mudar conteúdo)"
                       >
                         <Wand2 className="h-4 w-4" />
                       </Button>

@@ -62,6 +62,74 @@ const isSafeOrthographicCorrection = (input: string, output: string) => {
   return dist <= allowed && lengthOk;
 };
 
+const collectCriticalTokens = (s: string) => {
+  const text = String(s ?? '');
+  const unique = (arr: string[]) => Array.from(new Set(arr.filter(Boolean)));
+  const acronyms = Array.from(text.matchAll(/\b[A-Z]{2,}(?:-[A-Z0-9]{1,})*\b/g)).map((m) => m[0]);
+  const numbers = Array.from(text.matchAll(/\b\d+(?:[.,]\d+)?\b/g)).map((m) => m[0]);
+  const structuredMentions = Array.from(text.matchAll(/@\[[^\]]+\]\([^)]+\)/g)).map((m) => m[0]);
+  const mentions = Array.from(text.matchAll(/(^|[^\p{L}\p{N}_])(@[\p{L}\p{N}_.-]+)/gu)).map((m) => m[2]);
+  const hashtags = Array.from(text.matchAll(/(^|[^\p{L}\p{N}_])(#[\p{L}\p{N}_-]+)/gu)).map((m) => m[2]);
+  const urls = Array.from(text.matchAll(/https?:\/\/\S+/g)).map((m) => m[0]);
+  const markdownLinks = Array.from(text.matchAll(/\[[^\]]+\]\([^)]+\)/g)).map((m) => m[0]);
+  return {
+    acronyms: unique(acronyms),
+    numbers: unique(numbers),
+    structuredMentions: unique(structuredMentions),
+    mentions: unique(mentions),
+    hashtags: unique(hashtags),
+    urls: unique(urls),
+    markdownLinks: unique(markdownLinks),
+  };
+};
+
+const preservesCriticalTokens = (input: string, output: string) => {
+  const critical = collectCriticalTokens(input);
+  const out = String(output ?? '');
+  for (const tok of critical.acronyms) {
+    if (!out.includes(tok)) return false;
+  }
+  for (const tok of critical.numbers) {
+    if (!out.includes(tok)) return false;
+  }
+  for (const tok of critical.structuredMentions) {
+    if (!out.includes(tok)) return false;
+  }
+  for (const tok of critical.mentions) {
+    if (!out.includes(tok)) return false;
+  }
+  for (const tok of critical.hashtags) {
+    if (!out.includes(tok)) return false;
+  }
+  for (const tok of critical.urls) {
+    if (!out.includes(tok)) return false;
+  }
+  for (const tok of critical.markdownLinks) {
+    if (!out.includes(tok)) return false;
+  }
+  return true;
+};
+
+const isSafePolish = (input: string, output: string) => {
+  const inS = String(input ?? '');
+  const outS = String(output ?? '');
+  if (!inS.trim() && !outS.trim()) return true;
+  if (inS.trim() && !outS.trim()) return false;
+  if (inS === outS) return true;
+
+  const inN = baseNormalize(inS);
+  const outN = baseNormalize(outS);
+  if (!inN && !outN) return true;
+  if (inN && !outN) return false;
+  if (inN === outN) return preservesCriticalTokens(inS, outS);
+
+  const dist = levenshtein(inN, outN);
+  const maxLen = Math.max(inN.length, outN.length);
+  const allowed = Math.min(36, Math.max(6, Math.ceil(maxLen * 0.22)));
+  const lengthOk = Math.abs(inS.length - outS.length) <= Math.ceil(inS.length * 0.6) + 12;
+  return dist <= allowed && lengthOk && preservesCriticalTokens(inS, outS);
+};
+
 const extractJson = (content: string) => {
   const s = String(content || '');
   const start = s.indexOf('{');
@@ -175,6 +243,102 @@ Retorne APENAS JSON válido: {"strings": ["...","..."]} mantendo o mesmo número
   const safe = inputStrings.map((orig, idx) => {
     const candidate = out[idx] ?? orig;
     return isSafeOrthographicCorrection(orig, candidate) ? candidate : orig;
+  });
+
+  return { output: safe, usedModel: model };
+}
+
+export async function polishPtBrStrings(params: {
+  openaiKey?: string;
+  strings: string[];
+  model?: string;
+}): Promise<ProofreadResult> {
+  const openaiKey = params.openaiKey || process.env.OPENAI_API_KEY || '';
+  const inputStrings = (params.strings || []).map((s) => String(s ?? ''));
+  if (!openaiKey) return { output: inputStrings };
+  if (!inputStrings.length) return { output: inputStrings };
+
+  const totalChars = inputStrings.reduce((sum, s) => sum + s.length, 0);
+  if (totalChars > 18_000 || inputStrings.length > 40) {
+    return { output: inputStrings };
+  }
+
+  const model = normalizeChatModel(
+    params.model ||
+      process.env.OPENAI_MODEL_FAST ||
+      process.env.OPENAI_TEXT_MODEL ||
+      process.env.OPENAI_MODEL_PREMIUM ||
+      'gpt-5-2025-08-07',
+    'gpt-5-2025-08-07',
+  );
+
+  const system = `Você é um revisor de texto em PT-BR.
+Sua tarefa:
+- Corrigir ortografia, acentuação e pontuação.
+- Melhorar levemente clareza e fluidez, sem mudar o teor nem o conteúdo.
+Regras rígidas:
+- Pode reorganizar frases curtas e ajustar conectivos, mas sem expandir, resumir ou trocar a mensagem.
+- NÃO mude o sentido, NÃO adicione fatos, NÃO invente detalhes.
+- Preserve termos técnicos, siglas (ex.: CPFL, SEP, NR-10), códigos, números, unidades, nomes próprios, hashtags, menções e links.
+- Se houver dúvida, devolva o texto exatamente como entrou.
+Retorne APENAS JSON válido: {"strings": ["...","..."]} mantendo o mesmo número de itens.`;
+
+  const user = {
+    role: 'user',
+    content: JSON.stringify({ strings: inputStrings }),
+  };
+
+  const useResponses = /^gpt-5/i.test(String(model));
+  let content = '';
+
+  if (useResponses) {
+    const resp = await fetch('https://api.openai.com/v1/responses', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${openaiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        input: [
+          { role: 'system', content: [{ type: 'input_text', text: system }] },
+          { role: 'user', content: [{ type: 'input_text', text: user.content }] },
+        ],
+        text: { verbosity: 'low' },
+        reasoning: { effort: 'low' },
+        max_output_tokens: 1400,
+      }),
+    });
+    if (!resp.ok) return { output: inputStrings };
+    const json = await resp.json().catch(() => null);
+    content = collectOutputText(json) || '';
+  } else {
+    const body: Record<string, any> = {
+      model,
+      messages: [{ role: 'system', content: system }, user],
+    };
+    if (/^gpt-5/i.test(String(model))) body.max_completion_tokens = 2000;
+    else body.max_tokens = 2000;
+    const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${openaiKey}`,
+      },
+      body: JSON.stringify(body),
+    });
+    if (!resp.ok) return { output: inputStrings };
+    const json = await resp.json().catch(() => null);
+    content = json?.choices?.[0]?.message?.content || '';
+  }
+
+  const parsed = extractJson(content || '');
+  const out = Array.isArray(parsed?.strings) ? parsed.strings.map((s: any) => String(s ?? '')) : null;
+  if (!out || out.length !== inputStrings.length) return { output: inputStrings, usedModel: model };
+
+  const safe = inputStrings.map((orig, idx) => {
+    const candidate = out[idx] ?? orig;
+    return isSafePolish(orig, candidate) ? candidate : orig;
   });
 
   return { output: safe, usedModel: model };

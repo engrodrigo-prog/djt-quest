@@ -3,7 +3,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 
 import { loadLocalEnvIfNeeded } from '../lib/load-local-env.js';
 import { normalizeChatModel } from '../lib/openai-models.js';
-import { proofreadPtBrStrings } from '../lib/ai-proofread-ptbr.js';
+import { polishPtBrStrings, proofreadPtBrStrings } from '../lib/ai-proofread-ptbr.js';
 
 loadLocalEnvIfNeeded();
 
@@ -25,11 +25,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   let safeTitle = '[sem título]';
   let safeDescription = '';
   let language = 'pt-BR';
+  let mode = 'proofread';
 
   try {
     const input = (req.body || {}) as any;
     const rawTitle = input.title;
     const rawDescription = input.description;
+    mode =
+      typeof input.mode === 'string' && input.mode.trim()
+        ? input.mode.trim().toLowerCase()
+        : 'proofread';
     language = typeof input.language === 'string' && input.language.trim() ? input.language : 'pt-BR';
 
     safeTitle = typeof rawTitle === 'string' && rawTitle.trim() ? rawTitle : '[sem título]';
@@ -45,7 +50,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
-    const { output, usedModel } = await proofreadPtBrStrings({
+    const runner = mode === 'feedback' || mode === 'polish' || mode === 'sepbook' ? polishPtBrStrings : proofreadPtBrStrings;
+    const { output, usedModel } = await runner({
       openaiKey: OPENAI_API_KEY,
       model: OPENAI_TEXT_MODEL,
       strings: [safeTitle, safeDescription],
@@ -57,7 +63,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         title: String(nextTitle || safeTitle).trim(),
         description: String(nextDescription || safeDescription).trim(),
       },
-      meta: { usedAI: Boolean(usedModel), model: usedModel || OPENAI_TEXT_MODEL, language },
+      meta: { usedAI: Boolean(usedModel), model: usedModel || OPENAI_TEXT_MODEL, language, mode },
     });
   } catch (err: any) {
     return res.status(200).json({
@@ -65,7 +71,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         title: safeTitle.trim(),
         description: safeDescription.trim(),
       },
-      meta: { usedAI: false, reason: err?.message || 'unknown' },
+      meta: { usedAI: false, reason: err?.message || 'unknown', mode },
     });
   }
 }

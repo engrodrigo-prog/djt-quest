@@ -58,20 +58,47 @@ const isSafeOrthographicCorrection = (input, output) => {
 
 const collectCriticalTokens = (s) => {
   const text = String(s ?? '');
+  const structuredMentions = Array.from(text.matchAll(/@\[[^\]]+\]\([^)]+\)/g)).map((m) => m[0]);
+  const mentions = Array.from(text.matchAll(/(^|[^\p{L}\p{N}_])(@[\p{L}\p{N}_.-]+)/gu)).map((m) => m[2]);
+  const hashtags = Array.from(text.matchAll(/(^|[^\p{L}\p{N}_])(#[\p{L}\p{N}_-]+)/gu)).map((m) => m[2]);
+  const urls = Array.from(text.matchAll(/https?:\/\/\S+/g)).map((m) => m[0]);
+  const markdownLinks = Array.from(text.matchAll(/\[[^\]]+\]\([^)]+\)/g)).map((m) => m[0]);
   const acronyms = Array.from(text.matchAll(/\b[A-Z]{2,}(?:-[A-Z0-9]{1,})*\b/g)).map((m) => m[0]);
   const numbers = Array.from(text.matchAll(/\b\d+(?:[.,]\d+)?\b/g)).map((m) => m[0]);
   const unique = (arr) => Array.from(new Set(arr.filter(Boolean)));
-  return { acronyms: unique(acronyms), numbers: unique(numbers) };
+  return {
+    acronyms: unique(acronyms),
+    numbers: unique(numbers),
+    structuredMentions: unique(structuredMentions),
+    mentions: unique(mentions),
+    hashtags: unique(hashtags),
+    urls: unique(urls),
+    markdownLinks: unique(markdownLinks),
+  };
 };
 
 const preservesCriticalTokens = (input, output) => {
   const a = collectCriticalTokens(input);
   const out = String(output ?? '');
-  // Preserve acronyms/siglas and numbers (avoid changing meaning of NR-10, 13.8kV, etc).
   for (const tok of a.acronyms) {
     if (!out.includes(tok)) return false;
   }
   for (const tok of a.numbers) {
+    if (!out.includes(tok)) return false;
+  }
+  for (const tok of a.structuredMentions) {
+    if (!out.includes(tok)) return false;
+  }
+  for (const tok of a.mentions) {
+    if (!out.includes(tok)) return false;
+  }
+  for (const tok of a.hashtags) {
+    if (!out.includes(tok)) return false;
+  }
+  for (const tok of a.urls) {
+    if (!out.includes(tok)) return false;
+  }
+  for (const tok of a.markdownLinks) {
     if (!out.includes(tok)) return false;
   }
   return true;
@@ -233,13 +260,14 @@ export async function polishPtBrStrings(params) {
     'gpt-5-2025-08-07',
   );
 
-  const system = `Você é um revisor de texto em PT-BR focado em feedback profissional.
+  const system = `Você é um revisor de texto em PT-BR.
 Sua tarefa:
 - Corrigir ortografia, acentuação e pontuação.
-- Melhorar levemente clareza e objetividade (reorganizar frases, remover repetição, ajustar conectivos).
+- Melhorar levemente clareza e fluidez, sem mudar o teor nem o conteúdo.
 Regras rígidas:
-- NÃO mude o sentido, NÃO adicione fatos, NÃO invente detalhes, NÃO inclua elogios/genéricos extras.
-- Preserve termos técnicos, siglas (ex.: CPFL, SEP, NR-10), códigos, números, unidades e nomes próprios.
+- Pode reorganizar frases curtas e ajustar conectivos, mas sem expandir, resumir ou trocar a mensagem.
+- NÃO mude o sentido, NÃO adicione fatos, NÃO invente detalhes.
+- Preserve termos técnicos, siglas (ex.: CPFL, SEP, NR-10), códigos, números, unidades, nomes próprios, hashtags, menções e links.
 - Se houver dúvida, devolva o texto exatamente como entrou.
 Retorne APENAS JSON válido: {"strings": ["...","..."]} mantendo o mesmo número de itens.`;
 
