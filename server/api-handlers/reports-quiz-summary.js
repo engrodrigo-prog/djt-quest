@@ -2,6 +2,7 @@ import { createSupabaseAdminClient, requireCallerUser } from '../lib/supabase-ad
 import { rolesToSet } from '../lib/rbac.js';
 
 const STAFF_ROLES = new Set(['admin', 'gerente_djt', 'gerente_divisao_djtx', 'coordenador_djtx']);
+const ALLOWED_ROLES = new Set(['lider_equipe', 'content_curator', ...Array.from(STAFF_ROLES)]);
 
 const toIsoStart = (d) => new Date(`${d}T00:00:00.000Z`).toISOString();
 const toIsoEnd = (d) => new Date(`${d}T23:59:59.999Z`).toISOString();
@@ -67,23 +68,28 @@ export default async function handler(req, res) {
 
     const { data: profile } = await admin
       .from('profiles')
-      .select('id, team_id, coord_id, division_id, is_leader')
+      .select('id, team_id, coord_id, division_id, is_leader, studio_access')
       .eq('id', caller.id)
       .maybeSingle();
 
-    const from = getDateParam(req, 'from') || new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString().slice(0, 10);
-    const to = getDateParam(req, 'to') || new Date().toISOString().slice(0, 10);
+    const isAllowedRole = Array.from(roleSet).some((r) => ALLOWED_ROLES.has(r));
+    const allowed = Boolean(profile?.studio_access) || Boolean(profile?.is_leader) || isAllowedRole;
+    const canUseGlobalScope = isStaff || Boolean(profile?.is_leader) || roleSet.has('lider_equipe');
+    if (!allowed) return res.status(403).json({ error: 'Forbidden' });
+
+    const from = getDateParam(req, 'from');
+    const to = getDateParam(req, 'to');
     const includeLeaders = getStrParam(req, 'includeLeaders') === '1';
     const includeGuests = getStrParam(req, 'includeGuests') === '1';
 
-    const scope = getStrParam(req, 'scope') || 'team';
+    const scope = getStrParam(req, 'scope') || (canUseGlobalScope ? 'all' : 'team');
     const scopeId = getStrParam(req, 'scopeId');
     const allowedScopeIds = new Set([profile?.team_id, profile?.coord_id, profile?.division_id].filter(Boolean));
 
     const normalizedScope =
       scope === 'team' || scope === 'coord' || scope === 'division' || scope === 'all' ? scope : 'team';
 
-    if (normalizedScope === 'all' && !isStaff) {
+    if (normalizedScope === 'all' && !canUseGlobalScope) {
       return res.status(403).json({ error: 'Forbidden' });
     }
 
@@ -99,9 +105,15 @@ export default async function handler(req, res) {
     if (normalizedScope !== 'all' && !effectiveScopeId) {
       return res.status(400).json({ error: 'scopeId required for this scope' });
     }
-    if (!isStaff && normalizedScope !== 'team') {
-      // Líderes: restringe ao que o perfil possui
+    if (!canUseGlobalScope && normalizedScope !== 'team') {
+      // Usuários sem escopo global ficam restritos aos IDs presentes no próprio perfil.
       if (!allowedScopeIds.has(effectiveScopeId)) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+    }
+    if (!canUseGlobalScope && normalizedScope === 'team') {
+      const effectiveTeam = effectiveScopeId || '';
+      if (effectiveTeam && profile?.team_id && String(profile.team_id) !== String(effectiveTeam)) {
         return res.status(403).json({ error: 'Forbidden' });
       }
     }
@@ -133,8 +145,8 @@ export default async function handler(req, res) {
 
     if (userIds.length === 0) {
       return res.status(200).json({
-        from,
-        to,
+        from: from || null,
+        to: to || null,
         scope: normalizedScope,
         scopeId: effectiveScopeId || null,
         includeLeaders,
@@ -148,8 +160,8 @@ export default async function handler(req, res) {
       });
     }
 
-    const fromIso = toIsoStart(from);
-    const toIso = toIsoEnd(to);
+    const fromIso = from ? toIsoStart(from) : null;
+    const toIso = to ? toIsoEnd(to) : null;
 
     // 2) Buscar tentativas concluídas dentro do período (por lotes, para respeitar limite do IN)
     // Observação: usamos o score/max_score do quiz_attempts (muito mais leve que varrer user_quiz_answers).
@@ -163,16 +175,17 @@ export default async function handler(req, res) {
     for (let i = 0; i < userIdChunks.length; i += concurrency) {
       const slice = userIdChunks.slice(i, i + concurrency);
       const results = await Promise.all(
-        slice.map((ids) =>
-          admin
+        slice.map((ids) => {
+          let attemptsQuery = admin
             .from('quiz_attempts')
             .select('user_id, challenge_id, submitted_at, score, max_score')
             .in('user_id', ids)
             .not('submitted_at', 'is', null)
-            .gte('submitted_at', fromIso)
-            .lte('submitted_at', toIso)
-            .limit(5000),
-        ),
+            .limit(5000);
+          if (fromIso) attemptsQuery = attemptsQuery.gte('submitted_at', fromIso);
+          if (toIso) attemptsQuery = attemptsQuery.lte('submitted_at', toIso);
+          return attemptsQuery;
+        }),
       );
 
       for (const r of results) {
@@ -240,8 +253,8 @@ export default async function handler(req, res) {
     const quizIds = Array.from(quizzesMeta.keys());
     if (quizIds.length === 0) {
       return res.status(200).json({
-        from,
-        to,
+        from: from || null,
+        to: to || null,
         scope: normalizedScope,
         scopeId: effectiveScopeId || null,
         includeLeaders,
@@ -352,8 +365,8 @@ export default async function handler(req, res) {
     const participationRate = eligibleUsers > 0 ? Math.round((participants / eligibleUsers) * 1000) / 10 : 0;
 
     return res.status(200).json({
-      from,
-      to,
+      from: from || null,
+      to: to || null,
       scope: normalizedScope,
       scopeId: effectiveScopeId || null,
       includeLeaders,

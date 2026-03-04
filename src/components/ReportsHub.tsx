@@ -50,8 +50,8 @@ type UserRow = {
 };
 
 type QuizSummary = {
-  from: string;
-  to: string;
+  from: string | null;
+  to: string | null;
   scope: Scope;
   scopeId: string | null;
   includeLeaders: boolean;
@@ -98,6 +98,12 @@ type QuestionUsage = {
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 const monthStartIso = () => new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10);
+const formatPeriodLabel = (from?: string | null, to?: string | null) => {
+  if (from && to) return `${from}-a-${to}`;
+  if (from) return `${from}-em-diante`;
+  if (to) return `ate-${to}`;
+  return 'periodo-completo';
+};
 
 function downloadCsv(filename: string, rows: Array<Record<string, any>>) {
   const headers = Object.keys(rows[0] || {});
@@ -118,24 +124,30 @@ function downloadCsv(filename: string, rows: Array<Record<string, any>>) {
 
 export function ReportsHub() {
   const { orgScope, userRole } = useAuth() as any;
+  const canAll = userRole === 'admin' || String(userRole || '').includes('gerente') || String(userRole || '').includes('coordenador');
   const [tab, setTab] = useState<'quizzes' | 'questions' | 'access'>('quizzes');
-  const [scope, setScope] = useState<Scope>('team');
+  const [scope, setScope] = useState<Scope>(() => (canAll ? 'all' : 'team'));
   const [scopeId, setScopeId] = useState<string>('');
-  const [includeLeaders, setIncludeLeaders] = useState(false);
+  const [includeLeaders, setIncludeLeaders] = useState(true);
   const [includeGuests, setIncludeGuests] = useState(false);
-  const [from, setFrom] = useState<string>(monthStartIso());
-  const [to, setTo] = useState<string>(todayIso());
+  const [from, setFrom] = useState<string>('');
+  const [to, setTo] = useState<string>('');
 
   const [quizSummary, setQuizSummary] = useState<QuizSummary | null>(null);
   const [accessSummary, setAccessSummary] = useState<AccessSummary | null>(null);
   const [loading, setLoading] = useState(false);
   const [userSearch, setUserSearch] = useState('');
 
-  const canAll = userRole === 'admin' || String(userRole || '').includes('gerente') || String(userRole || '').includes('coordenador');
+  useEffect(() => {
+    if (!canAll) return;
+    setScope((current) => (current === 'team' ? 'all' : current));
+  }, [canAll]);
 
   useEffect(() => {
-    const defaultScopeId = scope === 'team' ? orgScope?.teamId : scope === 'coord' ? orgScope?.coordId : orgScope?.divisionId;
+    const defaultScopeId =
+      scope === 'team' ? orgScope?.teamId : scope === 'coord' ? orgScope?.coordId : scope === 'division' ? orgScope?.divisionId : null;
     if (defaultScopeId) setScopeId(String(defaultScopeId));
+    else setScopeId('');
   }, [orgScope?.coordId, orgScope?.divisionId, orgScope?.teamId, scope]);
 
   const scopeOptions = useMemo(() => {
@@ -153,8 +165,8 @@ export function ReportsHub() {
     setLoading(true);
     try {
       const qs = new URLSearchParams();
-      qs.set('from', from);
-      qs.set('to', to);
+      if (from) qs.set('from', from);
+      if (to) qs.set('to', to);
       qs.set('scope', scope);
       if (scope !== 'all') qs.set('scopeId', scopeId);
       qs.set('includeLeaders', includeLeaders ? '1' : '0');
@@ -283,22 +295,22 @@ export function ReportsHub() {
             <h2 className="text-3xl font-bold text-blue-50 mb-1">Relatórios</h2>
             <TipDialogButton tipId="studio-reports" ariaLabel="Entenda o hub de Relatórios" className="inline-flex items-center justify-center rounded-full border border-white/20 bg-black/20 p-1 text-blue-100/80 hover:bg-black/30 hover:text-blue-50" />
           </div>
-          <p className="text-blue-100/80">Acompanhe quizzes e acessos com filtros por período</p>
+          <p className="text-blue-100/80">Acompanhe quizzes e acessos; em quizzes, o período pode ficar em branco</p>
         </div>
       </div>
 
       <Card>
         <CardHeader>
           <CardTitle>Filtros</CardTitle>
-          <CardDescription>Feche o mês (dia 1 → hoje) ou compare períodos</CardDescription>
+          <CardDescription>Em quizzes, deixe as datas vazias para ver todo o histórico; aplique filtros só quando precisar</CardDescription>
         </CardHeader>
         <CardContent className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div className="space-y-2">
-            <Label>Período (início)</Label>
+            <Label>Período (início, opcional)</Label>
             <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
           </div>
           <div className="space-y-2">
-            <Label>Período (fim)</Label>
+            <Label>Período (fim, opcional)</Label>
             <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
           </div>
           <div className="space-y-2">
@@ -322,6 +334,9 @@ export function ReportsHub() {
               <Button type="button" variant="outline" onClick={() => { setFrom(monthStartIso()); setTo(todayIso()); }}>
                 Mês atual
               </Button>
+              <Button type="button" variant="outline" onClick={() => { setFrom(''); setTo(''); }}>
+                Tudo
+              </Button>
               <Button type="button" onClick={() => { if (tab === 'access') fetchAccessSummary(); else fetchQuizSummary(); }} disabled={loading}>
                 {loading ? 'Carregando...' : 'Atualizar'}
               </Button>
@@ -332,7 +347,7 @@ export function ReportsHub() {
               <div className="flex items-center gap-2">
                 <Switch id="include-leaders" checked={includeLeaders} onCheckedChange={setIncludeLeaders} />
                 <Label htmlFor="include-leaders" className="text-sm text-muted-foreground">
-                  Incluir líderes nos cálculos (por padrão, exclui)
+                  Incluir líderes nos cálculos
                 </Label>
               </div>
               <div className="flex items-center gap-2">
@@ -394,7 +409,7 @@ export function ReportsHub() {
                     tentativas: q.attempts,
                     media_pct: q.avgScorePct ?? '',
                   }));
-                  if (rows.length) downloadCsv(`relatorio-quizzes-${from}-a-${to}.csv`, rows);
+                  if (rows.length) downloadCsv(`relatorio-quizzes-${formatPeriodLabel(from, to)}.csv`, rows);
                 }}
                 disabled={!quizSummary?.quizzes?.length}
               >
@@ -455,7 +470,7 @@ export function ReportsHub() {
                     aderencia_pct: t.participationRate,
                     media_pct: t.avgScorePct ?? '',
                   }));
-                  if (rows.length) downloadCsv(`relatorio-chas-${from}-a-${to}.csv`, rows);
+                  if (rows.length) downloadCsv(`relatorio-chas-${formatPeriodLabel(from, to)}.csv`, rows);
                 }}
                 disabled={!themes.length}
               >
@@ -539,7 +554,7 @@ export function ReportsHub() {
                       S_quizzes: u.byChas?.S?.completedQuizzes ?? 0,
                       S_media_pct: u.byChas?.S?.avgScorePct ?? '',
                     }));
-                    if (rows.length) downloadCsv(`relatorio-notas-${from}-a-${to}.csv`, rows);
+                    if (rows.length) downloadCsv(`relatorio-notas-${formatPeriodLabel(from, to)}.csv`, rows);
                   }}
                   disabled={!filteredUsers.length}
                 >

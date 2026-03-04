@@ -83,14 +83,15 @@ function safePct(n: number | null | undefined) {
 }
 
 export function QuizAnalyticsFull({ challengeId }: { challengeId: string }) {
-  const { orgScope, userRole, profile } = useAuth() as any;
+  const { orgScope, userRole, profile, isLeader } = useAuth() as any;
+  const canAll = Boolean(isLeader) || userRole === 'admin' || String(userRole || '').includes('gerente') || String(userRole || '').includes('coordenador');
 
   const [tab, setTab] = useState<'people' | 'teams' | 'questions'>('teams');
   const [loading, setLoading] = useState(false);
 
-  const [scope, setScope] = useState<Scope>('team');
+  const [scope, setScope] = useState<Scope>(() => (canAll ? 'all' : 'team'));
   const [scopeId, setScopeId] = useState<string>('');
-  const [includeLeaders, setIncludeLeaders] = useState(false);
+  const [includeLeaders, setIncludeLeaders] = useState(true);
   const [includeGuests, setIncludeGuests] = useState(false);
   const [sort, setSort] = useState<Sort>('score_desc');
   const [from, setFrom] = useState<string>('');
@@ -102,8 +103,6 @@ export function QuizAnalyticsFull({ challengeId }: { challengeId: string }) {
 
   const [attemptsPayload, setAttemptsPayload] = useState<AttemptsPayload | null>(null);
   const [questionUsage, setQuestionUsage] = useState<QuestionUsage | null>(null);
-
-  const canAll = userRole === 'admin' || String(userRole || '').includes('gerente') || String(userRole || '').includes('coordenador');
 
   const scopeIds = useMemo(() => {
     const teamId = orgScope?.teamId ?? profile?.team_id ?? profile?.teamId ?? null;
@@ -122,18 +121,18 @@ export function QuizAnalyticsFull({ challengeId }: { challengeId: string }) {
       { value: 'coord', label: 'Minha coordenação', id: scopeIds.coordId || null },
       { value: 'division', label: 'Minha divisão', id: scopeIds.divisionId || null },
     ];
-    if (canAll) opts.push({ value: 'all', label: 'Tudo (staff)', id: null });
+    if (canAll) opts.push({ value: 'all', label: 'Tudo', id: null });
     return opts;
   }, [canAll, scopeIds.coordId, scopeIds.divisionId, scopeIds.teamId]);
 
   useEffect(() => {
     if (!canAll) return;
-    if (scopeIds.teamId || scopeIds.coordId || scopeIds.divisionId) return;
-    if (scope !== 'all') setScope('all');
-  }, [canAll, scope, scopeIds.coordId, scopeIds.divisionId, scopeIds.teamId]);
+    setScope((current) => (current === 'team' ? 'all' : current));
+  }, [canAll]);
 
   useEffect(() => {
-    const defaultScopeId = scope === 'team' ? scopeIds.teamId : scope === 'coord' ? scopeIds.coordId : scopeIds.divisionId;
+    const defaultScopeId =
+      scope === 'team' ? scopeIds.teamId : scope === 'coord' ? scopeIds.coordId : scope === 'division' ? scopeIds.divisionId : null;
     setScopeId(defaultScopeId ? String(defaultScopeId) : '');
   }, [scope, scopeIds.coordId, scopeIds.divisionId, scopeIds.teamId]);
 
@@ -292,14 +291,13 @@ export function QuizAnalyticsFull({ challengeId }: { challengeId: string }) {
     return filtered;
   }, [attempts, eligible, teamFilter]);
 
-  const worstQuestions = useMemo(() => {
+  const questionRows = useMemo(() => {
     const qs = questionUsage?.questions || [];
-    const out = [...qs].sort((a, b) => {
-      const ap = typeof a.accuracyPct === 'number' ? a.accuracyPct : 101;
-      const bp = typeof b.accuracyPct === 'number' ? b.accuracyPct : 101;
-      return ap - bp || b.answeredCount - a.answeredCount;
+    return [...qs].sort((a, b) => {
+      const ao = Number.isFinite(Number(a.order_index)) ? Number(a.order_index) : Number.MAX_SAFE_INTEGER;
+      const bo = Number.isFinite(Number(b.order_index)) ? Number(b.order_index) : Number.MAX_SAFE_INTEGER;
+      return ao - bo || String(a.created_at || '').localeCompare(String(b.created_at || ''));
     });
-    return out.slice(0, 12);
   }, [questionUsage?.questions]);
 
   const pendingCount = useMemo(() => {
@@ -316,7 +314,7 @@ export function QuizAnalyticsFull({ challengeId }: { challengeId: string }) {
             <div>
               <CardTitle>Aderência, notas e temas</CardTitle>
               <CardDescription>
-                Ranking por colaborador, visão por equipe e perguntas com menor acerto (para orientar capacitação)
+                Ranking por colaborador, visão por equipe e todas as perguntas do quiz para orientar capacitação
               </CardDescription>
             </div>
             <div className="flex items-center gap-2">
@@ -442,8 +440,8 @@ export function QuizAnalyticsFull({ challengeId }: { challengeId: string }) {
               {!attemptsPayload ? (
                 <p className="text-sm text-muted-foreground">Carregue o relatório para ver os dados.</p>
               ) : (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  <div className="space-y-2">
+                <div className="grid grid-cols-1 gap-4">
+                  <div className="space-y-2 min-w-0">
                     <div className="text-sm font-medium">Participantes ({filteredAttempts.length})</div>
                     <ScrollArea className="h-[380px] pr-3">
                       {pendingOnly ? (
@@ -451,89 +449,79 @@ export function QuizAnalyticsFull({ challengeId }: { challengeId: string }) {
                       ) : filteredAttempts.length === 0 ? (
                         <div className="text-sm text-muted-foreground">Sem participantes no filtro atual.</div>
                       ) : (
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead className="w-[70px]">Rank</TableHead>
-                              <TableHead>Pessoa</TableHead>
-                              <TableHead>Equipe</TableHead>
-                              <TableHead className="text-right">Nota</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {filteredAttempts.map((row, idx) => {
-                              const pct = typeof row.scorePct === 'number' ? Math.round(row.scorePct) : null;
-                              const when = row.submitted_at ? new Date(row.submitted_at).toLocaleString(getActiveLocale()) : '';
-                              return (
-                                <TableRow key={row.user_id}>
-                                  <TableCell className="font-medium">{idx + 1}</TableCell>
-                                  <TableCell className="min-w-0">
+                        <div className="space-y-2">
+                          {filteredAttempts.map((row, idx) => {
+                            const pct = typeof row.scorePct === 'number' ? Math.round(row.scorePct) : null;
+                            const when = row.submitted_at ? new Date(row.submitted_at).toLocaleString(getActiveLocale()) : '';
+                            return (
+                              <div key={row.user_id} className="rounded-md border p-3">
+                                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                  <div className="min-w-0 flex-1">
                                     <div className="flex items-center gap-2 min-w-0">
-                                      <span className="truncate">{row.name || row.user_id}</span>
+                                      <Badge variant="outline" className="text-[10px] flex-shrink-0">
+                                        #{idx + 1}
+                                      </Badge>
+                                      <span className="truncate font-medium">{row.name || row.user_id}</span>
                                       {row.is_leader && (
-                                        <Badge variant="secondary" className="text-[10px]">
+                                        <Badge variant="secondary" className="text-[10px] flex-shrink-0">
                                           Líder
                                         </Badge>
                                       )}
                                     </div>
-                                    {when && <div className="text-[11px] text-muted-foreground truncate">{when}</div>}
-                                  </TableCell>
-                                  <TableCell>{row.team_id ?? '—'}</TableCell>
-                                  <TableCell className="text-right">
-                                    <div className="flex items-center justify-end gap-2">
-                                      <Badge variant="outline" className="text-[10px]">
-                                        {row.score}/{row.max_score || 0}
-                                      </Badge>
-                                      <Badge
-                                        variant={
-                                          pct == null ? 'secondary' : pct >= 70 ? 'default' : pct >= 40 ? 'secondary' : 'destructive'
-                                        }
-                                        className="text-[10px]"
-                                      >
-                                        {pct == null ? '—' : `${pct}%`}
-                                      </Badge>
+                                    <div className="mt-1 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+                                      <span>{row.team_id ? `Equipe: ${row.team_id}` : 'Sem equipe'}</span>
+                                      {when ? <span>{when}</span> : null}
                                     </div>
-                                  </TableCell>
-                                </TableRow>
-                              );
-                            })}
-                          </TableBody>
-                        </Table>
+                                  </div>
+                                  <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+                                    <Badge variant="outline" className="text-[10px]">
+                                      {row.score}/{row.max_score || 0}
+                                    </Badge>
+                                    <Badge
+                                      variant={
+                                        pct == null ? 'secondary' : pct >= 70 ? 'default' : pct >= 40 ? 'secondary' : 'destructive'
+                                      }
+                                      className="text-[10px]"
+                                    >
+                                      {pct == null ? '—' : `${pct}%`}
+                                    </Badge>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
                       )}
                     </ScrollArea>
                   </div>
 
-                  <div className="space-y-2">
+                  <div className="space-y-2 min-w-0">
                     <div className="text-sm font-medium">Pendentes ({filteredPending.length})</div>
                     <ScrollArea className="h-[380px] pr-3">
                       {filteredPending.length === 0 ? (
                         <div className="text-sm text-muted-foreground">Sem pendentes no filtro atual.</div>
                       ) : (
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead>Pessoa</TableHead>
-                              <TableHead>Equipe</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {filteredPending.map((p) => (
-                              <TableRow key={p.id}>
-                                <TableCell className="min-w-0">
+                        <div className="space-y-2">
+                          {filteredPending.map((p) => (
+                            <div key={p.id} className="rounded-md border p-3">
+                              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                <div className="min-w-0">
                                   <div className="flex items-center gap-2 min-w-0">
-                                    <span className="truncate">{p.name || p.id}</span>
+                                    <span className="truncate font-medium">{p.name || p.id}</span>
                                     {p.is_leader && (
-                                      <Badge variant="secondary" className="text-[10px]">
+                                      <Badge variant="secondary" className="text-[10px] flex-shrink-0">
                                         Líder
                                       </Badge>
                                     )}
                                   </div>
-                                </TableCell>
-                                <TableCell>{p.team_id ?? '—'}</TableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
+                                </div>
+                                <Badge variant="outline" className="text-[10px] w-fit">
+                                  {p.team_id ? `Equipe: ${p.team_id}` : 'Sem equipe'}
+                                </Badge>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
                       )}
                     </ScrollArea>
                   </div>
@@ -590,8 +578,8 @@ export function QuizAnalyticsFull({ challengeId }: { challengeId: string }) {
           <Card>
             <CardHeader className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
               <div>
-                <CardTitle>Perguntas com menor acerto</CardTitle>
-                <CardDescription>Use para identificar temas com menos acertos e planejar capacitação</CardDescription>
+                <CardTitle>Perguntas e respostas do quiz</CardTitle>
+                <CardDescription>Exibe todas as perguntas com volume de respostas e taxa de acerto</CardDescription>
               </div>
               <Button type="button" variant="outline" onClick={refreshQuestions} disabled={loading}>
                 {loading ? 'Carregando…' : 'Atualizar'}
@@ -609,7 +597,7 @@ export function QuizAnalyticsFull({ challengeId }: { challengeId: string }) {
                   </div>
 
                   <ScrollArea className="h-[460px] pr-3">
-                    {worstQuestions.length === 0 ? (
+                    {questionRows.length === 0 ? (
                       <p className="text-sm text-muted-foreground">Sem dados de respostas no período.</p>
                     ) : (
                       <Table>
@@ -622,11 +610,14 @@ export function QuizAnalyticsFull({ challengeId }: { challengeId: string }) {
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {worstQuestions.map((q) => (
+                          {questionRows.map((q) => (
                             <TableRow key={q.id}>
                               <TableCell className="font-medium">{(q.order_index ?? 0) + 1}</TableCell>
                               <TableCell className="min-w-0">
                                 <div className="line-clamp-3">{q.question_text}</div>
+                                <div className="text-[11px] text-muted-foreground">
+                                  Corretas: {q.correctCount}/{q.answeredCount}
+                                </div>
                                 {q.lastAnsweredAt && (
                                   <div className="text-[11px] text-muted-foreground">
                                     Última resposta: {new Date(q.lastAnsweredAt).toLocaleString(getActiveLocale())}

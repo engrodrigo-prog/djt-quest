@@ -62,21 +62,22 @@ export default async function handler(req, res) {
 
     const isAllowedRole = Array.from(roleSet).some((r) => ALLOWED_ROLES.has(r));
     const allowed = Boolean(profile?.studio_access) || Boolean(profile?.is_leader) || isAllowedRole;
+    const canUseGlobalScope = isStaff || Boolean(profile?.is_leader) || roleSet.has('lider_equipe');
     if (!allowed) return res.status(403).json({ error: 'Forbidden' });
 
-    // Scope: staff can query all; leaders limited to their own scope.
+    // Scope: staff and leaders can query all; demais usuários ficam restritos ao próprio escopo.
     const scopeRaw = getStrParam(req, 'scope');
     const scope =
       scopeRaw === 'team' || scopeRaw === 'coord' || scopeRaw === 'division' || scopeRaw === 'all'
         ? scopeRaw
-        : isStaff
+        : canUseGlobalScope
           ? 'all'
           : 'team';
 
     const scopeIdRaw = getStrParam(req, 'scopeId');
     const allowedScopeIds = new Set([profile?.team_id, profile?.coord_id, profile?.division_id].filter(Boolean));
 
-    if (scope === 'all' && !isStaff) return res.status(403).json({ error: 'Forbidden' });
+    if (scope === 'all' && !canUseGlobalScope) return res.status(403).json({ error: 'Forbidden' });
 
     const effectiveScopeId =
       scope === 'team'
@@ -88,10 +89,10 @@ export default async function handler(req, res) {
             : '';
 
     if (scope !== 'all' && !effectiveScopeId) return res.status(400).json({ error: 'scopeId required for this scope' });
-    if (!isStaff && scope !== 'team') {
+    if (!canUseGlobalScope && scope !== 'team') {
       if (!allowedScopeIds.has(effectiveScopeId)) return res.status(403).json({ error: 'Forbidden' });
     }
-    if (!isStaff && scope === 'team') {
+    if (!canUseGlobalScope && scope === 'team') {
       const effectiveTeam = effectiveScopeId || '';
       if (effectiveTeam && profile?.team_id && String(profile.team_id) !== String(effectiveTeam)) {
         return res.status(403).json({ error: 'Forbidden' });

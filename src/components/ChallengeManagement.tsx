@@ -457,7 +457,7 @@ export const ChallengeManagement = ({ onlyQuizzes }: ChallengeManagementProps) =
             if (!open) setAnalyticsChallenge(null);
           }}
         >
-          <DialogContent className="max-w-6xl">
+          <DialogContent className="w-[98vw] max-w-[98vw] max-h-[94vh] overflow-x-hidden overflow-y-auto p-4 sm:p-6">
             <DialogHeader>
               <DialogTitle>Relatório do quiz</DialogTitle>
               <DialogDescription className="truncate">

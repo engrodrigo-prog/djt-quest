@@ -2,6 +2,7 @@ import { createSupabaseAdminClient, requireCallerUser } from '../lib/supabase-ad
 import { rolesToSet } from '../lib/rbac.js';
 
 const STAFF_ROLES = new Set(['admin', 'gerente_djt', 'gerente_divisao_djtx', 'coordenador_djtx']);
+const ALLOWED_ROLES = new Set(['lider_equipe', 'content_curator', ...Array.from(STAFF_ROLES)]);
 const toIsoStart = (d) => new Date(`${d}T00:00:00.000Z`).toISOString();
 const toIsoEnd = (d) => new Date(`${d}T23:59:59.999Z`).toISOString();
 const GUEST_TEAM_ID = 'CONVIDADOS';
@@ -44,22 +45,27 @@ export default async function handler(req, res) {
 
     const { data: profile } = await admin
       .from('profiles')
-      .select('id, team_id, coord_id, division_id')
+      .select('id, team_id, coord_id, division_id, is_leader, studio_access')
       .eq('id', caller.id)
       .maybeSingle();
+
+    const isAllowedRole = Array.from(roleSet).some((r) => ALLOWED_ROLES.has(r));
+    const allowed = Boolean(profile?.studio_access) || Boolean(profile?.is_leader) || isAllowedRole;
+    const canUseGlobalScope = isStaff || Boolean(profile?.is_leader) || roleSet.has('lider_equipe');
+    if (!allowed) return res.status(403).json({ error: 'Forbidden' });
 
     const from = getDateParam(req, 'from');
     const to = getDateParam(req, 'to');
     const includeLeaders = getStrParam(req, 'includeLeaders') === '1';
     const includeGuests = getStrParam(req, 'includeGuests') === '1';
 
-    const scope = getStrParam(req, 'scope') || 'team';
+    const scope = getStrParam(req, 'scope') || (canUseGlobalScope ? 'all' : 'team');
     const scopeId = getStrParam(req, 'scopeId');
     const allowedScopeIds = new Set([profile?.team_id, profile?.coord_id, profile?.division_id].filter(Boolean));
     const normalizedScope =
       scope === 'team' || scope === 'coord' || scope === 'division' || scope === 'all' ? scope : 'team';
 
-    if (normalizedScope === 'all' && !isStaff) return res.status(403).json({ error: 'Forbidden' });
+    if (normalizedScope === 'all' && !canUseGlobalScope) return res.status(403).json({ error: 'Forbidden' });
 
     const effectiveScopeId =
       normalizedScope === 'team'
@@ -73,8 +79,14 @@ export default async function handler(req, res) {
     if (normalizedScope !== 'all' && !effectiveScopeId) {
       return res.status(400).json({ error: 'scopeId required for this scope' });
     }
-    if (!isStaff && normalizedScope !== 'team') {
+    if (!canUseGlobalScope && normalizedScope !== 'team') {
       if (!allowedScopeIds.has(effectiveScopeId)) return res.status(403).json({ error: 'Forbidden' });
+    }
+    if (!canUseGlobalScope && normalizedScope === 'team') {
+      const effectiveTeam = effectiveScopeId || '';
+      if (effectiveTeam && profile?.team_id && String(profile.team_id) !== String(effectiveTeam)) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
     }
 
     const { data: questions, error: qErr } = await admin
