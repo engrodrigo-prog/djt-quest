@@ -1,5 +1,6 @@
 import { Component, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
+import { recoverFromChunkLoadError } from "@/lib/chunkErrorReload";
 
 const isDev = typeof import.meta !== "undefined" && Boolean((import.meta as any)?.env?.DEV);
 
@@ -16,6 +17,7 @@ export class AppErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: unknown) {
     console.error("AppErrorBoundary caught:", error);
+    recoverFromChunkLoadError(error);
   }
 
   private handleReload = () => {
@@ -56,4 +58,3 @@ export class AppErrorBoundary extends Component<Props, State> {
     );
   }
 }
-

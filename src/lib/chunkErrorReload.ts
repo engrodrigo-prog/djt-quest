@@ -12,7 +12,7 @@ function getErrorMessage(reason: unknown) {
   }
 }
 
-function isLikelyChunkLoadError(reason: unknown) {
+export function isLikelyChunkLoadError(reason: unknown) {
   const msg = getErrorMessage(reason);
   if (!msg) return false;
   return (
@@ -44,12 +44,25 @@ function reloadOnce(reason: string) {
   window.location.reload();
 }
 
+export function recoverFromChunkLoadError(reason: unknown) {
+  if (!isLikelyChunkLoadError(reason)) return false;
+  reloadOnce(getErrorMessage(reason));
+  return true;
+}
+
 export function installChunkErrorAutoReload() {
   if (typeof window === "undefined") return;
 
   window.addEventListener("unhandledrejection", (event) => {
-    if (!isLikelyChunkLoadError(event.reason)) return;
-    reloadOnce(getErrorMessage(event.reason));
+    if (!recoverFromChunkLoadError(event.reason)) return;
+    event.preventDefault();
+  });
+
+  window.addEventListener("vite:preloadError", (event) => {
+    const anyEvent = event as Event & { payload?: unknown; detail?: unknown };
+    const reason = anyEvent.payload ?? anyEvent.detail ?? "vite:preloadError";
+    if (!recoverFromChunkLoadError(reason)) return;
+    event.preventDefault();
   });
 
   window.addEventListener(
@@ -58,8 +71,7 @@ export function installChunkErrorAutoReload() {
       // Alguns navegadores não expõem o erro real (script error). Ainda assim, tente recuperar se parecer chunk.
       const anyEvent = event as any;
       const reason = anyEvent?.error || anyEvent?.message || anyEvent?.filename || "";
-      if (!isLikelyChunkLoadError(reason)) return;
-      reloadOnce(getErrorMessage(reason));
+      recoverFromChunkLoadError(reason);
     },
     true,
   );
