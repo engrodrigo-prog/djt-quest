@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "dev:vercel:trace": "NODE_OPTIONS=--trace-deprecation npx vercel@50.10.0 dev",
-    "dev:vercel:nowarn": "NODE_NO_WARNINGS=1 npx vercel@50.10.0 dev",
+    "dev:vercel:trace": "NODE_OPTIONS=--trace-deprecation npx vercel@50.26.1 dev",
+    "dev:vercel:nowarn": "NODE_NO_WARNINGS=1 npx vercel@50.26.1 dev",
     "build": "npm run typecheck && vite build",
     "build:dev": "npm run typecheck && vite build --mode development",
     "lint": "eslint .",
@@ -59,8 +59,8 @@
     "@radix-ui/react-toggle": "^1.1.10",
     "@radix-ui/react-toggle-group": "^1.1.11",
     "@radix-ui/react-tooltip": "^1.2.8",
-    "@supabase/supabase-js": "^2.94.0",
-    "@tanstack/react-query": "^5.90.20",
+    "@supabase/supabase-js": "^2.98.0",
+    "@tanstack/react-query": "^5.90.21",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
@@ -77,11 +77,11 @@
     "openai": "^4.104.0",
     "pdf-parse": "^2.4.5",
     "react": "^19.2.4",
-    "react-day-picker": "^9.13.0",
+    "react-day-picker": "^9.14.0",
     "react-dom": "^19.2.4",
-    "react-hook-form": "^7.71.1",
+    "react-hook-form": "^7.71.2",
     "react-leaflet": "^5.0.0",
-    "react-resizable-panels": "^4.5.9",
+    "react-resizable-panels": "^4.7.1",
     "react-router-dom": "^6.30.3",
     "recharts": "^3.7.0",
     "sonner": "^2.0.7",
@@ -92,28 +92,29 @@
     "zod": "^3.25.76"
   },
   "devDependencies": {
-    "@eslint/js": "^9.39.2",
+    "@eslint/js": "^9.39.3",
     "@tailwindcss/typography": "^0.5.19",
-    "@types/node": "^22.19.8",
-    "@types/react": "^19.2.11",
+    "@types/node": "^24.11.0",
+    "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
-    "@vercel/node": "^5.5.28",
-    "@vitejs/plugin-react": "^5.1.3",
-    "autoprefixer": "^10.4.24",
-    "eslint": "^9.39.2",
+    "@vercel/node": "^5.6.10",
+    "@vitejs/plugin-react": "^5.1.4",
+    "autoprefixer": "^10.4.27",
+    "eslint": "^9.39.3",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.26",
-    "globals": "^17.3.0",
-    "postcss": "^8.5.6",
+    "globals": "^17.4.0",
+    "postcss": "^8.5.8",
     "tailwindcss": "^3.4.19",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.54.0",
+    "typescript-eslint": "^8.56.1",
     "vite": "^7.3.1"
   },
   "overrides": {
-    "web-streams-polyfill": "4.2.0"
+    "web-streams-polyfill": "4.2.0",
+    "underscore": "1.13.8"
   },
   "engines": {
-    "node": "22.x"
+    "node": "24.x"
   }
 }
