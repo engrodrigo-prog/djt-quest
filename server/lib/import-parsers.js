@@ -1,4 +1,5 @@
 import { createRequire } from 'module';
+import { readWorkbookRows } from './excel-workbook.js';
 
 const require = createRequire(import.meta.url);
 
@@ -88,14 +89,9 @@ export function parseCsvQuestions(buffer) {
   return { headers: rows[0] || [], questions: toQuestions(rows) };
 }
 
-export function parseXlsxQuestions(buffer) {
-  const xlsx = require('xlsx');
-  const wb = xlsx.read(buffer, { type: 'buffer' });
-  const sheetName = wb.SheetNames?.[0];
-  if (!sheetName) return { sheet: null, questions: [] };
-  const sheet = wb.Sheets[sheetName];
-  const rows = xlsx.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: '' });
-  return { sheet: sheetName, questions: toQuestions(rows) };
+export async function parseXlsxQuestions(buffer) {
+  const parsed = await readWorkbookRows(buffer);
+  return { sheet: parsed.sheetName, questions: toQuestions(parsed.rows) };
 }
 
 export function parseJsonQuestions(buffer) {

@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { createRequire } from "module";
 import { extractPdfText, extractPdfPages, extractDocxText, extractJsonText, extractPlainText } from "../lib/import-parsers.js";
+import { readWorkbookRows } from "../lib/excel-workbook.js";
 import { extractImageTextWithAi, parseJsonFromAiContent } from "../lib/ai-curation-provider.js";
 import { DJT_RULES_ARTICLE } from "../../shared/djt-rules.js";
 import { normalizeChatModel, pickChatModel } from "../lib/openai-models.js";
@@ -989,16 +990,14 @@ Link do arquivo: ${rawUrl}`;
       }
       if (ext === "xlsx" || ext === "xls" || mime.includes("spreadsheet") || mime.includes("excel")) {
         try {
-          const xlsx = require2("xlsx");
-          const wb = xlsx.read(buffer, { type: "buffer" });
-          const sheetName = wb.SheetNames?.[0];
-          if (!sheetName) return "";
-          const sheet = wb.Sheets[sheetName];
-          const rows = xlsx.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: "" });
-          const lines = (rows || []).slice(0, 200).map((r) => (r || []).slice(0, 24).join("	"));
-          return `Planilha: ${sheetName}
+          const parsed = await readWorkbookRows(buffer, { maxRows: 200, maxColumns: 24 });
+          if (!parsed.sheetName) return "";
+          const lines = (parsed.rows || []).map((r) => (r || []).join("	"));
+          return `Planilha: ${parsed.sheetName}
 ` + lines.join("\n");
-        } catch {
+        } catch (err) {
+          const msg = String(err?.message || "");
+          if (msg) return `Planilha não lida automaticamente: ${msg}`;
           return "";
         }
       }

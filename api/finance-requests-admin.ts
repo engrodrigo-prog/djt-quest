@@ -4,7 +4,7 @@ import { assertDjtQuestServerEnv } from '../server/env-guard.js';
 import { financeRequestAdminUpdateSchema } from '../server/finance/schema.js';
 import { canManageFinanceRequests, isGuestProfile } from '../server/finance/permissions.js';
 import { clampLimit, pickQueryParam, safeText } from '../server/finance/utils.js';
-import * as XLSX from 'xlsx';
+import { buildWorkbookBuffer } from '../server/lib/excel-workbook.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL as string;
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY as string | undefined;
@@ -245,10 +245,29 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         Status: r.status,
         Observacao: r.last_observation,
       }));
-      const wb = XLSX.utils.book_new();
-      const ws = XLSX.utils.json_to_sheet(sheetRows);
-      XLSX.utils.book_append_sheet(wb, ws, 'Solicitacoes');
-      const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as any;
+      const header = [
+        'Protocolo',
+        'CriadoEm',
+        'AtualizadoEm',
+        'Nome',
+        'Email',
+        'Matricula',
+        'Empresa',
+        'TreinamentoOperacional',
+        'TipoSolicitacao',
+        'Tipo',
+        'Coordenacao',
+        'DataInicio',
+        'DataFim',
+        'Valor',
+        'Status',
+        'Observacao',
+      ];
+      const matrix = [
+        header,
+        ...sheetRows.map((row) => header.map((key) => (row as Record<string, unknown>)[key] ?? '')),
+      ];
+      const buf = await buildWorkbookBuffer({ sheetName: 'Solicitacoes', rows: matrix });
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       res.setHeader('Content-Disposition', 'attachment; filename="finance-requests.xlsx"');
       return res.status(200).send(buf);

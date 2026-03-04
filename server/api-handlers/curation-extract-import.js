@@ -61,7 +61,12 @@ export default async function handler(req, res) {
       const parsed = parseCsvQuestions(buf);
       raw_extract = { kind: 'csv', ...(importPurpose ? { purpose: importPurpose } : {}), ...parsed };
     } else if (ext === 'xlsx' || ext === 'xls' || mime.includes('spreadsheet')) {
-      const parsed = parseXlsxQuestions(buf);
+      let parsed;
+      try {
+        parsed = await parseXlsxQuestions(buf);
+      } catch (err) {
+        return res.status(400).json({ error: err?.message || 'Falha ao ler a planilha. Converta para XLSX.' });
+      }
       raw_extract = { kind: 'xlsx', ...(importPurpose ? { purpose: importPurpose } : {}), ...parsed };
     } else if (ext === 'json' || mime.includes('json')) {
       const parsed = parseJsonQuestions(buf);

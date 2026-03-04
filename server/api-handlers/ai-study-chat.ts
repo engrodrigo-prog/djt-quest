@@ -3,6 +3,7 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { createClient } from "@supabase/supabase-js";
 import { createRequire } from "module";
 import { extractPdfText, extractDocxText, extractJsonText, extractPlainText } from "../lib/import-parsers.js";
+import { readWorkbookRows } from "../lib/excel-workbook.js";
 import { extractImageTextWithAi, parseJsonFromAiContent } from "../lib/ai-curation-provider.js";
 import { DJT_RULES_ARTICLE } from "../../shared/djt-rules.js";
 import { normalizeChatModel, pickChatModel } from "../lib/openai-models.js";
@@ -1034,17 +1035,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       if (ext === "xlsx" || ext === "xls" || mime.includes("spreadsheet") || mime.includes("excel")) {
         try {
-          // Best-effort: transforma planilha em texto tabular (primeira aba)
-          // eslint-disable-next-line @typescript-eslint/no-var-requires
-          const xlsx = require("xlsx");
-          const wb = xlsx.read(buffer, { type: "buffer" });
-          const sheetName = wb.SheetNames?.[0];
-          if (!sheetName) return "";
-          const sheet = wb.Sheets[sheetName];
-          const rows = xlsx.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: "" });
-          const lines = (rows || []).slice(0, 200).map((r: any[]) => (r || []).slice(0, 24).join("\t"));
-          return `Planilha: ${sheetName}\n` + lines.join("\n");
-        } catch {
+          const parsed = await readWorkbookRows(buffer, { maxRows: 200, maxColumns: 24 });
+          if (!parsed.sheetName) return "";
+          const lines = (parsed.rows || []).map((r: any[]) => (r || []).join("\t"));
+          return `Planilha: ${parsed.sheetName}\n` + lines.join("\n");
+        } catch (err: any) {
+          const msg = String(err?.message || "");
+          if (msg) return `Planilha não lida automaticamente: ${msg}`;
           return "";
         }
       }
