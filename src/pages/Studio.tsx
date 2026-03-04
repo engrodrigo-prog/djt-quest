@@ -1,32 +1,69 @@
-import { useCallback, useEffect, useMemo } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft } from 'lucide-react';
-import { StudioDashboard } from '@/components/StudioDashboard';
-import { TeamPerformanceManager } from '@/components/TeamPerformanceManager';
-import { ChallengeForm } from '@/components/ChallengeForm';
-import { CampaignForm } from '@/components/CampaignForm';
 import Navigation from '@/components/Navigation';
 // 'Criar Usuário' será acessado dentro de Gerenciar Usuários
-import { ForumManagement } from '@/components/ForumManagement';
-import { TeamEventForm } from '@/components/TeamEventForm';
-import { SystemHealthCheck } from '@/components/SystemHealthCheck';
-import { QuizCreationWizard } from '@/components/QuizCreationWizard';
-import { AiQuizGenerator } from '@/components/AiQuizGenerator';
-import { AdminBonusManager } from '@/components/AdminBonusManager';
-import EvaluationManagement from '@/components/EvaluationManagement';
 import { ThemedBackground } from '@/components/ThemedBackground';
-import { ContentHub } from '@/components/ContentHub';
-import { UserApprovalsHub } from '@/components/UserApprovalsHub';
-import { CampaignManagement } from '@/components/CampaignManagement';
-import { ChallengeManagement } from '@/components/ChallengeManagement';
-import { StudyLab } from '@/components/StudyLab';
-import { StudioMaintenance } from '@/components/StudioMaintenance';
-import { ReportsHub } from '@/components/ReportsHub';
-import { FinanceRequestsManagement } from '@/components/FinanceRequestsManagement';
 import { useI18n } from '@/contexts/I18nContext';
+
+const StudioDashboard = lazy(() =>
+  import('@/components/StudioDashboard').then((mod) => ({ default: mod.StudioDashboard })),
+);
+const TeamPerformanceManager = lazy(() =>
+  import('@/components/TeamPerformanceManager').then((mod) => ({ default: mod.TeamPerformanceManager })),
+);
+const ChallengeForm = lazy(() =>
+  import('@/components/ChallengeForm').then((mod) => ({ default: mod.ChallengeForm })),
+);
+const CampaignForm = lazy(() =>
+  import('@/components/CampaignForm').then((mod) => ({ default: mod.CampaignForm })),
+);
+const ForumManagement = lazy(() =>
+  import('@/components/ForumManagement').then((mod) => ({ default: mod.ForumManagement })),
+);
+const TeamEventForm = lazy(() =>
+  import('@/components/TeamEventForm').then((mod) => ({ default: mod.TeamEventForm })),
+);
+const SystemHealthCheck = lazy(() =>
+  import('@/components/SystemHealthCheck').then((mod) => ({ default: mod.SystemHealthCheck })),
+);
+const QuizCreationWizard = lazy(() =>
+  import('@/components/QuizCreationWizard').then((mod) => ({ default: mod.QuizCreationWizard })),
+);
+const AiQuizGenerator = lazy(() =>
+  import('@/components/AiQuizGenerator').then((mod) => ({ default: mod.AiQuizGenerator })),
+);
+const AdminBonusManager = lazy(() =>
+  import('@/components/AdminBonusManager').then((mod) => ({ default: mod.AdminBonusManager })),
+);
+const EvaluationManagement = lazy(() => import('@/components/EvaluationManagement'));
+const ContentHub = lazy(() =>
+  import('@/components/ContentHub').then((mod) => ({ default: mod.ContentHub })),
+);
+const UserApprovalsHub = lazy(() =>
+  import('@/components/UserApprovalsHub').then((mod) => ({ default: mod.UserApprovalsHub })),
+);
+const CampaignManagement = lazy(() =>
+  import('@/components/CampaignManagement').then((mod) => ({ default: mod.CampaignManagement })),
+);
+const ChallengeManagement = lazy(() =>
+  import('@/components/ChallengeManagement').then((mod) => ({ default: mod.ChallengeManagement })),
+);
+const StudyLab = lazy(() =>
+  import('@/components/StudyLab').then((mod) => ({ default: mod.StudyLab })),
+);
+const StudioMaintenance = lazy(() =>
+  import('@/components/StudioMaintenance').then((mod) => ({ default: mod.StudioMaintenance })),
+);
+const ReportsHub = lazy(() =>
+  import('@/components/ReportsHub').then((mod) => ({ default: mod.ReportsHub })),
+);
+const FinanceRequestsManagement = lazy(() =>
+  import('@/components/FinanceRequestsManagement').then((mod) => ({ default: mod.FinanceRequestsManagement })),
+);
 
 const Studio = () => {
   const { loading, studioAccess, userRole, roleOverride } = useAuth();
@@ -92,6 +129,15 @@ const Studio = () => {
     if (!location.search) return;
     navigate({ pathname: location.pathname, search: '' });
   }, [location.pathname, location.search, navigate]);
+
+  const moduleFallback = (
+    <div className="flex min-h-[240px] items-center justify-center">
+      <div className="space-y-3 text-center">
+        <div className="mx-auto h-8 w-8 animate-spin rounded-full border-b-2 border-primary" />
+        <p className="text-xs text-muted-foreground">{t('common.loading')}</p>
+      </div>
+    </div>
+  );
 
   if (loading) {
     return (
@@ -191,11 +237,13 @@ const Studio = () => {
               </Button>
             </div>
             <div className="animate-in fade-in duration-300">
-              {renderModule()}
+              <Suspense fallback={moduleFallback}>{renderModule()}</Suspense>
             </div>
           </>
         ) : (
-          <StudioDashboard onSelectModule={openModule} userRole={userRole} />
+          <Suspense fallback={moduleFallback}>
+            <StudioDashboard onSelectModule={openModule} userRole={userRole} />
+          </Suspense>
         )}
       </div>
 

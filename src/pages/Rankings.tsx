@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { lazy, Suspense, useEffect, useState, useCallback, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -15,7 +15,10 @@ import { getActiveLocale } from '@/lib/i18n/activeLocale';
 import { UserProfilePopover } from '@/components/UserProfilePopover';
 import { DJT_TEAM_GROUP_IDS, buildTeamScope, normalizeTeamId } from '@/lib/constants/points';
 import { useNavigate } from 'react-router-dom';
-import { GuardiaoVidaDashboard } from '@/components/GuardiaoVidaDashboard';
+
+const GuardiaoVidaDashboard = lazy(() =>
+  import('@/components/GuardiaoVidaDashboard').then((mod) => ({ default: mod.GuardiaoVidaDashboard })),
+);
 
 interface IndividualRanking {
   rank: number;
@@ -1559,7 +1562,15 @@ function Rankings() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <GuardiaoVidaDashboard />
+                  <Suspense
+                    fallback={
+                      <div className="flex min-h-[180px] items-center justify-center">
+                        <p className="text-sm text-muted-foreground">{tr('common.loading')}</p>
+                      </div>
+                    }
+                  >
+                    <GuardiaoVidaDashboard />
+                  </Suspense>
                 </CardContent>
               </Card>
             </TabsContent>
