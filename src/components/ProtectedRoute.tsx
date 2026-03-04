@@ -38,7 +38,7 @@ export function ProtectedRoute({
 
     if (!loading && !user) {
       const next = `${location.pathname}${location.search}${location.hash}`;
-      navigate(`/auth?redirect=${encodeURIComponent(next)}`);
+      navigate(`/auth?redirect=${encodeURIComponent(next)}`, { replace: true });
     } else if (!loading && user) {
       if (needsProfileCompletion || needsPhoneConfirm) return;
 
@@ -46,20 +46,20 @@ export function ProtectedRoute({
       if (roleNotLoadedYet) return;
 
       if (requireStudio && !studioAccess) {
-        navigate('/');
+        navigate('/', { replace: true });
         return;
       }
 
       if (requireLeader && !isLeader) {
-        navigate('/');
+        navigate('/', { replace: true });
         return;
       }
 
       if (roleNotAllowed) {
-        navigate('/');
+        navigate('/', { replace: true });
       }
     }
-  }, [user, loading, needsProfileCompletion, needsPhoneConfirm, studioAccess, requireStudio, isLeader, requireLeader, allowedRolesKey, userRole, navigate]);
+  }, [user, loading, needsProfileCompletion, needsPhoneConfirm, studioAccess, requireStudio, isLeader, requireLeader, allowedRolesKey, userRole, navigate, location.hash, location.pathname, location.search]);
 
   if (loading) {
     return (

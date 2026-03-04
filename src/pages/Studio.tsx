@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -31,7 +31,6 @@ import { useI18n } from '@/contexts/I18nContext';
 const Studio = () => {
   const { loading, studioAccess, userRole, roleOverride } = useAuth();
   const { t } = useI18n();
-  const [selectedModule, setSelectedModule] = useState<string | null>(null);
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -42,18 +41,12 @@ const Studio = () => {
     }
   }, [loading, studioAccess, userRole, navigate]);
 
-  useEffect(() => {
-    if (loading) return;
-    if (!studioAccess) return;
-    if (userRole === 'content_curator') return;
+  const allowedModules = useMemo(() => {
+    if (userRole === 'analista_financeiro') {
+      return new Set(['finance']);
+    }
 
-    const params = new URLSearchParams(location.search);
-    const moduleParam = (params.get('module') || '').trim();
-    if (!moduleParam) return;
-
-    const allowed = userRole === 'analista_financeiro'
-      ? new Set(['finance'])
-      : new Set([
+    return new Set([
       'content',
       'campaigns',
       'campaigns-manage',
@@ -75,10 +68,30 @@ const Studio = () => {
       'system',
       'admin',
     ]);
+  }, [userRole]);
 
-    if (!allowed.has(moduleParam)) return;
-    setSelectedModule(moduleParam);
-  }, [loading, location.search, studioAccess, userRole]);
+  const selectedModule = useMemo(() => {
+    if (loading || !studioAccess || userRole === 'content_curator') return null;
+
+    const params = new URLSearchParams(location.search);
+    const moduleParam = (params.get('module') || '').trim();
+    if (!moduleParam) return null;
+    if (!allowedModules.has(moduleParam)) return null;
+    return moduleParam;
+  }, [allowedModules, loading, location.search, studioAccess, userRole]);
+
+  const openModule = useCallback((moduleId: string) => {
+    const nextParams = new URLSearchParams();
+    nextParams.set('module', moduleId);
+    const nextSearch = `?${nextParams.toString()}`;
+    if (location.search === nextSearch) return;
+    navigate({ pathname: location.pathname, search: nextSearch });
+  }, [location.pathname, location.search, navigate]);
+
+  const closeModule = useCallback(() => {
+    if (!location.search) return;
+    navigate({ pathname: location.pathname, search: '' });
+  }, [location.pathname, location.search, navigate]);
 
   if (loading) {
     return (
@@ -114,9 +127,9 @@ const Studio = () => {
 
   // Renderiza conteúdo do Studio (dashboard inicial ou módulo selecionado)
   const renderModule = () => {
-  switch (selectedModule) {
+    switch (selectedModule) {
       case 'content':
-        return <ContentHub onOpen={(id) => setSelectedModule(id)} />;
+        return <ContentHub onOpen={openModule} />;
       case 'campaigns':
         return <CampaignForm />;
       case 'campaigns-manage':
@@ -169,7 +182,7 @@ const Studio = () => {
           <>
             <div>
               <Button
-                onClick={() => setSelectedModule(null)}
+                onClick={closeModule}
                 variant="ghost"
                 className="gap-2 hover:bg-muted"
               >
@@ -182,7 +195,7 @@ const Studio = () => {
             </div>
           </>
         ) : (
-          <StudioDashboard onSelectModule={setSelectedModule} userRole={userRole} />
+          <StudioDashboard onSelectModule={openModule} userRole={userRole} />
         )}
       </div>
 

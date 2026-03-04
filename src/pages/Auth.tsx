@@ -131,11 +131,11 @@ const Auth = () => {
 
       const next = resolveRedirect();
       if (next) {
-        navigate(next);
+        navigate(next, { replace: true });
       } else {
         // Início deve ser o mesmo para todos (líderes também jogam quizzes).
         // O dashboard de liderança continua acessível via menu do perfil/botão "Líder".
-        navigate('/dashboard');
+        navigate('/dashboard', { replace: true });
       }
     } catch (error) {
       console.error("Login error:", error);
