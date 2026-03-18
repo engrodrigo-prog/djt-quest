@@ -23,6 +23,7 @@ import { ProfileEditor } from '@/components/ProfileEditor';
 import { ProfileChangeHistory } from '@/components/profile/ProfileChangeHistory';
 import { QuizHistory } from '@/components/profile/QuizHistory';
 import { ChangePasswordCard } from '@/components/profile/ChangePasswordCard';
+import { BiometricAccessCard } from '@/components/profile/BiometricAccessCard';
 import Navigation from '@/components/Navigation';
 import { ForumMentions } from '@/components/profile/ForumMentions';
 import { UserFeedbackInbox } from '@/components/profile/UserFeedbackInbox';
@@ -944,6 +945,7 @@ function ProfileContent() {
         <div className="grid gap-6 lg:grid-cols-2">
           <ProfileEditor />
           <ChangePasswordCard />
+          <BiometricAccessCard />
           <ProfileChangeHistory />
           <QuizHistory />
           <SepbookPostsCard />

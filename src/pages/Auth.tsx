@@ -21,6 +21,14 @@ import {
   normalizeMatricula,
   resolveLoginCandidate,
 } from "@/lib/auth-login";
+import {
+  getBiometricErrorMessage,
+  getBiometricSupport,
+  getStoredBiometricFactorId,
+  getWebAuthnRpConfig,
+  listVerifiedWebAuthnFactors,
+  syncPreferredBiometricFactor,
+} from "@/lib/biometricAuth";
 import { buildAbsoluteAppUrl, openWhatsAppShare } from "@/lib/whatsappShare";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SUPPORTED_LOCALES, useI18n } from "@/contexts/I18nContext";
@@ -100,6 +108,56 @@ const Auth = () => {
     ? users.filter(u => matchesSearch(u, normalizedQuery))
     : [];
 
+  const maybeAuthenticateWithBiometrics = useCallback(async (userId: string) => {
+    if (!getStoredBiometricFactorId(userId)) {
+      return { status: "not_configured" } as const;
+    }
+
+    const support = await getBiometricSupport();
+    if (!support.available) {
+      return { status: "unsupported" } as const;
+    }
+
+    try {
+      const { data, error } = await supabase.auth.mfa.listFactors();
+      if (error) {
+        return { status: "failed", error } as const;
+      }
+
+      const factor = syncPreferredBiometricFactor(
+        userId,
+        listVerifiedWebAuthnFactors((data?.all || []) as Array<{
+          id: string;
+          friendly_name?: string;
+          factor_type?: string;
+          status?: string;
+        }>)
+      );
+
+      if (!factor) {
+        return { status: "not_configured" } as const;
+      }
+
+      const authResult = await supabase.auth.mfa.webauthn.authenticate(
+        {
+          factorId: factor.id,
+          webauthn: getWebAuthnRpConfig(),
+        },
+        {
+          userVerification: "required",
+        }
+      );
+
+      if (authResult.error) {
+        return { status: "failed", error: authResult.error } as const;
+      }
+
+      return { status: "authenticated" } as const;
+    } catch (error) {
+      return { status: "failed", error } as const;
+    }
+  }, []);
+
   const attemptLogin = useCallback(async (user: UserOption) => {
     setLoading(true);
     try {
@@ -111,6 +169,16 @@ const Auth = () => {
           description: error.message ?? t("auth.errors.loginFailedDesc"),
         });
         return;
+      }
+
+      const biometricResult = await maybeAuthenticateWithBiometrics(user.id);
+      if (biometricResult.status === "unsupported" || biometricResult.status === "failed") {
+        toast.message("Biometria nao concluida neste acesso", {
+          description:
+            biometricResult.status === "unsupported"
+              ? "Este navegador nao ofereceu WebAuthn agora. O acesso seguira com a senha."
+              : `${getBiometricErrorMessage(biometricResult.error)} O acesso seguira com a senha.`,
+        });
       }
 
       const authData = await refreshUserSession();
@@ -142,7 +210,7 @@ const Auth = () => {
     } finally {
       setLoading(false);
     }
-  }, [navigate, password, refreshUserSession, signIn, resolveRedirect, t]);
+  }, [maybeAuthenticateWithBiometrics, navigate, password, refreshUserSession, signIn, resolveRedirect, t]);
 
   const selectUser = useCallback((user: UserOption) => {
     setSelectedUserId(user.id);
