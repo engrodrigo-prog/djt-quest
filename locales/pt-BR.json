@@ -183,6 +183,7 @@
       "loginFailedTitle": "Não foi possível entrar",
       "loginFailedDesc": "Verifique as credenciais e tente novamente",
       "loginUnexpectedTitle": "Falha inesperada ao entrar",
+      "completeOrSelectUser": "Conclua a matrícula, refine a busca ou selecione o usuário na lista.",
       "userNotFoundDetailed": "Usuário não encontrado. Verifique matrícula, nome ou e-mail."
     },
     "forgot": {

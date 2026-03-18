@@ -183,6 +183,7 @@
       "loginFailedTitle": "Unable to log in",
       "loginFailedDesc": "Check your credentials and try again",
       "loginUnexpectedTitle": "Unexpected login failure",
+      "completeOrSelectUser": "Finish the employee ID, refine the search, or pick the user from the list.",
       "userNotFoundDetailed": "User not found. Check registration number, name, or email."
     },
     "forgot": {

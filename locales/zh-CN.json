@@ -183,6 +183,7 @@
       "loginFailedTitle": "登录失败",
       "loginFailedDesc": "请检查凭证并重试",
       "loginUnexpectedTitle": "登录时发生意外错误",
+      "completeOrSelectUser": "请输完整工号、细化搜索，或从列表中选择用户。",
       "userNotFoundDetailed": "未找到用户。请检查工号、姓名或电子邮件。"
     },
     "forgot": {

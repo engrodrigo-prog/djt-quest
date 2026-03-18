@@ -15,6 +15,12 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Textarea } from "@/components/ui/textarea";
 import djtCover from '@/assets/backgrounds/djt-quest-cover.webp';
 import { apiFetch } from "@/lib/api";
+import {
+  getLoginQueryState,
+  MATRICULA_LOOKUP_MIN_LENGTH,
+  normalizeMatricula,
+  resolveLoginCandidate,
+} from "@/lib/auth-login";
 import { buildAbsoluteAppUrl, openWhatsAppShare } from "@/lib/whatsappShare";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SUPPORTED_LOCALES, useI18n } from "@/contexts/I18nContext";
@@ -28,11 +34,7 @@ interface UserOption {
 }
 
 const LAST_USER_KEY = 'djt_last_user_id';
-const MATRICULA_LOOKUP_MIN_LENGTH = 6;
 const DEFAULT_PASSWORD = '123456';
-
-const normalizeMatricula = (value?: string | null) =>
-  (value ?? '').replace(/\D/g, '');
 
 const Auth = () => {
   const [selectedUserId, setSelectedUserId] = useState("");
@@ -47,7 +49,6 @@ const Auth = () => {
   const [resetReason, setResetReason] = useState("");
   const [resetLoading, setResetLoading] = useState(false);
   const passwordRef = useRef<HTMLInputElement>(null);
-  const matriculaLookupRef = useRef<string | null>(null);
   const suggestionsLookupRef = useRef<string | null>(null);
   const { signIn, refreshUserSession } = useAuth();
   const { locale, setLocale, t } = useI18n();
@@ -76,15 +77,11 @@ const Auth = () => {
     return raw;
   }, [redirectParam]);
 
-  const normalizedQuery = query.trim().toLowerCase();
-  const digitsQuery = normalizeMatricula(query);
-  const nameTokens = normalizedQuery.split(/\s+/).filter(Boolean);
-  const isEmailMode = normalizedQuery.includes('@');
-  const isMatriculaMode = !!digitsQuery && /^[0-9]+$/.test(digitsQuery);
-  const allowSuggestions =
-    (isMatriculaMode && digitsQuery.length >= MATRICULA_LOOKUP_MIN_LENGTH) ||
-    (isEmailMode && normalizedQuery.length >= 3) ||
-    (!isMatriculaMode && nameTokens.length >= 2 && nameTokens[1].length >= 1);
+  const {
+    normalized: normalizedQuery,
+    allowSuggestions,
+    inputMode,
+  } = getLoginQueryState(query);
 
   const matchesSearch = (u: UserOption, needle: string) => {
     if (!needle) return true;
@@ -175,65 +172,44 @@ const Auth = () => {
       setPassword("");
       suggestionsLookupRef.current = null;
     }
-
-    const digitsOnly = normalizeMatricula(value);
-    // Só dispara lookup remoto após 6 dígitos da matrícula
-    if (digitsOnly.length >= MATRICULA_LOOKUP_MIN_LENGTH) {
-      fetchUserByMatriculaDigits(digitsOnly);
-    }
   };
 
-  const fetchUserByMatriculaDigits = useCallback(async (digits: string) => {
-    if (matriculaLookupRef.current === digits) return;
-    matriculaLookupRef.current = digits;
-    try {
-      // Try exact match first to avoid selecting a wrong partial match.
-      const exact = await lookupProfiles({ mode: 'matricula_exact', query: digits, limit: 1 });
-      const option = exact[0] || (await lookupProfiles({ mode: 'matricula_partial', query: digits, limit: 1 }))[0];
-      if (!option) return;
-
-      setUsers((prev) => {
-        if (prev.some((u) => u.id === option.id)) return prev;
-        return [option, ...prev];
-      });
-      selectUser(option);
-    } catch (error) {
-      console.error('Lookup error:', error);
-    } finally {
-      if (matriculaLookupRef.current === digits) {
-        matriculaLookupRef.current = null;
-      }
-    }
-  }, [lookupProfiles, selectUser]);
-
-  const resolveUserFromQuery = useCallback(async (): Promise<UserOption | null> => {
-    const trimmed = query.trim();
-    const digitsOnly = normalizeMatricula(trimmed);
-    const lower = trimmed.toLowerCase();
-    const words = lower.split(/\s+/).filter(Boolean);
+  const resolveUserFromQuery = useCallback(async () => {
+    const state = getLoginQueryState(query);
 
     try {
-      if (digitsOnly.length >= MATRICULA_LOOKUP_MIN_LENGTH) {
-        const exact = await lookupProfiles({ mode: 'matricula_exact', query: digitsOnly, limit: 1 });
-        if (exact[0]) return exact[0];
-        const partial = await lookupProfiles({ mode: 'matricula_partial', query: digitsOnly, limit: 1 });
-        if (partial[0]) return partial[0];
+      if (state.kind === 'matricula') {
+        if (state.digitsOnly.length < MATRICULA_LOOKUP_MIN_LENGTH) {
+          return resolveLoginCandidate<UserOption>(state, {});
+        }
+
+        const exactMatricula = await lookupProfiles({ mode: 'matricula_exact', query: state.digitsOnly, limit: 1 });
+        if (exactMatricula[0]) {
+          return resolveLoginCandidate<UserOption>(state, { exactMatricula });
+        }
+
+        const partialMatricula = await lookupProfiles({ mode: 'matricula_partial', query: state.digitsOnly, limit: 10 });
+        return resolveLoginCandidate<UserOption>(state, { partialMatricula });
       }
 
-      if (trimmed.includes('@')) {
-        const email = await lookupProfiles({ mode: 'email', query: lower, limit: 1 });
-        if (email[0]) return email[0];
+      if (state.kind === 'email') {
+        const email = state.normalized.length >= 3
+          ? await lookupProfiles({ mode: 'email', query: state.normalized, limit: 10 })
+          : [];
+        return resolveLoginCandidate<UserOption>(state, { email });
       }
 
-      if (words.length >= 2 && words[1].length >= 1) {
-        const name = await lookupProfiles({ mode: 'name', query: lower, limit: 1 });
-        if (name[0]) return name[0];
+      if (state.kind === 'name') {
+        const name = state.allowSuggestions
+          ? await lookupProfiles({ mode: 'name', query: state.normalized, limit: 10 })
+          : [];
+        return resolveLoginCandidate<UserOption>(state, { name });
       }
     } catch (error) {
       console.error('Login lookup error:', error);
     }
 
-    return null;
+    return { kind: 'not_found' } as const;
   }, [lookupProfiles, query]);
 
   const fetchSuggestions = useCallback(async (input: string) => {
@@ -289,12 +265,28 @@ const Auth = () => {
   }, [lookupProfiles, selectUser]);
 
   useEffect(() => {
-    if (!allowSuggestions) return;
+    if (!allowSuggestions || selectedUserId) return;
     const t = setTimeout(() => {
       void fetchSuggestions(query);
     }, 250);
     return () => clearTimeout(t);
-  }, [allowSuggestions, fetchSuggestions, query]);
+  }, [allowSuggestions, fetchSuggestions, query, selectedUserId]);
+
+  const showLookupResolutionError = useCallback((resolution: Awaited<ReturnType<typeof resolveUserFromQuery>>) => {
+    if (resolution.kind === 'needs_selection') {
+      setUsers(resolution.suggestions);
+      setOpen(true);
+      toast.error(t("auth.errors.completeOrSelectUser"));
+      return;
+    }
+
+    if (resolution.kind === 'needs_more_input') {
+      toast.error(t("auth.errors.completeOrSelectUser"));
+      return;
+    }
+
+    toast.error(t("auth.errors.userNotFoundDetailed"));
+  }, [t]);
 
   const handleForgotSubmit = async () => {
     if (!resetIdentifier.trim()) {
@@ -329,19 +321,21 @@ const Auth = () => {
       : null;
 
     if (!selectedUser) {
-      const resolved = await resolveUserFromQuery();
-      if (resolved) {
+      const resolution = await resolveUserFromQuery();
+      if (resolution.kind === 'matched') {
+        const resolved = resolution.user;
         setUsers((prev) => {
           if (prev.some((u) => u.id === resolved.id)) return prev;
           return [resolved, ...prev];
         });
         selectUser(resolved);
         selectedUser = resolved;
+      } else {
+        showLookupResolutionError(resolution);
       }
     }
 
     if (!selectedUser) {
-      toast.error(t("auth.userNotFound"));
       return;
     }
 
@@ -397,7 +391,7 @@ const Auth = () => {
                       placeholder={t("auth.userPlaceholder")}
                       value={query}
                       autoComplete="off"
-                      inputMode="numeric"
+                      inputMode={inputMode}
                       onChange={(e) => handleQueryChange(e.target.value)}
                       onFocus={() => setOpen(true)}
                       onKeyDown={async (e) => {
@@ -405,12 +399,12 @@ const Auth = () => {
                           setOpen(false);
                         } else if (e.key === 'Enter') {
                           e.preventDefault();
-                          const resolved = await resolveUserFromQuery();
-                          const candidate = resolved || (filteredUsers.length === 1 ? filteredUsers[0] : null);
-                          if (!candidate) {
-                            toast.error(t("auth.errors.userNotFoundDetailed"));
+                          const resolution = await resolveUserFromQuery();
+                          if (resolution.kind !== 'matched') {
+                            showLookupResolutionError(resolution);
                             return;
                           }
+                          const candidate = resolution.user;
                           selectUser(candidate);
                           if (password.trim()) {
                             await attemptLogin(candidate);
