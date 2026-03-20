@@ -33,12 +33,7 @@ const parseBool = (value: unknown): boolean | null => {
   return null;
 };
 
-const isSfxEnabledFlag = () => {
-  const raw = (import.meta as any)?.env?.NEXT_PUBLIC_SFX_ENABLED;
-  if (raw == null) return true;
-  const b = parseBool(raw);
-  return b == null ? true : b;
-};
+const isSfxEnabledFlag = () => false;
 
 const safeReadFromStorage = () => {
   try {
