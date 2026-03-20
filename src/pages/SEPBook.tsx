@@ -227,7 +227,7 @@ export default function SEPBook() {
   const [participantOptions, setParticipantOptions] = useState<Array<{ id: string; name: string; sigla_area: string | null }>>([]);
   const [participantSearch, setParticipantSearch] = useState("");
   const sepbookTextInputClass =
-    "border-white/35 bg-slate-950/78 text-[16px] leading-7 text-slate-100 placeholder:text-slate-300/75 caret-slate-100 [color-scheme:dark] [-webkit-text-fill-color:rgb(241_245_249)] selection:bg-cyan-500/35";
+    "border-white/35 bg-slate-950/78 text-[16px] leading-7 text-slate-100 placeholder:text-slate-300/75 caret-slate-100 [color-scheme:dark] selection:bg-cyan-500/35";
 
   useEffect(() => {
     if (typeof window === "undefined") return;

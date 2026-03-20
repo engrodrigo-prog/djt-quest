@@ -2,6 +2,13 @@ import { createSupabaseAdminClient, requireCallerUser } from '../lib/supabase-ad
 import { rolesToSet, canCurate } from '../lib/rbac.js';
 import { tryInsertAuditLog } from '../lib/audit-log.js';
 
+const xpToDifficulty = (xp) => {
+  if (xp >= 50) return 'especialista';
+  if (xp >= 20) return 'avancado';
+  if (xp >= 10) return 'intermediario';
+  return 'basico';
+};
+
 const letterToKey = (letter) => {
   const L = String(letter || '').trim().toUpperCase();
   if (!L) return null;
@@ -52,7 +59,7 @@ export default async function handler(req, res) {
 
     const { data: quiz, error: quizErr } = await admin
       .from('challenges')
-      .select('id, type, quiz_workflow_status')
+      .select('id, type, quiz_workflow_status, xp_reward')
       .eq('id', cid)
       .maybeSingle();
     if (quizErr) return res.status(400).json({ error: quizErr.message });
@@ -60,6 +67,10 @@ export default async function handler(req, res) {
     if (String(quiz.type || '') !== 'quiz') return res.status(400).json({ error: 'Not a quiz' });
     const workflow = String(quiz.quiz_workflow_status || 'PUBLISHED');
     if (workflow !== 'DRAFT') return res.status(400).json({ error: 'Quiz must be in DRAFT to apply imports' });
+
+    const rawXp = Number(quiz.xp_reward);
+    const quizXp = [5, 10, 20, 50].includes(rawXp) ? rawXp : 5;
+    const quizDifficulty = xpToDifficulty(quizXp);
 
     const { data: maxRow } = await admin
       .from('quiz_questions')
@@ -86,8 +97,8 @@ export default async function handler(req, res) {
         .insert({
           challenge_id: cid,
           question_text: pergunta,
-          difficulty_level: 'basico',
-          xp_value: 5,
+          difficulty_level: quizDifficulty,
+          xp_value: quizXp,
           order_index: baseOrder + 1 + created,
           created_by: caller.id,
         })
