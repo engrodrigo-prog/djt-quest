@@ -27,6 +27,8 @@ interface AuthContextType {
   profile: any | null;
   roleOverride: 'colaborador' | 'lider' | null;
   setRoleOverride: (val: 'colaborador' | 'lider' | null) => void;
+  sessionLocked: boolean;
+  lockSession: () => void;
   signIn: (email: string, password: string) => Promise<{ error: any }>;
   signUp: (email: string, password: string, name: string) => Promise<{ data: any; error: any }>;
   signOut: () => Promise<void>;
@@ -48,6 +50,7 @@ const CACHE_KEY = 'auth_user_cache';
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 const ROLE_OVERRIDE_KEY = 'auth_role_override';
 const SESSION_DAY_KEY = 'auth_session_day_key';
+const LOCKED_KEY = 'djt_session_locked';
 const ACCESS_TZ = 'America/Sao_Paulo';
 
 const getCachedAuth = () => {
@@ -158,6 +161,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return null;
     }
   });
+  const [sessionLocked, setSessionLocked] = useState(() => {
+    try { return localStorage.getItem(LOCKED_KEY) === '1'; } catch { return false; }
+  });
 
   useEffect(() => {
     roleRef.current = userRole;
@@ -261,6 +267,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(currentSession.user ?? null);
         setSession(currentSession);
         setHasActiveSession(true);
+        localStorage.removeItem(LOCKED_KEY);
+        setSessionLocked(false);
 
         if (cached) {
           setBaseRole(cached.role);
@@ -320,6 +328,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(currentSession.user ?? null);
       setSession(currentSession ?? null);
       setHasActiveSession(!!currentSession);
+      localStorage.removeItem(LOCKED_KEY);
+      setSessionLocked(false);
 
       return authData;
     } catch (error: any) {
@@ -330,6 +340,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(providedSession?.user ?? null);
       setSession(providedSession ?? null);
       setHasActiveSession(!!providedSession);
+      if (providedSession) {
+        localStorage.removeItem(LOCKED_KEY);
+        setSessionLocked(false);
+      }
 
       if (cached) {
         setBaseRole(cached.role);
@@ -379,20 +393,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!active) return;
 
         if (currentSession) {
-          try {
-            const storedDayKey = localStorage.getItem(SESSION_DAY_KEY);
-            const nowDayKey = dayKeyInTimeZone(new Date(), ACCESS_TZ);
-            if (storedDayKey && storedDayKey !== nowDayKey) {
-              localStorage.removeItem(CACHE_KEY);
-              localStorage.removeItem(ROLE_OVERRIDE_KEY);
-              localStorage.removeItem(SESSION_DAY_KEY);
-              await supabase.auth.signOut();
-              currentSession = null;
-            } else {
-              localStorage.setItem(SESSION_DAY_KEY, nowDayKey);
+          if (localStorage.getItem(LOCKED_KEY) === '1') {
+            // Biometric gate required — keep Supabase token alive, block auto-login
+            setSessionLocked(true);
+            currentSession = null;
+          } else {
+            try {
+              const storedDayKey = localStorage.getItem(SESSION_DAY_KEY);
+              const nowDayKey = dayKeyInTimeZone(new Date(), ACCESS_TZ);
+              if (storedDayKey && storedDayKey !== nowDayKey) {
+                lockSession();
+                currentSession = null;
+              } else {
+                localStorage.setItem(SESSION_DAY_KEY, nowDayKey);
+              }
+            } catch {
+              // ignore
             }
-          } catch {
-            // ignore
           }
 
           if (currentSession) {
@@ -414,6 +431,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Listener para mudanças futuras de auth (login/logout)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
+        // Don't auto-restore state while session is locked (biometric gate active)
+        if (localStorage.getItem(LOCKED_KEY) === '1') return;
+
         const previousUserId = userIdRef.current;
 
         // Clear cache if user changed
@@ -514,11 +534,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { data, error };
   };
 
+  const lockSession = () => {
+    localStorage.removeItem(CACHE_KEY);
+    localStorage.removeItem(ROLE_OVERRIDE_KEY);
+    localStorage.removeItem(SESSION_DAY_KEY);
+    localStorage.setItem(LOCKED_KEY, '1');
+    setUser(null);
+    setProfile(null);
+    setSession(null);
+    setHasActiveSession(false);
+    setBaseRole(null);
+    setBaseStudioAccess(false);
+    setBaseIsLeader(false);
+    setRoles([]);
+    setIsContentCurator(false);
+    setOrgScope(null);
+    setSessionLocked(true);
+  };
+
   const signOut = async () => {
     console.log('🚪 Signing out, clearing cache');
     localStorage.removeItem(CACHE_KEY);
     localStorage.removeItem(ROLE_OVERRIDE_KEY);
     localStorage.removeItem(SESSION_DAY_KEY);
+    localStorage.removeItem(LOCKED_KEY);
+    setSessionLocked(false);
     await supabase.auth.signOut();
   };
 
@@ -532,7 +572,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const storedDayKey = localStorage.getItem(SESSION_DAY_KEY);
         const nowDayKey = dayKeyInTimeZone(new Date(), ACCESS_TZ);
         if (storedDayKey && storedDayKey !== nowDayKey) {
-          void signOut();
+          lockSession();
         }
       } catch {
         // ignore
@@ -546,12 +586,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [session?.access_token]);
 
   return (
-    <AuthContext.Provider value={{ 
-      user, 
-      session, 
-      loading, 
+    <AuthContext.Provider value={{
+      user,
+      session,
+      loading,
       hasActiveSession,
-      userRole, 
+      sessionLocked,
+      lockSession,
+      userRole,
       roles,
       isContentCurator,
       studioAccess,
@@ -561,7 +603,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       roleOverride,
       setRoleOverride,
       signIn,
-      signUp, 
+      signUp,
       signOut,
       refreshUserSession
     }}>

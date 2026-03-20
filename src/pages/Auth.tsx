@@ -9,7 +9,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { Check, ChevronsUpDown, Wand2 } from "lucide-react";
+import { Check, ChevronsUpDown, Fingerprint, Loader2, Wand2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
@@ -58,7 +58,7 @@ const Auth = () => {
   const [resetLoading, setResetLoading] = useState(false);
   const passwordRef = useRef<HTMLInputElement>(null);
   const suggestionsLookupRef = useRef<string | null>(null);
-  const { signIn, refreshUserSession } = useAuth();
+  const { signIn, refreshUserSession, sessionLocked } = useAuth();
   const { locale, setLocale, t } = useI18n();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -107,6 +107,57 @@ const Auth = () => {
   const filteredUsers = allowSuggestions
     ? users.filter(u => matchesSearch(u, normalizedQuery))
     : [];
+
+  const handleBiometricUnlock = useCallback(async () => {
+    setLoading(true);
+    try {
+      const support = await getBiometricSupport();
+      if (!support.available || !support.platformAuthenticator) {
+        toast.warning("Biometria indisponivel neste aparelho. Use sua senha abaixo.");
+        return;
+      }
+
+      const lastUserId = localStorage.getItem(LAST_USER_KEY);
+      const { data, error: listError } = await supabase.auth.mfa.listFactors();
+      if (listError) {
+        toast.warning("Sessao expirada. Por favor, entre com sua senha.");
+        return;
+      }
+
+      const factor = syncPreferredBiometricFactor(
+        lastUserId,
+        listVerifiedWebAuthnFactors((data?.all || []) as Array<{ id: string; friendly_name?: string; factor_type?: string; status?: string }>)
+      );
+
+      if (!factor) {
+        toast.warning("Nenhuma biometria configurada para este aparelho. Use sua senha.");
+        return;
+      }
+
+      const authResult = await supabase.auth.mfa.webauthn.authenticate(
+        { factorId: factor.id, webauthn: getWebAuthnRpConfig() },
+        { userVerification: "required" }
+      );
+
+      if (authResult.error) {
+        toast.error("Biometria nao confirmada.", {
+          description: getBiometricErrorMessage(authResult.error),
+        });
+        return;
+      }
+
+      await refreshUserSession();
+      const next = resolveRedirect();
+      navigate(next ?? '/dashboard', { replace: true });
+    } catch (error) {
+      console.error("Biometric unlock error:", error);
+      toast.error("Nao foi possivel desbloquear com biometria.", {
+        description: getBiometricErrorMessage(error),
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [refreshUserSession, navigate, resolveRedirect]);
 
   const maybeAuthenticateWithBiometrics = useCallback(async (userId: string) => {
     if (!getStoredBiometricFactorId(userId)) {
@@ -447,6 +498,38 @@ const Auth = () => {
           </CardDescription>
         </CardHeader>
         <CardContent className="text-slate-900">
+          {sessionLocked && (() => {
+            const lockedUserId = localStorage.getItem(LAST_USER_KEY);
+            const hasBiometric = !!lockedUserId && !!getStoredBiometricFactorId(lockedUserId);
+            return (
+              <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-4 space-y-3">
+                <div className="text-center space-y-0.5">
+                  <p className="text-xs text-slate-500">Sessao bloqueada</p>
+                  {selectedUserName && (
+                    <p className="text-sm font-medium text-slate-800">
+                      Olá, {selectedUserName.split(" ")[0]}!
+                    </p>
+                  )}
+                </div>
+                {hasBiometric && (
+                  <Button
+                    type="button"
+                    className="w-full flex items-center gap-2 bg-primary text-primary-foreground hover:opacity-90"
+                    onClick={handleBiometricUnlock}
+                    disabled={loading}
+                  >
+                    {loading ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Fingerprint className="h-4 w-4" />
+                    )}
+                    Entrar com Face ID / biometria
+                  </Button>
+                )}
+                <p className="text-center text-xs text-slate-500">ou use sua senha abaixo</p>
+              </div>
+            );
+          })()}
           <form onSubmit={handleLogin} className="space-y-4 text-slate-900">
             <div className="space-y-2">
               <Label htmlFor="user" className="text-slate-900">{t("auth.userLabel")}</Label>
