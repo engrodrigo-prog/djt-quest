@@ -395,7 +395,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (currentSession) {
           if (localStorage.getItem(LOCKED_KEY) === '1') {
             // Biometric gate required — keep Supabase token alive, block auto-login
-            setSessionLocked(true);
             currentSession = null;
           } else {
             try {

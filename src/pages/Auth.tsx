@@ -28,6 +28,7 @@ import {
   getWebAuthnRpConfig,
   listVerifiedWebAuthnFactors,
   syncPreferredBiometricFactor,
+  type WebAuthnFactorLike,
 } from "@/lib/biometricAuth";
 import { buildAbsoluteAppUrl, openWhatsAppShare } from "@/lib/whatsappShare";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -126,7 +127,7 @@ const Auth = () => {
 
       const factor = syncPreferredBiometricFactor(
         lastUserId,
-        listVerifiedWebAuthnFactors((data?.all || []) as Array<{ id: string; friendly_name?: string; factor_type?: string; status?: string }>)
+        listVerifiedWebAuthnFactors((data?.all || []) as WebAuthnFactorLike[])
       );
 
       if (!factor) {
@@ -177,12 +178,7 @@ const Auth = () => {
 
       const factor = syncPreferredBiometricFactor(
         userId,
-        listVerifiedWebAuthnFactors((data?.all || []) as Array<{
-          id: string;
-          friendly_name?: string;
-          factor_type?: string;
-          status?: string;
-        }>)
+        listVerifiedWebAuthnFactors((data?.all || []) as WebAuthnFactorLike[])
       );
 
       if (!factor) {
@@ -461,6 +457,9 @@ const Auth = () => {
     await attemptLogin(selectedUser);
   };
 
+  const lockedUserId = sessionLocked ? localStorage.getItem(LAST_USER_KEY) : null;
+  const hasBiometric = !!lockedUserId && !!getStoredBiometricFactorId(lockedUserId);
+
   return (
     <div
       className="min-h-screen flex items-center justify-center p-4 animate-fade-in relative"
@@ -498,38 +497,34 @@ const Auth = () => {
           </CardDescription>
         </CardHeader>
         <CardContent className="text-slate-900">
-          {sessionLocked && (() => {
-            const lockedUserId = localStorage.getItem(LAST_USER_KEY);
-            const hasBiometric = !!lockedUserId && !!getStoredBiometricFactorId(lockedUserId);
-            return (
-              <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-4 space-y-3">
-                <div className="text-center space-y-0.5">
-                  <p className="text-xs text-slate-500">Sessao bloqueada</p>
-                  {selectedUserName && (
-                    <p className="text-sm font-medium text-slate-800">
-                      Olá, {selectedUserName.split(" ")[0]}!
-                    </p>
-                  )}
-                </div>
-                {hasBiometric && (
-                  <Button
-                    type="button"
-                    className="w-full flex items-center gap-2 bg-primary text-primary-foreground hover:opacity-90"
-                    onClick={handleBiometricUnlock}
-                    disabled={loading}
-                  >
-                    {loading ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Fingerprint className="h-4 w-4" />
-                    )}
-                    Entrar com Face ID / biometria
-                  </Button>
+          {sessionLocked && (
+            <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-4 space-y-3">
+              <div className="text-center space-y-0.5">
+                <p className="text-xs text-slate-500">Sessao bloqueada</p>
+                {selectedUserName && (
+                  <p className="text-sm font-medium text-slate-800">
+                    Olá, {selectedUserName.split(" ")[0]}!
+                  </p>
                 )}
-                <p className="text-center text-xs text-slate-500">ou use sua senha abaixo</p>
               </div>
-            );
-          })()}
+              {hasBiometric && (
+                <Button
+                  type="button"
+                  className="w-full flex items-center gap-2 bg-primary text-primary-foreground hover:opacity-90"
+                  onClick={handleBiometricUnlock}
+                  disabled={loading}
+                >
+                  {loading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Fingerprint className="h-4 w-4" />
+                  )}
+                  Entrar com Face ID / biometria
+                </Button>
+              )}
+              <p className="text-center text-xs text-slate-500">ou use sua senha abaixo</p>
+            </div>
+          )}
           <form onSubmit={handleLogin} className="space-y-4 text-slate-900">
             <div className="space-y-2">
               <Label htmlFor="user" className="text-slate-900">{t("auth.userLabel")}</Label>
