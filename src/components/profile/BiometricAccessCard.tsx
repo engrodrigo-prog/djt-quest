@@ -10,7 +10,6 @@ import {
   getBiometricErrorMessage,
   getBiometricSupport,
   getPreferredBiometricFactor,
-  getStoredBiometricFactorId,
   getWebAuthnRpConfig,
   listVerifiedWebAuthnFactors,
   setStoredBiometricFactorId,
@@ -57,12 +56,11 @@ export function BiometricAccessCard() {
     if (!user?.id) return;
     setLoading(true);
     try {
-      const [supportState, verified] = await Promise.all([
+      const [supportState] = await Promise.all([
         getBiometricSupport(),
         loadFactors(user.id),
       ]);
       setSupport(supportState);
-      syncPreferredBiometricFactor(user.id, verified);
     } catch (error) {
       console.error("Biometric setup load error:", error);
       setFactors([]);
@@ -166,7 +164,6 @@ export function BiometricAccessCard() {
   const handleDisable = async () => {
     if (!user?.id || !enabledFactor) {
       clearStoredBiometricFactorId(user?.id);
-      setFactors((prev) => prev.filter((factor) => factor.id !== getStoredBiometricFactorId(user?.id)));
       return;
     }
 

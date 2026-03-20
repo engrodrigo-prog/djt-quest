@@ -114,7 +114,7 @@ const Auth = () => {
     }
 
     const support = await getBiometricSupport();
-    if (!support.available) {
+    if (!support.available || !support.platformAuthenticator) {
       return { status: "unsupported" } as const;
     }
 
@@ -173,11 +173,11 @@ const Auth = () => {
 
       const biometricResult = await maybeAuthenticateWithBiometrics(user.id);
       if (biometricResult.status === "unsupported" || biometricResult.status === "failed") {
-        toast.message("Biometria nao concluida neste acesso", {
+        toast.warning("Biometria nao utilizada neste acesso", {
           description:
             biometricResult.status === "unsupported"
-              ? "Este navegador nao ofereceu WebAuthn agora. O acesso seguira com a senha."
-              : `${getBiometricErrorMessage(biometricResult.error)} O acesso seguira com a senha.`,
+              ? "A biometria nao esta disponivel neste aparelho agora. O acesso seguiu com a senha."
+              : `${getBiometricErrorMessage(biometricResult.error)} O acesso seguiu com a senha.`,
         });
       }
 
