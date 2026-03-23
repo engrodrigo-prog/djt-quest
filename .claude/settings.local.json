@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node --test test/biometric-auth.test.mjs)",
+      "Bash(grep -r \"signInWithPasskey\\\\|passkey\" '/Users/rodrigonascimento/Desktop/Enerlytics/DJT Quest/djt-quest/node_modules/@supabase/auth-js/dist' --include=*.js -l)",
+      "Bash(npx tsc:*)"
+    ]
+  }
+}

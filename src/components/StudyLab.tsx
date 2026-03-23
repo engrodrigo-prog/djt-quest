@@ -288,7 +288,7 @@ export const StudyLab = () => {
 
   const [catalogOpen, setCatalogOpen] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
-  const [catalogTab, setCatalogTab] = useState<"tree" | "list">("tree");
+  const [catalogTab, setCatalogTab] = useState<"tree" | "list">("list");
   const [catalogPreviewId, setCatalogPreviewId] = useState<string | null>(null);
 
   const [search, setSearch] = useState("");
@@ -358,7 +358,6 @@ export const StudyLab = () => {
 
   useEffect(() => {
     if (!catalogOpen) return;
-    setCatalogTab("list");
     setCatalogPreviewId(null);
     setTimeout(() => catalogSearchRef.current?.focus(), 0);
   }, [catalogOpen]);
@@ -1795,8 +1794,8 @@ export const StudyLab = () => {
                   if (!checked) setUseWeb(false);
                 }}
               />
-              <Label htmlFor="studylab-catalog-toggle" className="text-xs font-medium">
-                Catálogo
+              <Label htmlFor="studylab-catalog-toggle" className="text-xs font-medium" title="Busca em todos os materiais em vez de um só">
+                Modo catálogo
               </Label>
             </div>
             <div className="flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5">
@@ -1866,11 +1865,37 @@ export const StudyLab = () => {
             className="min-h-[42vh] [@media(orientation:landscape)]:min-h-[32vh] sm:min-h-[55vh] overflow-y-auto rounded-md border bg-muted/30 p-2 sm:p-3"
           >
             {chatMessages.length === 0 && (
-              <p className="text-sm text-muted-foreground">
-                {oracleMode
-                  ? "Pergunte qualquer coisa. O Catálogo responde usando sua base (e pesquisa online quando necessário)."
-                  : "Escolha um material no catálogo e pergunte sobre ele."}
-              </p>
+              <div className="flex h-full min-h-[30vh] flex-col items-center justify-center gap-4 py-8 text-center">
+                {oracleMode ? (
+                  <>
+                    <p className="text-sm text-muted-foreground max-w-sm">
+                      Pergunte qualquer coisa. O Catálogo busca em todos os seus materiais{useWeb ? " e na web" : ""}.
+                    </p>
+                  </>
+                ) : selectedSource ? (
+                  <>
+                    <p className="text-xs text-muted-foreground">Material selecionado:</p>
+                    <p className="text-sm font-medium max-w-xs truncate">{selectedSource.title}</p>
+                    <p className="text-xs text-muted-foreground">Digite sua pergunta abaixo para começar.</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-sm text-muted-foreground max-w-sm">
+                      Selecione um material para perguntar sobre ele, ou ative o modo Catálogo para buscar em toda a base.
+                    </p>
+                    <div className="flex flex-wrap justify-center gap-2">
+                      <Button type="button" variant="outline" size="sm" onClick={() => setCatalogOpen(true)}>
+                        <LibraryBig className="mr-2 h-4 w-4" />
+                        Abrir catálogo
+                      </Button>
+                      <Button type="button" variant="outline" size="sm" onClick={() => setUploadOpen(true)}>
+                        <Plus className="mr-2 h-4 w-4" />
+                        Adicionar material
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </div>
             )}
             {chatMessages.map((m, idx) => (
               <div key={idx} className={`mb-2 flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
@@ -1926,8 +1951,10 @@ export const StudyLab = () => {
             ))}
             {chatLoading && (
               <div className="mb-2 flex justify-start">
-                <div className="max-w-[70%] rounded-2xl border bg-background px-3 py-2 text-sm text-muted-foreground">
-                  Pensando...
+                <div className="flex items-center gap-1 rounded-2xl border bg-background px-4 py-3">
+                  <span className="h-2 w-2 rounded-full bg-muted-foreground/60 animate-bounce [animation-delay:0ms]" />
+                  <span className="h-2 w-2 rounded-full bg-muted-foreground/60 animate-bounce [animation-delay:150ms]" />
+                  <span className="h-2 w-2 rounded-full bg-muted-foreground/60 animate-bounce [animation-delay:300ms]" />
                 </div>
               </div>
             )}
@@ -2144,44 +2171,46 @@ export const StudyLab = () => {
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={handleRecatalog}
-                disabled={catalogRefreshing || ingesting || loadingSources}
-              >
-                Atualizar catálogo com IA
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={handleReingestFailed}
-                disabled={catalogRefreshing || ingesting || loadingSources}
-              >
-                Reprocessar falhas
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={handleCleanCache}
-                disabled={cacheCleaning || catalogRefreshing || ingesting || loadingSources}
-              >
-                {cacheCleaning ? "Limpando…" : "Limpar cache"}
-              </Button>
-              {catalogRefreshing && catalogRefreshProgress ? (
-                <span className="text-[11px] text-muted-foreground">
-                  {catalogRefreshProgress.done}/{catalogRefreshProgress.total}
-                </span>
-              ) : (
-                <span className="text-[11px] text-muted-foreground">
-                  Recalcula títulos, resumos e temas a partir do conteúdo.
-                </span>
-              )}
-            </div>
+            {isStaff && (
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={handleRecatalog}
+                  disabled={catalogRefreshing || ingesting || loadingSources}
+                >
+                  Atualizar catálogo com IA
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={handleReingestFailed}
+                  disabled={catalogRefreshing || ingesting || loadingSources}
+                >
+                  Reprocessar falhas
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={handleCleanCache}
+                  disabled={cacheCleaning || catalogRefreshing || ingesting || loadingSources}
+                >
+                  {cacheCleaning ? "Limpando…" : "Limpar cache"}
+                </Button>
+                {catalogRefreshing && catalogRefreshProgress ? (
+                  <span className="text-[11px] text-muted-foreground">
+                    {catalogRefreshProgress.done}/{catalogRefreshProgress.total}
+                  </span>
+                ) : (
+                  <span className="text-[11px] text-muted-foreground">
+                    Recalcula títulos, resumos e temas a partir do conteúdo.
+                  </span>
+                )}
+              </div>
+            )}
 
             <Tabs value={catalogTab} onValueChange={(v) => setCatalogTab(v as any)}>
               <TabsList className="w-full">
