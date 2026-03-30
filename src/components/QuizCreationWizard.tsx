@@ -12,7 +12,8 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { HelpCircle } from 'lucide-react';
+import { HelpCircle, Eye, CheckCircle2, XCircle } from 'lucide-react';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { QuizQuestionForm } from './QuizQuestionForm';
@@ -121,6 +122,13 @@ export function QuizCreationWizard() {
   const [textImportImproving, setTextImportImproving] = useState(false);
   const [textImportUsedAi, setTextImportUsedAi] = useState<boolean | null>(null);
   const [textImportSeed, setTextImportSeed] = useState<string>('');
+
+  // Review before publish
+  type ReviewOption = { id: string; option_text: string; is_correct: boolean; explanation: string | null };
+  type ReviewQuestion = { id: string; question_text: string; difficulty_level: string; xp_value: number; options: ReviewOption[] };
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [reviewLoading, setReviewLoading] = useState(false);
+  const [reviewQuestions, setReviewQuestions] = useState<ReviewQuestion[]>([]);
 
   const location = useLocation();
   const navigate = useNavigate();
@@ -1085,6 +1093,52 @@ export function QuizCreationWizard() {
     }
   };
 
+  const openReview = async () => {
+    if (!quizId) return;
+    setReviewOpen(true);
+    setReviewLoading(true);
+    try {
+      const { data: qs, error: qErr } = await supabase
+        .from('quiz_questions')
+        .select('id, question_text, difficulty_level, xp_value, order_index')
+        .eq('challenge_id', quizId)
+        .order('order_index');
+      if (qErr) throw qErr;
+      if (!qs || qs.length === 0) {
+        toast.error('Adicione ao menos 1 pergunta antes de revisar');
+        setReviewOpen(false);
+        setReviewLoading(false);
+        return;
+      }
+      const questionIds = qs.map((q: any) => q.id);
+      const { data: opts } = await supabase
+        .from('quiz_options')
+        .select('id, question_id, option_text, is_correct, explanation')
+        .in('question_id', questionIds)
+        .order('created_at');
+      const optsByQ: Record<string, ReviewOption[]> = {};
+      for (const o of (opts || []) as any[]) {
+        const qid = String(o.question_id);
+        if (!optsByQ[qid]) optsByQ[qid] = [];
+        optsByQ[qid].push({ id: o.id, option_text: o.option_text, is_correct: o.is_correct, explanation: o.explanation });
+      }
+      setReviewQuestions(
+        qs.map((q: any) => ({
+          id: q.id,
+          question_text: q.question_text,
+          difficulty_level: q.difficulty_level,
+          xp_value: q.xp_value,
+          options: optsByQ[q.id] || [],
+        })),
+      );
+    } catch (e: any) {
+      toast.error(e?.message || 'Falha ao carregar revisão');
+      setReviewOpen(false);
+    } finally {
+      setReviewLoading(false);
+    }
+  };
+
   const publishQuiz = async () => {
     if (!quizId) return;
     setIsPublishingQuiz(true);
@@ -1100,6 +1154,7 @@ export function QuizCreationWizard() {
       const json = await resp.json().catch(() => ({}));
       if (!resp.ok) throw new Error(json?.error || 'Falha ao publicar');
       toast.success('Quiz publicado para todos os usuários');
+      setReviewOpen(false);
       navigate('/studio/curadoria');
     } catch (e: any) {
       toast.error(e?.message || 'Falha ao publicar');
@@ -1400,7 +1455,7 @@ export function QuizCreationWizard() {
           </CardTitle>
           <CardDescription className="flex items-center justify-between gap-2 flex-wrap">
             <div className="min-w-0">
-              <div>Quando terminar, publique para todos os usuários.</div>
+              <div>Quando terminar, revise as perguntas e alternativas antes de publicar.</div>
               <div className="text-[11px] text-muted-foreground">
                 XP por pergunta: {quizXpReward ?? '—'} • Dificuldade: {quizForcedDifficulty === 'basico' ? 'Básico' : quizForcedDifficulty === 'intermediario' ? 'Intermediário' : quizForcedDifficulty === 'avancado' ? 'Avançado' : 'Especialista'} • Vigência: {quizDueDate || '—'}
               </div>
@@ -1409,8 +1464,9 @@ export function QuizCreationWizard() {
               <Button variant="outline" onClick={() => navigate('/studio/curadoria')}>
                 Abrir Hub de Curadoria
               </Button>
-              <Button onClick={publishQuiz} disabled={isPublishingQuiz}>
-                {isPublishingQuiz ? 'Publicando…' : 'Publicar para todos'}
+              <Button onClick={() => void openReview()}>
+                <Eye className="h-4 w-4 mr-2" />
+                Revisar e Publicar
               </Button>
             </div>
           </CardDescription>
@@ -1851,6 +1907,63 @@ export function QuizCreationWizard() {
       </Card>
 
       <QuizQuestionsList key={refreshKey} challengeId={quizId} onUpdate={handleQuestionAdded} />
+
+      <Dialog open={reviewOpen} onOpenChange={setReviewOpen}>
+        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Revisão antes de publicar</DialogTitle>
+            <DialogDescription>
+              Confira todas as perguntas e alternativas. A alternativa correta está destacada em verde. Se precisar editar, feche e use o botão de edição na lista.
+            </DialogDescription>
+          </DialogHeader>
+
+          {reviewLoading ? (
+            <p className="text-sm text-muted-foreground py-4">Carregando perguntas...</p>
+          ) : reviewQuestions.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-4">Nenhuma pergunta encontrada.</p>
+          ) : (
+            <div className="space-y-5">
+              {reviewQuestions.map((q, qi) => (
+                <div key={q.id} className="rounded-lg border p-4 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-sm">#{qi + 1}</span>
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">
+                      {q.xp_value} XP
+                    </span>
+                  </div>
+                  <p className="text-sm font-medium">{q.question_text}</p>
+                  <div className="space-y-1.5 ml-1">
+                    {q.options.map((opt, oi) => (
+                      <div
+                        key={opt.id}
+                        className={`flex items-start gap-2 text-sm rounded-md px-2 py-1.5 ${opt.is_correct ? 'bg-green-50 dark:bg-green-950/30' : ''}`}
+                      >
+                        {opt.is_correct ? (
+                          <CheckCircle2 className="h-4 w-4 text-green-600 mt-0.5 flex-shrink-0" />
+                        ) : (
+                          <XCircle className="h-4 w-4 text-muted-foreground/40 mt-0.5 flex-shrink-0" />
+                        )}
+                        <span className={opt.is_correct ? 'font-medium text-green-700 dark:text-green-300' : 'text-muted-foreground'}>
+                          {String.fromCharCode(65 + oi)}) {opt.option_text}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+
+              <div className="flex justify-end gap-3 pt-2 border-t">
+                <Button variant="outline" onClick={() => setReviewOpen(false)}>
+                  Voltar e editar
+                </Button>
+                <Button onClick={publishQuiz} disabled={isPublishingQuiz}>
+                  {isPublishingQuiz ? 'Publicando…' : 'Confirmar e Publicar'}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

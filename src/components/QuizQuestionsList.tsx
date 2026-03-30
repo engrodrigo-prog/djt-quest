@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { Pencil, Trash2, Wand2 } from "lucide-react";
+import { Pencil, Trash2, Wand2, ChevronDown, ChevronUp, CheckCircle2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -44,6 +44,8 @@ export function QuizQuestionsList({ challengeId, onUpdate }: QuizQuestionsListPr
   const [editLoading, setEditLoading] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
   const [editGenerating, setEditGenerating] = useState(false);
+  const [expandedQuestions, setExpandedQuestions] = useState<Set<string>>(new Set());
+  const [inlineOptions, setInlineOptions] = useState<Record<string, OptionRow[]>>({});
   const [editQuestionId, setEditQuestionId] = useState<string | null>(null);
   const [editQuestionText, setEditQuestionText] = useState("");
   const [editDifficulty, setEditDifficulty] = useState<DifficultyLevel>("basico");
@@ -105,6 +107,31 @@ export function QuizQuestionsList({ challengeId, onUpdate }: QuizQuestionsListPr
       toast.error((error as any)?.message || "Erro ao excluir pergunta");
     }
   }, [loadQuestions, onUpdate]);
+
+  const toggleExpand = useCallback(async (questionId: string) => {
+    setExpandedQuestions((prev) => {
+      const next = new Set(prev);
+      if (next.has(questionId)) {
+        next.delete(questionId);
+      } else {
+        next.add(questionId);
+      }
+      return next;
+    });
+    if (inlineOptions[questionId]) return;
+    try {
+      const { data: opts } = await supabase
+        .from("quiz_options")
+        .select("id, option_text, is_correct, explanation")
+        .eq("question_id", questionId)
+        .order("created_at");
+      if (Array.isArray(opts)) {
+        setInlineOptions((prev) => ({ ...prev, [questionId]: opts as OptionRow[] }));
+      }
+    } catch {
+      // ignore
+    }
+  }, [inlineOptions]);
 
   const openEditor = useCallback(async (questionId: string) => {
     const qid = String(questionId || "").trim();
@@ -187,6 +214,8 @@ export function QuizQuestionsList({ challengeId, onUpdate }: QuizQuestionsListPr
       if (!resp.ok) throw new Error(json?.error || "Falha ao salvar");
       toast.success("Pergunta atualizada");
       setEditOpen(false);
+      // Refresh inline options for this question
+      setInlineOptions((prev) => { const next = { ...prev }; delete next[editQuestionId]; return next; });
       setEditQuestionId(null);
       loadQuestions();
       onUpdate();
@@ -226,7 +255,7 @@ export function QuizQuestionsList({ challengeId, onUpdate }: QuizQuestionsListPr
       if (!resp.ok) throw new Error(json?.error || "Falha ao gerar alternativas");
       const wrong = Array.isArray(json?.wrong) ? json.wrong : [];
       const wrongs = wrong
-        .map((w: any) => ({ text: String(w?.text || "").trim(), explanation: String(w?.explanation || "").trim() }))
+        .map((w: any) => ({ text: String(w?.text || "").trim(), explanation: "" }))
         .filter((w: any) => w.text.length > 0)
         .slice(0, 3);
       if (wrongs.length !== 3) throw new Error("IA não retornou 3 alternativas");
@@ -238,7 +267,7 @@ export function QuizQuestionsList({ challengeId, onUpdate }: QuizQuestionsListPr
         const next = [...prev];
         for (let i = 0; i < wrongSlots.length; i++) {
           const slot = wrongSlots[i];
-          next[slot] = { ...next[slot], option_text: wrongs[i].text, explanation: wrongs[i].explanation || null };
+          next[slot] = { ...next[slot], option_text: wrongs[i].text, explanation: "" };
         }
         return next;
       });
@@ -370,32 +399,65 @@ export function QuizQuestionsList({ challengeId, onUpdate }: QuizQuestionsListPr
         </div>
         <Progress value={milhaoProgress} className="h-2" />
       </div>
-      {questions.map((question, index) => (
-        <Card key={question.id}>
-          <CardContent className="p-4">
-            <div className="flex items-start justify-between gap-4">
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="font-semibold text-sm">#{index + 1}</span>
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">
-                    {difficultyLevels[dbToUi[question.difficulty_level] || 'basico'].label} -{" "}
-                    {isMilhao ? (MILHAO_PRIZE_XP[index] ?? question.xp_value) : question.xp_value} XP
-                  </span>
+      {questions.map((question, index) => {
+        const isExpanded = expandedQuestions.has(question.id);
+        const opts = inlineOptions[question.id];
+        return (
+          <Card key={question.id}>
+            <CardContent className="p-4">
+              <div className="flex items-start justify-between gap-4">
+                <div
+                  className="flex-1 min-w-0 cursor-pointer"
+                  onClick={() => void toggleExpand(question.id)}
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="font-semibold text-sm">#{index + 1}</span>
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">
+                      {difficultyLevels[dbToUi[question.difficulty_level] || 'basico'].label} -{" "}
+                      {isMilhao ? (MILHAO_PRIZE_XP[index] ?? question.xp_value) : question.xp_value} XP
+                    </span>
+                    {isExpanded ? <ChevronUp className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />}
+                  </div>
+                  <p className="text-sm">{question.question_text}</p>
                 </div>
-                <p className="text-sm">{question.question_text}</p>
+                <div className="flex items-center gap-1 flex-shrink-0">
+                  <Button variant="ghost" size="icon" onClick={() => void openEditor(question.id)} title="Editar">
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                  <Button variant="ghost" size="icon" onClick={() => handleDelete(question.id)} title="Excluir">
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
-              <div className="flex items-center gap-1 flex-shrink-0">
-                <Button variant="ghost" size="icon" onClick={() => void openEditor(question.id)} title="Editar">
-                  <Pencil className="h-4 w-4" />
-                </Button>
-                <Button variant="ghost" size="icon" onClick={() => handleDelete(question.id)} title="Excluir">
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      ))}
+              {isExpanded && (
+                <div className="mt-3 ml-1 space-y-1.5 border-t pt-3">
+                  {!opts ? (
+                    <p className="text-xs text-muted-foreground">Carregando alternativas...</p>
+                  ) : opts.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">Nenhuma alternativa cadastrada</p>
+                  ) : (
+                    opts.map((opt, oi) => (
+                      <div
+                        key={opt.id}
+                        className={`flex items-start gap-2 text-sm rounded-md px-2 py-1.5 ${opt.is_correct ? 'bg-green-50 dark:bg-green-950/30' : ''}`}
+                      >
+                        {opt.is_correct ? (
+                          <CheckCircle2 className="h-4 w-4 text-green-600 mt-0.5 flex-shrink-0" />
+                        ) : (
+                          <XCircle className="h-4 w-4 text-muted-foreground/40 mt-0.5 flex-shrink-0" />
+                        )}
+                        <span className={opt.is_correct ? 'font-medium text-green-700 dark:text-green-300' : 'text-muted-foreground'}>
+                          {String.fromCharCode(65 + oi)}) {opt.option_text}
+                        </span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        );
+      })}
     </div>
   );
 }
