@@ -157,7 +157,7 @@ export function QuizQuestionForm({ challengeId, onQuestionAdded }: QuizQuestionF
       if (!resp.ok) throw new Error(json?.error || "Falha ao gerar alternativas erradas");
       const wrong = Array.isArray(json?.wrong) ? json.wrong : [];
       const wrongTexts = wrong
-        .map((w: any) => ({ text: String(w?.text || "").trim(), explanation: String(w?.explanation || "").trim() }))
+        .map((w: any) => ({ text: String(w?.text || "").trim(), explanation: "" }))
         .filter((w: any) => w.text && w.text.toLowerCase() !== correct.toLowerCase())
         .slice(0, TARGET_WRONG_OPTIONS);
       if (wrongTexts.length < TARGET_WRONG_OPTIONS) {
@@ -166,7 +166,7 @@ export function QuizQuestionForm({ challengeId, onQuestionAdded }: QuizQuestionF
 
       const optionsPayload: QuizQuestionFormData["options"] = [
         { option_text: correct, is_correct: true, explanation: exp },
-        ...wrongTexts.map((w: any) => ({ option_text: w.text, is_correct: false, explanation: w.explanation })),
+        ...wrongTexts.map((w: any) => ({ option_text: w.text, is_correct: false, explanation: "" })),
       ];
 
       const payload: QuizQuestionFormData = {
@@ -236,7 +236,7 @@ export function QuizQuestionForm({ challengeId, onQuestionAdded }: QuizQuestionF
       if (wrongOptions.some((opt) => opt.option_text.toLowerCase() === text.toLowerCase())) continue;
       wrongOptions.push({
         option_text: text,
-        explanation: String(candidate?.explanation || "").trim(),
+        explanation: "",
         is_correct: false,
       });
     }
@@ -293,8 +293,8 @@ export function QuizQuestionForm({ challengeId, onQuestionAdded }: QuizQuestionF
         if (!txt) continue;
         if (txt.toLowerCase() === correct.option_text.toLowerCase()) continue;
         if (wrong.some((o) => o.option_text.toLowerCase() === txt.toLowerCase())) continue;
-        append({ option_text: txt, is_correct: false, explanation: String(candidate?.explanation || '') });
-        wrong.push({ option_text: txt, is_correct: false, explanation: String(candidate?.explanation || '') } as any);
+        append({ option_text: txt, is_correct: false, explanation: '' });
+        wrong.push({ option_text: txt, is_correct: false, explanation: '' } as any);
       }
       if (wrong.length < TARGET_WRONG_OPTIONS) {
         toast.warning('Geradas menos alternativas do que o necessário. Complete manualmente.');

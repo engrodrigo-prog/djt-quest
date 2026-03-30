@@ -17,6 +17,9 @@ const OPENAI_DISTRACTOR_MODEL = normalizeChatModel(
 
 const BANNED_TERMS_RE = /smart\s*line|smartline|smarline/i
 
+/** Rejects options that leak meta-info about correctness or letter position. */
+const META_LEAK_RE = /\balternativa\s+[a-e]\b|\bop[çc][ãa]o\s+[a-e]\b|\b(correta|certa|verdadeira|incorreta|errada|falsa)\b|\besta\s+(é|e)\s+(a\s+)?(resposta|alternativa|op[çc][ãa]o)/i
+
 const normalizeText = (value: any) =>
   String(value || '')
     .toLowerCase()
@@ -76,13 +79,15 @@ const callOpenAiForWrongs = async (params: {
 Regras:
 - Gere alternativas verossímeis, factíveis, mas ERRADAS.
 - NUNCA repita nem parafraseie a resposta correta.
-- Não use "todas as alternativas", "nenhuma das alternativas", nem pegadinhas óbvias.
+- Não use “todas as alternativas”, “nenhuma das alternativas”, nem pegadinhas óbvias.
 - Texto curto (<= 140 caracteres), direto e específico.
 - Evite negações simples (“não …”), reordenação trivial, ou sinônimos óbvios.
 - Use erros comuns, confusões de conceito, parâmetros próximos, termos/siglas similares, passos fora de ordem.
 - Adeque a dificuldade (basico/intermediario/avancado/especialista).
 - Proibido mencionar SmartLine/Smartline/Smart Line.
-- Retorne APENAS JSON válido no formato: {"items":[{"text":"...","explanation":"..."}]} (sem texto extra).`
+- NUNCA inclua no texto da alternativa referências a letras de opção (A, B, C, D, E) nem palavras como “correta”, “certa”, “verdadeira”, “incorreta”, “errada” ou “falsa”. A alternativa deve conter APENAS o conteúdo técnico, sem meta-referências.
+- NÃO gere explicações; retorne explanation sempre como string vazia.
+- Retorne APENAS JSON válido no formato: {“items”:[{“text”:”...”,”explanation”:””}]} (sem texto extra).`
 
   const avoidLines =
     Array.isArray(avoid) && avoid.length
@@ -154,12 +159,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const text = String(cand?.text || '').trim()
       if (!text) return false
       if (BANNED_TERMS_RE.test(text)) return false
+      if (META_LEAK_RE.test(text)) return false
       if (tooSimilar(text, correctText)) return false
       const key = normalizeText(text)
       if (!key) return false
       if (seen.has(key)) return false
       seen.add(key)
-      accepted.push({ text, explanation: String(cand?.explanation || '').trim() })
+      accepted.push({ text, explanation: '' })
       return true
     }
 
@@ -203,8 +209,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
 
       variants.push('Procedimento semelhante, porém com uma etapa fora de ordem.')
-      variants.push('Conceito relacionado, mas aplicado ao equipamento/condição errada.')
-      variants.push('Condição parcialmente correta, mas com parâmetro/limiar diferente.')
+      variants.push('Conceito relacionado, mas aplicado a outro equipamento ou condição.')
+      variants.push('Condição parcialmente válida, mas com parâmetro ou limiar diferente.')
 
       for (const v of variants) {
         if (accepted.length >= target) break
@@ -213,9 +219,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     const pads = [
-      'Procedimento plausível, mas incorreto no detalhe crítico.',
+      'Procedimento plausível, mas com detalhe técnico divergente.',
       'Conceito próximo, mas com requisito de segurança ausente.',
-      'Resposta possível, porém válida apenas em outro cenário.',
+      'Abordagem possível, porém válida apenas em outro cenário.',
     ]
     while (accepted.length < target) {
       const next = pads[accepted.length % pads.length]
