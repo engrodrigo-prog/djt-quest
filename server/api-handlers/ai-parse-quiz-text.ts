@@ -73,7 +73,8 @@ const normalizeSpaces = (s: string) =>
 
 const heuristicParse = (text: any) => {
   const raw = String(text || '').replace(/\r\n/g, '\n')
-  const headerRe = /^\s*(?:Q(?:uest[aã]o)?|Quest[aã]o|Pergunta)\s*\d+\b/i
+  // Matches: "Questão 1", "Pergunta 2", "Q3", "Questao 4" OR bare numbered list "1.", "2.", "3."
+  const headerRe = /^\s*(?:(?:Q(?:uest[aã]o)?|Quest[aã]o|Questao|Pergunta)\s*\d+\b|\d+\.\s)/i
 
   const linesAll = raw.split('\n')
   const blocks: string[] = []
@@ -111,9 +112,9 @@ const heuristicParse = (text: any) => {
       if (m) {
         options.push({ letter: m[1].toUpperCase(), text: String(m[2] || '').trim() })
         readingAnswerBlock = false
-      } else if (/^(?:gabarito|resposta\s+correta|resposta)\s*[:\-–]/i.test(line)) {
-        // "Resposta:" pode ter múltiplas linhas: tudo após o marcador até o fim do bloco.
-        const ans = String(line || '').replace(/^(?:gabarito|resposta\s+correta|resposta)\s*[:\-–]\s*/i, '').trim()
+      } else if (/^(?:gabarito|resposta\s+correta|resposta|r)\s*[:\-–]/i.test(line)) {
+        // "Resposta:", "R:" podem ter múltiplas linhas: tudo após o marcador até o fim do bloco.
+        const ans = String(line || '').replace(/^(?:gabarito|resposta\s+correta|resposta|r)\s*[:\-–]\s*/i, '').trim()
         correctAnswerText = ans
         readingAnswerBlock = true
       } else {
@@ -179,9 +180,9 @@ const heuristicParse = (text: any) => {
     }
     push(base.split(' ').reverse().join(' '))
     push('Procedimento semelhante, porém com uma etapa fora de ordem.')
-    push('Conceito relacionado, mas aplicado ao equipamento/condição errada.')
-    push('Condição parcialmente correta, mas com parâmetro/limiar diferente.')
-    while (wrong.length < 3) push(`Alternativa plausível, mas incorreta (${wrong.length + 1}).`)
+    push('Conceito relacionado, mas aplicado a outro equipamento ou condição.')
+    push('Condição parcialmente válida, mas com parâmetro ou limiar diferente.')
+    while (wrong.length < 3) push(`Abordagem plausível com detalhe técnico divergente (${wrong.length + 1}).`)
 
     const ordered = [
       { text: base, is_correct: true, explanation: '' },
@@ -307,7 +308,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const seedStr = String(seed || '').trim()
     const scopeStr = String(scope || '').trim()
 
-    const hasRespostaBlocks = /\n?\s*(?:gabarito|resposta\s+correta|resposta)\s*[:\-–]/i.test(inputText)
+    const hasRespostaBlocks = /\n?\s*(?:gabarito|resposta\s+correta|resposta|r)\s*[:\-–]/i.test(inputText)
 
     if (OPENAI_API_KEY && !hasRespostaBlocks) {
       try {
@@ -338,9 +339,10 @@ Regras:
 - Se o texto do usuário não trouxer 3 erradas, gere erradas verossímeis e factíveis (mas ERRADAS).
 - O input pode vir como:
   (a) A) B) C) D) + "Correta: B" ou
-  (b) "Questão/Pergunta: ..." + "Resposta correta: <texto>" (sem alternativas) ou
+  (b) "Questão/Pergunta N:" ou "N." + "Resposta correta: <texto>" ou "R: <texto>" (sem alternativas) ou
   (c) "Questão/Pergunta: ..." seguido de 1 bullet (ex.: "- <texto>") representando a resposta correta.
-  Em (b), use a resposta correta como alternativa correta e gere 3 erradas.
+  Em (b), use a resposta correta como alternativa correta e gere 3 erradas plausíveis.
+  O marcador de resposta pode ser: "R:", "R -", "Resposta:", "Resposta correta:", "Gabarito:".
 - Se o texto marcar a correta por letra (ex.: "Correta: B", "*" na alternativa, "(correta)"), preserve essa correta; não invente outra.
 - Explicação: 1 a 3 frases, direta, sem inventar normas internas; se não houver, use "".
 - Evite "todas/nenhuma das alternativas" e não repita a correta nas erradas.
