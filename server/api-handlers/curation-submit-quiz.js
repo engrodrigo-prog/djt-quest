@@ -2,6 +2,7 @@ import { createSupabaseAdminClient, requireCallerUser } from '../lib/supabase-ad
 import { tryInsertAuditLog } from '../lib/audit-log.js';
 import { snapshotQuizVersion } from '../lib/quiz-versioning.js';
 import { rolesToSet, canAccessStudio } from '../lib/rbac.js';
+import { validateQuizStructure } from '../lib/quiz-structure-validation.js';
 
 export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(204).send('');
@@ -33,19 +34,20 @@ export default async function handler(req, res) {
     const workflow = String(before.quiz_workflow_status || 'PUBLISHED');
     if (workflow !== 'DRAFT') return res.status(400).json({ error: 'Quiz is not in DRAFT' });
 
-    const { count: totalQuestions, error: countErr } = await admin
-      .from('quiz_questions')
-      .select('id', { head: true, count: 'exact' })
-      .eq('challenge_id', id);
-    if (countErr) return res.status(400).json({ error: countErr.message });
-    if (!totalQuestions || totalQuestions < 1) return res.status(400).json({ error: 'Adicione ao menos 1 pergunta antes de publicar' });
+    const validation = await validateQuizStructure(admin, id);
+    if (!validation.ok) {
+      return res.status(400).json({
+        error: validation.errors[0] || 'Quiz possui problemas estruturais',
+        details: validation,
+      });
+    }
 
-    // Snapshot baseline at final publish point (auto-publicação).
+    // Snapshot baseline at submit point.
     try {
       await snapshotQuizVersion(admin, {
         challengeId: id,
         actorId: caller.id,
-        reason: 'publish_auto',
+        reason: 'submit',
         auditAction: 'quiz.version.snapshot',
       });
     } catch {
@@ -56,10 +58,8 @@ export default async function handler(req, res) {
     const { data: after, error } = await admin
       .from('challenges')
       .update({
-        quiz_workflow_status: 'PUBLISHED',
+        quiz_workflow_status: 'SUBMITTED',
         submitted_at: now,
-        published_at: now,
-        published_by: caller.id,
       })
       .eq('id', id)
       .select('*')
@@ -68,7 +68,7 @@ export default async function handler(req, res) {
 
     await tryInsertAuditLog(admin, {
       actor_id: caller.id,
-      action: 'quiz.publish.auto',
+      action: 'quiz.submit',
       entity_type: 'quiz',
       entity_id: id,
       before_json: before,

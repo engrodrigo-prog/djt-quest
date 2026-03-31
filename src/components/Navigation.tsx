@@ -22,6 +22,7 @@ import bgMenu from '@/assets/backgrounds/BG Menu.webp';
 import { useI18n } from '@/contexts/I18nContext';
 import { useSfx } from '@/lib/sfx';
 import { Menu, X } from 'lucide-react';
+import { getAppOrigin } from '@/lib/whatsappShare';
 
 const Navigation = () => {
   const location = useLocation();
@@ -71,7 +72,7 @@ const Navigation = () => {
 
     // Force a full navigation (not SPA) + cache-bust the HTML request.
     try {
-      const url = new URL(nextPath, window.location.origin);
+      const url = new URL(nextPath, getAppOrigin() || window.location.origin);
       url.searchParams.set('__djt', String(Date.now()));
       window.location.href = url.toString();
     } catch {

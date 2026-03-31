@@ -10,6 +10,14 @@ const XP_BY_LEVEL = {
     especialista: 50,
 };
 
+const normalizeCompareText = (value) =>
+    String(value || '')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+
 const seededHash32 = (s) => {
     // FNV-1a 32-bit
     let h = 2166136261;
@@ -118,6 +126,12 @@ export default async function handler(req, res) {
         const xp = XP_BY_LEVEL[dl];
         if (!xp)
             return res.status(400).json({ error: 'difficulty_level inválido' });
+        const normalizedOptionTexts = options
+            .map((opt) => normalizeCompareText(opt?.option_text || ''))
+            .filter(Boolean);
+        if (new Set(normalizedOptionTexts).size !== normalizedOptionTexts.length) {
+            return res.status(400).json({ error: 'Alternativas duplicadas não são permitidas' });
+        }
 
         // Revisão ortográfica (best-effort) - preserva sentido.
         let revisedQuestionText = String(question_text || '');
@@ -145,6 +159,12 @@ export default async function handler(req, res) {
             catch {
                 // ignore
             }
+        }
+        const revisedNormalizedOptionTexts = revisedOptions
+            .map((opt) => normalizeCompareText(opt?.option_text || ''))
+            .filter(Boolean);
+        if (new Set(revisedNormalizedOptionTexts).size !== revisedNormalizedOptionTexts.length) {
+            return res.status(400).json({ error: 'Alternativas duplicadas após revisão automática' });
         }
 
         // Ordenação estável: coloca a pergunta no final do quiz

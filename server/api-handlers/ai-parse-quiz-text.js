@@ -2,6 +2,7 @@ import { createSupabaseAdminClient, requireCallerUser } from '../lib/supabase-ad
 import { rolesToSet, canAccessStudio } from '../lib/rbac.js';
 import { normalizeChatModel } from '../lib/openai-models.js';
 import { parseJsonFromAiContent } from '../lib/ai-curation-provider.js';
+import { generateWrongOptions } from './ai-generate-wrongs.js';
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
 const OPENAI_PARSE_MODEL = normalizeChatModel(
@@ -28,14 +29,52 @@ const normalizeLetter = (raw) => {
   return null;
 };
 
+const seededHash32 = (s) => {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i += 1) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+};
+
+const mulberry32 = (seed) => {
+  let t = seed >>> 0;
+  return () => {
+    t += 0x6d2b79f5;
+    let x = Math.imul(t ^ (t >>> 15), 1 | t);
+    x ^= x + Math.imul(x ^ (x >>> 7), 61 | x);
+    return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
+  };
+};
+
+const seededShuffle = (arr, seedStr) => {
+  const rng = mulberry32(seededHash32(seedStr));
+  const out = arr.slice();
+  for (let i = out.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(rng() * (i + 1));
+    const tmp = out[i];
+    out[i] = out[j];
+    out[j] = tmp;
+  }
+  return out;
+};
+
+const normalizeSpaces = (s) =>
+  String(s || '')
+    .replace(/\r\n/g, '\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
 const heuristicParse = (text) => {
   const raw = String(text || '').replace(/\r\n/g, '\n');
-  const headerRe = /^\s*(?:Q(?:uest[aã]o)?|Quest[aã]o|Pergunta)\s*\d+\b/i;
+  const headerRe = /^\s*(?:(?:Q(?:uest[aã]o)?|Quest[aã]o|Questao|Pergunta)\s*\d+\b|\d+\.\s)/i;
 
-  const lines = raw.split('\n');
+  const linesAll = raw.split('\n');
   const blocks = [];
   let cur = [];
-  for (const line of lines) {
+  for (const line of linesAll) {
     if (headerRe.test(line) && cur.length) {
       blocks.push(cur.join('\n').trim());
       cur = [line];
@@ -62,28 +101,32 @@ const heuristicParse = (text) => {
     const options = [];
     let questionLines = [];
     let correctAnswerText = '';
+    let readingAnswerBlock = false;
     for (const line of lines) {
-      // Header like "Questão 1" should not be part of the question body.
       if (headerRe.test(line)) continue;
 
       const m = line.match(optionRe);
       if (m) {
         options.push({ letter: m[1].toUpperCase(), text: String(m[2] || '').trim() });
-      } else if (/^(?:correta|resposta\s+correta|resposta)\b/i.test(line)) {
-        const ans = String(line || '').replace(/^(?:correta|resposta\s+correta|resposta)\s*[:\-–]\s*/i, '').trim();
-        if (ans) correctAnswerText = ans;
+        readingAnswerBlock = false;
+      } else if (/^(?:gabarito|resposta\s+correta|resposta|r)\s*[:\-–]/i.test(line)) {
+        const ans = String(line || '').replace(/^(?:gabarito|resposta\s+correta|resposta|r)\s*[:\-–]\s*/i, '').trim();
+        correctAnswerText = ans;
+        readingAnswerBlock = true;
       } else {
-        questionLines.push(line);
+        if (readingAnswerBlock) {
+          correctAnswerText = [correctAnswerText, line].filter(Boolean).join('\n').trim();
+        } else {
+          questionLines.push(line);
+        }
       }
     }
 
-    // If no explicit "Resposta correta:", accept a single bullet line as the correct answer.
     if (!correctAnswerText) {
       const bulletRe = /^\s*[-•–]\s*(.+)$/;
       const bullets = questionLines.map((l) => l.match(bulletRe)).filter(Boolean);
       if (bullets.length) {
         correctAnswerText = String(bullets[0][1] || '').trim();
-        // Remove bullets from question text
         questionLines = questionLines.filter((l) => !bulletRe.test(l));
       }
     }
@@ -108,7 +151,7 @@ const heuristicParse = (text) => {
       continue;
     }
 
-    // Minimal format: question + "Resposta correta: <texto>"
+    // Minimal format: question + "Resposta: <texto>" (sem alternativas)
     if (!correctAnswerText || correctAnswerText.length < 3) continue;
     const base = correctAnswerText.trim();
     const wrong = [];
@@ -134,10 +177,9 @@ const heuristicParse = (text) => {
     }
     push(base.split(' ').reverse().join(' '));
     push('Procedimento semelhante, porém com uma etapa fora de ordem.');
-    push('Conceito relacionado, mas aplicado ao equipamento/condição errada.');
-    push('Condição parcialmente correta, mas com parâmetro/limiar diferente.');
-
-    while (wrong.length < 3) push(`Alternativa plausível, mas incorreta (${wrong.length + 1}).`);
+    push('Conceito relacionado, mas aplicado a outro equipamento ou condição.');
+    push('Condição parcialmente válida, mas com parâmetro ou limiar diferente.');
+    while (wrong.length < 3) push(`Abordagem plausível com detalhe técnico divergente (${wrong.length + 1}).`);
 
     const ordered = [
       { text: base, is_correct: true, explanation: '' },
@@ -241,16 +283,25 @@ const sanitizeQuestions = ({ questions, defaultDifficulty = 'intermediario' }) =
   return { cleaned, issues };
 };
 
+const isLowQualityWrong = (s) =>
+  /\b(procedimento semelhante|conceito relacionado|condi[cç][aã]o parcialmente|alternativa plaus[ií]vel)\b/i.test(String(s || '').trim());
+
 export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(204).send('');
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
-    const { text, language = 'pt-BR', maxQuestions = 30, defaultDifficulty = 'intermediario' } = req.body || {};
-    const inputText = String(text || '').trim();
+    const {
+      text,
+      language = 'pt-BR',
+      maxQuestions = 30,
+      defaultDifficulty = 'intermediario',
+      seed,
+      scope,
+    } = req.body || {};
+    const inputText = normalizeSpaces(String(text || '').trim());
     if (!inputText) return res.status(400).json({ error: 'Campo obrigatório: text' });
 
-    // Authz: only Studio-access users
     const supabaseAdmin = createSupabaseAdminClient();
     const caller = await requireCallerUser(supabaseAdmin, req);
     const [{ data: rolesRows }, { data: callerProfile }] = await Promise.all([
@@ -262,11 +313,13 @@ export default async function handler(req, res) {
 
     const limit = clampQuestions(maxQuestions);
 
-    // 1) Try AI (premium). 2) Fallback to heuristic parser.
     let parsed = null;
     let usedAi = false;
+    const seedStr = String(seed || '').trim();
+    const scopeStr = String(scope || '').trim();
+    const hasRespostaBlocks = /\n?\s*(?:gabarito|resposta\s+correta|resposta|r)\s*[:\-–]/i.test(inputText);
 
-    if (OPENAI_API_KEY) {
+    if (OPENAI_API_KEY && !hasRespostaBlocks) {
       try {
         const model = OPENAI_PARSE_MODEL;
         const isGpt5 = /^gpt-5/i.test(String(model));
@@ -295,9 +348,10 @@ Regras:
 - Se o texto do usuário não trouxer 3 erradas, gere erradas verossímeis e factíveis (mas ERRADAS).
 - O input pode vir como:
   (a) A) B) C) D) + "Correta: B" ou
-  (b) "Questão/Pergunta: ..." + "Resposta correta: <texto>" (sem alternativas) ou
+  (b) "Questão/Pergunta N:" ou "N." + "Resposta correta: <texto>" ou "R: <texto>" (sem alternativas) ou
   (c) "Questão/Pergunta: ..." seguido de 1 bullet (ex.: "- <texto>") representando a resposta correta.
-  Em (b), use a resposta correta como alternativa correta e gere 3 erradas.
+  Em (b), use a resposta correta como alternativa correta e gere 3 erradas plausíveis.
+  O marcador de resposta pode ser: "R:", "R -", "Resposta:", "Resposta correta:", "Gabarito:".
 - Se o texto marcar a correta por letra (ex.: "Correta: B", "*" na alternativa, "(correta)"), preserve essa correta; não invente outra.
 - Explicação: 1 a 3 frases, direta, sem inventar normas internas; se não houver, use "".
 - Evite "todas/nenhuma das alternativas" e não repita a correta nas erradas.
@@ -327,8 +381,123 @@ Regras:
       }
     }
 
-    const questionsRaw = Array.isArray(parsed?.questions) ? parsed.questions : heuristicParse(inputText);
+    let questionsRaw = Array.isArray(parsed?.questions) ? parsed.questions : heuristicParse(inputText);
+
+    if (hasRespostaBlocks && OPENAI_API_KEY) {
+      const globalAvoid = new Set();
+      const scopeContext = scopeStr ? `Escopo do lote: ${scopeStr}` : null;
+      const globalContext = [
+        ...(scopeContext ? [scopeContext] : []),
+        ...questionsRaw
+          .map((q, idx) => {
+            const qt = String(q?.question_text || q?.question || '').trim();
+            const opts = Array.isArray(q?.options) ? q.options : [];
+            const corr = opts.find((o) => Boolean(o?.is_correct));
+            const ct = String(corr?.text || corr?.option_text || '').trim();
+            if (!qt || !ct) return null;
+            return `Q${idx + 1}: ${qt.slice(0, 240)}\nCorreta: ${ct.slice(0, 240)}`;
+          })
+          .filter(Boolean),
+      ].filter(Boolean);
+
+      const upgraded = [];
+      for (let i = 0; i < questionsRaw.length; i += 1) {
+        const q = questionsRaw[i] || {};
+        const question_text = String(q?.question_text || q?.question || '').trim();
+        const optsRaw = Array.isArray(q?.options) ? q.options : [];
+        const opts = optsRaw
+          .map((o) => ({
+            text: String(o?.text || o?.option_text || '').trim(),
+            is_correct: Boolean(o?.is_correct),
+            explanation: String(o?.explanation || '').trim(),
+          }))
+          .filter((o) => o.text.length > 0)
+          .slice(0, 4);
+
+        const correct = opts.find((o) => o.is_correct);
+        const wrongs = opts.filter((o) => !o.is_correct);
+        const looksLikeAnswerOnly =
+          Boolean(correct) &&
+          wrongs.length === 3 &&
+          wrongs.some((w) => isLowQualityWrong(w.text) || w.text.length < 10);
+
+        if (!question_text || !correct || !looksLikeAnswerOnly) {
+          upgraded.push(q);
+          continue;
+        }
+
+        try {
+          const avoidList = Array.from(globalAvoid).slice(0, 40);
+          const out = await generateWrongOptions({
+            question: question_text,
+            correct: correct.text,
+            difficulty: defaultDifficulty,
+            language,
+            typed: true,
+            seed: seedStr ? `${seedStr}|Q${i + 1}` : null,
+            avoid: avoidList,
+            context: globalContext.join('\n\n').slice(0, 2400),
+          });
+          const wrong = Array.isArray(out?.wrong) ? out.wrong : [];
+          if (wrong.length === 3) {
+            wrong.forEach((w) => {
+              const t = String(w?.text || '').trim();
+              if (t) globalAvoid.add(t);
+            });
+            const nextOpts = opts.map((o) => ({ ...o }));
+            let wi = 0;
+            for (let j = 0; j < nextOpts.length; j += 1) {
+              if (nextOpts[j].is_correct) continue;
+              const w = wrong[wi++];
+              if (!w) continue;
+              nextOpts[j] = {
+                text: String(w.text || '').trim(),
+                is_correct: false,
+                explanation: String(w.explanation || '').trim(),
+              };
+            }
+            upgraded.push({ ...q, question_text, difficulty_level: defaultDifficulty, options: nextOpts });
+          } else {
+            upgraded.push(q);
+          }
+        } catch {
+          upgraded.push(q);
+        }
+      }
+      questionsRaw = upgraded;
+    }
+
     const { cleaned, issues } = sanitizeQuestions({ questions: questionsRaw, defaultDifficulty });
+
+    const letters = ['A', 'B', 'C', 'D'];
+    const assignedLetters = (() => {
+      const n = cleaned.length;
+      if (!seedStr || n <= 0) return [];
+      const base = new Array(n).fill(0).map((_, i) => letters[i % letters.length]);
+      return seededShuffle(base, `${seedStr}|letters|${n}`);
+    })();
+
+    const normalized = cleaned.map((q, idx) => {
+      const opts = Array.isArray(q?.options) ? q.options : [];
+      const correctIdx = opts.findIndex((o) => Boolean(o?.is_correct));
+      if (correctIdx < 0) return q;
+      const correct = opts[correctIdx];
+      const wrongs = opts.filter((_, i) => i !== correctIdx);
+      if (wrongs.length !== 3) return q;
+
+      const wantedLetter = assignedLetters[idx] || null;
+      if (!wantedLetter) return q;
+      const targetIndex = letters.indexOf(wantedLetter);
+      if (targetIndex < 0) return q;
+
+      const ordered = [];
+      for (let i = 0; i < 4; i += 1) {
+        if (i === targetIndex) ordered.push(correct);
+        else ordered.push(wrongs.shift());
+      }
+      if (ordered.some((o) => !o?.text)) return q;
+      return { ...q, options: ordered };
+    });
 
     if (!cleaned.length) {
       return res.status(400).json({
@@ -340,9 +509,16 @@ Regras:
 
     return res.status(200).json({
       success: true,
-      questions: cleaned.slice(0, limit),
+      questions: normalized.slice(0, limit),
       issues: issues.slice(0, 50),
-      meta: { usedAi, model: usedAi ? OPENAI_PARSE_MODEL : null, limit },
+      meta: {
+        usedAi,
+        model: usedAi ? OPENAI_PARSE_MODEL : null,
+        limit,
+        seed: seedStr || null,
+        scope: scopeStr || null,
+        hasRespostaBlocks,
+      },
     });
   } catch (e) {
     return res.status(500).json({ error: e?.message || 'Unknown error' });

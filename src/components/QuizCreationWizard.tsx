@@ -18,6 +18,7 @@ import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { QuizQuestionForm } from './QuizQuestionForm';
 import { QuizQuestionsList } from './QuizQuestionsList';
+import { useAuth } from '@/contexts/AuthContext';
 import { apiFetch } from '@/lib/api';
 import { extractYyyyMmDd } from '@/lib/dateKey';
 import { CompendiumPicker } from '@/components/CompendiumPicker';
@@ -86,10 +87,157 @@ type ImportQuestionDraft = {
   _meta?: { aiImproved?: boolean; regens?: number; edited?: boolean };
 };
 
+type ReviewOption = { id: string; option_text: string; is_correct: boolean; explanation: string | null };
+type ReviewQuestion = { id: string; question_text: string; difficulty_level: string; xp_value: number; options: ReviewOption[] };
+type ValidationSummary = {
+  total: number;
+  valid: number;
+  blocking: string[];
+  warnings: string[];
+};
+
+const normalizeCompareText = (value: string) =>
+  String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const buildDraftValidation = (drafts: ImportQuestionDraft[] | null | undefined): ValidationSummary => {
+  const list = Array.isArray(drafts) ? drafts : [];
+  const blocking: string[] = [];
+  const warnings: string[] = [];
+  const seenQuestions = new Map<string, number>();
+  let valid = 0;
+
+  list.forEach((draft, idx) => {
+    const label = `Q${idx + 1}`;
+    const questionText = String(draft?.question_text || '').trim();
+    const options = Array.isArray(draft?.options) ? draft.options : [];
+
+    if (questionText.length < 10) {
+      blocking.push(`${label}: pergunta curta ou vazia.`);
+    }
+
+    if (options.length !== 4) {
+      blocking.push(`${label}: precisa ter 4 alternativas.`);
+    }
+
+    const filledOptions = options.map((o) => String(o?.text || '').trim());
+    if (filledOptions.some((text) => text.length < 2)) {
+      blocking.push(`${label}: existem alternativas vazias ou curtas demais.`);
+    }
+
+    const correctCount = options.filter((o) => Boolean(o?.is_correct)).length;
+    if (correctCount !== 1) {
+      blocking.push(`${label}: precisa ter exatamente 1 alternativa correta.`);
+    }
+
+    const optionSet = new Set<string>();
+    filledOptions.forEach((text) => {
+      const normalized = normalizeCompareText(text);
+      if (!normalized) return;
+      if (optionSet.has(normalized)) {
+        blocking.push(`${label}: existem alternativas duplicadas.`);
+      } else {
+        optionSet.add(normalized);
+      }
+    });
+
+    const normalizedQuestion = normalizeCompareText(questionText);
+    if (normalizedQuestion) {
+      if (seenQuestions.has(normalizedQuestion)) {
+        blocking.push(`${label}: pergunta duplicada com Q${seenQuestions.get(normalizedQuestion)}.`);
+      } else {
+        seenQuestions.set(normalizedQuestion, idx + 1);
+      }
+    }
+
+    const correct = options.find((o) => o?.is_correct);
+    if (correct && !String(correct.explanation || '').trim()) {
+      warnings.push(`${label}: a alternativa correta está sem explicação.`);
+    }
+
+    if (
+      questionText.length >= 10 &&
+      options.length === 4 &&
+      filledOptions.every((text) => text.length >= 2) &&
+      correctCount === 1 &&
+      optionSet.size === 4 &&
+      normalizedQuestion &&
+      seenQuestions.get(normalizedQuestion) === idx + 1
+    ) {
+      valid += 1;
+    }
+  });
+
+  return { total: list.length, valid, blocking, warnings };
+};
+
+const buildReviewValidation = (questions: ReviewQuestion[] | null | undefined): ValidationSummary => {
+  const list = Array.isArray(questions) ? questions : [];
+  const blocking: string[] = [];
+  const warnings: string[] = [];
+  const seenQuestions = new Map<string, number>();
+  let valid = 0;
+
+  list.forEach((question, idx) => {
+    const label = `Q${idx + 1}`;
+    const questionText = String(question?.question_text || '').trim();
+    const options = Array.isArray(question?.options) ? question.options : [];
+
+    if (questionText.length < 10) blocking.push(`${label}: pergunta curta ou vazia.`);
+    if (options.length !== 4) blocking.push(`${label}: precisa ter 4 alternativas salvas.`);
+
+    const correctCount = options.filter((o) => Boolean(o?.is_correct)).length;
+    if (correctCount !== 1) blocking.push(`${label}: precisa ter exatamente 1 alternativa correta.`);
+
+    const optionSet = new Set<string>();
+    options.forEach((opt) => {
+      const text = String(opt?.option_text || '').trim();
+      const normalized = normalizeCompareText(text);
+      if (text.length < 2) blocking.push(`${label}: existe alternativa vazia.`);
+      if (!normalized) return;
+      if (optionSet.has(normalized)) blocking.push(`${label}: existem alternativas duplicadas.`);
+      else optionSet.add(normalized);
+    });
+
+    const normalizedQuestion = normalizeCompareText(questionText);
+    if (normalizedQuestion) {
+      if (seenQuestions.has(normalizedQuestion)) {
+        blocking.push(`${label}: pergunta duplicada com Q${seenQuestions.get(normalizedQuestion)}.`);
+      } else {
+        seenQuestions.set(normalizedQuestion, idx + 1);
+      }
+    }
+
+    const correct = options.find((o) => Boolean(o?.is_correct));
+    if (correct && !String(correct?.explanation || '').trim()) {
+      warnings.push(`${label}: a correta está sem explicação.`);
+    }
+
+    if (
+      questionText.length >= 10 &&
+      options.length === 4 &&
+      correctCount === 1 &&
+      optionSet.size === 4 &&
+      normalizedQuestion &&
+      seenQuestions.get(normalizedQuestion) === idx + 1
+    ) {
+      valid += 1;
+    }
+  });
+
+  return { total: list.length, valid, blocking, warnings };
+};
+
 export function QuizCreationWizard() {
+  const { userRole, isLeader } = useAuth();
   const [quizId, setQuizId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isPublishingQuiz, setIsPublishingQuiz] = useState(false);
+  const [isSubmittingForReview, setIsSubmittingForReview] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [compOpen, setCompOpen] = useState(false);
   const [studySources, setStudySources] = useState<any[]>([]);
@@ -124,8 +272,6 @@ export function QuizCreationWizard() {
   const [textImportSeed, setTextImportSeed] = useState<string>('');
 
   // Review before publish
-  type ReviewOption = { id: string; option_text: string; is_correct: boolean; explanation: string | null };
-  type ReviewQuestion = { id: string; question_text: string; difficulty_level: string; xp_value: number; options: ReviewOption[] };
   const [reviewOpen, setReviewOpen] = useState(false);
   const [reviewLoading, setReviewLoading] = useState(false);
   const [reviewQuestions, setReviewQuestions] = useState<ReviewQuestion[]>([]);
@@ -156,6 +302,10 @@ export function QuizCreationWizard() {
   const effectiveTextImportDifficulty = useMemo<ImportDifficulty>(() => {
     return quizId ? quizForcedDifficulty : textImportDefaultDifficulty;
   }, [quizForcedDifficulty, quizId, textImportDefaultDifficulty]);
+
+  const canDirectPublish = Boolean(isLeader || userRole === 'admin' || userRole === 'gerente_djt');
+  const importValidation = useMemo(() => buildDraftValidation(textImportDrafts), [textImportDrafts]);
+  const reviewValidation = useMemo(() => buildReviewValidation(reviewQuestions), [reviewQuestions]);
 
   const { register, handleSubmit, formState: { errors }, setValue } = useForm<QuizFormData>({
     resolver: zodResolver(quizSchema),
@@ -680,6 +830,11 @@ export function QuizCreationWizard() {
 
       if (!drafts.length) throw new Error('Não consegui montar perguntas válidas (precisa de 4 alternativas e 1 correta).');
 
+      const validation = buildDraftValidation(drafts);
+      if (validation.blocking.length) {
+        throw new Error(`Corrija ${validation.blocking.length} problema(s) antes de importar. Primeiro: ${validation.blocking[0]}`);
+      }
+
       // Improve low-quality wrong options before inserting (best-effort).
       if (textImportAutoImprove) {
         const needs = drafts.some((d) => d.options.filter((o) => !o.is_correct).some((w) => lowQualityRe.test(w.text)));
@@ -743,6 +898,7 @@ export function QuizCreationWizard() {
 
       let inserted = 0;
       let failed = 0;
+      const failedIndexes: number[] = [];
       for (let i = 0; i < drafts.length; i += 1) {
         const q = drafts[i] || {};
         try {
@@ -769,12 +925,18 @@ export function QuizCreationWizard() {
           inserted += 1;
         } catch (e: any) {
           failed += 1;
+          failedIndexes.push(i + 1);
           console.warn('Falha ao importar pergunta', { index: i, error: e?.message || e });
         }
       }
 
       setRefreshKey((prev) => prev + 1);
       toast.success(`Importação concluída: ${inserted} inserida(s)${failed ? ` • ${failed} falharam` : ''}.`);
+      if (failedIndexes.length) {
+        toast.message('Perguntas com falha na importação', {
+          description: `Revise as questões ${failedIndexes.slice(0, 8).join(', ')}${failedIndexes.length > 8 ? '…' : ''}.`,
+        });
+      }
 
       // Best-effort metrics to evaluate adherence (audit_log)
       try {
@@ -1141,6 +1303,10 @@ export function QuizCreationWizard() {
 
   const publishQuiz = async () => {
     if (!quizId) return;
+    if (reviewValidation.blocking.length) {
+      toast.error(`Corrija os problemas antes de publicar. Primeiro: ${reviewValidation.blocking[0]}`);
+      return;
+    }
     setIsPublishingQuiz(true);
     try {
       const { data: sessionData } = await supabase.auth.getSession();
@@ -1160,6 +1326,34 @@ export function QuizCreationWizard() {
       toast.error(e?.message || 'Falha ao publicar');
     } finally {
       setIsPublishingQuiz(false);
+    }
+  };
+
+  const submitQuizForReview = async () => {
+    if (!quizId) return;
+    if (reviewValidation.blocking.length) {
+      toast.error(`Corrija os problemas antes de enviar. Primeiro: ${reviewValidation.blocking[0]}`);
+      return;
+    }
+    setIsSubmittingForReview(true);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) throw new Error('Não autenticado');
+      const resp = await apiFetch('/api/admin?handler=curation-submit-quiz', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ challengeId: quizId }),
+      });
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(json?.error || 'Falha ao enviar para curadoria');
+      toast.success('Quiz enviado para curadoria');
+      setReviewOpen(false);
+      navigate(`/studio/curadoria?quizId=${encodeURIComponent(quizId)}`);
+    } catch (e: any) {
+      toast.error(e?.message || 'Falha ao enviar para curadoria');
+    } finally {
+      setIsSubmittingForReview(false);
     }
   };
 
@@ -1553,7 +1747,12 @@ export function QuizCreationWizard() {
                     </Button>
                     <Button
                       type="button"
-                      disabled={textImportImporting || textImportParsing || !String(textImport || '').trim()}
+                      disabled={
+                        textImportImporting ||
+                        textImportParsing ||
+                        !String(textImport || '').trim() ||
+                        importValidation.blocking.length > 0
+                      }
                       onClick={() => void importTextQuestionsToQuiz(quizId as string)}
                     >
                       {textImportImporting ? 'Importando…' : 'Importar neste quiz'}
@@ -1680,6 +1879,38 @@ export function QuizCreationWizard() {
                     )}
                     {Array.isArray(textImportDrafts) && textImportDrafts.length > 20 ? (
                       <div className="text-[11px] text-muted-foreground">Mostrando 20 de {textImportDrafts.length} para edição.</div>
+                    ) : null}
+                    {Array.isArray(textImportDrafts) && textImportDrafts.length ? (
+                      <div className="rounded-md border border-border bg-muted/20 p-3 space-y-2">
+                        <div className="flex flex-wrap items-center gap-2 text-[12px]">
+                          <span className="font-medium">Validação do lote</span>
+                          <span className="rounded-full bg-primary/10 px-2 py-0.5 text-primary">
+                            válidas: {importValidation.valid}/{importValidation.total}
+                          </span>
+                          <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-amber-700">
+                            avisos: {importValidation.warnings.length}
+                          </span>
+                          <span className="rounded-full bg-destructive/10 px-2 py-0.5 text-destructive">
+                            bloqueios: {importValidation.blocking.length}
+                          </span>
+                        </div>
+                        {importValidation.blocking.length ? (
+                          <div className="text-[11px] text-destructive space-y-1">
+                            {importValidation.blocking.slice(0, 6).map((msg, idx) => (
+                              <div key={`import-block-${idx}`}>- {msg}</div>
+                            ))}
+                            {importValidation.blocking.length > 6 ? <div>…</div> : null}
+                          </div>
+                        ) : null}
+                        {importValidation.warnings.length ? (
+                          <div className="text-[11px] text-muted-foreground space-y-1">
+                            {importValidation.warnings.slice(0, 4).map((msg, idx) => (
+                              <div key={`import-warn-${idx}`}>- {msg}</div>
+                            ))}
+                            {importValidation.warnings.length > 4 ? <div>…</div> : null}
+                          </div>
+                        ) : null}
+                      </div>
                     ) : null}
                   </div>
                 ) : null}
@@ -1914,6 +2145,7 @@ export function QuizCreationWizard() {
             <DialogTitle>Revisão antes de publicar</DialogTitle>
             <DialogDescription>
               Confira todas as perguntas e alternativas. A alternativa correta está destacada em verde. Se precisar editar, feche e use o botão de edição na lista.
+              {!canDirectPublish ? ' Ao confirmar, o quiz será enviado para curadoria.' : ''}
             </DialogDescription>
           </DialogHeader>
 
@@ -1923,6 +2155,41 @@ export function QuizCreationWizard() {
             <p className="text-sm text-muted-foreground py-4">Nenhuma pergunta encontrada.</p>
           ) : (
             <div className="space-y-5">
+              <div className="rounded-lg border border-border bg-muted/20 p-4 space-y-2">
+                <div className="flex flex-wrap items-center gap-2 text-[12px]">
+                  <span className="font-medium">Checagem final</span>
+                  <span className="rounded-full bg-primary/10 px-2 py-0.5 text-primary">
+                    válidas: {reviewValidation.valid}/{reviewValidation.total}
+                  </span>
+                  <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-amber-700">
+                    avisos: {reviewValidation.warnings.length}
+                  </span>
+                  <span className="rounded-full bg-destructive/10 px-2 py-0.5 text-destructive">
+                    bloqueios: {reviewValidation.blocking.length}
+                  </span>
+                </div>
+                {reviewValidation.blocking.length ? (
+                  <div className="text-[11px] text-destructive space-y-1">
+                    {reviewValidation.blocking.slice(0, 6).map((msg, idx) => (
+                      <div key={`review-block-${idx}`}>- {msg}</div>
+                    ))}
+                    {reviewValidation.blocking.length > 6 ? <div>…</div> : null}
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-muted-foreground">
+                    Nenhum bloqueio estrutural encontrado. Se houver ajustes, volte para editar antes de seguir.
+                  </p>
+                )}
+                {reviewValidation.warnings.length ? (
+                  <div className="text-[11px] text-muted-foreground space-y-1">
+                    {reviewValidation.warnings.slice(0, 4).map((msg, idx) => (
+                      <div key={`review-warn-${idx}`}>- {msg}</div>
+                    ))}
+                    {reviewValidation.warnings.length > 4 ? <div>…</div> : null}
+                  </div>
+                ) : null}
+              </div>
+
               {reviewQuestions.map((q, qi) => (
                 <div key={q.id} className="rounded-lg border p-4 space-y-2">
                   <div className="flex items-center gap-2">
@@ -1956,8 +2223,17 @@ export function QuizCreationWizard() {
                 <Button variant="outline" onClick={() => setReviewOpen(false)}>
                   Voltar e editar
                 </Button>
-                <Button onClick={publishQuiz} disabled={isPublishingQuiz}>
-                  {isPublishingQuiz ? 'Publicando…' : 'Confirmar e Publicar'}
+                <Button
+                  onClick={canDirectPublish ? publishQuiz : submitQuizForReview}
+                  disabled={isPublishingQuiz || isSubmittingForReview || reviewValidation.blocking.length > 0}
+                >
+                  {canDirectPublish
+                    ? isPublishingQuiz
+                      ? 'Publicando…'
+                      : 'Confirmar e Publicar'
+                    : isSubmittingForReview
+                      ? 'Enviando…'
+                      : 'Enviar para curadoria'}
                 </Button>
               </div>
             </div>

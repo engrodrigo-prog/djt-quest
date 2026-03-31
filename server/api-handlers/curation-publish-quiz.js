@@ -3,6 +3,7 @@ import { rolesToSet, canCurate } from '../lib/rbac.js';
 import { tryInsertAuditLog } from '../lib/audit-log.js';
 import { snapshotQuizVersion } from '../lib/quiz-versioning.js';
 import { proofreadPtBrStrings } from '../lib/ai-proofread-ptbr.js';
+import { validateQuizStructure } from '../lib/quiz-structure-validation.js';
 
 const safeTrim = (v) => String(v ?? '').trim();
 
@@ -116,6 +117,14 @@ export default async function handler(req, res) {
 
     const workflow = String(before.quiz_workflow_status || 'PUBLISHED');
     if (workflow !== 'APPROVED') return res.status(400).json({ error: 'Quiz is not in APPROVED' });
+
+    const validation = await validateQuizStructure(admin, id);
+    if (!validation.ok) {
+      return res.status(400).json({
+        error: validation.errors[0] || 'Quiz possui problemas estruturais',
+        details: validation,
+      });
+    }
 
     // Snapshot at publish point
     try {

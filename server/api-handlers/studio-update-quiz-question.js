@@ -10,6 +10,14 @@ const XP_BY_LEVEL = {
   especialista: 50,
 };
 
+const normalizeCompareText = (value) =>
+  String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
 const normalizeOpt = (opt) => ({
   id: opt?.id ? String(opt.id).trim() : '',
   option_text: String(opt?.option_text || opt?.text || '').trim(),
@@ -41,6 +49,10 @@ export default async function handler(req, res) {
     if (opts.some((o) => o.option_text.length < 2)) return res.status(400).json({ error: 'Alternativa vazia' });
     const correctCount = opts.filter((o) => o.is_correct).length;
     if (correctCount !== 1) return res.status(400).json({ error: 'Precisa de exatamente 1 alternativa correta' });
+    const normalizedOptionTexts = opts.map((o) => normalizeCompareText(o.option_text)).filter(Boolean);
+    if (new Set(normalizedOptionTexts).size !== normalizedOptionTexts.length) {
+      return res.status(400).json({ error: 'Alternativas duplicadas não são permitidas' });
+    }
 
     const [{ data: rolesRows }, { data: callerProfile }] = await Promise.all([
       admin.from('user_roles').select('role').eq('user_id', caller.id),

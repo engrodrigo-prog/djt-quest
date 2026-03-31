@@ -1,6 +1,7 @@
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
@@ -78,7 +79,7 @@ export const ProfileDropdown = ({ profile, isLeader, onSignOut }: ProfileDropdow
         </button>
       </DropdownMenuTrigger>
       
-      <DropdownMenuContent align="end" className="w-64">
+      <DropdownMenuContent align="end" className="w-72">
         {/* Cabeçalho com avatar e informações */}
         <DropdownMenuLabel>
           <div className="flex items-center gap-3">
@@ -93,17 +94,13 @@ export const ProfileDropdown = ({ profile, isLeader, onSignOut }: ProfileDropdow
                 <Users className="h-3 w-3 flex-shrink-0" />
                 <span className="truncate">DJTX-{profile.team?.name || t("profile.menu.noTeam")}</span>
              </p>
-              {isLeader && (
+              {isLeader ? (
                 <div className="mt-1">
-                  <Badge 
-                    variant="secondary"
-                    className="cursor-pointer text-primary hover:bg-secondary/60"
-                    onClick={() => navigate('/leader-dashboard')}
-                  >
+                  <Badge variant="secondary" className="text-primary">
                     {t("profile.menu.leaderBadge")}
                   </Badge>
                 </div>
-              )}
+              ) : null}
               <p className="text-xs text-muted-foreground flex items-center gap-1 mt-1">
                 {isLeader ? (
                   <>
@@ -120,165 +117,183 @@ export const ProfileDropdown = ({ profile, isLeader, onSignOut }: ProfileDropdow
             </div>
           </div>
         </DropdownMenuLabel>
-        
+
         <DropdownMenuSeparator />
-        
-        {/* Ações */}
-        {canImpersonate && (
+
+        <DropdownMenuLabel className="px-2 pt-1 pb-1 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+          Conta
+        </DropdownMenuLabel>
+        <DropdownMenuGroup>
+          <DropdownMenuItem onClick={() => navigate('/profile')}>
+            <User className="h-4 w-4 mr-2" />
+            {t("profile.menu.viewProfile")}
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => navigate('/profile?avatar=open')}>
+            <Camera className="h-4 w-4 mr-2" />
+            {t("profile.menu.updatePhoto")}
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => window.dispatchEvent(new CustomEvent('open-password-dialog'))}>
+            <Key className="h-4 w-4 mr-2" />
+            {t("profile.menu.changePassword")}
+          </DropdownMenuItem>
+          {isLeader ? (
+            <DropdownMenuItem onClick={() => navigate('/leader-dashboard')}>
+              <Shield className="h-4 w-4 mr-2" />
+              {t("profile.menu.leaderBadge")}
+            </DropdownMenuItem>
+          ) : null}
+        </DropdownMenuGroup>
+
+        <DropdownMenuSeparator />
+
+        <DropdownMenuLabel className="px-2 pt-1 pb-1 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+          Preferências
+        </DropdownMenuLabel>
+        <DropdownMenuGroup>
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>
+              <Languages className="h-4 w-4 mr-2" />
+              {t("common.language")}
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent>
+              <DropdownMenuRadioGroup value={locale} onValueChange={(v) => setLocale(v as any)}>
+                {SUPPORTED_LOCALES.map((l) => (
+                  <DropdownMenuRadioItem key={l} value={l}>
+                    {t(`locale.${l}`)}
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+
+          {sfxFeatureEnabled ? (
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <Volume2 className="h-4 w-4 mr-2" />
+                {t("sfx.menu.sound")}
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent>
+                <DropdownMenuRadioGroup
+                  value={sfxPreset}
+                  onValueChange={(v) => {
+                    const value = v as typeof sfxPreset;
+                    if (value === "off") {
+                      setSfxMuted(true);
+                      return;
+                    }
+                    setSfxMuted(false);
+                    if (value === "low") setSfxVolume(0.25);
+                    if (value === "medium") setSfxVolume(0.6);
+                    if (value === "high") setSfxVolume(1);
+                  }}
+                >
+                  <DropdownMenuRadioItem value="off">{t("sfx.preset.off")}</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="low">{t("sfx.preset.low")}</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="medium">{t("sfx.preset.medium")}</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="high">{t("sfx.preset.high")}</DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+          ) : null}
+
+          {ttsFeatureEnabled ? (
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <Mic className="h-4 w-4 mr-2" />
+                {t("tts.menu.voice")}
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="w-56">
+                <DropdownMenuRadioGroup value={ttsEnabled ? "on" : "off"} onValueChange={(v) => setTtsEnabled(v === "on")}>
+                  <DropdownMenuRadioItem value="off">{t("tts.toggle.off")}</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="on">{t("tts.toggle.on")}</DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
+
+                <DropdownMenuSeparator />
+
+                <DropdownMenuRadioGroup value={voiceGender} onValueChange={(v) => setVoiceGender(v as any)}>
+                  <DropdownMenuRadioItem value="male">{t("tts.voice.male")}</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="female">{t("tts.voice.female")}</DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
+
+                <DropdownMenuSeparator />
+
+                <DropdownMenuRadioGroup value={ttsRatePreset} onValueChange={(v) => setRate(Number(v))}>
+                  <DropdownMenuRadioItem value="0.9">{t("tts.rate.slow")}</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="1.0">{t("tts.rate.normal")}</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="1.1">{t("tts.rate.fast")}</DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
+
+                <DropdownMenuSeparator />
+
+                <DropdownMenuRadioGroup value={ttsVolumePreset} onValueChange={(v) => setTtsVolume(Number(v))}>
+                  <DropdownMenuRadioItem value="0.6">{t("tts.volume.low")}</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="1.0">{t("tts.volume.high")}</DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+          ) : null}
+        </DropdownMenuGroup>
+
+        {canImpersonate ? (
           <>
-            {roleOverride && (
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel className="px-2 pt-1 pb-1 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+              Modo
+            </DropdownMenuLabel>
+            <DropdownMenuGroup>
+              {roleOverride ? (
+                <DropdownMenuItem
+                  onClick={() => {
+                    setRoleOverride(null);
+                    toast.success(t("profile.menu.impersonateBackToast"));
+                  }}
+                >
+                  <Repeat className="h-4 w-4 mr-2" />
+                  {t("profile.menu.impersonateBack")}
+                </DropdownMenuItem>
+              ) : null}
               <DropdownMenuItem
                 onClick={() => {
-                  setRoleOverride(null);
-                  toast.success(t("profile.menu.impersonateBackToast"));
+                  setRoleOverride("lider");
+                  toast.message(t("profile.menu.impersonateLeaderToast"), {
+                    description: t("profile.menu.impersonateLeaderDesc"),
+                  });
                 }}
               >
                 <Repeat className="h-4 w-4 mr-2" />
-                {t("profile.menu.impersonateBack")}
+                {t("profile.menu.impersonateLeader")}
               </DropdownMenuItem>
-            )}
-            <DropdownMenuItem
-              onClick={() => {
-                setRoleOverride("lider");
-                toast.message(t("profile.menu.impersonateLeaderToast"), {
-                  description: t("profile.menu.impersonateLeaderDesc"),
-                });
-              }}
-            >
-              <Repeat className="h-4 w-4 mr-2" />
-              {t("profile.menu.impersonateLeader")}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => {
-                setRoleOverride("colaborador");
-                toast.message(t("profile.menu.impersonateCollaboratorToast"), {
-                  description: t("profile.menu.impersonateCollaboratorDesc"),
-                });
-              }}
-            >
-              <Repeat className="h-4 w-4 mr-2" />
-              {t("profile.menu.impersonateCollaborator")}
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-          </>
-        )}
-
-        <DropdownMenuSub>
-          <DropdownMenuSubTrigger>
-            <Languages className="h-4 w-4 mr-2" />
-            {t("common.language")}
-          </DropdownMenuSubTrigger>
-          <DropdownMenuSubContent>
-            <DropdownMenuRadioGroup value={locale} onValueChange={(v) => setLocale(v as any)}>
-              {SUPPORTED_LOCALES.map((l) => (
-                <DropdownMenuRadioItem key={l} value={l}>
-                  {t(`locale.${l}`)}
-                </DropdownMenuRadioItem>
-              ))}
-            </DropdownMenuRadioGroup>
-          </DropdownMenuSubContent>
-        </DropdownMenuSub>
-
-        {sfxFeatureEnabled && (
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger>
-              <Volume2 className="h-4 w-4 mr-2" />
-              {t("sfx.menu.sound")}
-            </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent>
-              <DropdownMenuRadioGroup
-                value={sfxPreset}
-                onValueChange={(v) => {
-                  const value = v as typeof sfxPreset;
-                  if (value === "off") {
-                    setSfxMuted(true);
-                    return;
-                  }
-                  setSfxMuted(false);
-                  if (value === "low") setSfxVolume(0.25);
-                  if (value === "medium") setSfxVolume(0.6);
-                  if (value === "high") setSfxVolume(1);
+              <DropdownMenuItem
+                onClick={() => {
+                  setRoleOverride("colaborador");
+                  toast.message(t("profile.menu.impersonateCollaboratorToast"), {
+                    description: t("profile.menu.impersonateCollaboratorDesc"),
+                  });
                 }}
               >
-                <DropdownMenuRadioItem value="off">{t("sfx.preset.off")}</DropdownMenuRadioItem>
-                <DropdownMenuRadioItem value="low">{t("sfx.preset.low")}</DropdownMenuRadioItem>
-                <DropdownMenuRadioItem value="medium">{t("sfx.preset.medium")}</DropdownMenuRadioItem>
-                <DropdownMenuRadioItem value="high">{t("sfx.preset.high")}</DropdownMenuRadioItem>
-              </DropdownMenuRadioGroup>
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
-        )}
-
-        {ttsFeatureEnabled && (
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger>
-              <Mic className="h-4 w-4 mr-2" />
-              {t("tts.menu.voice")}
-            </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent className="w-56">
-              <DropdownMenuRadioGroup value={ttsEnabled ? "on" : "off"} onValueChange={(v) => setTtsEnabled(v === "on")}>
-                <DropdownMenuRadioItem value="off">{t("tts.toggle.off")}</DropdownMenuRadioItem>
-                <DropdownMenuRadioItem value="on">{t("tts.toggle.on")}</DropdownMenuRadioItem>
-              </DropdownMenuRadioGroup>
-
-              <DropdownMenuSeparator />
-
-              <DropdownMenuRadioGroup value={voiceGender} onValueChange={(v) => setVoiceGender(v as any)}>
-                <DropdownMenuRadioItem value="male">{t("tts.voice.male")}</DropdownMenuRadioItem>
-                <DropdownMenuRadioItem value="female">{t("tts.voice.female")}</DropdownMenuRadioItem>
-              </DropdownMenuRadioGroup>
-
-              <DropdownMenuSeparator />
-
-              <DropdownMenuRadioGroup
-                value={ttsRatePreset}
-                onValueChange={(v) => setRate(Number(v))}
-              >
-                <DropdownMenuRadioItem value="0.9">{t("tts.rate.slow")}</DropdownMenuRadioItem>
-                <DropdownMenuRadioItem value="1.0">{t("tts.rate.normal")}</DropdownMenuRadioItem>
-                <DropdownMenuRadioItem value="1.1">{t("tts.rate.fast")}</DropdownMenuRadioItem>
-              </DropdownMenuRadioGroup>
-
-              <DropdownMenuSeparator />
-
-              <DropdownMenuRadioGroup
-                value={ttsVolumePreset}
-                onValueChange={(v) => setTtsVolume(Number(v))}
-              >
-                <DropdownMenuRadioItem value="0.6">{t("tts.volume.low")}</DropdownMenuRadioItem>
-                <DropdownMenuRadioItem value="1.0">{t("tts.volume.high")}</DropdownMenuRadioItem>
-              </DropdownMenuRadioGroup>
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
-        )}
+                <Repeat className="h-4 w-4 mr-2" />
+                {t("profile.menu.impersonateCollaborator")}
+              </DropdownMenuItem>
+            </DropdownMenuGroup>
+          </>
+        ) : null}
 
         <DropdownMenuSeparator />
 
-        <DropdownMenuItem onClick={() => navigate('/profile?avatar=open')}>
-          <Camera className="h-4 w-4 mr-2" />
-          {t("profile.menu.updatePhoto")}
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => navigate('/profile')}>
-          <User className="h-4 w-4 mr-2" />
-          {t("profile.menu.viewProfile")}
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => window.dispatchEvent(new CustomEvent('open-password-dialog'))}>
-          <Key className="h-4 w-4 mr-2" />
-          {t("profile.menu.changePassword")}
-        </DropdownMenuItem>
-        
-        <DropdownMenuItem disabled>
-          <Settings className="h-4 w-4 mr-2" />
-          <span>{t("profile.menu.settings")}</span>
-          <span className="ml-auto text-xs text-muted-foreground">{t("profile.menu.comingSoon")}</span>
-        </DropdownMenuItem>
-        
-        <DropdownMenuSeparator />
-        
-        <DropdownMenuItem onClick={onSignOut} className="text-destructive focus:text-destructive">
-          <LogOut className="h-4 w-4 mr-2" />
-          {t("nav.logout")}
-        </DropdownMenuItem>
+        <DropdownMenuLabel className="px-2 pt-1 pb-1 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+          Sessão
+        </DropdownMenuLabel>
+        <DropdownMenuGroup>
+          <DropdownMenuItem disabled>
+            <Settings className="h-4 w-4 mr-2" />
+            <span>{t("profile.menu.settings")}</span>
+            <span className="ml-auto text-xs text-muted-foreground">{t("profile.menu.comingSoon")}</span>
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={onSignOut} className="text-destructive focus:text-destructive">
+            <LogOut className="h-4 w-4 mr-2" />
+            {t("nav.logout")}
+          </DropdownMenuItem>
+        </DropdownMenuGroup>
       </DropdownMenuContent>
     </DropdownMenu>
   );

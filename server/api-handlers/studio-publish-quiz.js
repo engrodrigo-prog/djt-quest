@@ -3,6 +3,7 @@ import { rolesToSet, hasRole, ROLE } from '../lib/rbac.js';
 import { tryInsertAuditLog } from '../lib/audit-log.js';
 import { snapshotQuizVersion } from '../lib/quiz-versioning.js';
 import { proofreadPtBrStrings } from '../lib/ai-proofread-ptbr.js';
+import { validateQuizStructure } from '../lib/quiz-structure-validation.js';
 
 const LEADER_ROLES = new Set([
   ROLE.TEAM_LEADER,
@@ -49,12 +50,13 @@ export default async function handler(req, res) {
       return res.status(403).json({ error: 'Você só pode publicar seus próprios quizzes' });
     }
 
-    const { count: qCount, error: qErr } = await admin
-      .from('quiz_questions')
-      .select('id', { count: 'exact', head: true })
-      .eq('challenge_id', id);
-    if (qErr) return res.status(400).json({ error: qErr.message });
-    if (!qCount || qCount < 1) return res.status(400).json({ error: 'Adicione ao menos 1 pergunta antes de publicar' });
+    const validation = await validateQuizStructure(admin, id);
+    if (!validation.ok) {
+      return res.status(400).json({
+        error: validation.errors[0] || 'Quiz possui problemas estruturais',
+        details: validation,
+      });
+    }
 
     // Snapshot at publish point (best-effort)
     try {
