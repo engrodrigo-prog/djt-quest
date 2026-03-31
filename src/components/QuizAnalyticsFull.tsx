@@ -13,6 +13,7 @@ import { apiFetch } from '@/lib/api';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
 import { getActiveLocale } from '@/lib/i18n/activeLocale';
+import { getQuizScoreBadgeClassName } from '@/lib/quizScore';
 
 type Scope = 'team' | 'coord' | 'division' | 'all';
 type Sort = 'score_desc' | 'submitted_desc' | 'name_asc';
@@ -130,6 +131,24 @@ function safePct(n: number | null | undefined) {
   return Math.max(0, Math.min(100, n));
 }
 
+function matchesPeopleFilter<T extends { name: string; team_id: string | null; is_leader?: boolean }>(
+  rows: T[],
+  search: string,
+  teamFilter: string,
+  onlyLeaders: boolean,
+) {
+  const q = search.trim().toLowerCase();
+  const t = teamFilter.trim().toLowerCase();
+  return rows.filter((row) => {
+    if (onlyLeaders && !row.is_leader) return false;
+    const name = String(row?.name || '').toLowerCase();
+    const team = String(row?.team_id || '').toLowerCase();
+    if (t && !team.includes(t)) return false;
+    if (!q) return true;
+    return name.includes(q) || team.includes(q);
+  });
+}
+
 export function QuizAnalyticsFull({ challengeId }: { challengeId: string }) {
   const { orgScope, userRole, profile, isLeader } = useAuth() as any;
   const canAll = Boolean(isLeader) || userRole === 'admin' || String(userRole || '').includes('gerente') || String(userRole || '').includes('coordenador');
@@ -148,6 +167,7 @@ export function QuizAnalyticsFull({ challengeId }: { challengeId: string }) {
   const [search, setSearch] = useState('');
   const [teamFilter, setTeamFilter] = useState('');
   const [peopleView, setPeopleView] = useState<PeopleViewMode>('all');
+  const [onlyLeaders, setOnlyLeaders] = useState(false);
 
   const [attemptsPayload, setAttemptsPayload] = useState<AttemptsPayload | null>(null);
   const [questionUsage, setQuestionUsage] = useState<QuestionUsage | null>(null);
@@ -300,31 +320,11 @@ export function QuizAnalyticsFull({ challengeId }: { challengeId: string }) {
       });
   }, [attemptByUserId, eligible, inProgressByUserId]);
 
-  const filteredAttempts = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    const t = teamFilter.trim().toLowerCase();
-    const base = attempts;
-    return base.filter((a) => {
-      const name = String(a?.name || '').toLowerCase();
-      const team = String(a?.team_id || '').toLowerCase();
-      if (t && !team.includes(t)) return false;
-      if (!q) return true;
-      return name.includes(q) || team.includes(q);
-    });
-  }, [attempts, search, teamFilter]);
+  const filteredAttempts = useMemo(() => matchesPeopleFilter(attempts, search, teamFilter, false), [attempts, search, teamFilter]);
+  const filteredLeaderAttempts = useMemo(() => matchesPeopleFilter(attempts, search, teamFilter, true), [attempts, search, teamFilter]);
 
-  const filteredPending = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    const t = teamFilter.trim().toLowerCase();
-    const base = pending;
-    return base.filter((p) => {
-      const name = String(p?.name || '').toLowerCase();
-      const team = String(p?.team_id || '').toLowerCase();
-      if (t && !team.includes(t)) return false;
-      if (!q) return true;
-      return name.includes(q) || team.includes(q);
-    });
-  }, [pending, search, teamFilter]);
+  const filteredPending = useMemo(() => matchesPeopleFilter(pending, search, teamFilter, false), [pending, search, teamFilter]);
+  const filteredLeaderPending = useMemo(() => matchesPeopleFilter(pending, search, teamFilter, true), [pending, search, teamFilter]);
 
   const teamRows = useMemo(() => {
     const stats = new Map<
@@ -357,13 +357,17 @@ export function QuizAnalyticsFull({ challengeId }: { challengeId: string }) {
       return row;
     };
 
-    for (const e of eligible) {
+    const sourceEligible = onlyLeaders ? eligible.filter((e) => e.is_leader) : eligible;
+    const sourceAttempts = onlyLeaders ? attempts.filter((a) => a.is_leader) : attempts;
+    const sourceInProgress = onlyLeaders ? inProgress.filter((row) => row.is_leader) : inProgress;
+
+    for (const e of sourceEligible) {
       const teamId = e?.team_id ? String(e.team_id) : '—';
       ensure(teamId).eligible += 1;
     }
 
     const byTeamSum = new Map<string, { sum: number; n: number }>();
-    for (const a of attempts) {
+    for (const a of sourceAttempts) {
       const teamId = a?.team_id ? String(a.team_id) : '—';
       const row = ensure(teamId);
       row.started += 1;
@@ -377,7 +381,7 @@ export function QuizAnalyticsFull({ challengeId }: { challengeId: string }) {
       }
     }
 
-    for (const row of inProgress) {
+    for (const row of sourceInProgress) {
       const teamId = row?.team_id ? String(row.team_id) : '—';
       ensure(teamId).started += 1;
     }
@@ -400,7 +404,7 @@ export function QuizAnalyticsFull({ challengeId }: { challengeId: string }) {
         String(a.team_id).localeCompare(String(b.team_id), getActiveLocale()),
     );
     return filtered;
-  }, [attempts, eligible, inProgress, teamFilter]);
+  }, [attempts, eligible, inProgress, onlyLeaders, teamFilter]);
 
   const questionRows = useMemo(() => {
     const qs = questionUsage?.questions || [];
@@ -423,6 +427,12 @@ export function QuizAnalyticsFull({ challengeId }: { challengeId: string }) {
 
   const showCompleted = peopleView !== 'pending';
   const showPending = peopleView !== 'completed';
+  const activeAttempts = onlyLeaders ? filteredLeaderAttempts : filteredAttempts;
+  const activePending = onlyLeaders ? filteredLeaderPending : filteredPending;
+  const peopleCardTitle = onlyLeaders ? 'Ranking por líderes' : 'Ranking por colaborador';
+  const peopleCardDescription = onlyLeaders
+    ? 'Mostra apenas líderes, com concluídos e pendentes no mesmo histórico'
+    : 'Somente quem respondeu tudo entra no ranking; parciais ficam em pendentes';
 
   const openUserDetail = async (row: AttemptRow) => {
     setUserDetailTarget(row);
@@ -577,6 +587,15 @@ export function QuizAnalyticsFull({ challengeId }: { challengeId: string }) {
                     Tudo
                   </Button>
                 </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={onlyLeaders ? 'secondary' : 'outline'}
+                  className="h-7 px-2"
+                  onClick={() => setOnlyLeaders((v) => !v)}
+                >
+                  Líderes
+                </Button>
               </div>
             </div>
 
@@ -774,12 +793,7 @@ export function QuizAnalyticsFull({ challengeId }: { challengeId: string }) {
                                       <Badge variant="outline" className="text-[10px]">
                                         {row.score}/{row.max_score || 0}
                                       </Badge>
-                                      <Badge
-                                        variant={
-                                          pct == null ? 'secondary' : pct >= 70 ? 'default' : pct >= 40 ? 'secondary' : 'destructive'
-                                        }
-                                        className="text-[10px]"
-                                      >
+                                      <Badge variant="outline" className={`text-[10px] ${getQuizScoreBadgeClassName(pct)}`}>
                                         {pct == null ? '—' : `${pct}%`}
                                       </Badge>
                                     </div>
@@ -855,7 +869,11 @@ export function QuizAnalyticsFull({ challengeId }: { challengeId: string }) {
           <Card>
             <CardHeader>
               <CardTitle>Ranking por equipe</CardTitle>
-              <CardDescription>Aderência e média de acerto por equipe (no escopo selecionado)</CardDescription>
+              <CardDescription>
+                {onlyLeaders
+                  ? 'Somente líderes no escopo selecionado'
+                  : 'Aderência e média de acerto por equipe (no escopo selecionado)'}
+              </CardDescription>
             </CardHeader>
             <CardContent>
               {!attemptsPayload ? (
@@ -882,7 +900,9 @@ export function QuizAnalyticsFull({ challengeId }: { challengeId: string }) {
                             <TableCell className="text-right">{r.eligible}</TableCell>
                             <TableCell className="text-right">{r.started} ({r.participationRate}%)</TableCell>
                             <TableCell className="text-right">{r.completed} ({r.completionRate}%)</TableCell>
-                            <TableCell className="text-right">{r.avgScorePct == null ? '—' : `${r.avgScorePct}%`}</TableCell>
+                            <TableCell className="text-right">
+                              {r.avgScorePct == null ? '—' : <Badge variant="outline" className={getQuizScoreBadgeClassName(r.avgScorePct)}>{`${r.avgScorePct}%`}</Badge>}
+                            </TableCell>
                           </TableRow>
                         ))}
                       </TableBody>
@@ -947,9 +967,7 @@ export function QuizAnalyticsFull({ challengeId }: { challengeId: string }) {
                               <TableCell className="text-right">{q.answeredCount}</TableCell>
                               <TableCell className="text-right">
                                 {q.accuracyPct == null ? '—' : (
-                                  <Badge
-                                    variant={q.accuracyPct >= 70 ? 'default' : q.accuracyPct >= 40 ? 'secondary' : 'destructive'}
-                                  >
+                                  <Badge variant="outline" className={getQuizScoreBadgeClassName(q.accuracyPct)}>
                                     {q.accuracyPct}%
                                   </Badge>
                                 )}

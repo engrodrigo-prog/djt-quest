@@ -16,6 +16,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from 'recharts';
 import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart';
 import { getActiveLocale } from '@/lib/i18n/activeLocale';
+import { getQuizScoreBadgeClassName } from '@/lib/quizScore';
 
 type Scope = 'team' | 'coord' | 'division' | 'all';
 type Chas = 'C' | 'H' | 'A' | 'S';
@@ -443,7 +444,9 @@ export function ReportsHub() {
                           )}
                         </TableCell>
                         <TableCell className="text-right">{q.participants}</TableCell>
-                        <TableCell className="text-right">{q.avgScorePct == null ? '—' : `${q.avgScorePct}%`}</TableCell>
+                        <TableCell className="text-right">
+                          {q.avgScorePct == null ? '—' : <Badge variant="outline" className={getQuizScoreBadgeClassName(q.avgScorePct)}>{`${q.avgScorePct}%`}</Badge>}
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -511,7 +514,9 @@ export function ReportsHub() {
                           <TableCell className="text-right">{t.quizzes}</TableCell>
                           <TableCell className="text-right">{t.participants}</TableCell>
                           <TableCell className="text-right">{t.participationRate}%</TableCell>
-                          <TableCell className="text-right">{t.avgScorePct == null ? '—' : `${t.avgScorePct}%`}</TableCell>
+                          <TableCell className="text-right">
+                            {t.avgScorePct == null ? '—' : <Badge variant="outline" className={getQuizScoreBadgeClassName(t.avgScorePct)}>{`${t.avgScorePct}%`}</Badge>}
+                          </TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
@@ -593,7 +598,9 @@ export function ReportsHub() {
                             </TableCell>
                             <TableCell>{u.team_id ?? '—'}</TableCell>
                             <TableCell className="text-right">{u.completedQuizzes}</TableCell>
-                            <TableCell className="text-right">{u.avgScorePct == null ? '—' : `${u.avgScorePct}%`}</TableCell>
+                            <TableCell className="text-right">
+                              {u.avgScorePct == null ? '—' : <Badge variant="outline" className={getQuizScoreBadgeClassName(u.avgScorePct)}>{`${u.avgScorePct}%`}</Badge>}
+                            </TableCell>
                             <TableCell>
                               <div className="flex flex-wrap gap-1">
                                 {(['C', 'H', 'A', 'S'] as const).map((c) => {
@@ -602,9 +609,9 @@ export function ReportsHub() {
                                   const pct = stat?.avgScorePct;
                                   const label = pct == null ? `${c}:${n}` : `${c}:${n} • ${pct}%`;
                                   return (
-                                    <Badge key={c} variant="outline" className="text-[10px]">
-                                      {label}
-                                    </Badge>
+                                      <Badge key={c} variant="outline" className={`text-[10px] ${getQuizScoreBadgeClassName(pct)}`}>
+                                        {label}
+                                      </Badge>
                                   );
                                 })}
                               </div>
@@ -688,7 +695,9 @@ export function ReportsHub() {
                           {q.question_text}
                         </TableCell>
                         <TableCell className="text-right">{q.answeredCount}</TableCell>
-                        <TableCell className="text-right">{q.accuracyPct == null ? '—' : `${q.accuracyPct}%`}</TableCell>
+                        <TableCell className="text-right">
+                          {q.accuracyPct == null ? '—' : <Badge variant="outline" className={getQuizScoreBadgeClassName(q.accuracyPct)}>{`${q.accuracyPct}%`}</Badge>}
+                        </TableCell>
                         <TableCell>{q.lastAnsweredAt ? new Date(q.lastAnsweredAt).toLocaleString(getActiveLocale()) : '—'}</TableCell>
                       </TableRow>
                     ))}

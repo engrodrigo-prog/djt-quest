@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { apiFetch } from '@/lib/api'
 import { getActiveLocale } from '@/lib/i18n/activeLocale'
+import { getQuizScoreBadgeClassName } from '@/lib/quizScore'
 
 export function QuizAnalytics({ challengeId }: { challengeId: string }) {
   const [loading, setLoading] = useState(true)
@@ -104,7 +105,7 @@ export function QuizAnalytics({ challengeId }: { challengeId: string }) {
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0">
                     <Badge variant="outline">{row.score}/{row.max_score || 0}</Badge>
-                    <Badge variant={pct == null ? 'secondary' : pct >= 70 ? 'default' : pct >= 40 ? 'secondary' : 'destructive'}>
+                    <Badge variant="outline" className={getQuizScoreBadgeClassName(pct)}>
                       {pct == null ? '—' : `${pct}%`}
                     </Badge>
                   </div>
