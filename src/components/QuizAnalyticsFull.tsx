@@ -14,6 +14,7 @@ import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
 import { getActiveLocale } from '@/lib/i18n/activeLocale';
 import { getQuizScoreBadgeClassName } from '@/lib/quizScore';
+import { Crown } from 'lucide-react';
 
 type Scope = 'team' | 'coord' | 'division' | 'all';
 type Sort = 'score_desc' | 'submitted_desc' | 'name_asc';
@@ -586,16 +587,17 @@ export function QuizAnalyticsFull({ challengeId }: { challengeId: string }) {
                   >
                     Tudo
                   </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={onlyLeaders ? 'secondary' : 'ghost'}
+                    className="h-7 px-2"
+                    onClick={() => setOnlyLeaders((v) => !v)}
+                  >
+                    <Crown className="h-4 w-4 mr-1" />
+                    Líderes
+                  </Button>
                 </div>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={onlyLeaders ? 'secondary' : 'outline'}
-                  className="h-7 px-2"
-                  onClick={() => setOnlyLeaders((v) => !v)}
-                >
-                  Líderes
-                </Button>
               </div>
             </div>
 

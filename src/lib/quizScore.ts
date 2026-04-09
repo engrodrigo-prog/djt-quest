@@ -1,7 +1,7 @@
 export function getQuizScoreTone(pct: number | null | undefined) {
   if (typeof pct !== 'number' || !Number.isFinite(pct)) return 'neutral';
   if (pct >= 100) return 'green';
-  if (pct > 81) return 'blue';
+  if (pct > 80) return 'blue';
   return 'orange';
 }
 
