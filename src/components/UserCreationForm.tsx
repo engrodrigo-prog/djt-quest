@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useToast } from '@/hooks/use-toast';
 import { UserPlus } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
+import { normalizeTeamId } from '@/lib/constants/points';
 
 interface Team {
   id: string;
@@ -30,8 +31,6 @@ const REGISTRATION_TEAM_IDS = [
 ] as const;
 
 const REGISTRATION_TEAM_ORDER = new Map(REGISTRATION_TEAM_IDS.map((id, idx) => [id, idx]));
-
-const normalizeTeamId = (id: unknown) => String(id ?? '').trim().toUpperCase();
 
 const filterAndOrderRegistrationTeams = (raw: Array<{ id: string; name?: string | null }>) => {
   const byId = new Map<string, Team>();

@@ -3,6 +3,28 @@ import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import { getAppOrigin } from '@/lib/whatsappShare';
 
+export interface UserProfileData {
+  id: string;
+  email?: string | null;
+  name?: string | null;
+  avatar_url?: string | null;
+  avatar_thumbnail_url?: string | null;
+  operational_base?: string | null;
+  sigla_area?: string | null;
+  team_id?: string | null;
+  matricula?: string | null;
+  phone?: string | null;
+  telefone?: string | null;
+  is_leader?: boolean | null;
+  studio_access?: boolean | null;
+  must_change_password?: boolean | null;
+  date_of_birth?: string | null;
+  tier?: string | null;
+  xp?: number | null;
+  coord_id?: string | null;
+  division_id?: string | null;
+}
+
 interface OrgScope {
   teamId: string | null;
   teamName?: string;
@@ -24,7 +46,7 @@ interface AuthContextType {
   studioAccess: boolean;
   isLeader: boolean;
   orgScope: OrgScope | null;
-  profile: any | null;
+  profile: UserProfileData | null;
   roleOverride: 'colaborador' | 'lider' | null;
   setRoleOverride: (val: 'colaborador' | 'lider' | null) => void;
   sessionLocked: boolean;
@@ -39,7 +61,7 @@ interface AuthContextType {
     studioAccess: boolean;
     isLeader: boolean;
     orgScope: OrgScope | null;
-    profile: any | null;
+    profile: UserProfileData | null;
   } | null>;
 }
 
@@ -146,7 +168,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLeader, setIsLeader] = useState(false);
   const [baseIsLeader, setBaseIsLeader] = useState(false);
   const [orgScope, setOrgScope] = useState<OrgScope | null>(null);
-  const [profile, setProfile] = useState<any | null>(null);
+  const [profile, setProfile] = useState<UserProfileData | null>(null);
   const [previousRole, setPreviousRole] = useState<string | null>(null);
   const [hasShownWelcome, setHasShownWelcome] = useState(false);
   const roleRef = useRef<string | null>(null);
@@ -552,7 +574,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signOut = async () => {
-    console.log('🚪 Signing out, clearing cache');
     localStorage.removeItem(CACHE_KEY);
     localStorage.removeItem(ROLE_OVERRIDE_KEY);
     localStorage.removeItem(SESSION_DAY_KEY);
