@@ -551,7 +551,7 @@ export const UserManagement = () => {
       </div>
 
       {/* Estatísticas */}
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
         <Card className="bg-black/20 border-white/10">
           <CardHeader className="pb-3">
             <CardTitle className="text-sm font-medium text-blue-100/70">Total</CardTitle>
@@ -711,9 +711,9 @@ export const UserManagement = () => {
             </div>
           </div>
 
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="text-sm text-muted-foreground">Selecionados: {selectedIds.size}</div>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <Button variant="outline" size="sm" onClick={() => setSelectedIds(new Set(filteredUsers.map(u => u.id)))} disabled={filteredUsers.length === 0}>Selecionar filtrados</Button>
               <Button variant="outline" size="sm" onClick={() => setSelectedIds(new Set(users.map(u => u.id)))} disabled={users.length === 0}>Selecionar todos</Button>
               <Button variant="outline" size="sm" onClick={() => setSelectedIds(new Set())} disabled={selectedIds.size === 0}>Limpar seleção</Button>
@@ -722,83 +722,69 @@ export const UserManagement = () => {
               </Button>
             </div>
           </div>
-	          <ScrollArea className="h-[460px] pr-4">
-	            <div className="space-y-2">
-	              {filteredUsers.map((user) => {
-	                const isTestUser = testUsers.find(tu => tu.id === user.id);
-	                const avatar = (user as any)?.avatar_thumbnail_url || (user as any)?.avatar_url || null;
-	                return (
-	                  <div
-	                    key={user.id}
-	                    className={`flex items-center justify-between p-4 rounded-lg border ${
-	                      isTestUser ? 'border-orange-500/30 bg-orange-500/5' : 'border-border'
-	                    } hover:bg-muted/50 transition-colors`}
+          <ScrollArea className="h-[540px]">
+            <div className="space-y-2 pr-3">
+              {filteredUsers.map((user) => {
+                const isTestUser = testUsers.find(tu => tu.id === user.id);
+                const avatar = (user as any)?.avatar_thumbnail_url || (user as any)?.avatar_url || null;
+                const primaryRole = primaryRoleByUserId[String(user.id || '')];
+                return (
+                  <div
+                    key={user.id}
+                    className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer ${
+                      isTestUser ? 'border-orange-500/30 bg-orange-500/5' : 'border-border'
+                    } hover:bg-muted/50 transition-colors`}
                     onClick={(e) => {
                       const target = e.target as HTMLElement;
                       if (target.closest('button') || target.closest('input[type="checkbox"]')) return;
                       openEditor(user);
                     }}
                   >
-	                    <div className="flex items-start gap-3 flex-1 min-w-0">
-	                      <input
-	                        type="checkbox"
-	                        checked={selectedIds.has(user.id)}
-	                        onChange={() => toggleSelect(user.id)}
-	                        className="mt-1"
-	                      />
-	                      <div className="mt-0.5 h-10 w-10 flex-shrink-0 rounded-full overflow-hidden bg-transparent">
-	                        {avatar ? (
-	                          <img
-	                            src={avatar}
-	                            alt={user.name || 'Avatar'}
-	                            className="h-full w-full object-cover"
-	                            loading="lazy"
-	                            decoding="async"
-	                          />
-	                        ) : null}
-	                      </div>
-	                      <div className="space-y-1 min-w-0 flex-1">
-	                        <div className="flex items-center gap-2">
-	                        <p className="font-medium text-foreground truncate">{user.name}</p>
-	                          <Badge variant={primaryRoleByUserId[String(user.id || '')] ? "secondary" : "outline"} className="text-[10px]">
-	                            {primaryRoleByUserId[String(user.id || '')] ? roleLabel(primaryRoleByUserId[String(user.id || '')]) : "Sem role"}
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(user.id)}
+                      onChange={() => toggleSelect(user.id)}
+                      className="shrink-0"
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                    <div className="h-9 w-9 shrink-0 rounded-full overflow-hidden bg-muted flex items-center justify-center text-xs font-semibold text-muted-foreground">
+                      {avatar ? (
+                        <img src={avatar} alt={user.name || 'Avatar'} className="h-full w-full object-cover" loading="lazy" decoding="async" />
+                      ) : (
+                        <span>{(user.name || '?').charAt(0).toUpperCase()}</span>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0 grid grid-cols-1 md:grid-cols-[1fr_auto] gap-x-4 gap-y-0.5">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-medium text-foreground truncate">{user.name}</span>
+                          <Badge variant={primaryRole ? "secondary" : "outline"} className="text-[10px] shrink-0">
+                            {primaryRole ? roleLabel(primaryRole) : "Sem role"}
                           </Badge>
                           {isTestUser && (
-                            <Badge variant="outline" className="bg-orange-500/10 text-orange-600 border-orange-500/20">
-                              Teste
-                            </Badge>
+                            <Badge variant="outline" className="bg-orange-500/10 text-orange-600 border-orange-500/20 text-[10px] shrink-0">Teste</Badge>
                           )}
                         </div>
                         <p className="text-sm text-muted-foreground truncate">{user.email}</p>
-                        {user.phone || user.telefone ? (
-                          <p className="text-xs text-muted-foreground truncate">WhatsApp: {user.phone || user.telefone}</p>
-                        ) : null}
-                        <div className="flex flex-wrap items-center gap-2 text-xs">
-                          {normalizeTeamId(user.team_id || user.sigla_area) ? (
-                            <span className="font-semibold text-primary">
-                              {normalizeTeamId(user.team_id || user.sigla_area)}
-                            </span>
-                          ) : (
-                            <span className="text-muted-foreground">Sem equipe</span>
-                          )}
-                          <span className="text-muted-foreground">
-                            Cadastro: {new Date(user.created_at).toLocaleDateString(getActiveLocale())}
-                          </span>
-                        </div>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground md:text-right">
+                        {normalizeTeamId(user.team_id || user.sigla_area) ? (
+                          <span className="font-semibold text-primary">{normalizeTeamId(user.team_id || user.sigla_area)}</span>
+                        ) : (
+                          <span>Sem equipe</span>
+                        )}
+                        {user.operational_base && <span>{user.operational_base}</span>}
+                        <span>{new Date(user.created_at).toLocaleDateString(getActiveLocale())}</span>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => openEditor(user)}
-                      >
+                    <div className="flex items-center gap-1 shrink-0">
+                      <Button variant="outline" size="sm" onClick={(e) => { e.stopPropagation(); openEditor(user); }}>
                         Editar
                       </Button>
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => handleDeleteUser(user.id, user.email || 'Sem email')}
+                        onClick={(e) => { e.stopPropagation(); handleDeleteUser(user.id, user.email || 'Sem email'); }}
                         className="text-destructive hover:text-destructive hover:bg-destructive/10"
                       >
                         <Trash2 className="h-4 w-4" />
@@ -814,103 +800,114 @@ export const UserManagement = () => {
 
       {/* Editor Dialog */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
+        <DialogContent className="sm:max-w-lg flex flex-col max-h-[90vh]">
+          <DialogHeader className="shrink-0">
             <DialogTitle>Editar Usuário</DialogTitle>
             <DialogDescription className="sr-only">
               Edite os dados do usuário selecionado e salve as alterações.
             </DialogDescription>
+            {editingUser && (
+              <p className="text-sm text-muted-foreground truncate">{editingUser.name} — {editingUser.email}</p>
+            )}
           </DialogHeader>
-          <div className="grid grid-cols-1 gap-3">
-            <div className="grid gap-1">
-              <Label>Nome</Label>
-              <Input value={form.name} onChange={(e) => updateForm('name', e.target.value)} />
-            </div>
-            <div className="grid gap-1">
-              <Label>Email</Label>
-              <Input type="email" value={form.email} onChange={(e) => updateForm('email', e.target.value)} />
-            </div>
-            <div className="grid gap-1">
-              <Label>Matrícula</Label>
-              <Input value={form.matricula} onChange={(e) => updateForm('matricula', e.target.value)} />
-            </div>
-            <div className="grid gap-1">
-              <Label>Telefone (WhatsApp)</Label>
-              <Input
-                type="tel"
-                inputMode="tel"
-                autoComplete="tel"
-                placeholder="+55 11 91234-5678"
-                value={form.phone}
-                onChange={(e) => updateForm('phone', e.target.value)}
-              />
-              <p className="text-xs text-muted-foreground">Ao salvar aqui, o número é considerado confirmado.</p>
-            </div>
-            <div className="grid gap-1">
-              <Label>Equipe / Sigla</Label>
-              <Input value={form.sigla_area} onChange={(e) => handleSiglaChange(e.target.value)} placeholder="Ex: DJTB-CUB" />
-              <p className="text-xs text-muted-foreground">Equipe/sigla é usada para escopo e relatórios internos.</p>
-            </div>
-            <div className="grid gap-1">
-              <Label>Base operacional (cidade)</Label>
-              <Input
-                value={form.operational_base}
-                onChange={(e) => updateForm('operational_base', e.target.value)}
-                placeholder="Ex: Piraju, Cubatão, Santos..."
-              />
-              <p className="text-xs text-muted-foreground">Campo não editável pelo usuário; ajustado por líderes/admin.</p>
-            </div>
-            <div className="grid grid-cols-2 gap-3 items-center">
-              <div className="flex items-center justify-between border rounded-md p-2">
-                <div>
-                  <Label>É Líder</Label>
+          <ScrollArea className="flex-1 overflow-hidden -mr-4">
+            <div className="grid grid-cols-1 gap-3 pr-4 pb-2">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="grid gap-1">
+                  <Label>Nome</Label>
+                  <Input value={form.name} onChange={(e) => updateForm('name', e.target.value)} />
                 </div>
-                <Switch checked={form.is_leader} onCheckedChange={(v) => updateForm('is_leader', v as boolean)} />
-              </div>
-              <div className="flex items-center justify-between border rounded-md p-2">
-                <div>
-                  <Label>Acesso Studio</Label>
+                <div className="grid gap-1">
+                  <Label>Matrícula</Label>
+                  <Input value={form.matricula} onChange={(e) => updateForm('matricula', e.target.value)} />
                 </div>
-                <Switch checked={form.studio_access} onCheckedChange={(v) => updateForm('studio_access', v as boolean)} />
+              </div>
+              <div className="grid gap-1">
+                <Label>Email</Label>
+                <Input type="email" value={form.email} onChange={(e) => updateForm('email', e.target.value)} />
+              </div>
+              <div className="grid gap-1">
+                <Label>Telefone (WhatsApp)</Label>
+                <Input
+                  type="tel"
+                  inputMode="tel"
+                  autoComplete="tel"
+                  placeholder="+55 11 91234-5678"
+                  value={form.phone}
+                  onChange={(e) => updateForm('phone', e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">Ao salvar aqui, o número é considerado confirmado.</p>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="grid gap-1">
+                  <Label>Equipe / Sigla</Label>
+                  <Input value={form.sigla_area} onChange={(e) => handleSiglaChange(e.target.value)} placeholder="Ex: DJTB-CUB" />
+                </div>
+                <div className="grid gap-1">
+                  <Label>Base operacional</Label>
+                  <Input
+                    value={form.operational_base}
+                    onChange={(e) => updateForm('operational_base', e.target.value)}
+                    placeholder="Ex: Cubatão..."
+                  />
+                </div>
+              </div>
+              <div className="grid gap-1">
+                <Label>Data de Nascimento</Label>
+                <Input type="date" value={dateOfBirth} onChange={(e) => setDateOfBirth(e.target.value)} />
+              </div>
+              <div className="grid gap-1">
+                <Label>Papel principal</Label>
+                <Select value={primaryRoleForUser || '__keep__'} onValueChange={(v) => setPrimaryRoleForUser(v === '__keep__' ? '' : v)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Manter atual" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__keep__">Manter atual</SelectItem>
+                    <SelectItem value="colaborador">Colaborador</SelectItem>
+                    <SelectItem value="invited">Convidado (INVITED)</SelectItem>
+                    <SelectItem value="lider_equipe">Líder de Equipe</SelectItem>
+                    <SelectItem value="analista_financeiro">Analista Financeiro</SelectItem>
+                    <SelectItem value="coordenador_djtx">Coordenador DJTX</SelectItem>
+                    <SelectItem value="gerente_divisao_djtx">Gerente Divisão DJTX</SelectItem>
+                    <SelectItem value="gerente_djt">Gerente DJT</SelectItem>
+                    <SelectItem value="admin">Admin</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="flex items-center justify-between border rounded-md p-3">
+                  <Label className="cursor-pointer">É Líder</Label>
+                  <Switch checked={form.is_leader} onCheckedChange={(v) => updateForm('is_leader', v as boolean)} />
+                </div>
+                <div className="flex items-center justify-between border rounded-md p-3">
+                  <Label className="cursor-pointer">Acesso Studio</Label>
+                  <Switch checked={form.studio_access} onCheckedChange={(v) => updateForm('studio_access', v as boolean)} />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground uppercase tracking-wide">Papéis adicionais</Label>
+                <div className="flex items-center justify-between border rounded-md p-3">
+                  <div>
+                    <p className="text-sm font-medium">Curador de Conteúdo</p>
+                    <p className="text-xs text-muted-foreground">Acesso ao HUB de curadoria no Studio.</p>
+                  </div>
+                  <Switch checked={isContentCuratorRole} onCheckedChange={(v) => setIsContentCuratorRole(Boolean(v))} />
+                </div>
+                <div className="flex items-center justify-between border rounded-md p-3">
+                  <div>
+                    <p className="text-sm font-medium">Analista Financeiro</p>
+                    <p className="text-xs text-muted-foreground">Acesso a Reembolso &amp; Adiantamento.</p>
+                  </div>
+                  <Switch checked={isFinanceAnalystRole} onCheckedChange={(v) => setIsFinanceAnalystRole(Boolean(v))} />
+                </div>
               </div>
             </div>
-            <div className="grid gap-1">
-              <Label>Data de Nascimento</Label>
-              <Input type="date" value={dateOfBirth} onChange={(e) => setDateOfBirth(e.target.value)} />
-            </div>
-            <div className="grid gap-1">
-              <Label>Papel principal (opcional)</Label>
-              <select className="border rounded-md h-9 px-2 bg-background" value={primaryRoleForUser} onChange={(e) => setPrimaryRoleForUser(e.target.value)}>
-                <option value="">Manter</option>
-                <option value="colaborador">Colaborador</option>
-                <option value="invited">Convidado (INVITED)</option>
-                <option value="lider_equipe">Líder de Equipe</option>
-                <option value="analista_financeiro">Analista Financeiro</option>
-                <option value="coordenador_djtx">Coordenador DJTX</option>
-                <option value="gerente_divisao_djtx">Gerente Divisão DJTX</option>
-                <option value="gerente_djt">Gerente DJT</option>
-                <option value="admin">Admin</option>
-              </select>
-              <div className="flex items-center justify-between border rounded-md p-2 mt-2">
-                <div>
-                  <Label>Curador de Conteúdo</Label>
-                  <p className="text-xs text-muted-foreground">Acesso apenas ao HUB de curadoria no Studio.</p>
-                </div>
-                <Switch checked={isContentCuratorRole} onCheckedChange={(v) => setIsContentCuratorRole(Boolean(v))} />
-              </div>
-              <div className="flex items-center justify-between border rounded-md p-2 mt-2">
-                <div>
-                  <Label>Analista Financeiro</Label>
-                  <p className="text-xs text-muted-foreground">Acesso ao Studio apenas para Reembolso &amp; Adiantamento.</p>
-                </div>
-                <Switch checked={isFinanceAnalystRole} onCheckedChange={(v) => setIsFinanceAnalystRole(Boolean(v))} />
-              </div>
-            </div>
-          </div>
-          <DialogFooter>
+          </ScrollArea>
+          <DialogFooter className="shrink-0 pt-2 border-t">
             <Button variant="outline" onClick={() => setEditOpen(false)}>Cancelar</Button>
             <Button onClick={saveEditor} disabled={savingEdit}>
-              {savingEdit ? 'Salvando...' : 'Salvar'}
+              {savingEdit ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Salvando...</> : 'Salvar alterações'}
             </Button>
           </DialogFooter>
         </DialogContent>
