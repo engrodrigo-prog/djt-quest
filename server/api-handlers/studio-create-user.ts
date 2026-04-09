@@ -1,12 +1,12 @@
 // @ts-nocheck
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
+import { generateTempPassword } from './_generateTempPassword';
 
 const SUPABASE_URL = process.env.SUPABASE_URL as string;
 const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY) as string;
 
 const GUEST_TEAM_ID = 'CONVIDADOS';
-const DEFAULT_PASSWORD = '123456';
 
 const normTeamCode = (raw?: string | null) =>
   String(raw || '')
@@ -53,7 +53,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const body = (req.body || {}) as any;
     const email = String(body.email || '').trim().toLowerCase();
-    const password = DEFAULT_PASSWORD;
+    const password = generateTempPassword();
     const name = String(body.name || '').trim();
     const role = String(body.role || '').trim();
     const requestedTeam = typeof body.team_id === 'string' ? body.team_id : body.team_id ?? null;
@@ -138,6 +138,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(200).json({
       success: true,
       user: { id: newUserId, email, name, role, team_id: finalTeamId },
+      tempPassword: password,
     });
   } catch (e: any) {
     return res.status(500).json({ error: e?.message || 'Unknown error' });

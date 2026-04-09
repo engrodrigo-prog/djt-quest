@@ -1,6 +1,7 @@
 // @ts-nocheck
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
+import { generateTempPassword } from './_generateTempPassword';
 
 const SUPABASE_URL = process.env.SUPABASE_URL as string;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY as string;
@@ -88,10 +89,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       reviewer_notes: notes ? String(notes).trim() : null,
     };
 
+    let approvedTempPassword: string | undefined;
     if (action === 'approve') {
-      const tempPassword = '123456';
+      approvedTempPassword = generateTempPassword();
       await supabaseAdmin.auth.admin.updateUserById(request.user_id, {
-        password: tempPassword,
+        password: approvedTempPassword,
         email_confirm: true,
       });
       await supabaseAdmin
@@ -107,7 +109,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (updateError) return res.status(400).json({ error: updateError.message });
 
-    return res.status(200).json({ success: true });
+    return res.status(200).json({ success: true, ...(approvedTempPassword ? { tempPassword: approvedTempPassword } : {}) });
   } catch (error: any) {
     return res.status(500).json({ error: error?.message || 'Unexpected error' });
   }

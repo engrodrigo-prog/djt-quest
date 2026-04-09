@@ -241,6 +241,14 @@ const Auth = () => {
         }
       }
 
+      // Server-side enforcement: redirect to password change if flagged
+      if (authData?.profile?.must_change_password) {
+        // TODO: redirect to /alterar-senha
+        localStorage.setItem('must_change_password', 'true');
+        navigate('/alterar-senha', { replace: true });
+        return;
+      }
+
       const next = resolveRedirect();
       if (next) {
         navigate(next, { replace: true });
