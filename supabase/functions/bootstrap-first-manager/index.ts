@@ -10,6 +10,12 @@ Deno.serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  const bootstrapSecret = Deno.env.get('BOOTSTRAP_SECRET');
+  const providedSecret = req.headers.get('x-bootstrap-secret');
+  if (!bootstrapSecret || bootstrapSecret !== providedSecret) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
+  }
+
   try {
     const supabaseAdmin = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',

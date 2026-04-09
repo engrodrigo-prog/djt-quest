@@ -38,6 +38,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     assertDjtQuestServerEnv({ requireSupabaseUrl: false });
     if (!SUPABASE_URL || !SERVICE_KEY) return res.status(500).json({ error: "Missing Supabase config" });
 
+    const authHeader = req.headers["authorization"] as string | undefined;
+    if (!authHeader?.startsWith("Bearer ")) return res.status(401).json({ error: "Unauthorized" });
+    const token = authHeader.slice(7);
+    const authClient = createClient(SUPABASE_URL, ANON_KEY || SERVICE_KEY, { auth: { autoRefreshToken: false, persistSession: false } });
+    const { data: authData, error: authErr } = await authClient.auth.getUser(token);
+    if (authErr || !authData?.user) return res.status(401).json({ error: "Unauthorized" });
+
     const body = parseBody(req);
     const mode = String(body?.mode || "").trim();
     if (!ALLOWED_MODES.has(mode)) return res.status(400).json({ error: "mode inválido" });

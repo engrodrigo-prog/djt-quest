@@ -49,6 +49,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.setHeader('Expires', '0');
 
     if (!SUPABASE_URL || !SERVICE_KEY) return res.status(500).json({ error: 'Missing Supabase config' });
+
+    const authHeader = req.headers['authorization'] as string | undefined;
+    if (!authHeader?.startsWith('Bearer ')) return res.status(401).json({ error: 'Unauthorized' });
+    const token = authHeader.slice(7);
+    const authClient = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { autoRefreshToken: false, persistSession: false } });
+    const { data: authData, error: authErr } = await authClient.auth.getUser(token);
+    if (authErr || !authData?.user) return res.status(401).json({ error: 'Unauthorized' });
     const admin = createClient(SUPABASE_URL, SERVICE_KEY, {
       auth: { autoRefreshToken: false, persistSession: false },
     });

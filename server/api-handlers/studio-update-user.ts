@@ -55,6 +55,40 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { userId } = body as { userId?: string };
     if (!userId) return res.status(400).json({ error: 'userId é obrigatório' });
 
+    const ALLOWED_ROLES = new Set(['colaborador','invited','lider_equipe','analista_financeiro','coordenador_djtx','gerente_divisao_djtx','gerente_djt','admin','content_curator']);
+    if (body.role && !ALLOWED_ROLES.has(body.role)) {
+      return res.status(400).json({ error: 'Role inválida' });
+    }
+
+    const callerRoles = (roles || []).map((r: any) => r.role as string);
+    const isAdminOrManager = callerRoles.includes('admin') || callerRoles.includes('gerente_djt');
+    if (!isAdminOrManager) {
+      const { data: callerProfile } = await supabaseAdmin
+        .from('profiles')
+        .select('coord_id, division_id')
+        .eq('id', callerId)
+        .maybeSingle();
+      const { data: targetProfile } = await supabaseAdmin
+        .from('profiles')
+        .select('coord_id, division_id')
+        .eq('id', userId)
+        .maybeSingle();
+
+      const isGerenteDivisao = callerRoles.includes('gerente_divisao_djtx');
+      const isCoordOrLider = callerRoles.includes('coordenador_djtx') || callerRoles.includes('lider_equipe');
+
+      let scopeAllowed = false;
+      if (isGerenteDivisao && callerProfile?.division_id && targetProfile?.division_id) {
+        scopeAllowed = callerProfile.division_id === targetProfile.division_id;
+      } else if (isCoordOrLider && callerProfile?.coord_id && targetProfile?.coord_id) {
+        scopeAllowed = callerProfile.coord_id === targetProfile.coord_id;
+      }
+
+      if (!scopeAllowed) {
+        return res.status(403).json({ error: 'Sem permissão para editar este usuário' });
+      }
+    }
+
     const updates: Record<string, unknown> = {};
     if (typeof body.name === 'string') updates.name = body.name;
     if (typeof body.email === 'string') updates.email = (body.email as string).toLowerCase();

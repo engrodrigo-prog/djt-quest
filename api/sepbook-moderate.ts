@@ -17,6 +17,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     assertDjtQuestServerEnv({ requireSupabaseUrl: false });
+    if (!SERVICE_ROLE_KEY) return res.status(503).json({ error: "Serviço indisponível" });
     if (!SUPABASE_URL || !SERVICE_KEY) return res.status(500).json({ error: "Missing Supabase config" });
     const authHeader = req.headers["authorization"] as string | undefined;
     if (!authHeader?.startsWith("Bearer ")) return res.status(401).json({ error: "Unauthorized" });

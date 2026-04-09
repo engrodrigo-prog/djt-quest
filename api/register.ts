@@ -9,6 +9,8 @@ const PUBLIC_KEY = (process.env.SUPABASE_ANON_KEY ||
   process.env.VITE_SUPABASE_ANON_KEY ||
   process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY) as string | undefined;
 
+const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
+
 const GUEST_TEAM_ID = 'CONVIDADOS';
 const REGISTRATION_TEAM_IDS = [
   'DJT',
@@ -76,6 +78,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
+    const ip = String(
+      (Array.isArray(req.headers['x-forwarded-for'])
+        ? req.headers['x-forwarded-for'][0]
+        : req.headers['x-forwarded-for']) ||
+        (req as any).socket?.remoteAddress ||
+        'unknown'
+    );
+    const now = Date.now();
+    const rl = rateLimitMap.get(ip);
+    if (rl && rl.resetAt > now) {
+      if (rl.count >= 5) {
+        return res.status(429).json({ error: 'Muitas tentativas. Tente novamente em alguns minutos.' });
+      }
+      rl.count += 1;
+    } else {
+      rateLimitMap.set(ip, { count: 1, resetAt: now + 15 * 60 * 1000 });
+    }
+
     res.setHeader('Cache-Control', 'no-store');
 
     const key = SERVICE_ROLE_KEY || PUBLIC_KEY;
