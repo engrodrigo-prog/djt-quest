@@ -7,7 +7,7 @@ import { Textarea } from './ui/textarea';
 import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
-import { toast } from './ui/use-toast';
+import { toast } from '@/hooks/use-toast';
 import { apiFetch } from '@/lib/api';
 import { MessageSquare, Pin, Lock, CheckCircle, Wand2 } from 'lucide-react';
 import { VoiceRecorderButton } from './VoiceRecorderButton';
