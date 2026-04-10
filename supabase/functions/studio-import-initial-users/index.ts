@@ -1,5 +1,12 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.90.1';
 
+function generateTempPassword(): string {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+  const bytes = new Uint8Array(12);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes).map(b => chars[b % chars.length]).join('');
+}
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -98,7 +105,7 @@ Deno.serve(async (req) => {
           // Atualizar auth user (nome e confirmar email). Opcionalmente resetar senha
           const { error: updateAuthErr } = await supabaseAdmin.auth.admin.updateUserById(userId, {
             email,
-            password: '123456',
+            password: generateTempPassword(),
             email_confirm: true,
             user_metadata: { name: nome },
           });
@@ -129,7 +136,7 @@ Deno.serve(async (req) => {
           // Criar novo auth user
           const { data: authUser, error: authError } = await supabaseAdmin.auth.admin.createUser({
             email,
-            password: '123456',
+            password: generateTempPassword(),
             email_confirm: true,
             user_metadata: { name: nome },
           });

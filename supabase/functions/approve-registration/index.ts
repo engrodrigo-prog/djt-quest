@@ -1,6 +1,13 @@
 // @ts-expect-error Deno resolves remote modules at runtime.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.90.1';
 
+function generateTempPassword(): string {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+  const bytes = new Uint8Array(12);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes).map(b => chars[b % chars.length]).join('');
+}
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -188,10 +195,11 @@ Deno.serve(async (req: Request) => {
 
     console.log('Creating user:', registration.email);
 
-    // Create user in Supabase Auth with default password
+    // Create user in Supabase Auth with a random temporary password
+    const tempPassword = generateTempPassword();
     const { data: newUser, error: createUserError } = await supabaseAdmin.auth.admin.createUser({
       email: registration.email,
-      password: '123456',
+      password: tempPassword,
       email_confirm: true,
       user_metadata: {
         name: registration.name,
@@ -341,6 +349,7 @@ Deno.serve(async (req: Request) => {
         success: true,
         message: 'Registration approved successfully',
         userId: newUser.user.id,
+        tempPassword,
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );

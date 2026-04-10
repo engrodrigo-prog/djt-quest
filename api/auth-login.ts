@@ -1,5 +1,6 @@
 // @ts-nocheck
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { createClient } from '@supabase/supabase-js';
 
 const SUPABASE_URL = (process.env.SUPABASE_URL ||
   process.env.VITE_SUPABASE_URL ||
@@ -10,8 +11,14 @@ const PUBLIC_KEY = (process.env.SUPABASE_ANON_KEY ||
   process.env.VITE_SUPABASE_ANON_KEY ||
   process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY) as string | undefined;
 
+const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY as string | undefined;
+
+const allowedOrigin = process.env.VERCEL_URL
+  ? `https://${process.env.VERCEL_URL}`
+  : (process.env.ALLOWED_ORIGIN || '*');
+
 const cors = {
-  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Origin': allowedOrigin,
   'Access-Control-Allow-Methods': 'POST,OPTIONS',
   'Access-Control-Allow-Headers': 'content-type',
   'Cache-Control': 'no-store, max-age=0',
@@ -65,6 +72,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(upstream.status).json({ error: String(msg) });
     }
 
+    // Check must_change_password from profiles table server-side.
+    let mustChangePassword = false;
+    const userId = payload?.user?.id;
+    if (userId && (SERVICE_KEY || PUBLIC_KEY) && SUPABASE_URL) {
+      try {
+        const supabase = createClient(SUPABASE_URL, (SERVICE_KEY || PUBLIC_KEY) as string, {
+          auth: { autoRefreshToken: false, persistSession: false },
+        });
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('must_change_password')
+          .eq('id', userId)
+          .single();
+        mustChangePassword = Boolean(profile?.must_change_password);
+      } catch {
+        // Non-fatal: proceed without the flag
+      }
+    }
+
     // Return only what's needed for client-side setSession.
     return res.status(200).json({
       access_token: payload?.access_token,
@@ -72,6 +98,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       expires_in: payload?.expires_in,
       token_type: payload?.token_type,
       user: payload?.user,
+      must_change_password: mustChangePassword,
     });
   } catch (e: any) {
     return res.status(500).setHeader('Cache-Control', 'no-store').json({ error: e?.message || 'Unexpected error' });

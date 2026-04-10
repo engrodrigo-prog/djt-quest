@@ -1,6 +1,7 @@
 // @ts-nocheck
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { createClient } from '@supabase/supabase-js'
+import { generateTempPassword } from './_generateTempPassword'
 
 type ApprovalRequest = { registrationId: string; notes?: string }
 
@@ -133,9 +134,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // Create auth user
+    const tempPassword = generateTempPassword()
     const { data: created, error: createErr } = await admin.auth.admin.createUser({
       email: reg.email,
-      password: '123456',
+      password: tempPassword,
       email_confirm: true,
       user_metadata: { name: reg.name },
     })
@@ -247,7 +249,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .update({ status: 'approved', reviewed_by: requesterId, reviewed_at: new Date().toISOString(), review_notes: body.notes || null })
       .eq('id', body.registrationId)
 
-    return res.status(200).json({ success: true, userId: newUserId })
+    return res.status(200).json({ success: true, userId: newUserId, tempPassword })
   } catch (err: any) {
     return res.status(400).json({ error: err?.message || 'Unknown error' })
   }
