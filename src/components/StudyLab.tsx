@@ -270,6 +270,10 @@ const TOPIC_LABELS: Record<string, string> = {
   OUTROS: "Outros assuntos",
 };
 
+const isFixedSource = (s: StudySource) => s.id === FIXED_RULES_ID;
+const isPublicSource = (s: StudySource) => normalizeScope(s.scope) === "org" && s.published !== false;
+const isPrivateSource = (s: StudySource) => normalizeScope(s.scope) === "user" || s.published === false;
+
 export const StudyLab = () => {
   const { user, studioAccess, roles } = useAuth();
   const { t } = useI18n();
@@ -427,9 +431,7 @@ export const StudyLab = () => {
     };
   }, [resizeChatTextarea]);
 
-  const isFixedSource = (s: StudySource) => s.id === FIXED_RULES_ID;
-  const isPublicSource = (s: StudySource) => normalizeScope(s.scope) === "org" && s.published !== false;
-  const isPrivateSource = (s: StudySource) => normalizeScope(s.scope) === "user" || s.published === false;
+
 
   const displaySummary = (s: StudySource) => s.summary?.trim() || s.url || "Sem resumo";
 
@@ -618,6 +620,15 @@ export const StudyLab = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
+  // Auto-poll: se há materiais em "pending", verifica a cada 5s até todos serem processados
+  useEffect(() => {
+    const hasPending = sources.some((s) => s.ingest_status === "pending");
+    if (!hasPending || loadingSources || ingesting) return;
+    const timer = setTimeout(() => fetchSources(), 5000);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sources, loadingSources, ingesting]);
+
   const fetchChatSessions = useCallback(async () => {
     if (!user?.id) {
       setChatSessions([]);
@@ -772,7 +783,7 @@ export const StudyLab = () => {
     });
 
     return sorted;
-  }, [allSources, categoryFilter, isPrivateSource, isPublicSource, search, topicFilter, user, visibilityFilter]);
+  }, [allSources, categoryFilter, search, topicFilter, user, visibilityFilter]);
 
   const hasActiveCatalogFilters =
     Boolean(search.trim()) || visibilityFilter !== "all" || categoryFilter !== "ALL" || topicFilter !== "ALL";
@@ -2104,126 +2115,125 @@ export const StudyLab = () => {
       </Sheet>
 
       <Sheet open={catalogOpen} onOpenChange={setCatalogOpen}>
-        <SheetContent side="right" className="w-full sm:max-w-lg">
-          <SheetHeader>
+        <SheetContent side="right" className="w-full sm:max-w-2xl flex flex-col overflow-hidden p-0">
+          <SheetHeader className="shrink-0 px-6 pt-6 pb-3">
             <SheetTitle>Catálogo</SheetTitle>
-            <SheetDescription>Pesquise por árvore (categoria/tema) ou lista. Use “Usar” para selecionar um material e voltar ao chat.</SheetDescription>
+            <SheetDescription>Busque, filtre e selecione um material para usar no chat.</SheetDescription>
           </SheetHeader>
 
-          <div className="mt-4 space-y-3">
-            <div className="flex gap-2">
-              <Input
-                ref={catalogSearchRef}
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Buscar por título, resumo, tags, tema…"
-              />
-              <Button type="button" variant="outline" size="sm" onClick={clearCatalogFilters} disabled={!hasActiveCatalogFilters}>
-                Limpar
-              </Button>
-            </div>
-
-            <div className="grid grid-cols-3 gap-2">
-              <div className="space-y-1">
-                <Label className="text-xs">Visibilidade</Label>
-                <Select value={visibilityFilter} onValueChange={(v) => setVisibilityFilter(v as any)}>
-                  <SelectTrigger className="h-9">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Todos</SelectItem>
-                    <SelectItem value="public">Públicos</SelectItem>
-                    <SelectItem value="private">Privados (meus)</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs">Categoria</Label>
-                <Select value={categoryFilter} onValueChange={(v) => setCategoryFilter(v as any)}>
-                  <SelectTrigger className="h-9">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="ALL">Todas</SelectItem>
-                    {CATEGORY_ORDER.map((c) => (
-                      <SelectItem key={c} value={c}>
-                        {CATEGORY_LABELS[c]}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs">Tema</Label>
-                <Select value={topicFilter} onValueChange={(v) => setTopicFilter(v)}>
-                  <SelectTrigger className="h-9">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="ALL">Todos</SelectItem>
-                    {Object.keys(TOPIC_LABELS).map((k) => (
-                      <SelectItem key={k} value={k}>
-                        {TOPIC_LABELS[k]}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            {isStaff && (
-              <div className="flex flex-wrap items-center gap-2">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={handleRecatalog}
-                  disabled={catalogRefreshing || ingesting || loadingSources}
-                >
-                  Atualizar catálogo com IA
+          <Tabs value={catalogTab} onValueChange={(v) => setCatalogTab(v as any)} className="flex flex-col flex-1 min-h-0 overflow-hidden">
+            {/* Filtros — sempre visíveis, sem scroll */}
+            <div className="shrink-0 space-y-2 px-6 pb-2">
+              <div className="flex gap-2">
+                <Input
+                  ref={catalogSearchRef}
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Buscar por título, resumo, tags, tema…"
+                  className="flex-1"
+                />
+                <Button type="button" variant="outline" size="sm" onClick={clearCatalogFilters} disabled={!hasActiveCatalogFilters}>
+                  Limpar
                 </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={handleReingestFailed}
-                  disabled={catalogRefreshing || ingesting || loadingSources}
-                >
-                  Reprocessar falhas
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={handleCleanCache}
-                  disabled={cacheCleaning || catalogRefreshing || ingesting || loadingSources}
-                >
-                  {cacheCleaning ? "Limpando…" : "Limpar cache"}
-                </Button>
-                {catalogRefreshing && catalogRefreshProgress ? (
-                  <span className="text-[11px] text-muted-foreground">
-                    {catalogRefreshProgress.done}/{catalogRefreshProgress.total}
-                  </span>
-                ) : (
-                  <span className="text-[11px] text-muted-foreground">
-                    Recalcula títulos, resumos e temas a partir do conteúdo.
-                  </span>
-                )}
               </div>
-            )}
 
-            <Tabs value={catalogTab} onValueChange={(v) => setCatalogTab(v as any)}>
+              <div className="grid grid-cols-3 gap-2">
+                <div className="space-y-1">
+                  <Label className="text-xs">Visibilidade</Label>
+                  <Select value={visibilityFilter} onValueChange={(v) => setVisibilityFilter(v as any)}>
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todos</SelectItem>
+                      <SelectItem value="public">Públicos</SelectItem>
+                      <SelectItem value="private">Privados</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Categoria</Label>
+                  <Select value={categoryFilter} onValueChange={(v) => setCategoryFilter(v as any)}>
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="ALL">Todas</SelectItem>
+                      {CATEGORY_ORDER.map((c) => (
+                        <SelectItem key={c} value={c}>
+                          {CATEGORY_LABELS[c]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Tema</Label>
+                  <Select value={topicFilter} onValueChange={(v) => setTopicFilter(v)}>
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="ALL">Todos</SelectItem>
+                      {Object.keys(TOPIC_LABELS).map((k) => (
+                        <SelectItem key={k} value={k}>
+                          {TOPIC_LABELS[k]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              {isStaff && (
+                <div className="flex flex-wrap items-center gap-2 pt-1 border-t">
+                  <span className="text-[11px] text-muted-foreground font-medium">Admin:</span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={handleRecatalog}
+                    disabled={catalogRefreshing || ingesting || loadingSources}
+                    className="h-7 text-xs"
+                  >
+                    {catalogRefreshing && catalogRefreshProgress
+                      ? `Atualizando… ${catalogRefreshProgress.done}/${catalogRefreshProgress.total}`
+                      : "Atualizar catálogo com IA"}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={handleReingestFailed}
+                    disabled={catalogRefreshing || ingesting || loadingSources}
+                    className="h-7 text-xs"
+                  >
+                    Reprocessar falhas
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={handleCleanCache}
+                    disabled={cacheCleaning || catalogRefreshing || ingesting || loadingSources}
+                    className="h-7 text-xs"
+                  >
+                    {cacheCleaning ? "Limpando…" : "Limpar cache"}
+                  </Button>
+                </div>
+              )}
+
               <TabsList className="w-full">
-                <TabsTrigger value="tree" className="flex-1">
-                  Árvore
-                </TabsTrigger>
-                <TabsTrigger value="list" className="flex-1">
-                  Lista ({visibleSources.length})
-                </TabsTrigger>
+                <TabsTrigger value="tree" className="flex-1">Árvore</TabsTrigger>
+                <TabsTrigger value="list" className="flex-1">Lista ({visibleSources.length})</TabsTrigger>
               </TabsList>
+            </div>
 
-              <TabsContent value="tree">
-                <div className="space-y-3">
+            {/* Área de conteúdo: lista/árvore + preview lado a lado */}
+            <div className="flex flex-1 min-h-0 overflow-hidden gap-0">
+              {/* Coluna esquerda: lista ou árvore */}
+              <div className="flex flex-col flex-1 min-w-0 min-h-0 overflow-hidden">
+                <TabsContent value="tree" className="flex-1 overflow-y-auto mt-0 px-6 py-3 space-y-3 data-[state=inactive]:hidden">
                   {CATEGORY_ORDER.map((cat) => {
                     const topics = topicsByCategory[cat] || {};
                     const topicEntries = Object.entries(topics).sort((a, b) => b[1] - a[1]);
@@ -2268,233 +2278,190 @@ export const StudyLab = () => {
                       </div>
                     );
                   })}
-                </div>
-              </TabsContent>
+                </TabsContent>
 
-              <TabsContent value="list">
-                <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
-                  {loadingSources && <p className="text-sm text-muted-foreground">Carregando catálogo…</p>}
-                  {!loadingSources && visibleSources.length === 0 && (
-                    <p className="text-sm text-muted-foreground">Nenhum material encontrado com esses filtros.</p>
+                <TabsContent value="list" className="flex-1 overflow-y-auto mt-0 px-6 py-3 data-[state=inactive]:hidden">
+                  {loadingSources && (
+                    <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Carregando catálogo…
+                    </div>
                   )}
-                  {visibleSources.map((s) => {
-                    const active = s.id === catalogPreviewId;
-                    const isInChat = s.id === selectedSourceId && !oracleMode;
-                    const isPublic = isPublicSource(s) || isFixedSource(s);
-                    const visibilityLabel = isFixedSource(s) ? "FIXO" : isPublic ? "PÚBLICO" : "PRIVADO";
-                    const topicKey = getSourceTopicKey(s);
-                    const topicLabel = topicKey ? TOPIC_LABELS[topicKey] || topicKey : "";
-                    const meta = getSourceMeta(s);
-                    const subtitle = String(meta?.ai?.subtitle || meta?.subtitle || "").trim();
-                    const ingestFailed = s.ingest_status === "failed";
-                    const reingesting = reingestingSourceId === s.id;
-                    const canDelete = !isFixedSource(s) && (isStaff || (user && s.user_id === user.id));
-                    return (
-                      <div
-                        key={s.id}
-                        className={[
-                          "w-full rounded-md border p-3 text-left transition-colors",
-                          active ? "border-primary bg-primary/5" : "hover:bg-muted/40",
-                        ].join(" ")}
-                      >
-                        <div className="flex items-start justify-between gap-2">
+                  {!loadingSources && visibleSources.length === 0 && (
+                    <p className="text-sm text-muted-foreground py-4">Nenhum material encontrado com esses filtros.</p>
+                  )}
+                  <div className="space-y-2">
+                    {visibleSources.map((s) => {
+                      const active = s.id === catalogPreviewId;
+                      const isInChat = s.id === selectedSourceId && !oracleMode;
+                      const isPublic = isPublicSource(s) || isFixedSource(s);
+                      const visibilityLabel = isFixedSource(s) ? "FIXO" : isPublic ? "PÚBLICO" : "PRIVADO";
+                      const topicKey = getSourceTopicKey(s);
+                      const topicLabel = topicKey ? TOPIC_LABELS[topicKey] || topicKey : "";
+                      const meta = getSourceMeta(s);
+                      const subtitle = String(meta?.ai?.subtitle || meta?.subtitle || "").trim();
+                      const ingestFailed = s.ingest_status === "failed";
+                      const reingesting = reingestingSourceId === s.id;
+                      const canDelete = !isFixedSource(s) && (isStaff || (user && s.user_id === user.id));
+                      return (
+                        <div
+                          key={s.id}
+                          className={[
+                            "w-full rounded-md border p-3 text-left transition-colors",
+                            active ? "border-primary bg-primary/5" : "hover:bg-muted/40",
+                          ].join(" ")}
+                        >
                           <button
                             type="button"
-                            className="min-w-0 flex-1 text-left"
-                            onClick={() => setCatalogPreviewId(s.id)}
+                            className="w-full text-left"
+                            onClick={() => setCatalogPreviewId(active ? null : s.id)}
                             aria-label={`Pré-visualizar ${s.title?.trim() || "material"}`}
                           >
                             <p className="font-medium truncate">{s.title?.trim() || "Sem título"}</p>
                             {subtitle && <p className="text-xs text-muted-foreground line-clamp-1 mt-0.5">{subtitle}</p>}
                             <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">{displaySummary(s)}</p>
                             {ingestFailed && s.ingest_error && (
-                              <p className="text-[11px] text-red-500/90 line-clamp-2 mt-1">{String(s.ingest_error).slice(0, 200)}</p>
+                              <p className="text-[11px] text-red-500/90 line-clamp-1 mt-1">{String(s.ingest_error).slice(0, 120)}</p>
                             )}
-                            <div className="mt-2 flex flex-wrap items-center gap-2">
-                              <Badge variant="outline" className="text-[10px]">
-                                {visibilityLabel}
-                              </Badge>
+                            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                              <Badge variant="outline" className="text-[10px]">{visibilityLabel}</Badge>
                               {isInChat && <Badge className="text-[10px]">em uso</Badge>}
-                              <Badge variant="outline" className="text-[10px]">
-                                {CATEGORY_LABELS[getSourceCategoryKey(s)] || "Outros"}
-                              </Badge>
-                              {topicLabel && (
-                                <Badge variant="outline" className="text-[10px]">
-                                  {topicLabel}
-                                </Badge>
-                              )}
+                              <Badge variant="outline" className="text-[10px]">{CATEGORY_LABELS[getSourceCategoryKey(s)] || "Outros"}</Badge>
+                              {topicLabel && <Badge variant="outline" className="text-[10px]">{topicLabel}</Badge>}
                               {statusBadge(s)}
                             </div>
                           </button>
 
-                          <div className="flex flex-col gap-2 shrink-0">
+                          <div className="flex items-center gap-1 mt-2 flex-wrap">
                             {s.url && (
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => window.open(s.url!, "_blank", "noreferrer")}
-                              >
+                              <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-xs"
+                                onClick={() => window.open(s.url!, "_blank", "noreferrer")}>
                                 Abrir
                               </Button>
                             )}
                             <Button
                               type="button"
                               size="sm"
+                              className="h-7 px-2 text-xs"
                               onClick={() => selectSourceForChat(s)}
                               disabled={s.ingest_status === "pending" || (s.ingest_status === "failed" && s.id !== FIXED_RULES_ID)}
                             >
                               Usar
                             </Button>
-                            {canDelete && (
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="icon"
-                                className="h-8 w-8"
-                                title="Apagar material"
-                                onClick={() => handleDeleteSource(s.id)}
-                                disabled={catalogRefreshing || ingesting || Boolean(reingestingSourceId)}
-                              >
-                                <Trash2 className="h-4 w-4" />
+                            {!isFixedSource(s) && ingestFailed && (
+                              <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs"
+                                disabled={reingesting || Boolean(reingestingSourceId) || catalogRefreshing || ingesting}
+                                onClick={() => reingestSource(s.id)}>
+                                {reingesting ? "Reprocessando…" : "Reprocessar"}
                               </Button>
                             )}
-                            {!isFixedSource(s) && ingestFailed && (
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                disabled={reingesting || Boolean(reingestingSourceId) || catalogRefreshing || ingesting}
-                                onClick={() => reingestSource(s.id)}
-                              >
-                                {reingesting ? "Reprocessando…" : "Reprocessar"}
+                            {canDelete && (
+                              <Button type="button" variant="ghost" size="icon" className="h-7 w-7 ml-auto text-destructive hover:text-destructive hover:bg-destructive/10"
+                                title="Apagar material"
+                                onClick={() => handleDeleteSource(s.id)}
+                                disabled={catalogRefreshing || ingesting || Boolean(reingestingSourceId)}>
+                                <Trash2 className="h-3.5 w-3.5" />
                               </Button>
                             )}
                           </div>
                         </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </TabsContent>
-            </Tabs>
+                      );
+                    })}
+                  </div>
+                </TabsContent>
+              </div>
 
-            {catalogPreviewSource ? (
-              <div className="rounded-md border p-3 space-y-2">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="icon"
-                      className="h-8 w-8"
-                      disabled={!previewPrevId}
-                      title="Anterior"
-                      onClick={() => previewPrevId && setCatalogPreviewId(previewPrevId)}
-                    >
-                      <ChevronLeft className="h-4 w-4" />
+              {/* Coluna direita: preview (visível em sm+ quando há seleção) */}
+              {catalogPreviewSource ? (
+                <div className="hidden sm:flex flex-col w-72 xl:w-80 shrink-0 border-l overflow-y-auto px-4 py-3 gap-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1">
+                      <Button type="button" variant="outline" size="icon" className="h-7 w-7"
+                        disabled={!previewPrevId} title="Anterior"
+                        onClick={() => previewPrevId && setCatalogPreviewId(previewPrevId)}>
+                        <ChevronLeft className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button type="button" variant="outline" size="icon" className="h-7 w-7"
+                        disabled={!previewNextId} title="Próximo"
+                        onClick={() => previewNextId && setCatalogPreviewId(previewNextId)}>
+                        <ChevronRight className="h-3.5 w-3.5" />
+                      </Button>
+                      {previewIndex >= 0 && (
+                        <span className="text-[11px] text-muted-foreground ml-1">
+                          {previewIndex + 1}/{visibleSources.length}
+                        </span>
+                      )}
+                    </div>
+                    <Button type="button" variant="ghost" size="icon" className="h-7 w-7"
+                      onClick={() => setCatalogPreviewId(null)} title="Fechar prévia">
+                      <ChevronRight className="h-3.5 w-3.5" />
                     </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="icon"
-                      className="h-8 w-8"
-                      disabled={!previewNextId}
-                      title="Próximo"
-                      onClick={() => previewNextId && setCatalogPreviewId(previewNextId)}
-                    >
-                      <ChevronRight className="h-4 w-4" />
-                    </Button>
-                    <p className="text-sm font-medium">Prévia</p>
-                    {previewIndex >= 0 && (
-                      <span className="text-[11px] text-muted-foreground">
-                        {previewIndex + 1}/{visibleSources.length}
-                      </span>
+                  </div>
+
+                  <div>
+                    <p className="font-medium text-sm">{catalogPreviewSource.title?.trim() || "Sem título"}</p>
+                    {catalogPreviewSource.summary && (
+                      <p className="text-xs text-muted-foreground mt-1 whitespace-pre-line">{catalogPreviewSource.summary}</p>
                     )}
                   </div>
-                  <div className="flex items-center gap-2">
+
+                  {catalogPreviewSource.ingest_status === "failed" && catalogPreviewSource.id !== FIXED_RULES_ID && (
+                    <div className="flex items-center justify-between gap-2 rounded-md border border-red-500/20 p-2">
+                      <p className="text-xs text-red-500/90">Falhou na curadoria.</p>
+                      <Button type="button" size="sm" variant="outline" className="h-7 text-xs"
+                        disabled={Boolean(reingestingSourceId) || catalogRefreshing || ingesting}
+                        onClick={() => reingestSource(catalogPreviewSource.id)}>
+                        {reingestingSourceId === catalogPreviewSource.id ? "Reprocessando…" : "Reprocessar"}
+                      </Button>
+                    </div>
+                  )}
+
+                  <div className="flex flex-wrap gap-1">
                     {catalogPreviewSource.url && (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => window.open(catalogPreviewSource.url!, "_blank", "noreferrer")}
-                      >
+                      <Button type="button" variant="outline" size="sm" className="h-7 text-xs"
+                        onClick={() => window.open(catalogPreviewSource.url!, "_blank", "noreferrer")}>
                         Abrir
                       </Button>
                     )}
-                    <Button
-                      type="button"
-                      size="sm"
+                    <Button type="button" size="sm" className="h-7 text-xs"
                       onClick={() => selectSourceForChat(catalogPreviewSource)}
-                      disabled={
-                        catalogPreviewSource.ingest_status === "pending" ||
-                        (catalogPreviewSource.ingest_status === "failed" && catalogPreviewSource.id !== FIXED_RULES_ID)
-                      }
-                    >
+                      disabled={catalogPreviewSource.ingest_status === "pending" || (catalogPreviewSource.ingest_status === "failed" && catalogPreviewSource.id !== FIXED_RULES_ID)}>
                       Usar no chat
                     </Button>
                     {studioAccess && catalogPreviewSource.id !== FIXED_RULES_ID && (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => navigate(`/studio?module=quiz&seed_source=${catalogPreviewSource.id}`)}
-                      >
+                      <Button type="button" variant="outline" size="sm" className="h-7 text-xs"
+                        onClick={() => navigate(`/studio?module=quiz&seed_source=${catalogPreviewSource.id}`)}>
                         Criar quiz
                       </Button>
                     )}
                     {catalogPreviewSource.id !== FIXED_RULES_ID && (isStaff || (user && catalogPreviewSource.user_id === user.id)) && (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleDeleteSource(catalogPreviewSource.id)}
-                      >
+                      <Button type="button" variant="ghost" size="sm" className="h-7 text-xs text-destructive hover:text-destructive"
+                        onClick={() => handleDeleteSource(catalogPreviewSource.id)}>
                         Apagar
                       </Button>
                     )}
                   </div>
-                </div>
-                {catalogPreviewSource.ingest_status === "failed" && catalogPreviewSource.id !== FIXED_RULES_ID && (
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-xs text-red-500/90">Este material falhou na curadoria.</p>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      disabled={Boolean(reingestingSourceId) || catalogRefreshing || ingesting}
-                      onClick={() => reingestSource(catalogPreviewSource.id)}
-                    >
-                      {reingestingSourceId === catalogPreviewSource.id ? "Reprocessando…" : "Reprocessar"}
-                    </Button>
-                  </div>
-                )}
-                {catalogPreviewSource.summary && (
-                  <p className="text-xs text-muted-foreground whitespace-pre-line">{catalogPreviewSource.summary}</p>
-                )}
-                {(() => {
-                  const meta =
-                    catalogPreviewSource.metadata && typeof catalogPreviewSource.metadata === "object"
+
+                  {(() => {
+                    const meta = catalogPreviewSource.metadata && typeof catalogPreviewSource.metadata === "object"
                       ? catalogPreviewSource.metadata
                       : null;
-                  const outline = meta?.ai?.outline || meta?.outline || [];
-                  if (!Array.isArray(outline) || outline.length === 0) return null;
-                  return <div className="mt-2">{renderOutline(outline)}</div>;
-                })()}
-              </div>
-            ) : (
-              <div className="rounded-md border p-3">
-                <p className="text-sm text-muted-foreground">
-                  Selecione um material na lista para ver detalhes e usar no chat.
-                </p>
-              </div>
-            )}
-          </div>
+                    const outline = meta?.ai?.outline || meta?.outline || [];
+                    if (!Array.isArray(outline) || outline.length === 0) return null;
+                    return <div className="border-t pt-2">{renderOutline(outline)}</div>;
+                  })()}
+                </div>
+              ) : (
+                <div className="hidden sm:flex items-center justify-center w-64 shrink-0 border-l px-4">
+                  <p className="text-xs text-muted-foreground text-center">Clique em um material para ver detalhes.</p>
+                </div>
+              )}
+            </div>
+          </Tabs>
         </SheetContent>
       </Sheet>
 
-      <Sheet open={uploadOpen} onOpenChange={setUploadOpen}>
+            <Sheet open={uploadOpen} onOpenChange={setUploadOpen}>
         <SheetContent side="right" className="w-full sm:max-w-lg">
           <SheetHeader>
             <SheetTitle>Adicionar material</SheetTitle>
