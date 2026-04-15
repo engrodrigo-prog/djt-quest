@@ -13,25 +13,48 @@ const PUBLIC_KEY = (process.env.SUPABASE_ANON_KEY ||
 
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY as string | undefined;
 
-const allowedOrigin = process.env.VERCEL_URL
-  ? `https://${process.env.VERCEL_URL}`
-  : (process.env.ALLOWED_ORIGIN || '*');
+// Lista de origens permitidas (separadas por virgula em ALLOWED_ORIGINS).
+// Falha fechado: sem fallback para wildcard '*'.
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || process.env.ALLOWED_ORIGIN || '')
+  .split(',')
+  .map((o) => o.trim())
+  .filter(Boolean);
 
-const cors = {
-  'Access-Control-Allow-Origin': allowedOrigin,
-  'Access-Control-Allow-Methods': 'POST,OPTIONS',
-  'Access-Control-Allow-Headers': 'content-type',
-  'Cache-Control': 'no-store, max-age=0',
-};
+function getAllowedOriginHeader(reqOrigin: string | undefined): string | null {
+  if (!reqOrigin) return null;
+  if (ALLOWED_ORIGINS.includes(reqOrigin)) return reqOrigin;
+  // Aceitar preview deploys da Vercel do mesmo projeto
+  const vercelProject = process.env.VERCEL_PROJECT_ID;
+  if (vercelProject && reqOrigin.endsWith('.vercel.app')) return reqOrigin;
+  return null;
+}
 
 const normEmail = (s: any) => String(s ?? '').trim().toLowerCase().slice(0, 255);
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  if (req.method === 'OPTIONS') return res.status(204).setHeader('Cache-Control', 'no-store').send('');
+  const requestOrigin = req.headers['origin'] as string | undefined;
+  const allowedOrigin = getAllowedOriginHeader(requestOrigin);
+
+  if (req.method === 'OPTIONS') {
+    if (allowedOrigin) {
+      res.setHeader('Access-Control-Allow-Origin', allowedOrigin);
+      res.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'content-type');
+      res.setHeader('Vary', 'Origin');
+    }
+    return res.status(204).setHeader('Cache-Control', 'no-store').send('');
+  }
+
   if (req.method !== 'POST') return res.status(405).setHeader('Cache-Control', 'no-store').json({ error: 'Method not allowed' });
 
   try {
-    Object.entries(cors).forEach(([k, v]) => res.setHeader(k, v as any));
+    if (allowedOrigin) {
+      res.setHeader('Access-Control-Allow-Origin', allowedOrigin);
+      res.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'content-type');
+      res.setHeader('Vary', 'Origin');
+    }
+    res.setHeader('Cache-Control', 'no-store, max-age=0');
 
     if (!SUPABASE_URL || !PUBLIC_KEY) return res.status(500).json({ error: 'Missing Supabase config' });
 
