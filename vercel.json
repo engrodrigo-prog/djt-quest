@@ -1,6 +1,17 @@
 {
   "version": 2,
   "rewrites": [
+    { "source": "/api/sepbook-:action*",          "destination": "/api/sepbook?action=:action" },
+    { "source": "/api/campaign-:action*",         "destination": "/api/campaign?action=:action" },
+    { "source": "/api/finance-:action*",          "destination": "/api/finance?action=:action" },
+    { "source": "/api/coord-ranking",             "destination": "/api/misc?action=coord-ranking" },
+    { "source": "/api/quiz-practice-check",       "destination": "/api/misc?action=quiz-practice-check" },
+    { "source": "/api/challenge-action-submit",   "destination": "/api/misc?action=challenge-action-submit" },
+    { "source": "/api/guardiao-vida-dashboard",   "destination": "/api/misc?action=guardiao-vida-dashboard" },
+    { "source": "/api/profile-lookup",            "destination": "/api/misc?action=profile-lookup" },
+    { "source": "/api/registration-options",      "destination": "/api/misc?action=registration-options" },
+    { "source": "/api/reverse-geocode",           "destination": "/api/misc?action=reverse-geocode" },
+    { "source": "/api/forum-mentions-mark-seen",  "destination": "/api/misc?action=forum-mentions-mark-seen" },
     {
       "source": "/((?!api/|@vite/|@react-refresh|@id/|@fs/|.*\\..*).*)",
       "destination": "/"

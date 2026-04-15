@@ -26,3 +26,9 @@ supabase/.temp
 *.sw?
 .vercel
 .vercel.env.*
+
+# Claude Code local config
+.claude/settings.json
+.claude/settings.local.json
+.claude/skills/
+.claude/worktrees/

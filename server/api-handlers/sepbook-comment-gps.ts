@@ -1,8 +1,8 @@
 // @ts-nocheck
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { createClient } from "@supabase/supabase-js";
-import { assertDjtQuestServerEnv, DJT_QUEST_SUPABASE_HOST } from "../server/env-guard.js";
-import { getSupabaseUrlFromEnv } from "../server/lib/supabase-url.js";
+import { assertDjtQuestServerEnv, DJT_QUEST_SUPABASE_HOST } from "../env-guard.js";
+import { getSupabaseUrlFromEnv } from "../lib/supabase-url.js";
 
 const SUPABASE_URL =
   getSupabaseUrlFromEnv(process.env, { expectedHostname: DJT_QUEST_SUPABASE_HOST, allowLocal: true }) ||

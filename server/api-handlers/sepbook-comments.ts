@@ -1,10 +1,10 @@
 // @ts-nocheck
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { createClient } from "@supabase/supabase-js";
-import { assertDjtQuestServerEnv, DJT_QUEST_SUPABASE_HOST } from "../server/env-guard.js";
-import { getSupabaseUrlFromEnv } from "../server/lib/supabase-url.js";
-import { translateForumTexts } from "../server/lib/forum-translations.js";
-import { reverseGeocodeCityLabel } from "../server/lib/reverse-geocode.js";
+import { assertDjtQuestServerEnv, DJT_QUEST_SUPABASE_HOST } from "../env-guard.js";
+import { getSupabaseUrlFromEnv } from "../lib/supabase-url.js";
+import { translateForumTexts } from "../lib/forum-translations.js";
+import { reverseGeocodeCityLabel } from "../lib/reverse-geocode.js";
 
 const SUPABASE_URL =
   getSupabaseUrlFromEnv(process.env, { expectedHostname: DJT_QUEST_SUPABASE_HOST, allowLocal: true }) ||

@@ -1,8 +1,8 @@
 // @ts-nocheck
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { createClient } from "@supabase/supabase-js";
-import { assertDjtQuestServerEnv } from "../server/env-guard.js";
-import { normalizeLatLng, reverseGeocodeCityLabel } from "../server/lib/reverse-geocode.js";
+import { assertDjtQuestServerEnv } from "../env-guard.js";
+import { normalizeLatLng, reverseGeocodeCityLabel } from "../lib/reverse-geocode.js";
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "";
 const SUPABASE_KEY =

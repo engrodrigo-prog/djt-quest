@@ -2,9 +2,9 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { createClient } from "@supabase/supabase-js";
 import { extractSepbookMentions } from "./sepbook-mentions.js";
-import { translateForumTexts } from "../server/lib/forum-translations.js";
-import { assertDjtQuestServerEnv } from "../server/env-guard.js";
-import { normalizeLatLng, reverseGeocodeCityLabel } from "../server/lib/reverse-geocode.js";
+import { translateForumTexts } from "../lib/forum-translations.js";
+import { assertDjtQuestServerEnv } from "../env-guard.js";
+import { normalizeLatLng, reverseGeocodeCityLabel } from "../lib/reverse-geocode.js";
 
 const SUPABASE_URL = process.env.SUPABASE_URL as string;
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY as string | undefined;
