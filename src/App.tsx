@@ -39,7 +39,15 @@ const CampaignDetail = lazy(() => import("./pages/CampaignDetail"));
 const Study = lazy(() => import("./pages/Study"));
 const FinanceRequests = lazy(() => import("./pages/FinanceRequests"));
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 2 * 60 * 1000,   // 2 min — data stays fresh, avoids redundant refetches
+      gcTime:    5 * 60 * 1000,   // 5 min — keep inactive cache entries a bit longer
+      retry: 1,
+    },
+  },
+});
 // Compat: inclui roles legados (gerente/coordenador/lider_divisao) além dos atuais.
 const LEADER_ALLOWED_ROLES = [
   'coordenador_djtx',
