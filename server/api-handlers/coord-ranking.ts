@@ -1,7 +1,7 @@
 // @ts-nocheck
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import coordRankingSummary from '../server/api-handlers/coord-ranking-summary.js';
-import { assertDjtQuestServerEnv } from '../server/env-guard.js';
+import coordRankingSummary from './coord-ranking-summary.js';
+import { assertDjtQuestServerEnv } from '../env-guard.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
