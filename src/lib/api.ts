@@ -53,6 +53,11 @@ export async function apiFetch(input: string, init?: RequestInit) {
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.access_token) {
         headers.set('Authorization', `Bearer ${session.access_token}`);
+      } else {
+        // No user session (e.g. login screen): fall back to the public anon key so
+        // endpoints like profile-lookup can still serve unauthenticated requests.
+        const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY;
+        if (anonKey) headers.set('Authorization', `Bearer ${anonKey}`);
       }
     } catch {
       // Ignore errors fetching session; request proceeds unauthenticated

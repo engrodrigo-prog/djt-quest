@@ -39,11 +39,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!SUPABASE_URL || !SERVICE_KEY) return res.status(500).json({ error: "Missing Supabase config" });
 
     const authHeader = req.headers["authorization"] as string | undefined;
-    if (!authHeader?.startsWith("Bearer ")) return res.status(401).json({ error: "Unauthorized" });
-    const token = authHeader.slice(7);
-    const authClient = createClient(SUPABASE_URL, ANON_KEY || SERVICE_KEY, { auth: { autoRefreshToken: false, persistSession: false } });
-    const { data: authData, error: authErr } = await authClient.auth.getUser(token);
-    if (authErr || !authData?.user) return res.status(401).json({ error: "Unauthorized" });
+    if (authHeader) {
+      if (!authHeader.startsWith("Bearer ")) return res.status(401).json({ error: "Unauthorized" });
+      const token = authHeader.slice(7);
+      // Accept the public anon key (used by the login screen before a user session exists)
+      // or validate as a real user JWT.
+      if (token !== ANON_KEY) {
+        const authClient = createClient(SUPABASE_URL, ANON_KEY || SERVICE_KEY, { auth: { autoRefreshToken: false, persistSession: false } });
+        const { data: authData, error: authErr } = await authClient.auth.getUser(token);
+        if (authErr || !authData?.user) return res.status(401).json({ error: "Unauthorized" });
+      }
+    }
+    // No auth header: allow — profile-lookup is called unauthenticated from the login screen.
 
     const body = parseBody(req);
     const mode = String(body?.mode || "").trim();
