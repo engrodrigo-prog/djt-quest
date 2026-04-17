@@ -1,6 +1,7 @@
 // @ts-nocheck
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
+import logger from '../lib/logger.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL as string;
 const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY) as string;
@@ -97,7 +98,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           created_by: uid,
         });
         if (insertErr) {
-          console.error('Erro ao inserir bonus_ranking_history:', insertErr);
+          logger.error('Erro ao inserir bonus_ranking_history', { message: insertErr?.message });
         } else {
           inserted = true;
           if (bonus_xp > 0) {
@@ -113,11 +114,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                     _xp_to_add: bonus_xp,
                   });
                 } catch (xpErr) {
-                  console.error('Erro ao aplicar XP de ranking para usuário', m.id, xpErr);
+                  logger.error('Erro ao aplicar XP de ranking', { userId: m.id, message: xpErr?.message });
                 }
               }
             } catch (memErr) {
-              console.error('Erro ao buscar membros da coordenação para XP de ranking:', memErr);
+              logger.error('Erro ao buscar membros para XP de ranking', { message: memErr?.message });
             }
           }
         }
@@ -128,7 +129,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           .update({ position: posRaw, bonus_xp })
           .eq('id', existing.id);
         if (updErr) {
-          console.error('Erro ao atualizar bonus_ranking_history:', updErr);
+          logger.error('Erro ao atualizar bonus_ranking_history', { message: updErr?.message });
         }
       }
 
@@ -147,7 +148,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       entries,
     });
   } catch (e: any) {
-    console.error('Error in coord-ranking-bonus:', e);
+    logger.error('coord-ranking-bonus error', { message: e?.message });
     return res.status(500).json({ error: e?.message || 'Unknown error' });
   }
 }

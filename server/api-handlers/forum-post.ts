@@ -3,6 +3,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { createClient } from '@supabase/supabase-js'
 import { translateForumTexts, localesForAllTargets } from '../lib/forum-translations.js'
 import { loadLocalEnvIfNeeded } from '../lib/load-local-env.js'
+import logger from '../lib/logger.js'
 import { getSupabaseUrlFromEnv } from '../lib/supabase-url.js'
 import { DJT_QUEST_SUPABASE_HOST } from '../env-guard.js'
 
@@ -240,7 +241,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     try {
       await authed.rpc('increment_user_xp', { _user_id: uid, _xp_to_add: 10 })
     } catch (xpErr) {
-      console.error('Erro ao aplicar XP por participação em fórum:', xpErr)
+      logger.error('Erro ao aplicar XP por participação em fórum', { message: xpErr?.message })
     }
 
     // Register mentions best-effort

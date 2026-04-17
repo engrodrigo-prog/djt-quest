@@ -1,5 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import OpenAI from "openai";
+import logger from '../lib/logger.js';
 
 type Body = {
   targetLocale?: string;
@@ -86,7 +87,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const out = texts.map((t, i) => translations[i] || t);
     return res.status(200).json({ translations: out });
   } catch (e: any) {
-    console.error("ai-translate-text error", e);
+    logger.error('ai-translate-text error', { message: (e as any)?.message });
     return res.status(200).json({
       translations: texts,
       meta: { warning: e?.message || "Falha ao traduzir texto" },

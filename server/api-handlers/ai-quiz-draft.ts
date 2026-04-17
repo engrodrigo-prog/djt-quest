@@ -1,6 +1,7 @@
 // @ts-nocheck
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { createClient } from '@supabase/supabase-js'
+import { chatCompletion } from '../lib/ai-provider.js'
 
 const SUPABASE_URL = process.env.SUPABASE_URL as string
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY as string
@@ -14,8 +15,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
       return res.status(500).json({ error: 'Missing Supabase server configuration' })
     }
-    if (!OPENAI_API_KEY) {
-      return res.status(500).json({ error: 'Missing OPENAI_API_KEY' })
+    if (!OPENAI_API_KEY && !process.env.ANTHROPIC_API_KEY) {
+      return res.status(500).json({ error: 'Missing AI provider key (OPENAI_API_KEY or ANTHROPIC_API_KEY)' })
     }
 
     const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
@@ -58,35 +59,17 @@ Responda apenas em JSON válido, sem comentários.`
       content: `Tema: ${topic}\nDificuldade: ${difficulty}\nRetorne no formato:\n{ "question": "...", "correct": {"text":"...","explanation":"..."}, "wrong": [{"text":"...","explanation":"..."},{"text":"...","explanation":"..."},{"text":"...","explanation":"..."}] }`,
     }
 
-    const models = Array.from(new Set([
-      process.env.OPENAI_MODEL_PREMIUM,
-      'gpt-5-2025-08-07',
-      'gpt-5-2025-08-07',
-      process.env.OPENAI_MODEL_OVERRIDE,
-      process.env.OPENAI_MODEL_FAST,
-      'gpt-5-2025-08-07',
-    ].filter(Boolean)))
     let content = ''
-    let lastErr = ''
-    for (const model of models) {
-      const body: any = {
-        model,
+    try {
+      const result = await chatCompletion({
         messages: [{ role: 'system', content: system }, user],
-      }
-      if (/^gpt-5/i.test(String(model))) body.max_completion_tokens = 650
-      else body.max_tokens = 650
-
-      const resp = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${OPENAI_API_KEY}` },
-        body: JSON.stringify(body),
+        maxTokens: 650,
       })
-      if (!resp.ok) { lastErr = await resp.text().catch(()=>`HTTP ${resp.status}`); continue }
-      const data = await resp.json().catch(()=>null)
-      content = data?.choices?.[0]?.message?.content || ''
-      if (content) break
+      content = result.content
+    } catch (aiErr: any) {
+      return res.status(400).json({ error: `AI provider error: ${aiErr?.message || 'no output'}` })
     }
-    if (!content) return res.status(400).json({ error: `OpenAI error: ${lastErr || 'no output'}` })
+    if (!content) return res.status(400).json({ error: 'AI returned empty response' })
     let json: any
     try {
       json = JSON.parse(content)

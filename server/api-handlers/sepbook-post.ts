@@ -3,6 +3,7 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { createClient } from "@supabase/supabase-js";
 import { extractSepbookMentions } from "./sepbook-mentions.js";
 import { translateForumTexts } from "../lib/forum-translations.js";
+import logger from "../lib/logger.js";
 import { assertDjtQuestServerEnv } from "../env-guard.js";
 import { normalizeLatLng, reverseGeocodeCityLabel } from "../lib/reverse-geocode.js";
 
@@ -516,7 +517,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     } catch (e: any) {
       const msg = e?.message || "Falha ao criar evidência";
       eventError = msg;
-      console.warn("SEPBook evidence->event error", msg);
+      logger.warn("SEPBook evidence->event error", { message: msg });
     }
 
     // Atualizar menções com base no conteúdo do post (rápido; comentários têm tabela própria).

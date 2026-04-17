@@ -2,6 +2,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
 import { jsonrepair } from 'jsonrepair';
+import logger from '../lib/logger.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL as string;
 const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY) as string;
@@ -256,7 +257,7 @@ Retorne JSON estrito:
       },
     });
   } catch (err: any) {
-    console.error('Error in ai-quiz-burini:', err);
+    logger.error('ai-quiz-burini error', { message: err?.message });
     return res.status(500).json({ error: err?.message || 'Unknown error' });
   }
 }

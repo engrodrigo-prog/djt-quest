@@ -1,6 +1,7 @@
 // @ts-nocheck
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
+import logger from '../lib/logger.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL as string;
 const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY) as string;
@@ -80,7 +81,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       graph,
     });
   } catch (e: any) {
-    console.error('Error in coord-ranking-summary:', e);
+    logger.error('coord-ranking-summary error', { message: e?.message });
     return res.status(500).json({ error: e?.message || 'Unknown error' });
   }
 }

@@ -4,6 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 import { createRequire } from "module";
 import { extractPdfText, extractDocxText, extractJsonText, extractPlainText } from "../lib/import-parsers.js";
 import { readWorkbookRows } from "../lib/excel-workbook.js";
+import logger from "../lib/logger.js";
 import { extractImageTextWithAi, parseJsonFromAiContent } from "../lib/ai-curation-provider.js";
 import { DJT_RULES_ARTICLE } from "../../shared/djt-rules.js";
 import { normalizeChatModel, pickChatModel } from "../lib/openai-models.js";
@@ -1426,7 +1427,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           const txt = lastErrTxt || "OpenAI request failed";
           const errKind = lastErrKind || "openai";
           if (errKind === "openai") {
-            console.warn("Study ingest OpenAI error", txt);
+            logger.warn("Study ingest OpenAI error", { message: txt });
             try {
               await updateStudySourceWithFallback(admin, source_id, {
                 full_text: trimmed,
@@ -1438,7 +1439,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             return res.status(200).json({ success: false, error: `OpenAI error: ${txt}` });
           }
 
-          console.warn("Study ingest invalid JSON response", { model: lastModel, err: txt });
+          logger.warn("Study ingest invalid JSON response", { model: lastModel, message: txt });
           try {
             await updateStudySourceWithFallback(admin, source_id, {
               full_text: trimmed,
@@ -1570,7 +1571,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           });
         }
       } catch (e: any) {
-        console.warn("Study ingest error", e?.message || e);
+        logger.warn("Study ingest error", { message: e?.message || String(e) });
         try {
           await updateStudySourceWithFallback(admin, source_id, {
             ingest_status: "failed",
@@ -2645,7 +2646,7 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
         }
       } catch (err: any) {
         // best-effort; nunca bloqueia a resposta do chat
-        console.warn("StudyLab: falha ao salvar histórico", err?.message || err);
+        logger.warn("StudyLab: falha ao salvar histórico", { message: err?.message || String(err) });
       }
     }
 

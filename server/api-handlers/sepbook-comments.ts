@@ -3,6 +3,7 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { createClient } from "@supabase/supabase-js";
 import { assertDjtQuestServerEnv, DJT_QUEST_SUPABASE_HOST } from "../env-guard.js";
 import { getSupabaseUrlFromEnv } from "../lib/supabase-url.js";
+import logger from "../lib/logger.js";
 import { translateForumTexts } from "../lib/forum-translations.js";
 import { reverseGeocodeCityLabel } from "../lib/reverse-geocode.js";
 
@@ -197,7 +198,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         auth: { autoRefreshToken: false, persistSession: false },
       });
     } catch (e: any) {
-      console.error("sepbook-comments: createClient failed", { message: e?.message || e, env: ENV_INFO });
+      logger.error("sepbook-comments: createClient failed", { message: e?.message || String(e) });
       return res.status(500).json({ error: "Supabase client init failed" });
     }
     const authHeader = req.headers["authorization"] as string | undefined;
@@ -787,10 +788,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     return res.status(405).json({ error: "Method not allowed" });
   } catch (e: any) {
-    console.error("sepbook-comments: unhandled error", {
-      message: e?.message || e,
-      stack: e?.stack,
-      env: ENV_INFO,
+    logger.error("sepbook-comments: unhandled error", {
+      message: e?.message || String(e),
       method: req.method,
       hasAuthHeader: Boolean(req.headers?.authorization),
     });

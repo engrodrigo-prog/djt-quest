@@ -1,5 +1,6 @@
 import { jsonrepair } from 'jsonrepair';
 import { normalizeChatModel } from './openai-models.js';
+import { chatCompletion } from './ai-provider.js';
 
 const tryParseJson = (raw) => {
   try {
@@ -136,29 +137,23 @@ const pickVisionModel = (paramsModel) =>
   );
 
 async function callOpenAiChatJson({ openaiKey, model, system, user, maxTokens = 1800, temperature = 0.2 }) {
-  const isGpt5 = String(model).startsWith('gpt-5');
-  const doCall = async ({ sys, usr, max }) => {
-    const resp = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${openaiKey}` },
-      body: JSON.stringify({
-        model,
-        ...(isGpt5 ? {} : { temperature }),
-        messages: [
-          { role: 'system', content: sys },
-          { role: 'user', content: usr },
-        ],
-        ...(isGpt5 ? { max_completion_tokens: max } : { max_tokens: max }),
-      }),
+  // Use unified provider (OpenAI-first, Claude fallback)
+  let content = '';
+  try {
+    const result = await chatCompletion({
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: user },
+      ],
+      maxTokens,
+      temperature,
+      openaiModel: model,
     });
-    const json = await resp.json().catch(() => null);
-    return { resp, json };
-  };
+    content = result.content;
+  } catch (e) {
+    return { ok: false, error: e?.message || 'AI provider error' };
+  }
 
-  const { resp, json } = await doCall({ sys: system, usr: user, max: maxTokens });
-
-  if (!resp.ok) return { ok: false, error: json?.error?.message || `OpenAI error (${resp.status})` };
-  const content = json?.choices?.[0]?.message?.content || '';
   let { parsed } = parseJsonFromAiContent(content);
 
   // Fallback: ask the model to repair its own output into valid JSON.
@@ -166,10 +161,18 @@ async function callOpenAiChatJson({ openaiKey, model, system, user, maxTokens = 
     const repairSystem = `Você corrige respostas malformadas e devolve APENAS um JSON válido seguindo o mesmo esquema esperado.
 Não inclua comentários, texto extra, Markdown, nem blocos de código.`;
     const repairUser = String(content || '').slice(0, 6000);
-    const repair = await doCall({ sys: repairSystem, usr: repairUser, max: Math.min(1200, maxTokens) });
-    if (repair.resp.ok) {
-      const repairContent = repair.json?.choices?.[0]?.message?.content || '';
-      parsed = parseJsonFromAiContent(repairContent).parsed;
+    try {
+      const repairResult = await chatCompletion({
+        messages: [
+          { role: 'system', content: repairSystem },
+          { role: 'user', content: repairUser },
+        ],
+        maxTokens: Math.min(1200, maxTokens),
+        openaiModel: model,
+      });
+      parsed = parseJsonFromAiContent(repairResult.content).parsed;
+    } catch {
+      // ignore repair failure
     }
   }
 
