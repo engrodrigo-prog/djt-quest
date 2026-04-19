@@ -461,6 +461,14 @@ export const StudyLab = () => {
 
   const displaySummary = (s: StudySource) => s.summary?.trim() || s.url || "Sem resumo";
 
+  const getSourceTags = (s: StudySource): string[] => {
+    const meta = getSourceMeta(s);
+    const raw = meta?.ai?.tags || meta?.tags || [];
+    if (Array.isArray(raw)) return raw.map(String).filter(Boolean);
+    if (typeof raw === "string") return raw.split(",").map((t: string) => t.trim()).filter(Boolean);
+    return [];
+  };
+
   const renderOutline = (nodes: any[], depth = 0): JSX.Element | null => {
     if (!Array.isArray(nodes) || nodes.length === 0) return null;
     return (
@@ -2381,67 +2389,134 @@ export const StudyLab = () => {
                       const ingestFailed = s.ingest_status === "failed";
                       const reingesting = reingestingSourceId === s.id;
                       const canDelete = !isFixedSource(s) && (isStaff || (user && s.user_id === user.id));
+                      const tags = getSourceTags(s);
+                      const outline = (() => {
+                        const m = getSourceMeta(s);
+                        const o = m?.ai?.outline || m?.outline || [];
+                        return Array.isArray(o) ? o : [];
+                      })();
                       return (
                         <div
                           key={s.id}
                           className={[
-                            "w-full rounded-md border p-3 text-left transition-colors",
+                            "w-full rounded-md border text-left transition-colors",
                             active ? "border-primary bg-primary/5" : "hover:bg-muted/40",
                           ].join(" ")}
                         >
+                          {/* Header sempre visível */}
                           <button
                             type="button"
-                            className="w-full text-left"
+                            className="w-full text-left px-3 pt-3 pb-2"
                             onClick={() => setCatalogPreviewId(active ? null : s.id)}
-                            aria-label={`Pré-visualizar ${s.title?.trim() || "material"}`}
+                            aria-label={`${active ? "Fechar" : "Expandir"} ${s.title?.trim() || "material"}`}
                           >
-                            <p className="font-medium truncate">{s.title?.trim() || "Sem título"}</p>
-                            {subtitle && <p className="text-xs text-muted-foreground line-clamp-1 mt-0.5">{subtitle}</p>}
-                            <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">{displaySummary(s)}</p>
-                            {ingestFailed && s.ingest_error && (
-                              <p className="text-[11px] text-red-500/90 line-clamp-1 mt-1">{String(s.ingest_error).slice(0, 120)}</p>
+                            <div className="flex items-start justify-between gap-2">
+                              <p className="font-medium text-sm leading-snug flex-1 min-w-0 truncate">{s.title?.trim() || "Sem título"}</p>
+                              {isInChat && <Badge className="text-[10px] shrink-0">em uso</Badge>}
+                            </div>
+                            {subtitle && <p className="text-[11px] text-muted-foreground line-clamp-1 mt-0.5">{subtitle}</p>}
+                            {!active && (
+                              <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">{displaySummary(s)}</p>
                             )}
-                            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                            <div className="mt-1.5 flex flex-wrap items-center gap-1">
                               <Badge variant="outline" className="text-[10px]">{visibilityLabel}</Badge>
-                              {isInChat && <Badge className="text-[10px]">em uso</Badge>}
                               <Badge variant="outline" className="text-[10px]">{CATEGORY_LABELS[getSourceCategoryKey(s)] || "Outros"}</Badge>
                               {topicLabel && <Badge variant="outline" className="text-[10px]">{topicLabel}</Badge>}
                               {statusBadge(s)}
                             </div>
+                            {tags.length > 0 && (
+                              <div className="mt-1 flex flex-wrap gap-1">
+                                {tags.slice(0, active ? undefined : 4).map((tag) => (
+                                  <span key={tag} className="inline-flex items-center rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                                    #{tag}
+                                  </span>
+                                ))}
+                                {!active && tags.length > 4 && (
+                                  <span className="text-[10px] text-muted-foreground">+{tags.length - 4}</span>
+                                )}
+                              </div>
+                            )}
                           </button>
 
-                          <div className="flex items-center gap-1 mt-2 flex-wrap">
-                            {s.url && (
-                              <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-xs"
-                                onClick={() => window.open(s.url!, "_blank", "noreferrer")}>
-                                Abrir
+                          {/* Expansão inline ao clicar */}
+                          {active && (
+                            <div className="px-3 pb-3 space-y-2 border-t mt-0 pt-2">
+                              {ingestFailed && s.ingest_error && (
+                                <p className="text-[11px] text-red-500/90">{String(s.ingest_error).slice(0, 200)}</p>
+                              )}
+                              {s.summary && (
+                                <p className="text-xs text-muted-foreground whitespace-pre-line">{s.summary.trim()}</p>
+                              )}
+                              {outline.length > 0 && (
+                                <div className="border rounded-md p-2 bg-muted/30">
+                                  <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-1">Índice</p>
+                                  {renderOutline(outline)}
+                                </div>
+                              )}
+                              <div className="flex items-center gap-1 flex-wrap pt-1">
+                                {s.url && (
+                                  <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs"
+                                    onClick={() => window.open(s.url!, "_blank", "noreferrer")}>
+                                    Abrir
+                                  </Button>
+                                )}
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  className="h-7 px-2 text-xs"
+                                  onClick={() => selectSourceForChat(s)}
+                                  disabled={s.ingest_status === "pending" || (s.ingest_status === "failed" && s.id !== FIXED_RULES_ID)}
+                                >
+                                  Usar no chat
+                                </Button>
+                                {studioAccess && s.id !== FIXED_RULES_ID && (
+                                  <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs"
+                                    onClick={() => navigate(`/studio?module=quiz&seed_source=${s.id}`)}>
+                                    Criar quiz
+                                  </Button>
+                                )}
+                                {!isFixedSource(s) && ingestFailed && (
+                                  <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs"
+                                    disabled={reingesting || Boolean(reingestingSourceId) || catalogRefreshing || ingesting}
+                                    onClick={() => reingestSource(s.id)}>
+                                    {reingesting ? "Reprocessando…" : "Reprocessar"}
+                                  </Button>
+                                )}
+                                {canDelete && (
+                                  <Button type="button" variant="ghost" size="icon" className="h-7 w-7 ml-auto text-destructive hover:text-destructive hover:bg-destructive/10"
+                                    title="Apagar material"
+                                    onClick={() => handleDeleteSource(s.id)}
+                                    disabled={catalogRefreshing || ingesting || Boolean(reingestingSourceId)}>
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </Button>
+                                )}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Ação rápida quando colapsado */}
+                          {!active && (
+                            <div className="px-3 pb-2 flex items-center gap-1">
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="ghost"
+                                className="h-6 px-2 text-xs"
+                                onClick={() => selectSourceForChat(s)}
+                                disabled={s.ingest_status === "pending" || (s.ingest_status === "failed" && s.id !== FIXED_RULES_ID)}
+                              >
+                                Usar
                               </Button>
-                            )}
-                            <Button
-                              type="button"
-                              size="sm"
-                              className="h-7 px-2 text-xs"
-                              onClick={() => selectSourceForChat(s)}
-                              disabled={s.ingest_status === "pending" || (s.ingest_status === "failed" && s.id !== FIXED_RULES_ID)}
-                            >
-                              Usar
-                            </Button>
-                            {!isFixedSource(s) && ingestFailed && (
-                              <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs"
-                                disabled={reingesting || Boolean(reingestingSourceId) || catalogRefreshing || ingesting}
-                                onClick={() => reingestSource(s.id)}>
-                                {reingesting ? "Reprocessando…" : "Reprocessar"}
-                              </Button>
-                            )}
-                            {canDelete && (
-                              <Button type="button" variant="ghost" size="icon" className="h-7 w-7 ml-auto text-destructive hover:text-destructive hover:bg-destructive/10"
-                                title="Apagar material"
-                                onClick={() => handleDeleteSource(s.id)}
-                                disabled={catalogRefreshing || ingesting || Boolean(reingestingSourceId)}>
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </Button>
-                            )}
-                          </div>
+                              {canDelete && (
+                                <Button type="button" variant="ghost" size="icon" className="h-6 w-6 ml-auto text-muted-foreground hover:text-destructive"
+                                  title="Apagar material"
+                                  onClick={() => handleDeleteSource(s.id)}
+                                  disabled={catalogRefreshing || ingesting || Boolean(reingestingSourceId)}>
+                                  <Trash2 className="h-3 w-3" />
+                                </Button>
+                              )}
+                            </div>
+                          )}
                         </div>
                       );
                     })}
