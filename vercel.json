@@ -1,9 +1,9 @@
 {
   "version": 2,
   "rewrites": [
-    { "source": "/api/sepbook-:action*",          "destination": "/api/sepbook?action=:action" },
-    { "source": "/api/campaign-:action*",         "destination": "/api/campaign?action=:action" },
-    { "source": "/api/finance-:action*",          "destination": "/api/finance?action=:action" },
+    { "source": "/api/sepbook-:action",            "destination": "/api/sepbook?action=:action" },
+    { "source": "/api/campaign-:action",          "destination": "/api/campaign?action=:action" },
+    { "source": "/api/finance-:action",           "destination": "/api/finance?action=:action" },
     { "source": "/api/coord-ranking",             "destination": "/api/misc?action=coord-ranking" },
     { "source": "/api/quiz-practice-check",       "destination": "/api/misc?action=quiz-practice-check" },
     { "source": "/api/challenge-action-submit",   "destination": "/api/misc?action=challenge-action-submit" },
