@@ -1,3 +1,5 @@
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
@@ -19,6 +21,16 @@ import { VoiceRecorderButton } from "@/components/VoiceRecorderButton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -336,6 +348,20 @@ export const StudyLab = () => {
   const chatAbortRef = useRef<AbortController | null>(null);
   const didAutoLoadSessionRef = useRef(false);
   const [chatInputFocused, setChatInputFocused] = useState(false);
+
+  const [confirmDialog, setConfirmDialog] = useState<{
+    open: boolean;
+    title: string;
+    description: string;
+    onConfirm: () => void;
+  }>({ open: false, title: "", description: "", onConfirm: () => {} });
+
+  const openConfirm = useCallback(
+    (title: string, description: string, onConfirm: () => void) => {
+      setConfirmDialog({ open: true, title, description, onConfirm });
+    },
+    [],
+  );
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1118,42 +1144,45 @@ export const StudyLab = () => {
   );
 
   const handleDeleteChatSession = useCallback(
-    async (sessionId: string) => {
+    (sessionId: string) => {
       const sid = String(sessionId || "").trim();
       if (!sid || !user?.id) return;
       const row = chatSessions.find((s) => s.id === sid);
       const label = String(row?.title || row?.summary || "esta conversa").trim();
-      const ok = window.confirm(`Apagar "${label}" do histórico?\n\nEssa ação não pode ser desfeita.`);
-      if (!ok) return;
-
-      try {
-        const { error } = await (supabase as any)
-          .from("study_chat_sessions")
-          .delete()
-          .eq("id", sid)
-          .eq("user_id", user.id);
-        if (error) throw error;
-        setChatSessions((prev) => prev.filter((s) => s.id !== sid));
-        if (chatSessionId === sid) {
+      openConfirm(
+        `Apagar conversa`,
+        `Apagar "${label}" do histórico? Essa ação não pode ser desfeita.`,
+        async () => {
           try {
-            chatAbortRef.current?.abort();
-          } catch {
-            // ignore
+            const { error } = await (supabase as any)
+              .from("study_chat_sessions")
+              .delete()
+              .eq("id", sid)
+              .eq("user_id", user!.id);
+            if (error) throw error;
+            setChatSessions((prev) => prev.filter((s) => s.id !== sid));
+            if (chatSessionId === sid) {
+              try {
+                chatAbortRef.current?.abort();
+              } catch {
+                // ignore
+              }
+              chatAbortRef.current = null;
+              setChatLoading(false);
+              setChatError(null);
+              setChatMessages([]);
+              setChatInput("");
+              setChatSessionId(createChatSessionId());
+              resetChatAttachments();
+              didAutoLoadSessionRef.current = true;
+            }
+          } catch (e: any) {
+            toast.error(e?.message || "Falha ao apagar conversa.");
           }
-          chatAbortRef.current = null;
-          setChatLoading(false);
-          setChatError(null);
-          setChatMessages([]);
-          setChatInput("");
-          setChatSessionId(createChatSessionId());
-          resetChatAttachments();
-          didAutoLoadSessionRef.current = true;
-        }
-      } catch (e: any) {
-        toast.error(e?.message || "Falha ao apagar conversa.");
-      }
+        },
+      );
     },
-    [chatSessionId, chatSessions, resetChatAttachments, user?.id],
+    [chatSessions, chatSessionId, user?.id, openConfirm, resetChatAttachments],
   );
 
   useEffect(() => {
@@ -1191,29 +1220,29 @@ export const StudyLab = () => {
       return;
     }
 
-    const ok = window.confirm(
-      `Apagar TODO o seu histórico?\n\nIsso remove ${count} conversa(s) do seu histórico.\nEssa ação não pode ser desfeita.`,
+    openConfirm(
+      `Apagar todo o histórico`,
+      `Isso remove ${count} conversa(s) do seu histórico. Essa ação não pode ser desfeita.`,
+      async () => {
+        setChatHistoryClearing(true);
+        try {
+          const { error } = await (supabase as any)
+            .from("study_chat_sessions")
+            .delete()
+            .eq("user_id", user!.id);
+          if (error) throw error;
+          setChatSessions([]);
+          setChatHistorySearch("");
+          handleNewChat();
+          toast.success("Histórico apagado.");
+        } catch (e: any) {
+          toast.error(e?.message || "Falha ao apagar histórico.");
+        } finally {
+          setChatHistoryClearing(false);
+        }
+      },
     );
-    if (!ok) return;
-
-    setChatHistoryClearing(true);
-    try {
-      const { error } = await (supabase as any)
-        .from("study_chat_sessions")
-        .delete()
-        .eq("user_id", user.id);
-      if (error) throw error;
-
-      setChatSessions([]);
-      setChatHistorySearch("");
-      handleNewChat();
-      toast.success("Histórico apagado.");
-    } catch (e: any) {
-      toast.error(e?.message || "Falha ao apagar histórico.");
-    } finally {
-      setChatHistoryClearing(false);
-    }
-  }, [chatHistoryClearing, chatSessions.length, chatSessionsLoading, handleNewChat, user?.id]);
+  }, [chatHistoryClearing, chatSessions.length, chatSessionsLoading, handleNewChat, openConfirm, user?.id]);
 
   const mergeAssistantContinuation = (previous: string, extra: string) => {
     const a = String(previous || "").replace(/\s+$/g, "");
@@ -1511,25 +1540,27 @@ export const StudyLab = () => {
       return;
     }
     if (cacheCleaning) return;
-    const ok = window.confirm(
-      "Limpar cache do StudyLab?\n\nIsso remove materiais temporários (não definitivos) e conversas antigas do catálogo (se existirem). Materiais definitivos permanecem.",
+    openConfirm(
+      "Limpar cache do StudyLab",
+      "Isso remove materiais temporários (não definitivos) e conversas antigas do catálogo. Materiais definitivos permanecem.",
+      async () => {
+        setCacheCleaning(true);
+        try {
+          const resp = await apiFetch("/api/study?handler=clean-cache", { method: "POST" });
+          const json = await resp.json().catch(() => ({}));
+          if (!resp.ok || json?.success === false) {
+            toast.error(json?.error || "Não foi possível limpar o cache.");
+            return;
+          }
+          await fetchSources();
+          toast.success(`Cache limpo: ${json.deleted || 0} itens removidos.`);
+        } catch (e: any) {
+          toast.error(e?.message || "Não foi possível limpar o cache.");
+        } finally {
+          setCacheCleaning(false);
+        }
+      },
     );
-    if (!ok) return;
-    setCacheCleaning(true);
-    try {
-      const resp = await apiFetch("/api/study?handler=clean-cache", { method: "POST" });
-      const json = await resp.json().catch(() => ({}));
-      if (!resp.ok || json?.success === false) {
-        toast.error(json?.error || "Não foi possível limpar o cache.");
-        return;
-      }
-      await fetchSources();
-      toast.success(`Cache limpo: ${json.deleted || 0} itens removidos.`);
-    } catch (e: any) {
-      toast.error(e?.message || "Não foi possível limpar o cache.");
-    } finally {
-      setCacheCleaning(false);
-    }
   };
 
   const handleDeleteSource = async (sourceId: string) => {
@@ -1539,25 +1570,29 @@ export const StudyLab = () => {
     }
     const s = sources.find((row) => row.id === sourceId) || null;
     const name = s?.title?.trim() || "este material";
-    const ok = window.confirm(`Apagar "${name}" do Catálogo?\n\nEssa ação não pode ser desfeita.`);
-    if (!ok) return;
-    try {
-      const resp = await apiFetch("/api/study?handler=delete-source", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ source_id: sourceId }),
-      });
-      const json = await resp.json().catch(() => ({}));
-      if (!resp.ok || json?.success === false) {
-        toast.error(json?.error || "Não foi possível apagar o material.");
-        return;
-      }
-      if (selectedSourceId === sourceId) setSelectedSourceId(null);
-      await fetchSources();
-      toast.success("Material apagado.");
-    } catch (e: any) {
-      toast.error(e?.message || "Não foi possível apagar o material.");
-    }
+    openConfirm(
+      `Apagar material`,
+      `Apagar "${name}" do Catálogo? Essa ação não pode ser desfeita.`,
+      async () => {
+        try {
+          const resp = await apiFetch("/api/study?handler=delete-source", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ source_id: sourceId }),
+          });
+          const json = await resp.json().catch(() => ({}));
+          if (!resp.ok || json?.success === false) {
+            toast.error(json?.error || "Não foi possível apagar o material.");
+            return;
+          }
+          if (selectedSourceId === sourceId) setSelectedSourceId(null);
+          await fetchSources();
+          toast.success("Material apagado.");
+        } catch (e: any) {
+          toast.error(e?.message || "Não foi possível apagar o material.");
+        }
+      },
+    );
   };
 
   const handleChatSend = async () => {
@@ -1912,11 +1947,54 @@ export const StudyLab = () => {
               <div key={idx} className={`mb-2 flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
                 <div
                   className={[
-                    "max-w-[85%] rounded-2xl px-3 py-2 text-sm whitespace-pre-wrap break-words",
-                    m.role === "user" ? "bg-primary text-primary-foreground" : "bg-background border",
+                    "max-w-[85%] rounded-2xl px-3 py-2 text-sm break-words",
+                    m.role === "user"
+                      ? "bg-primary text-primary-foreground whitespace-pre-wrap"
+                      : "bg-background border",
                   ].join(" ")}
                 >
-                  {m.content}
+                  {m.role === "assistant" ? (
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
+                      components={{
+                        p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                        h1: ({ children }) => <h1 className="text-base font-bold mb-2 mt-3 first:mt-0">{children}</h1>,
+                        h2: ({ children }) => <h2 className="text-sm font-bold mb-1.5 mt-3 first:mt-0">{children}</h2>,
+                        h3: ({ children }) => <h3 className="text-sm font-semibold mb-1 mt-2 first:mt-0">{children}</h3>,
+                        ul: ({ children }) => <ul className="list-disc pl-4 mb-2 space-y-0.5">{children}</ul>,
+                        ol: ({ children }) => <ol className="list-decimal pl-4 mb-2 space-y-0.5">{children}</ol>,
+                        li: ({ children }) => <li className="text-sm">{children}</li>,
+                        strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+                        em: ({ children }) => <em className="italic">{children}</em>,
+                        code: ({ children, className }) => {
+                          const isBlock = className?.includes("language-");
+                          return isBlock ? (
+                            <code className="block bg-muted rounded p-2 text-xs font-mono overflow-x-auto my-1.5 whitespace-pre">
+                              {children}
+                            </code>
+                          ) : (
+                            <code className="bg-muted rounded px-1 py-0.5 text-xs font-mono">{children}</code>
+                          );
+                        },
+                        pre: ({ children }) => <pre className="my-1.5 overflow-x-auto">{children}</pre>,
+                        blockquote: ({ children }) => (
+                          <blockquote className="border-l-2 border-muted-foreground/30 pl-3 italic text-muted-foreground my-2">
+                            {children}
+                          </blockquote>
+                        ),
+                        hr: () => <hr className="border-border my-2" />,
+                        a: ({ href, children }) => (
+                          <a href={href} target="_blank" rel="noreferrer" className="underline text-primary">
+                            {children}
+                          </a>
+                        ),
+                      }}
+                    >
+                      {m.content}
+                    </ReactMarkdown>
+                  ) : (
+                    m.content
+                  )}
                   {m.role === "assistant" && m.meta?.truncated && (
                     <div className="mt-2 flex items-center justify-end gap-2">
                       <span className="text-[11px] text-muted-foreground">Resposta truncada</span>
@@ -2586,6 +2664,30 @@ export const StudyLab = () => {
           </div>
         </SheetContent>
       </Sheet>
+
+      <AlertDialog
+        open={confirmDialog.open}
+        onOpenChange={(open) => !open && setConfirmDialog((prev) => ({ ...prev, open: false }))}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{confirmDialog.title}</AlertDialogTitle>
+            <AlertDialogDescription>{confirmDialog.description}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                confirmDialog.onConfirm();
+                setConfirmDialog((prev) => ({ ...prev, open: false }));
+              }}
+            >
+              Confirmar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };
