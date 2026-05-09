@@ -177,6 +177,7 @@ export default function FinanceRequests() {
   const { toast } = useToast();
   const [items, setItems] = useState<RequestRow[]>([]);
   const [loading, setLoading] = useState(false);
+  const [lastSuccess, setLastSuccess] = useState<{ protocol: string } | null>(null);
   const [statusFilter, setStatusFilter] = useState<string[]>([]);
   const [kindFilter, setKindFilter] = useState<string>("all");
 
@@ -392,6 +393,7 @@ export default function FinanceRequests() {
         throw new Error(firstFieldError ? `${message}: ${String(firstFieldError)}` : message);
       }
       toast({ title: "Solicitação enviada", description: `Protocolo: ${json?.request?.protocol || "—"}` });
+      setLastSuccess({ protocol: String(json?.request?.protocol || "") });
       try {
         if (typeof window !== "undefined") {
           if (form.company) window.localStorage.setItem(LAST_COMPANY_KEY, String(form.company));
@@ -471,6 +473,25 @@ export default function FinanceRequests() {
             </CardHeader>
           </Card>
         ) : null}
+
+        {lastSuccess && (
+          <div className="flex items-start justify-between gap-3 rounded-md border border-emerald-600 bg-emerald-950/40 px-4 py-3">
+            <div className="min-w-0">
+              <p className="text-[13px] font-semibold text-emerald-400">Solicitação enviada com sucesso</p>
+              <p className="text-[12px] text-muted-foreground mt-0.5">
+                Protocolo: <span className="font-mono font-semibold text-emerald-300">{lastSuccess.protocol}</span>
+              </p>
+            </div>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 px-2 text-[11px] text-muted-foreground flex-shrink-0"
+              onClick={() => setLastSuccess(null)}
+            >
+              <XCircle className="h-4 w-4" />
+            </Button>
+          </div>
+        )}
 
         <Card>
           <CardHeader className="pb-2">
