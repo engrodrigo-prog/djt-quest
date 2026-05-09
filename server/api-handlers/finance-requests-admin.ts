@@ -1,10 +1,10 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
-import { assertDjtQuestServerEnv } from '../server/env-guard.js';
-import { financeRequestAdminUpdateSchema } from '../server/finance/schema.js';
-import { canManageFinanceRequests, isGuestProfile } from '../server/finance/permissions.js';
-import { clampLimit, pickQueryParam, safeText } from '../server/finance/utils.js';
-import { buildWorkbookBuffer } from '../server/lib/excel-workbook.js';
+import { assertDjtQuestServerEnv } from '../env-guard.js';
+import { financeRequestAdminUpdateSchema } from '../finance/schema.js';
+import { canManageFinanceRequests, isGuestProfile } from '../finance/permissions.js';
+import { clampLimit, pickQueryParam, safeText } from '../finance/utils.js';
+import { buildWorkbookBuffer } from '../lib/excel-workbook.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL as string;
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY as string | undefined;
