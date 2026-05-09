@@ -214,14 +214,17 @@ export function FinanceRequestsManagement() {
     }
   };
 
-  const totals = useMemo(() => {
-    const pending = items.filter((r) => !["Aprovado", "Cancelado", "Reprovado", "Pago"].includes(String(r.status))).length;
-    const approved = items.filter((r) => ["Aprovado", "Pago"].includes(String(r.status))).length;
-    const total = items
+  const metrics = useMemo(() => {
+    const total = items.length;
+    const enviado = items.filter((r) => normalizeFinanceStatusLabel(r.status) === "Enviado").length;
+    const emAnalise = items.filter((r) => normalizeFinanceStatusLabel(r.status) === "Em Análise").length;
+    const aprovado = items.filter((r) => ["Aprovado", "Pago"].includes(String(r.status))).length;
+    const reprovado = items.filter((r) => normalizeFinanceStatusLabel(r.status) === "Reprovado").length;
+    const sumCents = items
       .map((r) => Number(r?.amount_cents))
-      .filter((n) => Number.isFinite(n))
+      .filter((n) => Number.isFinite(n) && n > 0)
       .reduce((a, b) => a + b, 0);
-    return { pending, approved, total };
+    return { total, enviado, emAnalise, aprovado, reprovado, sumCents };
   }, [items]);
 
   return (
@@ -343,11 +346,22 @@ export function FinanceRequestsManagement() {
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-          <Badge variant="secondary" className="text-[10px]">Itens: {items.length}</Badge>
-          <Badge variant="outline" className="text-[10px]">Em andamento: {totals.pending}</Badge>
-          <Badge variant="outline" className="text-[10px]">Aprovados: {totals.approved}</Badge>
-          <Badge className="text-[10px]">Total (R$): {(totals.total / 100).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Badge>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+          {[
+            { label: "Total", value: metrics.total, cls: "text-foreground" },
+            { label: "Enviado", value: metrics.enviado, cls: "text-blue-400" },
+            { label: "Em Análise", value: metrics.emAnalise, cls: "text-orange-400" },
+            { label: "Aprovado", value: metrics.aprovado, cls: "text-emerald-400" },
+            { label: "Reprovado", value: metrics.reprovado, cls: "text-red-400" },
+          ].map(({ label, value, cls }) => (
+            <div key={label} className="rounded-md border bg-card px-3 py-2 text-center">
+              <p className={`text-lg font-bold leading-none ${cls}`}>{value}</p>
+              <p className="mt-1 text-[10px] text-muted-foreground">{label}</p>
+            </div>
+          ))}
+        </div>
+        <div className="text-[11px] text-muted-foreground">
+          Valor total filtrado: <span className="font-semibold text-foreground">{(metrics.sumCents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}</span>
         </div>
 
         {items.length === 0 ? (
