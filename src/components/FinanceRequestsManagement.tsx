@@ -419,23 +419,29 @@ export function FinanceRequestsManagement() {
               <p className="text-sm text-muted-foreground">Carregando...</p>
             ) : detail?.request ? (
               <div className="space-y-3">
-                <div className="flex items-start justify-between gap-2">
+                <div className="rounded-md border bg-muted/30 px-3 py-2 flex items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <div className="text-sm font-semibold">{detail.request.protocol}</div>
-                    <div className="text-[12px] text-muted-foreground">
-                      {detail.request.created_by_name} • {detail.request.created_by_email}
-                      {detail.request.created_by_matricula ? ` • ${detail.request.created_by_matricula}` : ""}
+                    <div className="text-sm font-bold font-mono tracking-wide">{detail.request.protocol}</div>
+                    <div className="text-[13px] font-semibold mt-0.5">{detail.request.created_by_name}</div>
+                    <div className="text-[11px] text-muted-foreground">
+                      {detail.request.created_by_email}
+                      {detail.request.created_by_matricula ? ` · matrícula ${detail.request.created_by_matricula}` : ""}
                     </div>
-                    <div className="text-[12px] text-muted-foreground">
-                      {detail.request.request_kind} • {detail.request.expense_type} • {detail.request.company} • {detail.request.coordination}
+                    <div className="text-[11px] text-muted-foreground mt-1">
+                      {detail.request.request_kind} · {detail.request.expense_type} · {detail.request.company} · {detail.request.coordination}
+                    </div>
+                    <div className="text-[11px] text-muted-foreground">
+                      {detail.request.date_start}{detail.request.date_end ? ` → ${detail.request.date_end}` : ""}
                     </div>
                   </div>
-                  <div className="text-right">
+                  <div className="text-right flex-shrink-0">
                     {(() => {
                       const b = financeStatusBadge(detail.request.status);
                       return <Badge variant={b.variant} className={`text-[11px] ${b.className}`}>{b.label}</Badge>;
                     })()}
-                    <div className="text-[12px] text-muted-foreground mt-1">{formatBrl(detail.request.amount_cents)}</div>
+                    {detail.request.amount_cents ? (
+                      <div className="text-[14px] font-bold mt-1">{formatBrl(detail.request.amount_cents)}</div>
+                    ) : null}
                   </div>
                 </div>
 
@@ -480,23 +486,29 @@ export function FinanceRequestsManagement() {
                 </div>
 
                 <div className="rounded-md border p-2">
-                  <div className="text-[12px] font-medium">Histórico</div>
+                  <div className="text-[12px] font-medium mb-2">Histórico</div>
                   {(detail.history || []).length ? (
-                    <div className="mt-2 space-y-1">
-                      {(detail.history || []).map((h: any) => (
-                        <div key={h.id} className="text-[12px] flex items-start justify-between gap-2">
-                          <div className="min-w-0">
-                            <span className="font-medium">{normalizeFinanceStatusLabel(h.to_status)}</span>
-                            {h.observation ? <div className="text-muted-foreground whitespace-pre-wrap">{h.observation}</div> : null}
-                          </div>
-                          <div className="text-[11px] text-muted-foreground flex-shrink-0">
-                            {h.created_at ? new Date(h.created_at).toLocaleString(getActiveLocale()) : ""}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
+                    <ol className="relative border-l border-border ml-2 space-y-3">
+                      {(detail.history || []).map((h: any, idx: number) => {
+                        const b = financeStatusBadge(h.to_status);
+                        const isLast = idx === (detail.history || []).length - 1;
+                        return (
+                          <li key={h.id} className="ml-4">
+                            <span className={`absolute -left-[7px] mt-0.5 h-3 w-3 rounded-full border-2 border-background ${isLast ? "bg-primary" : "bg-muted-foreground/40"}`} />
+                            <div className="flex items-center gap-2">
+                              <Badge variant={b.variant} className={`text-[10px] px-1.5 py-0 ${b.className}`}>{b.label}</Badge>
+                              {h.from_status ? <span className="text-[10px] text-muted-foreground">← {normalizeFinanceStatusLabel(h.from_status)}</span> : null}
+                              <span className="ml-auto text-[10px] text-muted-foreground flex-shrink-0">
+                                {h.created_at ? new Date(h.created_at).toLocaleString(getActiveLocale()) : ""}
+                              </span>
+                            </div>
+                            {h.observation ? <p className="text-[11px] text-muted-foreground mt-0.5 whitespace-pre-wrap">{h.observation}</p> : null}
+                          </li>
+                        );
+                      })}
+                    </ol>
                   ) : (
-                    <p className="text-[11px] text-muted-foreground mt-2">—</p>
+                    <p className="text-[11px] text-muted-foreground">—</p>
                   )}
                 </div>
 
