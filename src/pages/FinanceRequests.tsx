@@ -101,6 +101,13 @@ const formatBrl = (cents: number | null | undefined) => {
   return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 };
 
+const formatBytes = (bytes: number | undefined) => {
+  if (!bytes || bytes <= 0) return "";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+};
+
 const normalizeFinanceStatusLabel = (raw: unknown) => {
   const s = String(raw || "").trim();
   if (!s) return "—";
@@ -724,7 +731,7 @@ export default function FinanceRequests() {
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <Label>Anexos (PDF/JPG/PNG)</Label>
-                  <span className="text-[11px] text-muted-foreground">{attachmentItems.length} arquivo(s)</span>
+                  <span className="text-[11px] text-muted-foreground">{attachmentItems.length}/8</span>
                 </div>
                 <AttachmentUploader
                   onAttachmentsChange={() => {}}
@@ -740,6 +747,17 @@ export default function FinanceRequests() {
                   pathPrefix="finance-requests"
                   acceptMimeTypes={["application/pdf", "image/jpeg", "image/png", "image/webp"]}
                 />
+                {attachmentItems.length > 0 && (
+                  <ul className="space-y-1 mt-1">
+                    {attachmentItems.map((a, i) => (
+                      <li key={i} className="flex items-center gap-2 text-[12px] text-muted-foreground bg-muted/30 rounded px-2 py-1">
+                        <FileText className="h-3 w-3 flex-shrink-0" />
+                        <span className="truncate flex-1">{a.filename || `arquivo-${i + 1}`}</span>
+                        {a.sizeBytes ? <span className="flex-shrink-0">{formatBytes(a.sizeBytes)}</span> : null}
+                      </li>
+                    ))}
+                  </ul>
+                )}
                 <p className="text-[11px] text-muted-foreground">
                   Para fotos, tentamos capturar GPS e horário (quando disponível no arquivo).
                 </p>
