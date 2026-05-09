@@ -101,6 +101,15 @@ const formatBrl = (cents: number | null | undefined) => {
   return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 };
 
+const validateBrl = (v: string): string | null => {
+  const s = v.trim();
+  if (!s) return null;
+  const normalized = s.replace(/\./g, "").replace(",", ".");
+  const n = parseFloat(normalized);
+  if (!Number.isFinite(n) || n <= 0) return "Valor inválido. Use o formato 123,45";
+  return null;
+};
+
 const formatBytes = (bytes: number | undefined) => {
   if (!bytes || bytes <= 0) return "";
   if (bytes < 1024) return `${bytes} B`;
@@ -189,6 +198,7 @@ export default function FinanceRequests() {
 
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [brlError, setBrlError] = useState<string | null>(null);
   const [attachmentsUploading, setAttachmentsUploading] = useState(false);
   const [attachmentItems, setAttachmentItems] = useState<AttachmentItem[]>([]);
   const [form, setForm] = useState({ ...EMPTY_FORM });
@@ -307,6 +317,7 @@ export default function FinanceRequests() {
     setForm({ ...EMPTY_FORM });
     setAttachmentItems([]);
     setAttachmentsUploading(false);
+    setBrlError(null);
   };
 
   const submitNew = async () => {
@@ -682,7 +693,7 @@ export default function FinanceRequests() {
                         expenseType: v === "Adiantamento" ? "Adiantamento" : "",
                         amountBrl: v === "Adiantamento" ? "" : p.amountBrl,
                       }));
-                      if (v === "Adiantamento") setAttachmentItems([]);
+                      if (v === "Adiantamento") { setAttachmentItems([]); setBrlError(null); }
                     }}
                   >
                     <SelectTrigger className="mt-1"><SelectValue placeholder="Selecione" /></SelectTrigger>
@@ -743,7 +754,14 @@ export default function FinanceRequests() {
             {form.requestKind === "Reembolso" ? (
               <div>
                 <Label>Valor (R$)</Label>
-                <Input className="mt-1" placeholder="Ex: 123,45" value={form.amountBrl} onChange={(e) => setForm((p) => ({ ...p, amountBrl: e.target.value }))} />
+                <Input
+                  className={`mt-1${brlError ? " border-red-500 focus-visible:ring-red-500" : ""}`}
+                  placeholder="Ex: 123,45"
+                  value={form.amountBrl}
+                  onChange={(e) => { setForm((p) => ({ ...p, amountBrl: e.target.value })); setBrlError(null); }}
+                  onBlur={(e) => setBrlError(validateBrl(e.target.value))}
+                />
+                {brlError && <p className="mt-1 text-[11px] text-red-400">{brlError}</p>}
               </div>
             ) : null}
 
