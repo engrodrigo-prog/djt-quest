@@ -3,6 +3,7 @@ import { apiFetch } from "@/lib/api";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -98,6 +99,7 @@ export function FinanceRequestsManagement() {
   const [updating, setUpdating] = useState(false);
   const [nextStatus, setNextStatus] = useState<string>("Enviado");
   const [observation, setObservation] = useState<string>("");
+  const [rejectConfirmOpen, setRejectConfirmOpen] = useState(false);
 
   const statusOptions = useMemo(
     () => (FINANCE_STATUSES as readonly string[]).filter((s) => String(s) !== "Pago"),
@@ -190,9 +192,13 @@ export function FinanceRequestsManagement() {
     }
   };
 
-  const applyStatus = async () => {
+  const applyStatus = async (confirmed = false) => {
     const id = String(detailId || "").trim();
     if (!id) return;
+    if (nextStatus === "Reprovado" && !confirmed) {
+      setRejectConfirmOpen(true);
+      return;
+    }
     try {
       setUpdating(true);
       const resp = await apiFetch("/api/finance-requests-admin", {
@@ -509,6 +515,26 @@ export function FinanceRequestsManagement() {
             )}
           </DialogContent>
         </Dialog>
+
+        <AlertDialog open={rejectConfirmOpen} onOpenChange={setRejectConfirmOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Confirmar reprovação</AlertDialogTitle>
+              <AlertDialogDescription>
+                Tem certeza que deseja reprovar esta solicitação? O solicitante será informado e não poderá mais cancelar.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-red-600 hover:bg-red-700"
+                onClick={() => { setRejectConfirmOpen(false); void applyStatus(true); }}
+              >
+                Sim, reprovar
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </CardContent>
     </Card>
   );
