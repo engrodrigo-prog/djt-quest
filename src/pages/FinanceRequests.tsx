@@ -21,7 +21,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { AttachmentUploader } from "@/components/AttachmentUploader";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, ChevronDown, FileText, Plus, XCircle } from "lucide-react";
+import { ArrowLeft, ChevronDown, FileText, Loader2, Plus, XCircle } from "lucide-react";
 import { useI18n } from "@/contexts/I18nContext";
 import { getActiveLocale } from "@/lib/i18n/activeLocale";
 import { FINANCE_COMPANIES, FINANCE_COORDINATIONS, FINANCE_EXPENSE_TYPES, FINANCE_REQUEST_KINDS, FINANCE_STATUSES } from "@/lib/finance/constants";
@@ -187,6 +187,7 @@ export default function FinanceRequests() {
   const [detailLoading, setDetailLoading] = useState(false);
 
   const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [attachmentsUploading, setAttachmentsUploading] = useState(false);
   const [attachmentItems, setAttachmentItems] = useState<AttachmentItem[]>([]);
   const [form, setForm] = useState({ ...EMPTY_FORM });
@@ -310,6 +311,7 @@ export default function FinanceRequests() {
   const submitNew = async () => {
     if (!canUse) return;
     if (submitting) return;
+    setSubmitError(null);
     if (!form.company) {
       toast({ title: "Empresa obrigatória", variant: "destructive" });
       return;
@@ -415,7 +417,9 @@ export default function FinanceRequests() {
       resetForm();
       void load();
     } catch (e: any) {
-      toast({ title: "Erro ao enviar", description: e?.message || "Tente novamente.", variant: "destructive" });
+      const msg = e?.message || "Tente novamente.";
+      setSubmitError(msg);
+      toast({ title: "Erro ao enviar", description: msg, variant: "destructive" });
     } finally {
       setSubmitting(false);
     }
@@ -775,17 +779,24 @@ export default function FinanceRequests() {
                   ? "Adiantamento: sem valor e sem anexo."
                   : "Preencha os campos para habilitar o envio."}
               </div>
-              <div className="flex justify-end gap-2">
-                <Button type="button" variant="outline" onClick={() => setNewOpen(false)}>
-                  Cancelar
-                </Button>
-                <Button
-                  type="button"
-                  onClick={submitNew}
-                  disabled={submitting || attachmentsUploading || !canUse}
-                >
-                  {submitting ? "Enviando..." : "Enviar"}
-                </Button>
+              <div className="flex flex-col items-end gap-1">
+                {submitError && (
+                  <p className="text-[11px] text-destructive text-right">{submitError}</p>
+                )}
+                <div className="flex gap-2">
+                  <Button type="button" variant="outline" onClick={() => { setNewOpen(false); setSubmitError(null); }}>
+                    Cancelar
+                  </Button>
+                  <Button
+                    type="button"
+                    onClick={submitNew}
+                    disabled={submitting || attachmentsUploading || !canUse}
+                  >
+                    {submitting ? (
+                      <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Enviando...</>
+                    ) : "Enviar"}
+                  </Button>
+                </div>
               </div>
             </div>
           </div>
