@@ -11,7 +11,7 @@
     "build:dev": "npm run typecheck && vite build --mode development",
     "lint": "eslint .",
     "lint:gate": "node scripts/lint-gate.mjs",
-    "test": "node --test",
+    "test": "node --import tsx --test",
     "typecheck": "tsc --noEmit",
     "gate": "npm run typecheck && npm test && npm run build && npm run lint:gate",
     "preview": "vite preview",
@@ -109,6 +109,7 @@
     "globals": "^17.4.0",
     "postcss": "^8.5.8",
     "tailwindcss": "^4.2.1",
+    "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.56.1",
     "vite": "^7.3.1"
