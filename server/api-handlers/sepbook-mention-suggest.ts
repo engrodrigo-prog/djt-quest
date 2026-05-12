@@ -57,6 +57,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const q = normalizeQuery(req.query.q);
     if (!q || q.length < 1) return res.status(200).json({ items: [] });
+
+    // Injetar @todos quando query bate com "todos"
+    const everyoneSuggestion = /^t(o(d(o(s?)?)?)?)?$/i.test(q.trim())
+      ? [{ kind: "everyone", handle: "todos", label: "Todos os usuários — @todos" }]
+      : [];
     const qSafe = escapeLike(q);
     const tokens = qSafe.split(/\s+/).filter(Boolean);
 
@@ -125,7 +130,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         base: u.operational_base || null,
       })) || [];
 
-    const items = [...teamSuggestions, ...userSuggestions].slice(0, 15);
+    const items = [...everyoneSuggestion, ...teamSuggestions, ...userSuggestions].slice(0, 15);
     return res.status(200).json({ items });
   } catch (e: any) {
     return res.status(500).json({ error: e?.message || "Unknown error" });

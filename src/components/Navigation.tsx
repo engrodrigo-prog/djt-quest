@@ -658,7 +658,7 @@ const Navigation = () => {
 	        <Button
 	          variant={isActive('/profile') ? 'default' : 'ghost'}
 	          size="sm"
-	          onClick={() => void hardNavigate('/profile')}
+	          onClick={() => void hardNavigate(sepbookMentions > 0 ? '/sepbook' : '/profile')}
 	          className={baseButtonClass}
 	          aria-label={t("nav.profile")}
 	          aria-current={isActive('/profile') ? 'page' : undefined}
@@ -667,9 +667,9 @@ const Navigation = () => {
             <span className="absolute inset-[3px] rounded-2xl overflow-hidden">
               <img src={iconProfile} alt={t("nav.profile")} className="w-full h-full object-cover" />
             </span>
-            {notifBadge > 0 && (
-              <span className={badgeClass(true)} style={{ zIndex: 5 }}>
-                {notifBadge > 99 ? '99+' : notifBadge}
+            {(notifBadge > 0 || sepbookMentions > 0) && (
+              <span className={badgeClass(sepbookMentions > 0)} style={{ zIndex: 5 }}>
+                {(notifBadge + sepbookMentions) > 99 ? '99+' : (notifBadge + sepbookMentions)}
               </span>
             )}
           </span>
