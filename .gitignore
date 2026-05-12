@@ -32,3 +32,4 @@ supabase/.temp
 .claude/settings.local.json
 .claude/skills/
 .claude/worktrees/
+.superpowers/
