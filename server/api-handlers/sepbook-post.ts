@@ -421,14 +421,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       } catch {}
     }
 
-    // XP por postagem no SEPBook: 5 XP por foto (imagens no campo attachments)
+    // XP por postagem no SEPBook: 30 XP base + 5 XP por foto
     try {
       const urls = extractAttachmentUrls(atts);
       const photoCount = urls.filter((u: any) => typeof u === "string" && isPhotoUrl(String(u))).length;
-      const xpAmount = photoCount * 5;
-      if (xpAmount > 0) {
-        await authed.rpc("increment_user_xp", { _user_id: uid, _xp_to_add: xpAmount });
-      }
+      const xpAmount = 30 + photoCount * 5;
+      await authed.rpc("increment_user_xp", { _user_id: uid, _xp_to_add: xpAmount });
     } catch {}
 
     // Criar evento/evidência se a publicação estiver vinculada a uma campanha/desafio ou tiver participantes

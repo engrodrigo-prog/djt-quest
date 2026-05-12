@@ -845,6 +845,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       messages = [],
       question = "",
       source_id = null,
+      source_ids = [] as string[],
       session_id = null,
       attachments = [],
       language = "pt-BR",
@@ -1080,7 +1081,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return parts.join("\n\n").trim();
     };
 
-    if (admin && source_id) {
+    const normalizedSourceIds = Array.isArray(source_ids)
+      ? (source_ids as string[]).filter((s) => typeof s === "string" && s.length > 0).slice(0, 6)
+      : [];
+
+    if (admin && normalizedSourceIds.length === 0 && source_id) {
 
       const selectV2 =
         "id, user_id, title, summary, full_text, url, kind, topic, category, metadata, scope, published, ingest_status, ingest_error, ingested_at";
@@ -1169,6 +1174,106 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             joinedContext = `### Fonte: ${sourceRow.title}\n${baseText}${metaParts.length ? `\n\n### Metadados\n${metaParts.join("\n\n")}` : ""}`;
           }
         }
+      }
+    } else if (admin && normalizedSourceIds.length > 0) {
+      const selectV2 =
+        "id, user_id, title, summary, full_text, url, kind, topic, category, metadata, scope, published, ingest_status, ingest_error, ingested_at";
+      const selectV1 = "id, user_id, title, summary, full_text, url, ingest_status, ingest_error, ingested_at";
+
+      const contextParts: Array<{ idx: number; text: string }> = [];
+
+      await Promise.all(
+        normalizedSourceIds.map(async (sid: string, idx: number) => {
+          let srcRes = await admin.from("study_sources").select(selectV2).eq("id", sid).maybeSingle();
+          if (srcRes.error && /column .*?(category|metadata)/i.test(String(srcRes.error.message || srcRes.error))) {
+            srcRes = await admin.from("study_sources").select(selectV1).eq("id", sid).maybeSingle();
+          }
+          const row = srcRes.data || null;
+          if (!row) return;
+
+          const scope = (row.scope || "user").toString().toLowerCase();
+          const published = Boolean(row.published);
+          const canRead =
+            allowDevIngest ||
+            Boolean(uid && row.user_id && row.user_id === uid) ||
+            (scope === "org" && (published || isLeaderOrStaff));
+          if (!canRead) return;
+
+          let baseText = (row.full_text || row.summary || row.url || "").toString();
+
+          if (!row.full_text && row.url && row.url.startsWith("http")) {
+            try {
+              const isFile =
+                String(row.kind || "").toLowerCase() === "file" ||
+                /\.(pdf|docx|xlsx|xls|csv|txt|json|png|jpe?g|webp)(\?|#|$)/i.test(String(row.url || ""));
+              const fetched = isFile ? await extractFromFileUrl(row.url, row.title || "") : await fetchUrlContent(row.url);
+              if (fetched?.trim()) {
+                baseText = fetched;
+                await updateStudySourceWithFallback(admin, sid, {
+                  full_text: fetched,
+                  ingest_status: "ok",
+                  ingested_at: new Date().toISOString(),
+                  ingest_error: null,
+                });
+              }
+            } catch { /* non-blocking */ }
+          }
+
+          if (!baseText.trim()) return;
+
+          const category = (row.category || "").toString().trim().toUpperCase();
+          const meta = row.metadata && typeof row.metadata === "object" ? row.metadata : null;
+          const incident = meta?.incident && typeof meta.incident === "object" ? meta.incident : null;
+          const aiIncident = meta?.ai?.incident && typeof meta.ai.incident === "object" ? meta.ai.incident : null;
+          const metaParts: string[] = [];
+          if (category) metaParts.push(`Tipo no catálogo: ${category}`);
+          const subtitle = pickSourceSubtitle(meta);
+          if (subtitle) metaParts.push(`Subtítulo: ${subtitle}`);
+          const topic = String(row.topic || "").trim();
+          if (topic) metaParts.push(`Tema: ${topic}`);
+          const tags = pickSourceTags(meta);
+          if (tags.length) {
+            metaParts.push(`Tags: ${tags.slice(0, 16).map((h: any) => `#${String(h || "").replace(/^#+/, "")}`).join(" ")}`);
+          }
+          const outlineTitles = flattenOutlineTitles(meta?.ai?.outline);
+          if (outlineTitles.length) metaParts.push(`Tópicos: ${outlineTitles.slice(0, 12).join(" | ")}`);
+          const summary = String(row.summary || "").trim();
+          if (summary && row.full_text) metaParts.push(`Resumo do catálogo: ${summary.slice(0, 900)}`);
+          if (row.url) metaParts.push(`Link: ${String(row.url)}`);
+          if (incident) {
+            metaParts.push(
+              `Formulário (Relatório de Ocorrência):\n` +
+                `- ocorrido: ${(incident.ocorrido || "").toString().slice(0, 500)}\n` +
+                `- causa_raiz_modo_falha: ${(incident.causa_raiz_modo_falha || "").toString().slice(0, 500)}\n` +
+                `- barreiras_cuidados: ${(incident.barreiras_cuidados || "").toString().slice(0, 500)}\n` +
+                `- acoes_corretivas_preventivas: ${(incident.acoes_corretivas_preventivas || "").toString().slice(0, 500)}\n` +
+                `- mudancas_implementadas: ${(incident.mudancas_implementadas || "").toString().slice(0, 500)}`
+            );
+          }
+          if (aiIncident) {
+            const aprendizados = Array.isArray(aiIncident.aprendizados) ? aiIncident.aprendizados.slice(0, 8) : [];
+            const cuidados = Array.isArray(aiIncident.cuidados) ? aiIncident.cuidados.slice(0, 8) : [];
+            const mudancas = Array.isArray(aiIncident.mudancas) ? aiIncident.mudancas.slice(0, 8) : [];
+            const aiLines: string[] = [];
+            if (aprendizados.length) aiLines.push(`Aprendizados (IA): ${aprendizados.join(" | ")}`);
+            if (cuidados.length) aiLines.push(`Cuidados/Barreiras (IA): ${cuidados.join(" | ")}`);
+            if (mudancas.length) aiLines.push(`Mudanças (IA): ${mudancas.join(" | ")}`);
+            if (aiLines.length) metaParts.push(aiLines.join("\n"));
+          }
+
+          contextParts.push({
+            idx,
+            text: `### Fonte: ${row.title}\n${baseText}${metaParts.length ? `\n\n### Metadados\n${metaParts.join("\n\n")}` : ""}`,
+          });
+          if (!sourceRow) sourceRow = row;
+        })
+      );
+
+      if (contextParts.length > 0) {
+        joinedContext = contextParts
+          .sort((a, b) => a.idx - b.idx)
+          .map((p) => p.text)
+          .join("\n\n---\n\n");
       }
     }
 

@@ -460,9 +460,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       // Atualizar contagem de comentários no post
       // comment_count is maintained by DB trigger (sepbook_count_triggers); keep API fast.
 
-      // XP por comentário no SEPBook (limitado a 100 XP/mês via função).
+      // XP por comentário no SEPBook: 5 XP por comentário
       try {
-        await writer.rpc("increment_user_xp", { _user_id: uid, _xp_to_add: 2 });
+        await writer.rpc("increment_user_xp", { _user_id: uid, _xp_to_add: 5 });
       } catch {}
 
       try {

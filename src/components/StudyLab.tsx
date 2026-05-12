@@ -14,6 +14,8 @@ import { getActiveLocale } from "@/lib/i18n/activeLocale";
 
 import { AttachmentUploader } from "@/components/AttachmentUploader";
 import { HistoryDrawer } from "@/components/studylab/HistoryDrawer";
+import { SourcesPanel } from "@/components/studylab/SourcesPanel";
+import { StudyLabProvider, useStudyLab } from "@/components/studylab/StudyLabProvider";
 import { ForumKbThemeMenu } from "@/components/ForumKbThemeMenu";
 import type { ForumKbSelection } from "@/components/ForumKbThemeSelector";
 import { TipDialogButton } from "@/components/TipDialogButton";
@@ -287,7 +289,7 @@ const isFixedSource = (s: StudySource) => s.id === FIXED_RULES_ID;
 const isPublicSource = (s: StudySource) => normalizeScope(s.scope) === "org" && s.published !== false;
 const isPrivateSource = (s: StudySource) => normalizeScope(s.scope) === "user" || s.published === false;
 
-export const StudyLab = () => {
+function StudyLabInner() {
   const { user, studioAccess, roles } = useAuth();
   const { t } = useI18n();
   const navigate = useNavigate();
@@ -341,7 +343,9 @@ export const StudyLab = () => {
   const chatViewportRef = useRef<HTMLDivElement | null>(null);
   const chatInputRef = useRef<HTMLTextAreaElement | null>(null);
 
-  const [oracleMode, setOracleMode] = useState(false);
+  const { activeSources, addActiveSource, clearActiveSources } = useStudyLab();
+  // oracleMode é agora derivado: sem fontes ativas = modo oracle
+  const oracleMode = activeSources.length === 0;
   const [useWeb, setUseWeb] = useState(false);
   const [chatQuality, setChatQuality] = useState<"auto" | "instant" | "thinking">("instant");
   const [kbEnabled, setKbEnabled] = useState(false);
@@ -821,7 +825,7 @@ export const StudyLab = () => {
   const selectSourceForChat = (source: StudySource) => {
     if (!source) return;
     if (source.id === FIXED_RULES_ID) {
-      setOracleMode(true);
+      clearActiveSources();
       setCatalogOpen(false);
       return;
     }
@@ -834,7 +838,7 @@ export const StudyLab = () => {
       return;
     }
     setSelectedSourceId(source.id);
-    setOracleMode(false);
+    addActiveSource(source.id);
     setCatalogOpen(false);
   };
 
@@ -1118,9 +1122,10 @@ export const StudyLab = () => {
         setChatInput("");
         setChatMessages(restoredMessages);
         setChatSessionId(sid);
-        setOracleMode(isOracle);
         setUseWeb(Boolean(metadata?.use_web) && isOracle);
         setSelectedSourceId(!isOracle ? sourceId : null);
+        if (!isOracle && sourceId) addActiveSource(sourceId);
+        else clearActiveSources();
         resetChatAttachments();
         setChatHistoryOpen(false);
       } catch (e: any) {
@@ -1129,7 +1134,7 @@ export const StudyLab = () => {
         setChatSessionLoadingId(null);
       }
     },
-    [resetChatAttachments, user?.id],
+    [resetChatAttachments, user?.id, addActiveSource, clearActiveSources],
   );
 
   const handleDeleteChatSession = useCallback(
@@ -1294,6 +1299,7 @@ export const StudyLab = () => {
           body: JSON.stringify({
             mode: oracleMode ? "oracle" : "study",
             ...(oracleMode ? {} : effectiveSourceId ? { source_id: effectiveSourceId } : {}),
+            ...(activeSources.length > 0 ? { source_ids: activeSources.map((s) => s.id) } : {}),
             session_id: chatSessionId,
             attachments: [],
             language: getActiveLocale(),
@@ -1346,6 +1352,7 @@ export const StudyLab = () => {
       }
     },
     [
+      activeSources,
       chatHistoryClearing,
       chatLoading,
       chatMessages,
@@ -1552,6 +1559,7 @@ export const StudyLab = () => {
         body: JSON.stringify({
           mode: oracleMode ? "oracle" : "study",
           ...(oracleMode ? {} : effectiveSourceId ? { source_id: effectiveSourceId } : {}),
+          ...(activeSources.length > 0 ? { source_ids: activeSources.map((s) => s.id) } : {}),
           session_id: chatSessionId,
           attachments: attachmentsForMessage.map((url) => ({ url })),
           language: getActiveLocale(),
@@ -1603,7 +1611,7 @@ export const StudyLab = () => {
             <TipDialogButton tipId="studylab-oracle" ariaLabel="Entenda o StudyLab" />
           </div>
           <p className="text-sm text-muted-foreground">
-            Um chat para perguntar + um lugar simples para subir materiais. O catálogo fica no botão “Catálogo”.
+            Selecione fontes no painel e pergunte. Sem fontes marcadas, a IA usa o catálogo geral.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -1663,7 +1671,7 @@ export const StudyLab = () => {
         </Card>
       )}
 
-      <div className="grid gap-4 lg:grid-cols-[300px_minmax(0,1fr)]">
+      <div className="grid gap-4 lg:grid-cols-[280px_240px_minmax(0,1fr)]">
       <HistoryDrawer
         sessions={chatSessions}
         loading={chatSessionsLoading}
@@ -1684,6 +1692,16 @@ export const StudyLab = () => {
         onOpenChange={setChatHistoryOpen}
       />
 
+      {/* SourcesPanel — second left column (desktop only; mobile uses catalog Sheet) */}
+      <div className="hidden lg:flex lg:flex-col lg:sticky lg:top-4 rounded-lg border bg-card p-3 h-[calc(100vh-8rem)]">
+        <SourcesPanel
+          sources={allSources}
+          loadingSources={loadingSources}
+          onOpenUpload={() => setUploadOpen(true)}
+          onOpenCatalog={() => setCatalogOpen(true)}
+        />
+      </div>
+
       <Card className="-mx-3 rounded-none sm:mx-0 sm:rounded-lg">
         <CardHeader className="space-y-2">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -1693,11 +1711,9 @@ export const StudyLab = () => {
                 Chat
               </CardTitle>
               <CardDescription>
-                {oracleMode
-                  ? "Catálogo: busca na sua base + compêndio."
-                  : selectedSource
-                    ? `Material: ${selectedSource.title}`
-                    : "Selecione um material no catálogo."}
+                {activeSources.length > 0
+                  ? `${activeSources.length} fonte${activeSources.length > 1 ? "s" : ""} selecionada${activeSources.length > 1 ? "s" : ""}`
+                  : "Catálogo geral — selecione fontes no painel para focar."}
               </CardDescription>
             </div>
           </div>
@@ -1742,23 +1758,10 @@ export const StudyLab = () => {
             </div>
             <div className="flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5">
               <Switch
-                id="studylab-catalog-toggle"
-                checked={oracleMode}
-                onCheckedChange={(checked) => {
-                  setOracleMode(checked);
-                  if (!checked) setUseWeb(false);
-                }}
-              />
-              <Label htmlFor="studylab-catalog-toggle" className="text-xs font-medium" title="Busca em todos os materiais em vez de um só">
-                Modo catálogo
-              </Label>
-            </div>
-            <div className="flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5">
-              <Switch
                 id="studylab-web-toggle"
                 checked={useWeb}
                 onCheckedChange={setUseWeb}
-                disabled={!oracleMode || chatLoading}
+                disabled={chatLoading}
               />
               <Label htmlFor="studylab-web-toggle" className="text-xs font-medium">
                 Pesquisa web
@@ -2656,4 +2659,10 @@ export const StudyLab = () => {
       </AlertDialog>
     </div>
   );
-};
+}
+
+export const StudyLab = () => (
+  <StudyLabProvider>
+    <StudyLabInner />
+  </StudyLabProvider>
+);
