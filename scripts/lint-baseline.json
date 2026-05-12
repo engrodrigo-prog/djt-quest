@@ -1,19 +1,20 @@
 {
-  "errors": 204,
-  "warnings": 125,
-  "files": 443,
+  "errors": 403,
+  "warnings": 263,
+  "files": 1910,
   "rules": {
-    "@typescript-eslint/ban-ts-comment": 72,
-    "no-empty": 125,
-    "no-control-regex": 1,
-    "prefer-const": 7,
-    "no-extra-boolean-cast": 1,
-    "no-useless-escape": 80,
-    "unknown": 11,
-    "react-hooks/exhaustive-deps": 27,
-    "react-hooks/rules-of-hooks": 3,
-    "react-hooks/purity": 1,
-    "react-hooks/set-state-in-effect": 1
+    "@typescript-eslint/no-namespace": 1,
+    "no-useless-escape": 172,
+    "prefer-const": 18,
+    "unknown": 25,
+    "@typescript-eslint/triple-slash-reference": 1,
+    "no-control-regex": 3,
+    "@typescript-eslint/ban-ts-comment": 150,
+    "no-empty": 240,
+    "no-extra-boolean-cast": 2,
+    "react-hooks/exhaustive-deps": 48,
+    "react-hooks/purity": 2,
+    "@typescript-eslint/no-unsafe-function-type": 4
   },
-  "updated_at": "2026-02-04T13:00:58.168Z"
+  "updated_at": "2026-05-12T13:43:43.711Z"
 }
