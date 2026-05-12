@@ -13,6 +13,7 @@ import { apiFetch } from "@/lib/api";
 import { getActiveLocale } from "@/lib/i18n/activeLocale";
 
 import { AttachmentUploader } from "@/components/AttachmentUploader";
+import { HistoryDrawer } from "@/components/studylab/HistoryDrawer";
 import { ForumKbThemeMenu } from "@/components/ForumKbThemeMenu";
 import type { ForumKbSelection } from "@/components/ForumKbThemeSelector";
 import { TipDialogButton } from "@/components/TipDialogButton";
@@ -704,26 +705,6 @@ export const StudyLab = () => {
     void fetchChatSessions();
   }, [fetchChatSessions, user?.id]);
 
-  const filteredChatSessions = useMemo(() => {
-    const q = chatHistorySearch.trim().toLowerCase();
-    if (!q) return chatSessions;
-    return chatSessions.filter((s) =>
-      [s.title || "", s.summary || ""].join(" ").toLowerCase().includes(q),
-    );
-  }, [chatHistorySearch, chatSessions]);
-
-  const formatSessionWhen = useCallback((iso: string | null) => {
-    if (!iso) return "Sem data";
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return "Sem data";
-    return d.toLocaleString(getActiveLocale(), {
-      day: "2-digit",
-      month: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  }, []);
-
   const allSources = useMemo(() => [...FIXED_SOURCES, ...sources], [sources]);
   const selectedSource = useMemo(
     () => allSources.find((s) => s.id === selectedSourceId) || null,
@@ -1193,6 +1174,25 @@ export const StudyLab = () => {
     [chatSessions, chatSessionId, user?.id, openConfirm, resetChatAttachments],
   );
 
+  const handleRenameSession = useCallback(
+    async (sessionId: string, newTitle: string) => {
+      if (!user?.id) return;
+      const { error } = await (supabase as any)
+        .from("study_chat_sessions")
+        .update({ title: newTitle })
+        .eq("id", sessionId)
+        .eq("user_id", user.id);
+      if (error) {
+        toast.error(error.message || "Falha ao renomear conversa.");
+        throw error;
+      }
+      setChatSessions((prev) =>
+        prev.map((s) => (s.id === sessionId ? { ...s, title: newTitle } : s)),
+      );
+    },
+    [user?.id],
+  );
+
   useEffect(() => {
     if (!user?.id || didAutoLoadSessionRef.current || chatSessionsLoading) return;
     if (chatMessages.length > 0 || chatInput.trim()) return;
@@ -1360,114 +1360,6 @@ export const StudyLab = () => {
       user,
       useWeb,
       fetchChatSessions,
-    ],
-  );
-
-  const renderChatHistoryList = useCallback(
-    (opts?: { compact?: boolean }) => {
-      const compact = Boolean(opts?.compact);
-      return (
-        <div className="space-y-3">
-          <Button
-            type="button"
-            className="w-full justify-start"
-            onClick={handleNewChat}
-            disabled={chatLoading || chatUploading}
-          >
-            <Plus className="mr-2 h-4 w-4" />
-            Nova conversa
-          </Button>
-
-          <Input
-            value={chatHistorySearch}
-            onChange={(e) => setChatHistorySearch(e.target.value)}
-            placeholder="Buscar no histórico..."
-            className={compact ? "h-9" : ""}
-          />
-
-          <Button
-            type="button"
-            variant="outline"
-            className={[
-              "w-full justify-start",
-              "text-destructive hover:text-destructive",
-              "border-destructive/30 hover:border-destructive/50",
-            ].join(" ")}
-            onClick={handleClearAllChatHistory}
-            disabled={chatLoading || chatUploading || chatSessionsLoading || chatHistoryClearing || chatSessions.length === 0}
-            title="Apagar todo o histórico"
-          >
-            <Trash2 className="mr-2 h-4 w-4" />
-            {chatHistoryClearing ? "Apagando histórico..." : `Limpar tudo (${chatSessions.length})`}
-          </Button>
-
-          <div className="space-y-1">
-            {chatSessionsLoading ? (
-              <div className="flex items-center gap-2 rounded-md border p-3 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Carregando histórico...
-              </div>
-            ) : filteredChatSessions.length === 0 ? (
-              <div className="rounded-md border p-3 text-sm text-muted-foreground">
-                {chatSessionsError || "Nenhuma conversa encontrada."}
-              </div>
-            ) : (
-              <div className="max-h-[58vh] space-y-1 overflow-y-auto pr-1">
-                {filteredChatSessions.map((session) => {
-                  const active = chatSessionId === session.id;
-                  const loading = chatSessionLoadingId === session.id;
-                  const title = String(session.title || session.summary || "Conversa sem título").trim();
-                  const summary = String(session.summary || "").trim();
-                  return (
-                    <div key={session.id} className="group flex items-start gap-1">
-                      <button
-                        type="button"
-                        onClick={() => void openChatSession(session.id)}
-                        className={[
-                          "flex-1 rounded-md border p-2 text-left transition-colors",
-                          active ? "border-primary bg-primary/10" : "hover:bg-muted/40",
-                        ].join(" ")}
-                      >
-                        <p className="truncate text-sm font-medium">{title}</p>
-                        {summary ? <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{summary}</p> : null}
-                        <p className="mt-1 text-[11px] text-muted-foreground">{formatSessionWhen(session.updated_at)}</p>
-                      </button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 shrink-0 opacity-70 hover:opacity-100"
-                        onClick={() => void handleDeleteChatSession(session.id)}
-                        disabled={loading || chatLoading}
-                        title="Apagar conversa"
-                      >
-                        {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-                      </Button>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </div>
-      );
-    },
-    [
-      chatHistorySearch,
-      chatHistoryClearing,
-      chatLoading,
-      chatSessionId,
-      chatSessionLoadingId,
-      chatSessionsLoading,
-      chatSessionsError,
-      chatUploading,
-      filteredChatSessions,
-      formatSessionWhen,
-      handleClearAllChatHistory,
-      handleDeleteChatSession,
-      handleNewChat,
-      openChatSession,
-      chatSessions.length,
     ],
   );
 
@@ -1772,16 +1664,25 @@ export const StudyLab = () => {
       )}
 
       <div className="grid gap-4 lg:grid-cols-[300px_minmax(0,1fr)]">
-      <Card className="hidden lg:flex lg:flex-col lg:sticky lg:top-4">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2">
-            <History className="h-4 w-4" />
-            Histórico
-          </CardTitle>
-          <CardDescription>Conversas salvas automaticamente por usuário.</CardDescription>
-        </CardHeader>
-        <CardContent>{renderChatHistoryList()}</CardContent>
-      </Card>
+      <HistoryDrawer
+        sessions={chatSessions}
+        loading={chatSessionsLoading}
+        error={chatSessionsError}
+        currentSessionId={chatSessionId}
+        loadingSessionId={chatSessionLoadingId}
+        chatLoading={chatLoading}
+        chatUploading={chatUploading}
+        historyClearing={chatHistoryClearing}
+        search={chatHistorySearch}
+        onSearchChange={setChatHistorySearch}
+        onSelect={(id) => void openChatSession(id)}
+        onNewChat={handleNewChat}
+        onDelete={handleDeleteChatSession}
+        onClearAll={handleClearAllChatHistory}
+        onRename={handleRenameSession}
+        open={chatHistoryOpen}
+        onOpenChange={setChatHistoryOpen}
+      />
 
       <Card className="-mx-3 rounded-none sm:mx-0 sm:rounded-lg">
         <CardHeader className="space-y-2">
@@ -2189,16 +2090,6 @@ export const StudyLab = () => {
         </CardContent>
       </Card>
       </div>
-
-      <Sheet open={chatHistoryOpen} onOpenChange={setChatHistoryOpen}>
-        <SheetContent side="left" className="w-full sm:max-w-md">
-          <SheetHeader>
-            <SheetTitle>Histórico</SheetTitle>
-            <SheetDescription>Converse de onde parou em sessões anteriores.</SheetDescription>
-          </SheetHeader>
-          <div className="mt-4">{renderChatHistoryList({ compact: true })}</div>
-        </SheetContent>
-      </Sheet>
 
       <Sheet open={catalogOpen} onOpenChange={setCatalogOpen}>
         <SheetContent side="right" className="w-full sm:max-w-2xl flex flex-col overflow-hidden p-0">
