@@ -1861,6 +1861,7 @@ export default function SEPBook() {
 	                            <span className="font-semibold">{s.label || s.handle}</span>
 	                            {s.kind === "user" && <span className="ml-1 opacity-70">@{s.handle}</span>}
 	                            {s.kind === "team" && <span className="ml-1 opacity-70">(equipe @{s.handle})</span>}
+	                            {s.kind === "everyone" && <span className="ml-1 opacity-70">(todos)</span>}
 	                          </button>
 	                        ))}
 	                      </div>

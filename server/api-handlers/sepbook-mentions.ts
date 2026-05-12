@@ -17,6 +17,16 @@ async function resolveMentionedUserIds(admin: any, mentions: string[]) {
   const list = Array.from(new Set((mentions || []).map((m) => String(m || "").trim()).filter(Boolean))).slice(0, 80);
   if (!list.length) return [];
 
+  // @todos → notifica todos os usuários
+  if (list.map((m) => m.toLowerCase()).includes("todos")) {
+    try {
+      const { data } = await admin.from("profiles").select("id").limit(500);
+      return (data || []).map((u: any) => String(u.id)).filter(Boolean);
+    } catch {
+      return [];
+    }
+  }
+
   const emailMentions = Array.from(new Set(list.filter((m) => m.includes("@")).map((m) => m.toLowerCase())));
   const handleMentions = Array.from(new Set(list.filter((m) => !m.includes("@")).map((m) => m.toLowerCase())));
   const teamMentions = Array.from(new Set(list.filter((m) => !m.includes("@")).map((m) => m.toUpperCase())));
