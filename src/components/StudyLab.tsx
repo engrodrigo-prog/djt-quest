@@ -1,9 +1,7 @@
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { ChevronLeft, ChevronRight, History, LibraryBig, Loader2, MessageCircle, Plus, Trash2 } from "lucide-react";
+import { History, LibraryBig, Plus } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -12,18 +10,18 @@ import { useI18n } from "@/contexts/I18nContext";
 import { apiFetch } from "@/lib/api";
 import { getActiveLocale } from "@/lib/i18n/activeLocale";
 
-import { AttachmentUploader } from "@/components/AttachmentUploader";
+import { ChatPanel } from "@/components/studylab/ChatPanel";
+import type { ChatMessage, ChatMessageMeta } from "@/components/studylab/ChatPanel";
+import { CatalogSheet } from "@/components/studylab/CatalogSheet";
 import { HistoryDrawer } from "@/components/studylab/HistoryDrawer";
 import { SourcesPanel } from "@/components/studylab/SourcesPanel";
 import { StudyLabProvider, useStudyLab } from "@/components/studylab/StudyLabProvider";
-import { ForumKbThemeMenu } from "@/components/ForumKbThemeMenu";
+import { UploadSheet } from "@/components/studylab/UploadSheet";
 import type { ForumKbSelection } from "@/components/ForumKbThemeSelector";
 import { TipDialogButton } from "@/components/TipDialogButton";
-import { VoiceRecorderButton } from "@/components/VoiceRecorderButton";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -34,41 +32,27 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { Switch } from "@/components/ui/switch";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Textarea } from "@/components/ui/textarea";
 
-import { DJT_RULES_ARTICLE } from "../../shared/djt-rules";
+import {
+  CATEGORY_LABELS,
+  CATEGORY_ORDER,
+  EMPTY_INCIDENT,
+  FIXED_RULES_ID,
+  FIXED_SOURCES,
+  TOPIC_LABELS,
+  getSourceCategoryKey,
+  getSourceMeta,
+  getSourceTopicKey,
+  isChatCompendiumSource,
+  isFixedSource,
+  isPrivateSource,
+  isPublicSource,
+  normalizeCategory,
+  normalizeScope,
+  normalizeTopic,
+} from "@/components/studylab/catalog-utils";
+import type { IncidentForm, StudyCategory, StudySource } from "@/components/studylab/catalog-utils";
 
-interface StudySource {
-  id: string;
-  user_id: string;
-  title: string;
-  kind: "text" | "url" | "file" | "youtube";
-  url: string | null;
-  storage_path: string | null;
-  summary: string | null;
-  ingest_status?: "pending" | "ok" | "failed" | null;
-  ingested_at?: string | null;
-  ingest_error?: string | null;
-  topic?: string | null;
-  category?: string | null;
-  scope?: "user" | "org" | string | null;
-  published?: boolean | null;
-  metadata?: any | null;
-  is_persistent: boolean;
-  expires_at?: string | null;
-  access_count?: number | null;
-  created_at: string;
-  last_used_at: string | null;
-}
-
-type ChatMessage = { role: "user" | "assistant"; content: string; attachments?: string[]; meta?: ChatMessageMeta };
 type ChatSessionSummary = {
   id: string;
   title: string | null;
@@ -77,11 +61,6 @@ type ChatSessionSummary = {
   source_id: string | null;
   updated_at: string | null;
   created_at: string | null;
-};
-
-type ChatMessageMeta = {
-  truncated?: boolean;
-  incomplete_reason?: string | null;
 };
 
 type StudyChatApiMeta = {
@@ -139,155 +118,12 @@ const normalizeStoredChatMessages = (rawMessages: any, fallbackAttachments: any)
   return mapped;
 };
 
-const STUDY_CATEGORIES = [
-  "MANUAIS",
-  "PROCEDIMENTOS",
-  "APOSTILAS",
-  "RELATORIO_OCORRENCIA",
-  "AUDITORIA_INTERNA",
-  "AUDITORIA_EXTERNA",
-  "OUTROS",
-] as const;
-
-type StudyCategory = (typeof STUDY_CATEGORIES)[number];
-type StudyScope = "user" | "org";
-
-const CATEGORY_LABELS: Record<StudyCategory, string> = {
-  MANUAIS: "Manuais",
-  PROCEDIMENTOS: "Procedimentos",
-  APOSTILAS: "Apostilas",
-  RELATORIO_OCORRENCIA: "Relatório de Ocorrência",
-  AUDITORIA_INTERNA: "Auditoria Interna",
-  AUDITORIA_EXTERNA: "Auditoria Externa",
-  OUTROS: "Outros",
-};
-
-const CATEGORY_ORDER: StudyCategory[] = [
-  "MANUAIS",
-  "PROCEDIMENTOS",
-  "APOSTILAS",
-  "RELATORIO_OCORRENCIA",
-  "AUDITORIA_INTERNA",
-  "AUDITORIA_EXTERNA",
-  "OUTROS",
-];
-
-type IncidentForm = {
-  ocorrido: string;
-  causaRaizModoFalha: string;
-  barreirasCuidados: string;
-  acoesCorretivasPreventivas: string;
-  mudancasImplementadas: string;
-};
-
-const EMPTY_INCIDENT: IncidentForm = {
-  ocorrido: "",
-  causaRaizModoFalha: "",
-  barreirasCuidados: "",
-  acoesCorretivasPreventivas: "",
-  mudancasImplementadas: "",
-};
-
-const PRIVATE_TTL_DAYS = 7;
-const FIXED_RULES_ID = "fixed:djt-quest-rules";
-
-const FIXED_SOURCES: StudySource[] = [
-  {
-    id: FIXED_RULES_ID,
-    user_id: "system",
-    title: DJT_RULES_ARTICLE.title,
-    kind: "text",
-    url: null,
-    storage_path: null,
-    summary: DJT_RULES_ARTICLE.summary,
-    ingest_status: "ok",
-    ingested_at: null,
-    ingest_error: null,
-    topic: "OUTROS",
-    category: "OUTROS",
-    scope: "org",
-    published: true,
-    metadata: {
-      fixed: true,
-      fixed_body: DJT_RULES_ARTICLE.body,
-      ai: { outline: DJT_RULES_ARTICLE.outline },
-      tags: DJT_RULES_ARTICLE.tags,
-    },
-    is_persistent: true,
-    created_at: "2025-01-01T00:00:00Z",
-    last_used_at: null,
-    expires_at: null,
-    access_count: 0,
-  },
-];
-
-const normalizeCategory = (raw: unknown): StudyCategory => {
-  const s = (raw || "").toString().trim().toUpperCase().replace(/\s+/g, "_");
-  return (STUDY_CATEGORIES as readonly string[]).includes(s) ? (s as StudyCategory) : "OUTROS";
-};
-
-const normalizeScope = (raw: unknown): StudyScope => {
-  const s = (raw || "").toString().trim().toLowerCase();
-  return s === "org" ? "org" : "user";
-};
-
-const normalizeTopic = (raw: unknown) => (raw || "").toString().trim().toUpperCase().replace(/\s+/g, "_");
-
-const getSourceMeta = (s: StudySource) =>
-  s && s.metadata && typeof s.metadata === "object" ? s.metadata : null;
-
-const getSourceTopicKey = (s: StudySource) => {
-  const meta = getSourceMeta(s);
-  const raw = s.topic || meta?.ai?.topic || meta?.topic || "OUTROS";
-  return normalizeTopic(raw || "OUTROS") || "OUTROS";
-};
-
-const getSourceCategoryKey = (s: StudySource) => {
-  const meta = getSourceMeta(s);
-  const raw = s.category || meta?.ai?.category || meta?.category || "OUTROS";
-  return normalizeCategory(raw || "OUTROS");
-};
-
-const isChatCompendiumSource = (s: StudySource) => {
-  const meta = getSourceMeta(s);
-  return String(meta?.source || "").toLowerCase() === "study_chat";
-};
-
 const createChatSessionId = () => {
   if (typeof crypto !== "undefined" && typeof (crypto as any).randomUUID === "function") {
     return (crypto as any).randomUUID();
   }
   return `studychat_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 };
-
-const isImageUrl = (url: string) => /\.(png|jpe?g|webp|gif|bmp|tif|tiff|heic|heif|avif)(\?|#|$)/i.test(url || "");
-
-const getAttachmentLabel = (url: string) => {
-  if (!url) return "Anexo";
-  try {
-    const clean = url.split("?")[0].split("#")[0];
-    const name = decodeURIComponent(clean.split("/").pop() || "Anexo");
-    return name || "Anexo";
-  } catch {
-    const name = url.split("/").pop();
-    return name || "Anexo";
-  }
-};
-
-const TOPIC_LABELS: Record<string, string> = {
-  LINHAS: "Linhas de Transmissão",
-  SUBESTACOES: "Subestações",
-  PROCEDIMENTOS: "Procedimentos",
-  PROTECAO: "Proteção",
-  AUTOMACAO: "Automação",
-  TELECOM: "Telecom",
-  SEGURANCA_DO_TRABALHO: "Segurança do Trabalho",
-  OUTROS: "Outros assuntos",
-};
-
-const isFixedSource = (s: StudySource) => s.id === FIXED_RULES_ID;
-const isPublicSource = (s: StudySource) => normalizeScope(s.scope) === "org" && s.published !== false;
-const isPrivateSource = (s: StudySource) => normalizeScope(s.scope) === "user" || s.published === false;
 
 function StudyLabInner() {
   const { user, studioAccess, roles } = useAuth();
@@ -463,53 +299,6 @@ function StudyLabInner() {
   }, [resizeChatTextarea]);
 
 
-
-  const displaySummary = (s: StudySource) => s.summary?.trim() || s.url || "Sem resumo";
-
-  const getSourceTags = (s: StudySource): string[] => {
-    const meta = getSourceMeta(s);
-    const raw = meta?.ai?.tags || meta?.tags || [];
-    if (Array.isArray(raw)) return raw.map(String).filter(Boolean);
-    if (typeof raw === "string") return raw.split(",").map((t: string) => t.trim()).filter(Boolean);
-    return [];
-  };
-
-  const renderOutline = (nodes: any[], depth = 0): JSX.Element | null => {
-    if (!Array.isArray(nodes) || nodes.length === 0) return null;
-    return (
-      <ul className={`space-y-1 ${depth > 0 ? "ml-4" : ""}`}>
-        {nodes.map((node, idx) => {
-          const title = String(node?.title || "").trim();
-          if (!title) return null;
-          return (
-            <li key={`${depth}-${idx}`} className="text-xs text-muted-foreground">
-              <span className="text-foreground/90">{title}</span>
-              {renderOutline(node?.children, depth + 1)}
-            </li>
-          );
-        })}
-      </ul>
-    );
-  };
-
-  const statusBadge = (s: StudySource) => {
-    if (s.ingest_status === "ok") return null;
-    if (s.ingest_status === "pending") {
-      return (
-        <Badge variant="outline" className="text-[10px]">
-          analisando…
-        </Badge>
-      );
-    }
-    if (s.ingest_status === "failed") {
-      return (
-        <Badge variant="outline" className="text-[10px] border-red-400 text-red-500">
-          falhou
-        </Badge>
-      );
-    }
-    return null;
-  };
 
   const validateBeforeInsert = (category: StudyCategory) => {
     if (category !== "RELATORIO_OCORRENCIA") return null;
@@ -1702,937 +1491,105 @@ function StudyLabInner() {
         />
       </div>
 
-      <Card className="-mx-3 rounded-none sm:mx-0 sm:rounded-lg">
-        <CardHeader className="space-y-2">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="space-y-0.5">
-              <CardTitle className="text-base flex items-center gap-2">
-                <MessageCircle className="h-4 w-4" />
-                Chat
-              </CardTitle>
-              <CardDescription>
-                {activeSources.length > 0
-                  ? `${activeSources.length} fonte${activeSources.length > 1 ? "s" : ""} selecionada${activeSources.length > 1 ? "s" : ""}`
-                  : "Catálogo geral — selecione fontes no painel para focar."}
-              </CardDescription>
-            </div>
-          </div>
-
-          <div className="flex flex-nowrap items-center gap-2 overflow-x-auto pb-1 [-webkit-overflow-scrolling:touch] sm:flex-wrap sm:overflow-visible sm:pb-0">
-            <div className="flex shrink-0 items-center gap-1 rounded-full border p-1">
-              <span className="pl-2 pr-1 text-[11px] font-medium text-muted-foreground">
-                {t("studylab.gptModelLabel")}
-              </span>
-              <Button
-                type="button"
-                size="sm"
-                variant={chatQuality === "auto" ? "default" : "ghost"}
-                className="h-8 rounded-full px-3 text-xs"
-                onClick={() => setChatQuality("auto")}
-                disabled={chatLoading}
-              >
-                {t("studylab.gptModelAuto")}
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant={chatQuality === "instant" ? "default" : "ghost"}
-                className="h-8 rounded-full px-3 text-xs"
-                onClick={() => setChatQuality("instant")}
-                disabled={chatLoading}
-                title={t("studylab.gptModelAutoFastHint")}
-              >
-                {t("studylab.gptModelAutoFast")}
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant={chatQuality === "thinking" ? "default" : "ghost"}
-                className="h-8 rounded-full px-3 text-xs"
-                onClick={() => setChatQuality("thinking")}
-                disabled={chatLoading}
-                title={t("studylab.gptModelExtendedHint")}
-              >
-                {t("studylab.gptModelExtended")}
-              </Button>
-            </div>
-            <div className="flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5">
-              <Switch
-                id="studylab-web-toggle"
-                checked={useWeb}
-                onCheckedChange={setUseWeb}
-                disabled={chatLoading}
-              />
-              <Label htmlFor="studylab-web-toggle" className="text-xs font-medium">
-                Pesquisa web
-              </Label>
-            </div>
-            <div className="flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5">
-              <Switch id="studylab-kb-toggle" checked={kbEnabled} onCheckedChange={setKbEnabled} />
-              <Label htmlFor="studylab-kb-toggle" className="text-xs font-medium">
-                {t("studylab.hashtagFocus")}
-              </Label>
-            </div>
-            {!oracleMode && (
-              <>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="shrink-0"
-                  onClick={() => setCatalogOpen(true)}
-                >
-                  Escolher material
-                </Button>
-                {selectedSource && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="shrink-0"
-                    onClick={() => setSelectedSourceId(null)}
-                  >
-                    Limpar material
-                  </Button>
-                )}
-              </>
-            )}
-            <Button type="button" variant="outline" size="sm" className="shrink-0" onClick={handleNewChat}>
-              Nova conversa
-            </Button>
-            {chatLoading && (
-              <Button type="button" variant="outline" size="sm" className="shrink-0" onClick={stopGenerating}>
-                Parar
-              </Button>
-            )}
-          </div>
-
-          {kbEnabled && (
-            <div className="rounded-md border p-3">
-              <p className="mb-2 text-[11px] text-muted-foreground">
-                {t("studylab.hashtagFocusHint")}
-              </p>
-              <ForumKbThemeMenu selection={kbSelection} onSelect={setKbSelection} />
-            </div>
-          )}
-        </CardHeader>
-
-        <CardContent className="flex flex-col gap-3 p-3 pt-0 sm:p-6 sm:pt-0">
-          <div
-            ref={chatViewportRef}
-            className="min-h-[42vh] [@media(orientation:landscape)]:min-h-[32vh] sm:min-h-[55vh] overflow-y-auto rounded-md border bg-muted/30 p-2 sm:p-3"
-          >
-            {chatMessages.length === 0 && (
-              <div className="flex h-full min-h-[30vh] flex-col items-center justify-center gap-4 py-8 text-center">
-                {oracleMode ? (
-                  <>
-                    <p className="text-sm text-muted-foreground max-w-sm">
-                      Pergunte qualquer coisa. O Catálogo busca em todos os seus materiais{useWeb ? " e na web" : ""}.
-                    </p>
-                  </>
-                ) : selectedSource ? (
-                  <>
-                    <p className="text-xs text-muted-foreground">Material selecionado:</p>
-                    <p className="text-sm font-medium max-w-xs truncate">{selectedSource.title}</p>
-                    <p className="text-xs text-muted-foreground">Digite sua pergunta abaixo para começar.</p>
-                  </>
-                ) : (
-                  <>
-                    <p className="text-sm text-muted-foreground max-w-sm">
-                      Selecione um material para perguntar sobre ele, ou ative o modo Catálogo para buscar em toda a base.
-                    </p>
-                    <div className="flex flex-wrap justify-center gap-2">
-                      <Button type="button" variant="outline" size="sm" onClick={() => setCatalogOpen(true)}>
-                        <LibraryBig className="mr-2 h-4 w-4" />
-                        Abrir catálogo
-                      </Button>
-                      <Button type="button" variant="outline" size="sm" onClick={() => setUploadOpen(true)}>
-                        <Plus className="mr-2 h-4 w-4" />
-                        Adicionar material
-                      </Button>
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
-            {chatMessages.map((m, idx) => (
-              <div key={idx} className={`mb-2 flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-                <div
-                  className={[
-                    "max-w-[85%] rounded-2xl px-3 py-2 text-sm break-words",
-                    m.role === "user"
-                      ? "bg-primary text-primary-foreground whitespace-pre-wrap"
-                      : "bg-background border",
-                  ].join(" ")}
-                >
-                  {m.role === "assistant" ? (
-                    <ReactMarkdown
-                      remarkPlugins={[remarkGfm]}
-                      components={{
-                        p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-                        h1: ({ children }) => <h1 className="text-base font-bold mb-2 mt-3 first:mt-0">{children}</h1>,
-                        h2: ({ children }) => <h2 className="text-sm font-bold mb-1.5 mt-3 first:mt-0">{children}</h2>,
-                        h3: ({ children }) => <h3 className="text-sm font-semibold mb-1 mt-2 first:mt-0">{children}</h3>,
-                        ul: ({ children }) => <ul className="list-disc pl-4 mb-2 space-y-0.5">{children}</ul>,
-                        ol: ({ children }) => <ol className="list-decimal pl-4 mb-2 space-y-0.5">{children}</ol>,
-                        li: ({ children }) => <li className="text-sm">{children}</li>,
-                        strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
-                        em: ({ children }) => <em className="italic">{children}</em>,
-                        code: ({ children, className }) => {
-                          const isBlock = className?.includes("language-");
-                          return isBlock ? (
-                            <code className="block bg-muted rounded p-2 text-xs font-mono overflow-x-auto my-1.5 whitespace-pre">
-                              {children}
-                            </code>
-                          ) : (
-                            <code className="bg-muted rounded px-1 py-0.5 text-xs font-mono">{children}</code>
-                          );
-                        },
-                        pre: ({ children }) => <pre className="my-1.5 overflow-x-auto">{children}</pre>,
-                        blockquote: ({ children }) => (
-                          <blockquote className="border-l-2 border-muted-foreground/30 pl-3 italic text-muted-foreground my-2">
-                            {children}
-                          </blockquote>
-                        ),
-                        hr: () => <hr className="border-border my-2" />,
-                        a: ({ href, children }) => (
-                          <a href={href} target="_blank" rel="noreferrer" className="underline text-primary">
-                            {children}
-                          </a>
-                        ),
-                      }}
-                    >
-                      {m.content}
-                    </ReactMarkdown>
-                  ) : (
-                    m.content
-                  )}
-                  {m.role === "assistant" && m.meta?.truncated && (
-                    <div className="mt-2 flex items-center justify-end gap-2">
-                      <span className="text-[11px] text-muted-foreground">Resposta truncada</span>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        disabled={chatLoading || chatUploading}
-                        onClick={() => void handleContinueFromTruncated(idx)}
-                      >
-                        Continuar
-                      </Button>
-                    </div>
-                  )}
-                  {m.attachments && m.attachments.length > 0 && (
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {m.attachments.map((url, aIdx) =>
-                        isImageUrl(url) ? (
-                          <a key={`${url}-${aIdx}`} href={url} target="_blank" rel="noreferrer">
-                            <img
-                              src={url}
-                              alt={getAttachmentLabel(url)}
-                              className="h-20 w-24 rounded-md border object-cover"
-                              loading="lazy"
-                            />
-                          </a>
-                        ) : (
-                          <a
-                            key={`${url}-${aIdx}`}
-                            href={url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="rounded-md border bg-background/80 px-2 py-1 text-xs text-foreground"
-                          >
-                            {getAttachmentLabel(url)}
-                          </a>
-                        ),
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-            ))}
-            {chatLoading && (
-              <div className="mb-2 flex justify-start">
-                <div className="flex items-center gap-1 rounded-2xl border bg-background px-4 py-3">
-                  <span className="h-2 w-2 rounded-full bg-muted-foreground/60 animate-bounce [animation-delay:0ms]" />
-                  <span className="h-2 w-2 rounded-full bg-muted-foreground/60 animate-bounce [animation-delay:150ms]" />
-                  <span className="h-2 w-2 rounded-full bg-muted-foreground/60 animate-bounce [animation-delay:300ms]" />
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="-mx-3 rounded-none border-x-0 border-t bg-background/60 px-3 py-2 sm:mx-0 sm:rounded-md sm:border-0 sm:bg-transparent sm:px-0 sm:py-0">
-            <Textarea
-              ref={chatInputRef}
-              value={chatInput}
-              onChange={(e) => setChatInput(e.target.value)}
-              onFocus={() => setChatInputFocused(true)}
-              onBlur={() => setChatInputFocused(false)}
-              placeholder={
-                oracleMode
-                  ? "Digite sua pergunta…"
-                  : selectedSource
-                    ? `Pergunte sobre: ${selectedSource.title}`
-                    : "Selecione um material para perguntar"
-              }
-              rows={3}
-              enterKeyHint="send"
-              className="min-h-[120px] sm:min-h-[80px]"
-              onKeyDown={(e) => {
-                if ((e.nativeEvent as any)?.isComposing) return;
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  handleChatSend();
-                }
-              }}
-            />
-
-            <div className="mt-2 flex items-center gap-2">
-              <Dialog open={chatAttachmentsOpen} onOpenChange={setChatAttachmentsOpen}>
-                <DialogTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    className="relative h-11 w-11 shrink-0"
-                    aria-label="Anexar arquivos"
-                    title="Anexar arquivos"
-                    disabled={chatLoading}
-                  >
-                    <Plus className="h-4 w-4" />
-                    {chatUploading && (
-                      <span
-                        className="absolute -bottom-1 -right-1 inline-flex h-3 w-3 rounded-full bg-amber-400"
-                        aria-label="Enviando anexos"
-                        title="Enviando…"
-                      />
-                    )}
-                    {chatAttachments.length > 0 && (
-                      <Badge className="absolute -top-2 -right-2 h-5 min-w-[20px] justify-center px-1 text-[10px]">
-                        {chatAttachments.length}
-                      </Badge>
-                    )}
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="max-w-2xl">
-                  <DialogHeader>
-                    <DialogTitle>Anexos</DialogTitle>
-                    <DialogDescription>
-                      Imagens, desenhos, PDFs e documentos ajudam o Catálogo a aprofundar a resposta. O StudyLab mantém um histórico de uso para consultas futuras.
-                    </DialogDescription>
-                  </DialogHeader>
-                  <div className="space-y-3">
-                    <AttachmentUploader
-                      key={chatUploadKey}
-                      onAttachmentsChange={setChatAttachments}
-                      onUploadingChange={setChatUploading}
-                      maxFiles={4}
-                      maxSizeMB={20}
-                      bucket="evidence"
-                      pathPrefix="study-chat"
-                      capture="environment"
-                      acceptMimeTypes={[
-                        "application/pdf",
-                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                        "application/vnd.ms-excel",
-                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        "text/plain",
-                        "application/json",
-                        "text/csv",
-                        "image/heic",
-                        "image/heif",
-                        "image/jpeg",
-                        "image/png",
-                        "image/avif",
-                        "image/webp",
-                      ]}
-                      maxVideoSeconds={0}
-                    />
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-xs text-muted-foreground">
-                        {chatUploading
-                          ? "Enviando…"
-                          : chatAttachments.length
-                            ? `${chatAttachments.length} anexo(s) selecionado(s).`
-                            : "Nenhum anexo selecionado."}
-                      </p>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={resetChatAttachments}
-                        disabled={!chatAttachments.length && !chatUploading}
-                      >
-                        Limpar
-                      </Button>
-                    </div>
-                  </div>
-                </DialogContent>
-              </Dialog>
-
-              <VoiceRecorderButton
-                size="sm"
-                label="Falar"
-                className="shrink-0 [&_span]:hidden sm:[&_span]:inline"
-                onText={(text) => setChatInput((prev) => [prev, text].filter(Boolean).join("\n\n"))}
-              />
-
-              <Button
-                type="button"
-                className="h-11 flex-1 sm:flex-none"
-                onClick={handleChatSend}
-                disabled={chatLoading || chatUploading || (!chatInput.trim() && chatAttachments.length === 0)}
-              >
-                {chatLoading ? "Pensando..." : "Enviar"}
-              </Button>
-            </div>
-
-            <p className="mt-1 text-[11px] text-muted-foreground sm:hidden">Enter envia • Shift+Enter quebra linha</p>
-          </div>
-          {chatError && <p className="text-sm text-destructive">Erro: {chatError}</p>}
-        </CardContent>
-      </Card>
+      <ChatPanel
+        messages={chatMessages}
+        loading={chatLoading}
+        uploading={chatUploading}
+        error={chatError}
+        viewportRef={chatViewportRef}
+        inputRef={chatInputRef}
+        input={chatInput}
+        onInputChange={setChatInput}
+        onInputFocus={() => setChatInputFocused(true)}
+        onInputBlur={() => setChatInputFocused(false)}
+        oracleMode={oracleMode}
+        activeSources={activeSources}
+        selectedSourceTitle={selectedSource?.title ?? null}
+        quality={chatQuality}
+        onQualityChange={setChatQuality}
+        useWeb={useWeb}
+        onUseWebChange={setUseWeb}
+        kbEnabled={kbEnabled}
+        onKbEnabledChange={setKbEnabled}
+        kbSelection={kbSelection}
+        onKbSelectionChange={setKbSelection}
+        attachments={chatAttachments}
+        onAttachmentsChange={setChatAttachments}
+        attachmentsOpen={chatAttachmentsOpen}
+        onAttachmentsOpenChange={setChatAttachmentsOpen}
+        uploadKey={chatUploadKey}
+        onUploadingChange={setChatUploading}
+        onResetAttachments={resetChatAttachments}
+        onSend={handleChatSend}
+        onContinueFromTruncated={handleContinueFromTruncated}
+        onNewChat={handleNewChat}
+        onStop={stopGenerating}
+        onOpenCatalog={() => setCatalogOpen(true)}
+        onOpenUpload={() => setUploadOpen(true)}
+        onClearSource={() => setSelectedSourceId(null)}
+      />
       </div>
 
-      <Sheet open={catalogOpen} onOpenChange={setCatalogOpen}>
-        <SheetContent side="right" className="w-full sm:max-w-2xl flex flex-col overflow-hidden p-0">
-          <SheetHeader className="shrink-0 px-6 pt-6 pb-3">
-            <SheetTitle>Catálogo</SheetTitle>
-            <SheetDescription>Busque, filtre e selecione um material para usar no chat.</SheetDescription>
-          </SheetHeader>
+      <CatalogSheet
+        open={catalogOpen}
+        onOpenChange={setCatalogOpen}
+        tab={catalogTab}
+        onTabChange={setCatalogTab}
+        search={search}
+        onSearchChange={setSearch}
+        searchRef={catalogSearchRef}
+        hasActiveFilters={hasActiveCatalogFilters}
+        onClearFilters={clearCatalogFilters}
+        visibilityFilter={visibilityFilter}
+        onVisibilityFilterChange={setVisibilityFilter}
+        categoryFilter={categoryFilter}
+        onCategoryFilterChange={setCategoryFilter}
+        topicFilter={topicFilter}
+        onTopicFilterChange={setTopicFilter}
+        isStaff={isStaff}
+        refreshing={catalogRefreshing}
+        refreshProgress={catalogRefreshProgress}
+        ingesting={ingesting}
+        loadingSources={loadingSources}
+        onRecatalog={handleRecatalog}
+        onReingestFailed={handleReingestFailed}
+        cacheCleaning={cacheCleaning}
+        onCleanCache={handleCleanCache}
+        sources={visibleSources}
+        topicsByCategory={topicsByCategory}
+        selectedSourceId={selectedSourceId}
+        oracleMode={oracleMode}
+        previewId={catalogPreviewId}
+        onPreviewIdChange={setCatalogPreviewId}
+        previewSource={catalogPreviewSource}
+        previewPrevId={previewPrevId}
+        previewNextId={previewNextId}
+        previewIndex={previewIndex}
+        sourcesCount={visibleSources.length}
+        reingestingSourceId={reingestingSourceId}
+        studioAccess={Boolean(studioAccess)}
+        userId={user?.id ?? null}
+        onSelectSource={selectSourceForChat}
+        onDeleteSource={handleDeleteSource}
+        onReingestSource={reingestSource}
+        onNavigateToQuiz={(id) => navigate(`/studio?module=quiz&seed_source=${id}`)}
+      />
 
-          <Tabs value={catalogTab} onValueChange={(v) => setCatalogTab(v as any)} className="flex flex-col flex-1 min-h-0 overflow-hidden">
-            {/* Filtros — sempre visíveis, sem scroll */}
-            <div className="shrink-0 space-y-2 px-6 pb-2">
-              <div className="flex gap-2">
-                <Input
-                  ref={catalogSearchRef}
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Buscar por título, resumo, tags, tema…"
-                  className="flex-1"
-                />
-                <Button type="button" variant="outline" size="sm" onClick={clearCatalogFilters} disabled={!hasActiveCatalogFilters}>
-                  Limpar
-                </Button>
-              </div>
-
-              <div className="grid grid-cols-3 gap-2">
-                <div className="space-y-1">
-                  <Label className="text-xs">Visibilidade</Label>
-                  <Select value={visibilityFilter} onValueChange={(v) => setVisibilityFilter(v as any)}>
-                    <SelectTrigger className="h-8 text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">Todos</SelectItem>
-                      <SelectItem value="public">Públicos</SelectItem>
-                      <SelectItem value="private">Privados</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">Categoria</Label>
-                  <Select value={categoryFilter} onValueChange={(v) => setCategoryFilter(v as any)}>
-                    <SelectTrigger className="h-8 text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="ALL">Todas</SelectItem>
-                      {CATEGORY_ORDER.map((c) => (
-                        <SelectItem key={c} value={c}>
-                          {CATEGORY_LABELS[c]}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">Tema</Label>
-                  <Select value={topicFilter} onValueChange={(v) => setTopicFilter(v)}>
-                    <SelectTrigger className="h-8 text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="ALL">Todos</SelectItem>
-                      {Object.keys(TOPIC_LABELS).map((k) => (
-                        <SelectItem key={k} value={k}>
-                          {TOPIC_LABELS[k]}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              {isStaff && (
-                <div className="flex flex-wrap items-center gap-2 pt-1 border-t">
-                  <span className="text-[11px] text-muted-foreground font-medium">Admin:</span>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    onClick={handleRecatalog}
-                    disabled={catalogRefreshing || ingesting || loadingSources}
-                    className="h-7 text-xs"
-                  >
-                    {catalogRefreshing && catalogRefreshProgress
-                      ? `Atualizando… ${catalogRefreshProgress.done}/${catalogRefreshProgress.total}`
-                      : "Atualizar catálogo com IA"}
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    onClick={handleReingestFailed}
-                    disabled={catalogRefreshing || ingesting || loadingSources}
-                    className="h-7 text-xs"
-                  >
-                    Reprocessar falhas
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    onClick={handleCleanCache}
-                    disabled={cacheCleaning || catalogRefreshing || ingesting || loadingSources}
-                    className="h-7 text-xs"
-                  >
-                    {cacheCleaning ? "Limpando…" : "Limpar cache"}
-                  </Button>
-                </div>
-              )}
-
-              <TabsList className="w-full">
-                <TabsTrigger value="tree" className="flex-1">Árvore</TabsTrigger>
-                <TabsTrigger value="list" className="flex-1">Lista ({visibleSources.length})</TabsTrigger>
-              </TabsList>
-            </div>
-
-            {/* Área de conteúdo: lista/árvore + preview lado a lado */}
-            <div className="flex flex-1 min-h-0 overflow-hidden gap-0">
-              {/* Coluna esquerda: lista ou árvore */}
-              <div className="flex flex-col flex-1 min-w-0 min-h-0 overflow-hidden">
-                <TabsContent value="tree" className="flex-1 overflow-y-auto mt-0 px-6 py-3 space-y-3 data-[state=inactive]:hidden">
-                  {CATEGORY_ORDER.map((cat) => {
-                    const topics = topicsByCategory[cat] || {};
-                    const topicEntries = Object.entries(topics).sort((a, b) => b[1] - a[1]);
-                    const total = Object.values(topics).reduce((acc, n) => acc + n, 0);
-                    if (!total) return null;
-                    return (
-                      <div key={cat} className="rounded-md border p-3 space-y-2">
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="text-sm font-medium">{CATEGORY_LABELS[cat]}</p>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => {
-                              setCategoryFilter(cat);
-                              setTopicFilter("ALL");
-                              setCatalogTab("list");
-                            }}
-                          >
-                            Ver ({total})
-                          </Button>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          {topicEntries.map(([topicKey, count]) => (
-                            <Button
-                              key={`${cat}:${topicKey}`}
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              className="h-8"
-                              onClick={() => {
-                                setCategoryFilter(cat);
-                                setTopicFilter(topicKey);
-                                setCatalogTab("list");
-                              }}
-                            >
-                              {TOPIC_LABELS[topicKey] || topicKey}{" "}
-                              <span className="ml-1 text-muted-foreground">({count})</span>
-                            </Button>
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </TabsContent>
-
-                <TabsContent value="list" className="flex-1 overflow-y-auto mt-0 px-6 py-3 data-[state=inactive]:hidden">
-                  {loadingSources && (
-                    <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Carregando catálogo…
-                    </div>
-                  )}
-                  {!loadingSources && visibleSources.length === 0 && (
-                    <p className="text-sm text-muted-foreground py-4">Nenhum material encontrado com esses filtros.</p>
-                  )}
-                  <div className="space-y-2">
-                    {visibleSources.map((s) => {
-                      const active = s.id === catalogPreviewId;
-                      const isInChat = s.id === selectedSourceId && !oracleMode;
-                      const isPublic = isPublicSource(s) || isFixedSource(s);
-                      const visibilityLabel = isFixedSource(s) ? "FIXO" : isPublic ? "PÚBLICO" : "PRIVADO";
-                      const topicKey = getSourceTopicKey(s);
-                      const topicLabel = topicKey ? TOPIC_LABELS[topicKey] || topicKey : "";
-                      const meta = getSourceMeta(s);
-                      const subtitle = String(meta?.ai?.subtitle || meta?.subtitle || "").trim();
-                      const ingestFailed = s.ingest_status === "failed";
-                      const reingesting = reingestingSourceId === s.id;
-                      const canDelete = !isFixedSource(s) && (isStaff || (user && s.user_id === user.id));
-                      const tags = getSourceTags(s);
-                      const outline = (() => {
-                        const m = getSourceMeta(s);
-                        const o = m?.ai?.outline || m?.outline || [];
-                        return Array.isArray(o) ? o : [];
-                      })();
-                      return (
-                        <div
-                          key={s.id}
-                          className={[
-                            "w-full rounded-md border text-left transition-colors",
-                            active ? "border-primary bg-primary/5" : "hover:bg-muted/40",
-                          ].join(" ")}
-                        >
-                          {/* Header sempre visível */}
-                          <button
-                            type="button"
-                            className="w-full text-left px-3 pt-3 pb-2"
-                            onClick={() => setCatalogPreviewId(active ? null : s.id)}
-                            aria-label={`${active ? "Fechar" : "Expandir"} ${s.title?.trim() || "material"}`}
-                          >
-                            <div className="flex items-start justify-between gap-2">
-                              <p className="font-medium text-sm leading-snug flex-1 min-w-0 truncate">{s.title?.trim() || "Sem título"}</p>
-                              {isInChat && <Badge className="text-[10px] shrink-0">em uso</Badge>}
-                            </div>
-                            {subtitle && <p className="text-[11px] text-muted-foreground line-clamp-1 mt-0.5">{subtitle}</p>}
-                            {!active && (
-                              <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">{displaySummary(s)}</p>
-                            )}
-                            <div className="mt-1.5 flex flex-wrap items-center gap-1">
-                              <Badge variant="outline" className="text-[10px]">{visibilityLabel}</Badge>
-                              <Badge variant="outline" className="text-[10px]">{CATEGORY_LABELS[getSourceCategoryKey(s)] || "Outros"}</Badge>
-                              {topicLabel && <Badge variant="outline" className="text-[10px]">{topicLabel}</Badge>}
-                              {statusBadge(s)}
-                            </div>
-                            {tags.length > 0 && (
-                              <div className="mt-1 flex flex-wrap gap-1">
-                                {tags.slice(0, active ? undefined : 4).map((tag) => (
-                                  <span key={tag} className="inline-flex items-center rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                                    #{tag}
-                                  </span>
-                                ))}
-                                {!active && tags.length > 4 && (
-                                  <span className="text-[10px] text-muted-foreground">+{tags.length - 4}</span>
-                                )}
-                              </div>
-                            )}
-                          </button>
-
-                          {/* Expansão inline ao clicar */}
-                          {active && (
-                            <div className="px-3 pb-3 space-y-2 border-t mt-0 pt-2">
-                              {ingestFailed && s.ingest_error && (
-                                <p className="text-[11px] text-red-500/90">{String(s.ingest_error).slice(0, 200)}</p>
-                              )}
-                              {s.summary && (
-                                <p className="text-xs text-muted-foreground whitespace-pre-line">{s.summary.trim()}</p>
-                              )}
-                              {outline.length > 0 && (
-                                <div className="border rounded-md p-2 bg-muted/30">
-                                  <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-1">Índice</p>
-                                  {renderOutline(outline)}
-                                </div>
-                              )}
-                              <div className="flex items-center gap-1 flex-wrap pt-1">
-                                {s.url && (
-                                  <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs"
-                                    onClick={() => window.open(s.url!, "_blank", "noreferrer")}>
-                                    Abrir
-                                  </Button>
-                                )}
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  className="h-7 px-2 text-xs"
-                                  onClick={() => selectSourceForChat(s)}
-                                  disabled={s.ingest_status === "pending" || (s.ingest_status === "failed" && s.id !== FIXED_RULES_ID)}
-                                >
-                                  Usar no chat
-                                </Button>
-                                {studioAccess && s.id !== FIXED_RULES_ID && (
-                                  <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs"
-                                    onClick={() => navigate(`/studio?module=quiz&seed_source=${s.id}`)}>
-                                    Criar quiz
-                                  </Button>
-                                )}
-                                {!isFixedSource(s) && ingestFailed && (
-                                  <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs"
-                                    disabled={reingesting || Boolean(reingestingSourceId) || catalogRefreshing || ingesting}
-                                    onClick={() => reingestSource(s.id)}>
-                                    {reingesting ? "Reprocessando…" : "Reprocessar"}
-                                  </Button>
-                                )}
-                                {canDelete && (
-                                  <Button type="button" variant="ghost" size="icon" className="h-7 w-7 ml-auto text-destructive hover:text-destructive hover:bg-destructive/10"
-                                    title="Apagar material"
-                                    onClick={() => handleDeleteSource(s.id)}
-                                    disabled={catalogRefreshing || ingesting || Boolean(reingestingSourceId)}>
-                                    <Trash2 className="h-3.5 w-3.5" />
-                                  </Button>
-                                )}
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Ação rápida quando colapsado */}
-                          {!active && (
-                            <div className="px-3 pb-2 flex items-center gap-1">
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="ghost"
-                                className="h-6 px-2 text-xs"
-                                onClick={() => selectSourceForChat(s)}
-                                disabled={s.ingest_status === "pending" || (s.ingest_status === "failed" && s.id !== FIXED_RULES_ID)}
-                              >
-                                Usar
-                              </Button>
-                              {canDelete && (
-                                <Button type="button" variant="ghost" size="icon" className="h-6 w-6 ml-auto text-muted-foreground hover:text-destructive"
-                                  title="Apagar material"
-                                  onClick={() => handleDeleteSource(s.id)}
-                                  disabled={catalogRefreshing || ingesting || Boolean(reingestingSourceId)}>
-                                  <Trash2 className="h-3 w-3" />
-                                </Button>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </TabsContent>
-              </div>
-
-              {/* Coluna direita: preview (visível em sm+ quando há seleção) */}
-              {catalogPreviewSource ? (
-                <div className="hidden sm:flex flex-col w-72 xl:w-80 shrink-0 border-l overflow-y-auto px-4 py-3 gap-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-1">
-                      <Button type="button" variant="outline" size="icon" className="h-7 w-7"
-                        disabled={!previewPrevId} title="Anterior"
-                        onClick={() => previewPrevId && setCatalogPreviewId(previewPrevId)}>
-                        <ChevronLeft className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button type="button" variant="outline" size="icon" className="h-7 w-7"
-                        disabled={!previewNextId} title="Próximo"
-                        onClick={() => previewNextId && setCatalogPreviewId(previewNextId)}>
-                        <ChevronRight className="h-3.5 w-3.5" />
-                      </Button>
-                      {previewIndex >= 0 && (
-                        <span className="text-[11px] text-muted-foreground ml-1">
-                          {previewIndex + 1}/{visibleSources.length}
-                        </span>
-                      )}
-                    </div>
-                    <Button type="button" variant="ghost" size="icon" className="h-7 w-7"
-                      onClick={() => setCatalogPreviewId(null)} title="Fechar prévia">
-                      <ChevronRight className="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
-
-                  <div>
-                    <p className="font-medium text-sm">{catalogPreviewSource.title?.trim() || "Sem título"}</p>
-                    {catalogPreviewSource.summary && (
-                      <p className="text-xs text-muted-foreground mt-1 whitespace-pre-line">{catalogPreviewSource.summary}</p>
-                    )}
-                  </div>
-
-                  {catalogPreviewSource.ingest_status === "failed" && catalogPreviewSource.id !== FIXED_RULES_ID && (
-                    <div className="flex items-center justify-between gap-2 rounded-md border border-red-500/20 p-2">
-                      <p className="text-xs text-red-500/90">Falhou na curadoria.</p>
-                      <Button type="button" size="sm" variant="outline" className="h-7 text-xs"
-                        disabled={Boolean(reingestingSourceId) || catalogRefreshing || ingesting}
-                        onClick={() => reingestSource(catalogPreviewSource.id)}>
-                        {reingestingSourceId === catalogPreviewSource.id ? "Reprocessando…" : "Reprocessar"}
-                      </Button>
-                    </div>
-                  )}
-
-                  <div className="flex flex-wrap gap-1">
-                    {catalogPreviewSource.url && (
-                      <Button type="button" variant="outline" size="sm" className="h-7 text-xs"
-                        onClick={() => window.open(catalogPreviewSource.url!, "_blank", "noreferrer")}>
-                        Abrir
-                      </Button>
-                    )}
-                    <Button type="button" size="sm" className="h-7 text-xs"
-                      onClick={() => selectSourceForChat(catalogPreviewSource)}
-                      disabled={catalogPreviewSource.ingest_status === "pending" || (catalogPreviewSource.ingest_status === "failed" && catalogPreviewSource.id !== FIXED_RULES_ID)}>
-                      Usar no chat
-                    </Button>
-                    {studioAccess && catalogPreviewSource.id !== FIXED_RULES_ID && (
-                      <Button type="button" variant="outline" size="sm" className="h-7 text-xs"
-                        onClick={() => navigate(`/studio?module=quiz&seed_source=${catalogPreviewSource.id}`)}>
-                        Criar quiz
-                      </Button>
-                    )}
-                    {catalogPreviewSource.id !== FIXED_RULES_ID && (isStaff || (user && catalogPreviewSource.user_id === user.id)) && (
-                      <Button type="button" variant="ghost" size="sm" className="h-7 text-xs text-destructive hover:text-destructive"
-                        onClick={() => handleDeleteSource(catalogPreviewSource.id)}>
-                        Apagar
-                      </Button>
-                    )}
-                  </div>
-
-                  {(() => {
-                    const meta = catalogPreviewSource.metadata && typeof catalogPreviewSource.metadata === "object"
-                      ? catalogPreviewSource.metadata
-                      : null;
-                    const outline = meta?.ai?.outline || meta?.outline || [];
-                    if (!Array.isArray(outline) || outline.length === 0) return null;
-                    return <div className="border-t pt-2">{renderOutline(outline)}</div>;
-                  })()}
-                </div>
-              ) : (
-                <div className="hidden sm:flex items-center justify-center w-64 shrink-0 border-l px-4">
-                  <p className="text-xs text-muted-foreground text-center">Clique em um material para ver detalhes.</p>
-                </div>
-              )}
-            </div>
-          </Tabs>
-        </SheetContent>
-      </Sheet>
-
-            <Sheet open={uploadOpen} onOpenChange={setUploadOpen}>
-        <SheetContent side="right" className="w-full sm:max-w-lg">
-          <SheetHeader>
-            <SheetTitle>Adicionar material</SheetTitle>
-            <SheetDescription>Envie um arquivo ou URL. A IA cria título, resumo e índice.</SheetDescription>
-          </SheetHeader>
-
-          <div className="mt-4 space-y-4">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label>Catalogar como</Label>
-                <Select value={newCategory} onValueChange={(v) => setNewCategory(normalizeCategory(v))}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecione..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {CATEGORY_ORDER.map((c) => (
-                      <SelectItem key={c} value={c}>
-                        {CATEGORY_LABELS[c]}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Visibilidade</Label>
-                <Select value={newVisibility} onValueChange={(v) => setNewVisibility(v as any)}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="public">Público (para todos)</SelectItem>
-                    <SelectItem value="private">Privado (expira em {PRIVATE_TTL_DAYS} dias)</SelectItem>
-                  </SelectContent>
-                </Select>
-                {newVisibility === "private" && (
-                  <p className="text-xs text-muted-foreground">
-                    Materiais privados expiram automaticamente após {PRIVATE_TTL_DAYS} dias.
-                  </p>
-                )}
-              </div>
-            </div>
-
-            {newCategory === "RELATORIO_OCORRENCIA" && (
-              <div className="rounded-md border p-3 space-y-3">
-                <p className="text-sm font-medium">Relatório de ocorrência</p>
-                <p className="text-xs text-muted-foreground">Preencha o mínimo e envie o material/URL para a IA catalogar.</p>
-                <div className="grid gap-3">
-                  <div className="space-y-1">
-                    <Label>1) O que aconteceu? *</Label>
-                    <Textarea value={incident.ocorrido} onChange={(e) => setIncident((p) => ({ ...p, ocorrido: e.target.value }))} rows={3} />
-                  </div>
-                  <div className="space-y-1">
-                    <Label>2) Causa raiz e/ou modo de falha? *</Label>
-                    <Textarea
-                      value={incident.causaRaizModoFalha}
-                      onChange={(e) => setIncident((p) => ({ ...p, causaRaizModoFalha: e.target.value }))}
-                      rows={3}
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label>3) Barreiras/cuidado que poderiam evitar?</Label>
-                    <Textarea
-                      value={incident.barreirasCuidados}
-                      onChange={(e) => setIncident((p) => ({ ...p, barreirasCuidados: e.target.value }))}
-                      rows={3}
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label>4) Ações corretivas e preventivas (CAPA)</Label>
-                    <Textarea
-                      value={incident.acoesCorretivasPreventivas}
-                      onChange={(e) => setIncident((p) => ({ ...p, acoesCorretivasPreventivas: e.target.value }))}
-                      rows={3}
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label>5) O que mudou para não repetir?</Label>
-                    <Textarea
-                      value={incident.mudancasImplementadas}
-                      onChange={(e) => setIncident((p) => ({ ...p, mudancasImplementadas: e.target.value }))}
-                      rows={3}
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <div className="space-y-2">
-              <Label htmlFor="study-url">URL do material</Label>
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <Input id="study-url" type="url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://artigo-ou-video..." className="flex-1" />
-                <Button type="button" onClick={handleAddSource} disabled={adding || !url.trim()}>
-                  {adding ? "Adicionando..." : "Adicionar"}
-                </Button>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label>Ou envie um arquivo</Label>
-              <AttachmentUploader
-                onAttachmentsChange={handleFilesUploaded}
-                maxFiles={newCategory === "RELATORIO_OCORRENCIA" ? 1 : 3}
-                maxSizeMB={20}
-                bucket="evidence"
-                pathPrefix="study"
-                acceptMimeTypes={[
-                  "application/pdf",
-                  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                  "application/vnd.ms-excel",
-                  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                  "text/plain",
-                  "application/json",
-                  "text/csv",
-                  "image/jpeg",
-                  "image/png",
-                  "image/webp",
-                ]}
-                maxVideoSeconds={0}
-              />
-              <p className="text-xs text-muted-foreground">Após enviar, a IA gera título/resumo/índice e você encontra no Catálogo.</p>
-            </div>
-          </div>
-        </SheetContent>
-      </Sheet>
+      <UploadSheet
+        open={uploadOpen}
+        onOpenChange={setUploadOpen}
+        category={newCategory}
+        onCategoryChange={setNewCategory}
+        visibility={newVisibility}
+        onVisibilityChange={setNewVisibility}
+        incident={incident}
+        onIncidentChange={setIncident}
+        url={url}
+        onUrlChange={setUrl}
+        adding={adding}
+        onAdd={handleAddSource}
+        onFilesUploaded={handleFilesUploaded}
+      />
 
       <AlertDialog
         open={confirmDialog.open}
