@@ -1,11 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { History, LibraryBig, Plus } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
-import { useI18n } from "@/contexts/I18nContext";
 
 import { apiFetch } from "@/lib/api";
 import { getActiveLocale } from "@/lib/i18n/activeLocale";
@@ -14,14 +12,13 @@ import { ChatPanel } from "@/components/studylab/ChatPanel";
 import type { ChatMessage, ChatMessageMeta } from "@/components/studylab/ChatPanel";
 import { CatalogSheet } from "@/components/studylab/CatalogSheet";
 import { HistoryDrawer } from "@/components/studylab/HistoryDrawer";
+import { ProgressCards } from "@/components/studylab/ProgressCards";
 import { SourcesPanel } from "@/components/studylab/SourcesPanel";
+import { StudyLabHeader } from "@/components/studylab/StudyLabHeader";
 import { StudyLabProvider, useStudyLab } from "@/components/studylab/StudyLabProvider";
 import { UploadSheet } from "@/components/studylab/UploadSheet";
 import type { ForumKbSelection } from "@/components/ForumKbThemeSelector";
-import { TipDialogButton } from "@/components/TipDialogButton";
 
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -34,8 +31,6 @@ import {
 } from "@/components/ui/alert-dialog";
 
 import {
-  CATEGORY_LABELS,
-  CATEGORY_ORDER,
   EMPTY_INCIDENT,
   FIXED_RULES_ID,
   FIXED_SOURCES,
@@ -48,8 +43,6 @@ import {
   isPrivateSource,
   isPublicSource,
   normalizeCategory,
-  normalizeScope,
-  normalizeTopic,
 } from "@/components/studylab/catalog-utils";
 import type { IncidentForm, StudyCategory, StudySource } from "@/components/studylab/catalog-utils";
 
@@ -127,7 +120,6 @@ const createChatSessionId = () => {
 
 function StudyLabInner() {
   const { user, studioAccess, roles } = useAuth();
-  const { t } = useI18n();
   const navigate = useNavigate();
 
   const [sources, setSources] = useState<StudySource[]>([]);
@@ -1393,72 +1385,17 @@ function StudyLabInner() {
 
   return (
     <div className="mx-auto max-w-5xl space-y-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-semibold tracking-tight">StudyLab</h1>
-            <TipDialogButton tipId="studylab-oracle" ariaLabel="Entenda o StudyLab" />
-          </div>
-          <p className="text-sm text-muted-foreground">
-            Selecione fontes no painel e pergunte. Sem fontes marcadas, a IA usa o catálogo geral.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button type="button" variant="outline" className="lg:hidden" onClick={() => setChatHistoryOpen(true)}>
-            <History className="mr-2 h-4 w-4" />
-            Histórico
-          </Button>
-          <Button type="button" variant="outline" onClick={() => setCatalogOpen(true)}>
-            <LibraryBig className="mr-2 h-4 w-4" />
-            Catálogo
-          </Button>
-          <Button type="button" onClick={() => setUploadOpen(true)}>
-            <Plus className="mr-2 h-4 w-4" />
-            Adicionar
-          </Button>
-        </div>
-      </div>
+      <StudyLabHeader
+        onOpenHistory={() => setChatHistoryOpen(true)}
+        onOpenCatalog={() => setCatalogOpen(true)}
+        onOpenUpload={() => setUploadOpen(true)}
+      />
 
-      {ingesting && (
-        <Card>
-          <CardContent className="pt-6 space-y-2">
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-sm font-medium">Analisando materiais...</p>
-            </div>
-            <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-              <div className="h-full w-1/2 bg-primary animate-pulse" />
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {catalogRefreshing && catalogRefreshProgress && (
-        <Card>
-          <CardContent className="pt-6 space-y-2">
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-sm font-medium">Atualizando catálogo com IA...</p>
-              <span className="text-xs text-muted-foreground">
-                {catalogRefreshProgress.done}/{catalogRefreshProgress.total}
-              </span>
-            </div>
-            <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-              <div
-                className="h-full bg-primary transition-all"
-                style={{
-                  width: `${Math.round(
-                    (catalogRefreshProgress.done / Math.max(1, catalogRefreshProgress.total)) * 100,
-                  )}%`,
-                }}
-              />
-            </div>
-            {catalogRefreshProgress.failed > 0 && (
-              <p className="text-[11px] text-muted-foreground">
-                {catalogRefreshProgress.failed} materiais falharam e serão mantidos com os dados atuais.
-              </p>
-            )}
-          </CardContent>
-        </Card>
-      )}
+      <ProgressCards
+        ingesting={ingesting}
+        catalogRefreshing={catalogRefreshing}
+        catalogRefreshProgress={catalogRefreshProgress}
+      />
 
       <div className="grid gap-4 lg:grid-cols-[280px_240px_minmax(0,1fr)]">
       <HistoryDrawer
