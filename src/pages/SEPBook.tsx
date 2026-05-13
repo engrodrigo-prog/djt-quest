@@ -226,8 +226,28 @@ export default function SEPBook() {
   const [selectedParticipants, setSelectedParticipants] = useState<Set<string>>(new Set());
   const [participantOptions, setParticipantOptions] = useState<Array<{ id: string; name: string; sigla_area: string | null }>>([]);
   const [participantSearch, setParticipantSearch] = useState("");
+  const [composerFocused, setComposerFocused] = useState(false);
+  const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const commentFocusedPostId = useRef<string | null>(null);
+
   const sepbookTextInputClass =
     "border-white/35 bg-slate-950/78 text-[16px] leading-7 text-slate-100 placeholder:text-slate-300/75 caret-slate-100 [color-scheme:dark] selection:bg-cyan-500/35";
+
+  const scrollFieldIntoView = useCallback((el: HTMLElement | null) => {
+    if (!el || typeof window === "undefined") return;
+    setTimeout(() => {
+      try {
+        const vv = window.visualViewport;
+        const viewportBottom = (vv?.height ?? window.innerHeight) + (vv?.offsetTop ?? 0);
+        const rect = el.getBoundingClientRect();
+        if (rect.bottom > viewportBottom - 8) {
+          el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        }
+      } catch {
+        // ignore
+      }
+    }, 320);
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -239,6 +259,19 @@ export default function SEPBook() {
       window.dispatchEvent(new CustomEvent("djt-nav-visibility", { detail: { hidden: false } }));
     };
   }, [showComposer]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const isMobile = window.matchMedia?.("(max-width: 768px)")?.matches ?? false;
+    window.dispatchEvent(
+      new CustomEvent("djt-nav-visibility", {
+        detail: { hidden: Boolean(isMobile && composerFocused) },
+      }),
+    );
+    return () => {
+      window.dispatchEvent(new CustomEvent("djt-nav-visibility", { detail: { hidden: false } }));
+    };
+  }, [composerFocused]);
 
   const formatName = (name: string | null | undefined) => {
     const parts = String(name || "").trim().split(/\s+/).filter(Boolean);
@@ -1005,6 +1038,8 @@ export default function SEPBook() {
                 value={editingCommentText}
                 onChange={(e) => setEditingCommentText(e.target.value)}
                 className={`min-h-[96px] ${sepbookTextInputClass}`}
+                onFocus={(e) => { setComposerFocused(true); scrollFieldIntoView(e.currentTarget); }}
+                onBlur={() => setComposerFocused(false)}
               />
               <div className="flex justify-end gap-2">
                 <Button type="button" size="sm" variant="outline" onClick={cancelEditComment}>
@@ -1637,11 +1672,14 @@ export default function SEPBook() {
                   </div>
                 </div>
                 <Textarea
+                  ref={composerTextareaRef}
                   rows={3}
                   value={content}
                   onChange={(e) => handleContentChange(e.target.value)}
                   placeholder="Compartilhe um aprendizado, uma boa prática ou um registro de bastidor..."
                   className={`min-h-[120px] ${sepbookTextInputClass}`}
+                  onFocus={(e) => { setComposerFocused(true); scrollFieldIntoView(e.currentTarget); }}
+                  onBlur={() => setComposerFocused(false)}
                 />
                 {campaignOptions.length > 0 && (
                   <div className="space-y-1">
@@ -1868,7 +1906,7 @@ export default function SEPBook() {
 	                    )}
 	                  </div>
 
-	                  <div className="sticky bottom-0 z-20 -mx-6 px-6 pt-2 border-t border-white/10 bg-slate-950/40 backdrop-blur-md pb-[calc(env(safe-area-inset-bottom)+12px)]">
+	                  <div className={`sticky bottom-0 z-20 -mx-6 px-6 pt-2 border-t border-white/10 bg-slate-950/40 backdrop-blur-md ${composerFocused ? "pb-2" : "pb-[calc(env(safe-area-inset-bottom)+12px)]"}`}>
 	                    <div className="flex flex-wrap items-center justify-center gap-2">
 	                      <Button
 	                        size="sm"
@@ -2074,6 +2112,8 @@ export default function SEPBook() {
                       value={editingText}
                       onChange={(e) => setEditingText(e.target.value)}
                       className={`min-h-[110px] ${sepbookTextInputClass}`}
+                      onFocus={(e) => { setComposerFocused(true); scrollFieldIntoView(e.currentTarget); }}
+                      onBlur={() => setComposerFocused(false)}
                     />
                     <AttachmentUploader
                       onAttachmentsChange={setEditingNewAttachments}
@@ -2340,6 +2380,12 @@ export default function SEPBook() {
                           onChange={(e) =>
                             setNewComment((prev) => ({ ...prev, [p.id]: e.target.value }))
                           }
+                          onFocus={(e) => {
+                            commentFocusedPostId.current = p.id;
+                            setComposerFocused(true);
+                            scrollFieldIntoView(e.currentTarget);
+                          }}
+                          onBlur={() => { commentFocusedPostId.current = null; setComposerFocused(false); }}
                         />
                         <button
                           type="button"

@@ -200,6 +200,15 @@ function StudyLabInner() {
     if (typeof window === "undefined") return;
     const isMobile = window.matchMedia?.("(max-width: 768px)")?.matches ?? false;
     window.dispatchEvent(new CustomEvent("djt-nav-visibility", { detail: { hidden: Boolean(isMobile && chatInputFocused) } }));
+    if (chatInputFocused && isMobile) {
+      setTimeout(() => {
+        try {
+          chatInputRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        } catch {
+          // ignore
+        }
+      }, 320);
+    }
     return () => {
       window.dispatchEvent(new CustomEvent("djt-nav-visibility", { detail: { hidden: false } }));
     };
@@ -1439,6 +1448,7 @@ function StudyLabInner() {
         onInputChange={setChatInput}
         onInputFocus={() => setChatInputFocused(true)}
         onInputBlur={() => setChatInputFocused(false)}
+        inputFocused={chatInputFocused}
         oracleMode={oracleMode}
         activeSources={activeSources}
         selectedSourceTitle={selectedSource?.title ?? null}

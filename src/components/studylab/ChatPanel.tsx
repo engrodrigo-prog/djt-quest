@@ -82,6 +82,8 @@ export interface ChatPanelProps {
   onUploadingChange: (v: boolean) => void;
   onResetAttachments: () => void;
 
+  inputFocused?: boolean;
+
   onSend: () => void;
   onContinueFromTruncated: (idx: number) => void;
   onNewChat: () => void;
@@ -120,6 +122,7 @@ export function ChatPanel({
   uploadKey,
   onUploadingChange,
   onResetAttachments,
+  inputFocused,
   onSend,
   onContinueFromTruncated,
   onNewChat,
@@ -249,7 +252,11 @@ export function ChatPanel({
       <CardContent className="flex flex-col gap-3 p-3 pt-0 sm:p-6 sm:pt-0">
         <div
           ref={viewportRef}
-          className="min-h-[42vh] [@media(orientation:landscape)]:min-h-[32vh] sm:min-h-[55vh] overflow-y-auto rounded-md border bg-muted/30 p-2 sm:p-3"
+          className={`overflow-y-auto rounded-md border bg-muted/30 p-2 sm:p-3 ${
+            inputFocused
+              ? "min-h-[20vh] [@media(orientation:landscape)]:min-h-[15vh]"
+              : "min-h-[42vh] [@media(orientation:landscape)]:min-h-[32vh]"
+          } sm:min-h-[55vh]`}
         >
           {messages.length === 0 && (
             <div className="flex h-full min-h-[30vh] flex-col items-center justify-center gap-4 py-8 text-center">
