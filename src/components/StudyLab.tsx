@@ -1491,7 +1491,7 @@ function StudyLabInner() {
         visibilityFilter={visibilityFilter}
         onVisibilityFilterChange={setVisibilityFilter}
         categoryFilter={categoryFilter}
-        onCategoryFilterChange={setCategoryFilter}
+        onCategoryFilterChange={(v) => setCategoryFilter(v as StudyCategory | "ALL")}
         topicFilter={topicFilter}
         onTopicFilterChange={setTopicFilter}
         isStaff={isStaff}
