@@ -1,29 +1,6 @@
 import { createContext, useContext, useEffect, useState, ReactNode, useRef } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
-import { getAppOrigin } from '@/lib/whatsappShare';
-
-export interface UserProfileData {
-  id: string;
-  email?: string | null;
-  name?: string | null;
-  avatar_url?: string | null;
-  avatar_thumbnail_url?: string | null;
-  operational_base?: string | null;
-  sigla_area?: string | null;
-  team_id?: string | null;
-  matricula?: string | null;
-  phone?: string | null;
-  telefone?: string | null;
-  is_leader?: boolean | null;
-  studio_access?: boolean | null;
-  must_change_password?: boolean | null;
-  date_of_birth?: string | null;
-  tier?: string | null;
-  xp?: number | null;
-  coord_id?: string | null;
-  division_id?: string | null;
-}
 
 interface OrgScope {
   teamId: string | null;
@@ -46,11 +23,9 @@ interface AuthContextType {
   studioAccess: boolean;
   isLeader: boolean;
   orgScope: OrgScope | null;
-  profile: UserProfileData | null;
+  profile: any | null;
   roleOverride: 'colaborador' | 'lider' | null;
   setRoleOverride: (val: 'colaborador' | 'lider' | null) => void;
-  sessionLocked: boolean;
-  lockSession: () => void;
   signIn: (email: string, password: string) => Promise<{ error: any }>;
   signUp: (email: string, password: string, name: string) => Promise<{ data: any; error: any }>;
   signOut: () => Promise<void>;
@@ -61,7 +36,7 @@ interface AuthContextType {
     studioAccess: boolean;
     isLeader: boolean;
     orgScope: OrgScope | null;
-    profile: UserProfileData | null;
+    profile: any | null;
   } | null>;
 }
 
@@ -71,9 +46,6 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 const CACHE_KEY = 'auth_user_cache';
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 const ROLE_OVERRIDE_KEY = 'auth_role_override';
-const SESSION_DAY_KEY = 'auth_session_day_key';
-const LOCKED_KEY = 'djt_session_locked';
-const ACCESS_TZ = 'America/Sao_Paulo';
 
 const getCachedAuth = () => {
   try {
@@ -103,31 +75,15 @@ async function withTimeout<T>(promise: Promise<T>, ms = 12000): Promise<T> {
   ]);
 }
 
-const dayKeyInTimeZone = (date: Date, timeZone = ACCESS_TZ) => {
-  try {
-    const parts = new Intl.DateTimeFormat('en-CA', {
-      timeZone,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    }).formatToParts(date);
-    const map = Object.fromEntries(parts.map((p) => [p.type, p.value]));
-    if (map.year && map.month && map.day) return `${map.year}-${map.month}-${map.day}`;
-  } catch {
-    // noop
-  }
-  return date.toISOString().slice(0, 10);
+const accessKeyForToday = (userId: string, kind: string) => {
+  const day = new Date().toISOString().slice(0, 10);
+  return `access_${kind}_${userId}_${day}`;
 };
 
-const accessKeyForToday = (userId: string) => {
-  const day = dayKeyInTimeZone(new Date(), ACCESS_TZ);
-  return `access_daily_${userId}_${day}`;
-};
-
-const tryTrackAccess = async (token: string | null | undefined, userId: string | null | undefined, kind: 'daily' | 'session' | 'login' | 'pageview') => {
+const tryTrackAccess = async (token: string | null | undefined, userId: string | null | undefined, kind: 'session' | 'login' | 'pageview') => {
   try {
     if (!token || !userId) return;
-    const key = accessKeyForToday(userId);
+    const key = accessKeyForToday(userId, kind);
     if (localStorage.getItem(key) === '1') return;
     localStorage.setItem(key, '1');
     await fetch('/api/admin?handler=track-access', {
@@ -136,7 +92,7 @@ const tryTrackAccess = async (token: string | null | undefined, userId: string |
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ kind: 'daily', path: window.location.pathname }),
+      body: JSON.stringify({ kind }),
     });
   } catch {
     // best-effort
@@ -168,7 +124,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLeader, setIsLeader] = useState(false);
   const [baseIsLeader, setBaseIsLeader] = useState(false);
   const [orgScope, setOrgScope] = useState<OrgScope | null>(null);
-  const [profile, setProfile] = useState<UserProfileData | null>(null);
+  const [profile, setProfile] = useState<any | null>(null);
   const [previousRole, setPreviousRole] = useState<string | null>(null);
   const [hasShownWelcome, setHasShownWelcome] = useState(false);
   const roleRef = useRef<string | null>(null);
@@ -182,9 +138,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch {
       return null;
     }
-  });
-  const [sessionLocked, setSessionLocked] = useState(() => {
-    try { return localStorage.getItem(LOCKED_KEY) === '1'; } catch { return false; }
   });
 
   useEffect(() => {
@@ -289,8 +242,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(currentSession.user ?? null);
         setSession(currentSession);
         setHasActiveSession(true);
-        localStorage.removeItem(LOCKED_KEY);
-        setSessionLocked(false);
 
         if (cached) {
           setBaseRole(cached.role);
@@ -350,8 +301,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(currentSession.user ?? null);
       setSession(currentSession ?? null);
       setHasActiveSession(!!currentSession);
-      localStorage.removeItem(LOCKED_KEY);
-      setSessionLocked(false);
 
       return authData;
     } catch (error: any) {
@@ -362,10 +311,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(providedSession?.user ?? null);
       setSession(providedSession ?? null);
       setHasActiveSession(!!providedSession);
-      if (providedSession) {
-        localStorage.removeItem(LOCKED_KEY);
-        setSessionLocked(false);
-      }
 
       if (cached) {
         setBaseRole(cached.role);
@@ -410,36 +355,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let active = true;
     (async () => {
       try {
-        const { data: { session: rawSession } } = await supabase.auth.getSession();
-        let currentSession = rawSession ?? null;
+        const { data: { session: currentSession } } = await supabase.auth.getSession();
         if (!active) return;
 
         if (currentSession) {
-          if (localStorage.getItem(LOCKED_KEY) === '1') {
-            // Biometric gate required — keep Supabase token alive, block auto-login
-            currentSession = null;
-          } else {
-            try {
-              const storedDayKey = localStorage.getItem(SESSION_DAY_KEY);
-              const nowDayKey = dayKeyInTimeZone(new Date(), ACCESS_TZ);
-              if (storedDayKey && storedDayKey !== nowDayKey) {
-                lockSession();
-                currentSession = null;
-              } else {
-                localStorage.setItem(SESSION_DAY_KEY, nowDayKey);
-              }
-            } catch {
-              // ignore
-            }
-          }
-
-          if (currentSession) {
-            tryTrackAccess(currentSession.access_token, currentSession.user?.id, 'daily');
-            await fetchUserSession(currentSession);
-          }
-        }
-
-        if (!currentSession) {
+          tryTrackAccess(currentSession.access_token, currentSession.user?.id, 'session');
+          await fetchUserSession(currentSession);
+        } else {
           setUser(null);
           setSession(null);
           setHasActiveSession(false);
@@ -452,9 +374,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Listener para mudanças futuras de auth (login/logout)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
-        // Don't auto-restore state while session is locked (biometric gate active)
-        if (localStorage.getItem(LOCKED_KEY) === '1') return;
-
         const previousUserId = userIdRef.current;
 
         // Clear cache if user changed
@@ -468,12 +387,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         if (session) {
           const oldRole = roleRef.current;
-          try {
-            localStorage.setItem(SESSION_DAY_KEY, dayKeyInTimeZone(new Date(), ACCESS_TZ));
-          } catch {
-            // ignore
-          }
-          tryTrackAccess(session.access_token, session.user?.id, 'daily');
+          tryTrackAccess(session.access_token, session.user?.id, 'session');
           fetchUserSession(session)
             .then((authData) => {
               if (oldRole === 'colaborador' && authData?.role && authData.role.includes('gerente') && !welcomeRef.current) {
@@ -501,119 +415,42 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       active = false;
       subscription.unsubscribe();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const signIn = async (email: string, password: string) => {
-    try {
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
-      if (!error) return { error: null };
-
-      const msg = String((error as any)?.message || '');
-      const name = String((error as any)?.name || '');
-      const maybeNetwork = msg.toLowerCase().includes('failed to fetch') || name.toLowerCase().includes('fetch');
-      if (!maybeNetwork) return { error };
-    } catch (err: any) {
-      const msg = String(err?.message || err);
-      const maybeNetwork = msg.toLowerCase().includes('failed to fetch');
-      if (!maybeNetwork) return { error: err };
-    }
-
-    // Fallback: proxy auth through our own Vercel function to bypass client network blocks.
-    try {
-      const resp = await fetch('/api/auth-login', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ email, password }),
-      });
-
-      const payload = await resp.json().catch(() => null);
-      if (!resp.ok) return { error: { message: payload?.error || 'Falha ao autenticar' } as any };
-
-      const access_token = payload?.access_token;
-      const refresh_token = payload?.refresh_token;
-      if (!access_token || !refresh_token) return { error: { message: 'Resposta inválida do servidor' } as any };
-
-      const { error: setErr } = await supabase.auth.setSession({ access_token, refresh_token });
-      return { error: setErr ?? null };
-    } catch (err: any) {
-      return { error: { message: err?.message || 'Falha ao autenticar (fallback)' } as any };
-    }
+  const signIn = async (emailRaw: string, password: string) => {
+    const email = String(emailRaw || '').trim().toLowerCase();
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    return { error };
   };
 
   const signUp = async (email: string, password: string, name: string) => {
-    const redirectUrl = `${getAppOrigin() || window.location.origin}/`;
+    const redirectUrl = `${window.location.origin}/`;
     
     const { data, error } = await supabase.auth.signUp({
-      email,
+      email: String(email || '').trim().toLowerCase(),
       password,
       options: {
         emailRedirectTo: redirectUrl,
-        data: { name }
+        data: { name: String(name || '').trim() }
       }
     });
     return { data, error };
   };
 
-  const lockSession = () => {
-    localStorage.removeItem(CACHE_KEY);
-    localStorage.removeItem(ROLE_OVERRIDE_KEY);
-    localStorage.removeItem(SESSION_DAY_KEY);
-    localStorage.setItem(LOCKED_KEY, '1');
-    setUser(null);
-    setProfile(null);
-    setSession(null);
-    setHasActiveSession(false);
-    setBaseRole(null);
-    setBaseStudioAccess(false);
-    setBaseIsLeader(false);
-    setRoles([]);
-    setIsContentCurator(false);
-    setOrgScope(null);
-    setSessionLocked(true);
-  };
-
   const signOut = async () => {
+    console.log('🚪 Signing out, clearing cache');
     localStorage.removeItem(CACHE_KEY);
     localStorage.removeItem(ROLE_OVERRIDE_KEY);
-    localStorage.removeItem(SESSION_DAY_KEY);
-    localStorage.removeItem(LOCKED_KEY);
-    setSessionLocked(false);
     await supabase.auth.signOut();
   };
 
-  // Daily forced logout at 00:00 (America/Sao_Paulo) to simplify daily access counting.
-  useEffect(() => {
-    if (!session?.access_token) return;
-    let cancelled = false;
-    const intervalId = window.setInterval(() => {
-      if (cancelled) return;
-      try {
-        const storedDayKey = localStorage.getItem(SESSION_DAY_KEY);
-        const nowDayKey = dayKeyInTimeZone(new Date(), ACCESS_TZ);
-        if (storedDayKey && storedDayKey !== nowDayKey) {
-          lockSession();
-        }
-      } catch {
-        // ignore
-      }
-    }, 30_000);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(intervalId);
-    };
-  }, [session?.access_token]);
-
   return (
-    <AuthContext.Provider value={{
-      user,
-      session,
-      loading,
+    <AuthContext.Provider value={{ 
+      user, 
+      session, 
+      loading, 
       hasActiveSession,
-      sessionLocked,
-      lockSession,
-      userRole,
+      userRole, 
       roles,
       isContentCurator,
       studioAccess,
@@ -623,7 +460,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       roleOverride,
       setRoleOverride,
       signIn,
-      signUp,
+      signUp, 
       signOut,
       refreshUserSession
     }}>

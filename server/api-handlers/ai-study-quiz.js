@@ -1,8 +1,16 @@
 import { createClient } from "@supabase/supabase-js";
 import { parseJsonFromAiContent } from "../lib/ai-curation-provider.js";
+import { classifyOpenAiFailure } from "../lib/openai-failures.js";
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
+const buildResponsesTextConfig = (model, desiredVerbosity) => {
+  const m = String(model || "").trim().toLowerCase();
+  if (!m.startsWith("gpt-5")) return void 0;
+  const v = String(desiredVerbosity || "").trim().toLowerCase();
+  if (v === "low" || v === "medium") return { verbosity: v };
+  return { verbosity: "medium" };
+};
 const LETTERS = ["A", "B", "C", "D"];
 const XP_TABLE_MILHAO = [100, 200, 300, 400, 500, 1e3, 2e3, 3e3, 5e3, 1e4];
 const BANNED_TERMS_RE = /smart\s*line|smartline|smarline/i;
@@ -267,17 +275,16 @@ async function handler(req, res) {
             method: "POST",
             headers: { "Content-Type": "application/json", Authorization: `Bearer ${OPENAI_API_KEY}` },
             signal: controller.signal,
-            body: JSON.stringify({
-              model,
-              input,
-              tools: [{ type: tool }],
-              tool_choice: { type: tool },
-              max_tool_calls: 1,
-              text: { verbosity: "low" },
-              reasoning: { effort: "low" },
-              max_output_tokens: 900
-            })
-          });
+	            body: JSON.stringify({
+	              model,
+	              input,
+	              tools: [{ type: tool }],
+	              tool_choice: { type: tool },
+	              max_tool_calls: 1,
+	              text: buildResponsesTextConfig(model, "low"),
+	              max_output_tokens: 900
+	            })
+	          });
           const json = await resp.json().catch(() => null);
           if (!resp.ok) {
             const msg = json?.error?.message || json?.message || "";
@@ -671,7 +678,8 @@ ${joinedContext}`
       }
     }
     if (!content) {
-      return res.status(400).json({ error: `OpenAI error: ${lastErr || "no output"}` });
+      const failure = classifyOpenAiFailure(lastErr || "no output");
+      return res.status(400).json({ error: failure.message, meta: { reason_code: failure.code } });
     }
     const json = parseJsonFromAiContent(content).parsed;
     if (!json || !Array.isArray(json.questions)) {

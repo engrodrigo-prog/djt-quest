@@ -9,29 +9,15 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { Check, ChevronsUpDown, Fingerprint, Loader2, Wand2 } from "lucide-react";
+import { Check, ChevronsUpDown, Wand2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import djtCover from '@/assets/backgrounds/djt-quest-cover.webp';
 import { apiFetch } from "@/lib/api";
-import {
-  getLoginQueryState,
-  MATRICULA_LOOKUP_MIN_LENGTH,
-  normalizeMatricula,
-  resolveLoginCandidate,
-} from "@/lib/auth-login";
-import {
-  getBiometricErrorMessage,
-  getBiometricSupport,
-  getStoredBiometricFactorId,
-  getWebAuthnRpConfig,
-  listVerifiedWebAuthnFactors,
-  syncPreferredBiometricFactor,
-  type WebAuthnFactorLike,
-} from "@/lib/biometricAuth";
 import { buildAbsoluteAppUrl, openWhatsAppShare } from "@/lib/whatsappShare";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { SUPPORTED_LOCALES, useI18n } from "@/contexts/I18nContext";
 import { localeToOpenAiLanguageTag } from "@/lib/i18n/language";
 
@@ -43,7 +29,25 @@ interface UserOption {
 }
 
 const LAST_USER_KEY = 'djt_last_user_id';
+const MATRICULA_LOOKUP_MIN_LENGTH = 6;
 const DEFAULT_PASSWORD = '123456';
+
+const normalizeMatricula = (value?: string | null) =>
+  (value ?? '').replace(/\D/g, '');
+
+const normalizeEmail = (value?: string | null) =>
+  String(value || '').trim().toLowerCase();
+
+type InviteProfile = "collaborator" | "leader" | "guest";
+
+const normalizeInviteProfile = (raw: string | null): InviteProfile | null => {
+  const s = String(raw || "").trim().toLowerCase();
+  if (!s) return null;
+  if (s === "guest" || s === "convidado" || s === "invited") return "guest";
+  if (s === "leader" || s === "lider" || s === "líder" || s === "lider_equipe") return "leader";
+  if (s === "collaborator" || s === "colaborador" || s === "colab") return "collaborator";
+  return null;
+};
 
 const Auth = () => {
   const [selectedUserId, setSelectedUserId] = useState("");
@@ -54,16 +58,23 @@ const Auth = () => {
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
   const [forgotOpen, setForgotOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareProfile, setShareProfile] = useState<InviteProfile>("collaborator");
   const [resetIdentifier, setResetIdentifier] = useState("");
   const [resetReason, setResetReason] = useState("");
   const [resetLoading, setResetLoading] = useState(false);
   const passwordRef = useRef<HTMLInputElement>(null);
+  const matriculaLookupRef = useRef<string | null>(null);
   const suggestionsLookupRef = useRef<string | null>(null);
-  const { signIn, refreshUserSession, sessionLocked } = useAuth();
+  const { signIn, refreshUserSession } = useAuth();
   const { locale, setLocale, t } = useI18n();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const redirectParam = searchParams.get('redirect');
+  const inviteProfileParam = normalizeInviteProfile(searchParams.get("invite_profile"));
+  const registerPath = inviteProfileParam
+    ? `/register?invite_profile=${encodeURIComponent(inviteProfileParam)}`
+    : "/register";
 
   const lookupProfiles = useCallback(async (params: { mode: string; query: string; limit?: number }) => {
     const resp = await apiFetch('/api/profile-lookup', {
@@ -86,11 +97,15 @@ const Auth = () => {
     return raw;
   }, [redirectParam]);
 
-  const {
-    normalized: normalizedQuery,
-    allowSuggestions,
-    inputMode,
-  } = getLoginQueryState(query);
+  const normalizedQuery = query.trim().toLowerCase();
+  const digitsQuery = normalizeMatricula(query);
+  const nameTokens = normalizedQuery.split(/\s+/).filter(Boolean);
+  const isEmailMode = normalizedQuery.includes('@');
+  const isMatriculaMode = !!digitsQuery && /^[0-9]+$/.test(digitsQuery);
+  const allowSuggestions =
+    (isMatriculaMode && digitsQuery.length >= MATRICULA_LOOKUP_MIN_LENGTH) ||
+    (isEmailMode && normalizedQuery.length >= 3) ||
+    (!isMatriculaMode && nameTokens.length >= 2 && nameTokens[1].length >= 1);
 
   const matchesSearch = (u: UserOption, needle: string) => {
     if (!needle) return true;
@@ -109,123 +124,34 @@ const Auth = () => {
     ? users.filter(u => matchesSearch(u, normalizedQuery))
     : [];
 
-  const handleBiometricUnlock = useCallback(async () => {
-    setLoading(true);
-    try {
-      const support = await getBiometricSupport();
-      if (!support.available || !support.platformAuthenticator) {
-        toast.warning("Biometria indisponivel neste aparelho. Use sua senha abaixo.");
-        return;
-      }
-
-      const lastUserId = localStorage.getItem(LAST_USER_KEY);
-      const { data, error: listError } = await supabase.auth.mfa.listFactors();
-      if (listError) {
-        toast.warning("Sessao expirada. Por favor, entre com sua senha.");
-        return;
-      }
-
-      const factor = syncPreferredBiometricFactor(
-        lastUserId,
-        listVerifiedWebAuthnFactors((data?.all || []) as WebAuthnFactorLike[])
-      );
-
-      if (!factor) {
-        toast.warning("Nenhuma biometria configurada para este aparelho. Use sua senha.");
-        return;
-      }
-
-      const authResult = await supabase.auth.mfa.webauthn.authenticate(
-        { factorId: factor.id, webauthn: getWebAuthnRpConfig() },
-        { userVerification: "required" }
-      );
-
-      if (authResult.error) {
-        toast.error("Biometria nao confirmada.", {
-          description: getBiometricErrorMessage(authResult.error),
-        });
-        return;
-      }
-
-      await refreshUserSession();
-      const next = resolveRedirect();
-      navigate(next ?? '/dashboard', { replace: true });
-    } catch (error) {
-      console.error("Biometric unlock error:", error);
-      toast.error("Nao foi possivel desbloquear com biometria.", {
-        description: getBiometricErrorMessage(error),
-      });
-    } finally {
-      setLoading(false);
-    }
-  }, [refreshUserSession, navigate, resolveRedirect]);
-
-  const maybeAuthenticateWithBiometrics = useCallback(async (userId: string) => {
-    if (!getStoredBiometricFactorId(userId)) {
-      return { status: "not_configured" } as const;
-    }
-
-    const support = await getBiometricSupport();
-    if (!support.available || !support.platformAuthenticator) {
-      return { status: "unsupported" } as const;
-    }
-
-    try {
-      const { data, error } = await supabase.auth.mfa.listFactors();
-      if (error) {
-        return { status: "failed", error } as const;
-      }
-
-      const factor = syncPreferredBiometricFactor(
-        userId,
-        listVerifiedWebAuthnFactors((data?.all || []) as WebAuthnFactorLike[])
-      );
-
-      if (!factor) {
-        return { status: "not_configured" } as const;
-      }
-
-      const authResult = await supabase.auth.mfa.webauthn.authenticate(
-        {
-          factorId: factor.id,
-          webauthn: getWebAuthnRpConfig(),
-        },
-        {
-          userVerification: "required",
-        }
-      );
-
-      if (authResult.error) {
-        return { status: "failed", error: authResult.error } as const;
-      }
-
-      return { status: "authenticated" } as const;
-    } catch (error) {
-      return { status: "failed", error } as const;
-    }
-  }, []);
-
   const attemptLogin = useCallback(async (user: UserOption) => {
     setLoading(true);
     try {
-      const { error } = await signIn(user.email, password);
-
-      if (error) {
-        console.error("Login error:", error);
+      const email = normalizeEmail(user.email);
+      if (!email || !email.includes('@')) {
         toast.error(t("auth.errors.loginFailedTitle"), {
-          description: error.message ?? t("auth.errors.loginFailedDesc"),
+          description: t("auth.errors.missingEmailDesc"),
         });
         return;
       }
 
-      const biometricResult = await maybeAuthenticateWithBiometrics(user.id);
-      if (biometricResult.status === "unsupported" || biometricResult.status === "failed") {
-        toast.warning("Biometria nao utilizada neste acesso", {
-          description:
-            biometricResult.status === "unsupported"
-              ? "A biometria nao esta disponivel neste aparelho agora. O acesso seguiu com a senha."
-              : `${getBiometricErrorMessage(biometricResult.error)} O acesso seguiu com a senha.`,
-        });
+      const { error } = await signIn(email, password);
+
+      if (error) {
+        if (import.meta.env.DEV) {
+          console.error("Login error:", error);
+        }
+        const rawMessage = String((error as any)?.message || '');
+        if (/invalid login credentials/i.test(rawMessage)) {
+          toast.error(t("auth.errors.loginFailedTitle"), {
+            description: t("auth.errors.invalidCredentialsDesc"),
+          });
+        } else {
+          toast.error(t("auth.errors.loginFailedTitle"), {
+            description: rawMessage || t("auth.errors.loginFailedDesc"),
+          });
+        }
+        return;
       }
 
       const authData = await refreshUserSession();
@@ -241,31 +167,25 @@ const Auth = () => {
         }
       }
 
-      // Server-side enforcement: redirect to password change if flagged
-      if (authData?.profile?.must_change_password) {
-        // TODO: redirect to /alterar-senha
-        localStorage.setItem('must_change_password', 'true');
-        navigate('/alterar-senha', { replace: true });
-        return;
-      }
-
       const next = resolveRedirect();
       if (next) {
-        navigate(next, { replace: true });
+        navigate(next);
       } else {
         // Início deve ser o mesmo para todos (líderes também jogam quizzes).
         // O dashboard de liderança continua acessível via menu do perfil/botão "Líder".
-        navigate('/dashboard', { replace: true });
+        navigate('/dashboard');
       }
     } catch (error) {
-      console.error("Login error:", error);
+      if (import.meta.env.DEV) {
+        console.error("Login error:", error);
+      }
       toast.error(t("auth.errors.loginUnexpectedTitle"), {
         description: error instanceof Error ? error.message : undefined,
       });
     } finally {
       setLoading(false);
     }
-  }, [maybeAuthenticateWithBiometrics, navigate, password, refreshUserSession, signIn, resolveRedirect, t]);
+  }, [navigate, password, refreshUserSession, signIn, resolveRedirect, t]);
 
   const selectUser = useCallback((user: UserOption) => {
     setSelectedUserId(user.id);
@@ -295,44 +215,65 @@ const Auth = () => {
       setPassword("");
       suggestionsLookupRef.current = null;
     }
+
+    const digitsOnly = normalizeMatricula(value);
+    // Só dispara lookup remoto após 6 dígitos da matrícula
+    if (digitsOnly.length >= MATRICULA_LOOKUP_MIN_LENGTH) {
+      fetchUserByMatriculaDigits(digitsOnly);
+    }
   };
 
-  const resolveUserFromQuery = useCallback(async () => {
-    const state = getLoginQueryState(query);
+  const fetchUserByMatriculaDigits = useCallback(async (digits: string) => {
+    if (matriculaLookupRef.current === digits) return;
+    matriculaLookupRef.current = digits;
+    try {
+      // Try exact match first to avoid selecting a wrong partial match.
+      const exact = await lookupProfiles({ mode: 'matricula_exact', query: digits, limit: 1 });
+      const option = exact[0] || (await lookupProfiles({ mode: 'matricula_partial', query: digits, limit: 1 }))[0];
+      if (!option) return;
+
+      setUsers((prev) => {
+        if (prev.some((u) => u.id === option.id)) return prev;
+        return [option, ...prev];
+      });
+      selectUser(option);
+    } catch (error) {
+      console.error('Lookup error:', error);
+    } finally {
+      if (matriculaLookupRef.current === digits) {
+        matriculaLookupRef.current = null;
+      }
+    }
+  }, [lookupProfiles, selectUser]);
+
+  const resolveUserFromQuery = useCallback(async (): Promise<UserOption | null> => {
+    const trimmed = query.trim();
+    const digitsOnly = normalizeMatricula(trimmed);
+    const lower = trimmed.toLowerCase();
+    const words = lower.split(/\s+/).filter(Boolean);
 
     try {
-      if (state.kind === 'matricula') {
-        if (state.digitsOnly.length < MATRICULA_LOOKUP_MIN_LENGTH) {
-          return resolveLoginCandidate<UserOption>(state, {});
-        }
-
-        const exactMatricula = await lookupProfiles({ mode: 'matricula_exact', query: state.digitsOnly, limit: 1 });
-        if (exactMatricula[0]) {
-          return resolveLoginCandidate<UserOption>(state, { exactMatricula });
-        }
-
-        const partialMatricula = await lookupProfiles({ mode: 'matricula_partial', query: state.digitsOnly, limit: 10 });
-        return resolveLoginCandidate<UserOption>(state, { partialMatricula });
+      if (digitsOnly.length >= MATRICULA_LOOKUP_MIN_LENGTH) {
+        const exact = await lookupProfiles({ mode: 'matricula_exact', query: digitsOnly, limit: 1 });
+        if (exact[0]) return exact[0];
+        const partial = await lookupProfiles({ mode: 'matricula_partial', query: digitsOnly, limit: 1 });
+        if (partial[0]) return partial[0];
       }
 
-      if (state.kind === 'email') {
-        const email = state.normalized.length >= 3
-          ? await lookupProfiles({ mode: 'email', query: state.normalized, limit: 10 })
-          : [];
-        return resolveLoginCandidate<UserOption>(state, { email });
+      if (trimmed.includes('@')) {
+        const email = await lookupProfiles({ mode: 'email', query: lower, limit: 1 });
+        if (email[0]) return email[0];
       }
 
-      if (state.kind === 'name') {
-        const name = state.allowSuggestions
-          ? await lookupProfiles({ mode: 'name', query: state.normalized, limit: 10 })
-          : [];
-        return resolveLoginCandidate<UserOption>(state, { name });
+      if (words.length >= 2 && words[1].length >= 1) {
+        const name = await lookupProfiles({ mode: 'name', query: lower, limit: 1 });
+        if (name[0]) return name[0];
       }
     } catch (error) {
       console.error('Login lookup error:', error);
     }
 
-    return { kind: 'not_found' } as const;
+    return null;
   }, [lookupProfiles, query]);
 
   const fetchSuggestions = useCallback(async (input: string) => {
@@ -388,28 +329,12 @@ const Auth = () => {
   }, [lookupProfiles, selectUser]);
 
   useEffect(() => {
-    if (!allowSuggestions || selectedUserId) return;
+    if (!allowSuggestions) return;
     const t = setTimeout(() => {
       void fetchSuggestions(query);
     }, 250);
     return () => clearTimeout(t);
-  }, [allowSuggestions, fetchSuggestions, query, selectedUserId]);
-
-  const showLookupResolutionError = useCallback((resolution: Awaited<ReturnType<typeof resolveUserFromQuery>>) => {
-    if (resolution.kind === 'needs_selection') {
-      setUsers(resolution.suggestions);
-      setOpen(true);
-      toast.error(t("auth.errors.completeOrSelectUser"));
-      return;
-    }
-
-    if (resolution.kind === 'needs_more_input') {
-      toast.error(t("auth.errors.completeOrSelectUser"));
-      return;
-    }
-
-    toast.error(t("auth.errors.userNotFoundDetailed"));
-  }, [t]);
+  }, [allowSuggestions, fetchSuggestions, query]);
 
   const handleForgotSubmit = async () => {
     if (!resetIdentifier.trim()) {
@@ -444,29 +369,24 @@ const Auth = () => {
       : null;
 
     if (!selectedUser) {
-      const resolution = await resolveUserFromQuery();
-      if (resolution.kind === 'matched') {
-        const resolved = resolution.user;
+      const resolved = await resolveUserFromQuery();
+      if (resolved) {
         setUsers((prev) => {
           if (prev.some((u) => u.id === resolved.id)) return prev;
           return [resolved, ...prev];
         });
         selectUser(resolved);
         selectedUser = resolved;
-      } else {
-        showLookupResolutionError(resolution);
       }
     }
 
     if (!selectedUser) {
+      toast.error(t("auth.userNotFound"));
       return;
     }
 
     await attemptLogin(selectedUser);
   };
-
-  const lockedUserId = sessionLocked ? localStorage.getItem(LAST_USER_KEY) : null;
-  const hasBiometric = !!lockedUserId && !!getStoredBiometricFactorId(lockedUserId);
 
   return (
     <div
@@ -505,34 +425,6 @@ const Auth = () => {
           </CardDescription>
         </CardHeader>
         <CardContent className="text-slate-900">
-          {sessionLocked && (
-            <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-4 space-y-3">
-              <div className="text-center space-y-0.5">
-                <p className="text-xs text-slate-500">Sessao bloqueada</p>
-                {selectedUserName && (
-                  <p className="text-sm font-medium text-slate-800">
-                    Olá, {selectedUserName.split(" ")[0]}!
-                  </p>
-                )}
-              </div>
-              {hasBiometric && (
-                <Button
-                  type="button"
-                  className="w-full flex items-center gap-2 bg-primary text-primary-foreground hover:opacity-90"
-                  onClick={handleBiometricUnlock}
-                  disabled={loading}
-                >
-                  {loading ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Fingerprint className="h-4 w-4" />
-                  )}
-                  Entrar com Face ID / biometria
-                </Button>
-              )}
-              <p className="text-center text-xs text-slate-500">ou use sua senha abaixo</p>
-            </div>
-          )}
           <form onSubmit={handleLogin} className="space-y-4 text-slate-900">
             <div className="space-y-2">
               <Label htmlFor="user" className="text-slate-900">{t("auth.userLabel")}</Label>
@@ -545,7 +437,7 @@ const Auth = () => {
                       placeholder={t("auth.userPlaceholder")}
                       value={query}
                       autoComplete="off"
-                      inputMode={inputMode}
+                      inputMode="numeric"
                       onChange={(e) => handleQueryChange(e.target.value)}
                       onFocus={() => setOpen(true)}
                       onKeyDown={async (e) => {
@@ -553,12 +445,12 @@ const Auth = () => {
                           setOpen(false);
                         } else if (e.key === 'Enter') {
                           e.preventDefault();
-                          const resolution = await resolveUserFromQuery();
-                          if (resolution.kind !== 'matched') {
-                            showLookupResolutionError(resolution);
+                          const resolved = await resolveUserFromQuery();
+                          const candidate = resolved || (filteredUsers.length === 1 ? filteredUsers[0] : null);
+                          if (!candidate) {
+                            toast.error(t("auth.errors.userNotFoundDetailed"));
                             return;
                           }
-                          const candidate = resolution.user;
                           selectUser(candidate);
                           if (password.trim()) {
                             await attemptLogin(candidate);
@@ -658,10 +550,7 @@ const Auth = () => {
               variant="outline"
               className="w-full mt-1 text-sm bg-white text-slate-900 border-slate-300 hover:bg-slate-50"
               onClick={() => {
-                openWhatsAppShare({
-                  message: t("auth.shareWhatsappMessage"),
-                  url: buildAbsoluteAppUrl("/auth"),
-                });
+                setShareOpen(true);
               }}
             >
               {t("auth.shareWhatsapp")}
@@ -670,7 +559,7 @@ const Auth = () => {
             <div className="text-center text-sm mt-4">
               <span className="text-slate-600">{t("auth.noAccount")} </span>
               <Link 
-                to="/register" 
+                to={registerPath} 
                 className="text-primary hover:underline font-medium"
               >
                 {t("auth.requestSignup")}
@@ -679,6 +568,82 @@ const Auth = () => {
           </form>
         </CardContent>
       </Card>
+
+      <Dialog
+        open={shareOpen}
+        onOpenChange={(open) => {
+          setShareOpen(open);
+          if (open) {
+            setShareProfile(inviteProfileParam || "collaborator");
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("auth.shareProfile.title")}</DialogTitle>
+            <DialogDescription>{t("auth.shareProfile.description")}</DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            <Label className="text-sm">{t("auth.shareProfile.profileLabel")}</Label>
+            <RadioGroup value={shareProfile} onValueChange={(v) => setShareProfile(v as InviteProfile)} className="gap-3">
+              {[
+                {
+                  key: "collaborator",
+                  title: t("auth.shareProfile.options.collaborator"),
+                  hint: t("auth.shareProfile.options.collaboratorHint"),
+                },
+                {
+                  key: "leader",
+                  title: t("auth.shareProfile.options.leader"),
+                  hint: t("auth.shareProfile.options.leaderHint"),
+                },
+                {
+                  key: "guest",
+                  title: t("auth.shareProfile.options.guest"),
+                  hint: t("auth.shareProfile.options.guestHint"),
+                },
+              ].map((opt) => (
+                <div key={opt.key} className="flex items-start gap-2">
+                  <RadioGroupItem id={`share-profile-${opt.key}`} value={opt.key} />
+                  <div className="grid gap-1 leading-none">
+                    <Label htmlFor={`share-profile-${opt.key}`} className="font-medium">
+                      {opt.title}
+                    </Label>
+                    <p className="text-xs text-muted-foreground">{opt.hint}</p>
+                  </div>
+                </div>
+              ))}
+            </RadioGroup>
+            <p className="text-xs text-muted-foreground">{t("auth.shareProfile.hint")}</p>
+          </div>
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setShareOpen(false)}>
+              {t("auth.shareProfile.cancel")}
+            </Button>
+            <Button
+              type="button"
+              onClick={() => {
+                const profileLabel =
+                  shareProfile === "guest"
+                    ? t("auth.shareProfile.options.guest")
+                    : shareProfile === "leader"
+                      ? t("auth.shareProfile.options.leader")
+                      : t("auth.shareProfile.options.collaborator");
+                const url = buildAbsoluteAppUrl(`/auth?invite_profile=${encodeURIComponent(shareProfile)}`);
+                openWhatsAppShare({
+                  message: `${t("auth.shareWhatsappMessage")}\n${t("auth.shareProfile.messageLine", { profile: profileLabel })}`,
+                  url,
+                });
+                setShareOpen(false);
+              }}
+            >
+              {t("auth.shareProfile.confirm")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={forgotOpen} onOpenChange={(open) => {
         setForgotOpen(open);

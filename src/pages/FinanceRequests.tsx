@@ -10,21 +10,15 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { AttachmentUploader } from "@/components/AttachmentUploader";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, ChevronDown, FileText, Loader2, Plus, XCircle } from "lucide-react";
+import { ArrowLeft, FileText, Plus, XCircle } from "lucide-react";
 import { useI18n } from "@/contexts/I18nContext";
 import { getActiveLocale } from "@/lib/i18n/activeLocale";
-import { FINANCE_COMPANIES, FINANCE_COORDINATIONS, FINANCE_EXPENSE_TYPES, FINANCE_REQUEST_KINDS, FINANCE_STATUSES } from "@/lib/finance/constants";
+import { cn } from "@/lib/utils";
+import { FINANCE_COMPANIES, FINANCE_COORDINATIONS, FINANCE_EXPENSE_TYPES, FINANCE_REQUEST_KINDS, FINANCE_STATUSES, normalizeFinanceStatus } from "@/lib/finance/constants";
 
 type RequestRow = {
   id: string;
@@ -101,69 +95,24 @@ const formatBrl = (cents: number | null | undefined) => {
   return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 };
 
-const validateBrl = (v: string): string | null => {
-  const s = v.trim();
-  if (!s) return null;
-  const normalized = s.replace(/\./g, "").replace(",", ".");
-  const n = parseFloat(normalized);
-  if (!Number.isFinite(n) || n <= 0) return "Valor inválido. Use o formato 123,45";
-  return null;
+const statusLabel = (raw: unknown) => normalizeFinanceStatus(raw) || "—";
+const financeStatusToneClass = (raw: unknown) => {
+  const s = statusLabel(raw);
+  if (s === "Enviado") return "border-blue-600 bg-blue-600 text-white";
+  if (s === "Em Análise") return "border-yellow-400 bg-yellow-400 text-slate-950";
+  if (s === "Aprovado") return "border-emerald-600 bg-emerald-600 text-white";
+  if (s === "Reprovado") return "border-red-600 bg-red-600 text-white";
+  if (s === "Cancelado") return "border-purple-600 bg-purple-600 text-white";
+  return "border-border bg-muted/30 text-foreground";
 };
-
-const formatBytes = (bytes: number | undefined) => {
-  if (!bytes || bytes <= 0) return "";
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-};
-
-const normalizeFinanceStatusLabel = (raw: unknown) => {
-  const s = String(raw || "").trim();
-  if (!s) return "—";
-  // Backward compatibility: old UIs and legacy rows.
-  if (s === "Pago") return "Aprovado";
-  if (s === "Em análise") return "Em Análise";
-  return s;
-};
-
-const financeStatusBadge = (rawStatus: unknown) => {
-  const status = normalizeFinanceStatusLabel(rawStatus);
-  if (status === "Enviado") {
-    return {
-      label: status,
-      variant: "outline" as const,
-      className: "border-blue-700 bg-blue-600 text-white",
-    };
-  }
-  if (status === "Em Análise") {
-    return {
-      label: status,
-      variant: "outline" as const,
-      className: "border-orange-700 bg-orange-500 text-white",
-    };
-  }
-  if (status === "Aprovado") {
-    return {
-      label: status,
-      variant: "outline" as const,
-      className: "border-emerald-700 bg-emerald-600 text-white",
-    };
-  }
-  if (status === "Reprovado") {
-    return {
-      label: status,
-      variant: "outline" as const,
-      className: "border-red-700 bg-red-600 text-white",
-    };
-  }
-  if (status === "Cancelado") {
-    return {
-      label: status,
-      variant: "outline" as const,
-      className: "border-purple-700 bg-purple-600 text-white",
-    };
-  }
-  return { label: status, variant: "outline" as const, className: "" };
+const financeStatusDotClass = (raw: unknown) => {
+  const s = statusLabel(raw);
+  if (s === "Enviado") return "bg-white";
+  if (s === "Em Análise") return "bg-slate-900";
+  if (s === "Aprovado") return "bg-white";
+  if (s === "Reprovado") return "bg-white";
+  if (s === "Cancelado") return "bg-white";
+  return "bg-foreground/70";
 };
 
 const EXPENSE_TYPE_I18N_KEY: Record<string, string> = {
@@ -186,8 +135,7 @@ export default function FinanceRequests() {
   const { toast } = useToast();
   const [items, setItems] = useState<RequestRow[]>([]);
   const [loading, setLoading] = useState(false);
-  const [lastSuccess, setLastSuccess] = useState<{ protocol: string } | null>(null);
-  const [statusFilter, setStatusFilter] = useState<string[]>([]);
+  const [statusFilter, setStatusFilter] = useState<string>("all");
   const [kindFilter, setKindFilter] = useState<string>("all");
 
   const [newOpen, setNewOpen] = useState(false);
@@ -197,8 +145,6 @@ export default function FinanceRequests() {
   const [detailLoading, setDetailLoading] = useState(false);
 
   const [submitting, setSubmitting] = useState(false);
-  const [submitError, setSubmitError] = useState<string | null>(null);
-  const [brlError, setBrlError] = useState<string | null>(null);
   const [attachmentsUploading, setAttachmentsUploading] = useState(false);
   const [attachmentItems, setAttachmentItems] = useState<AttachmentItem[]>([]);
   const [form, setForm] = useState({ ...EMPTY_FORM });
@@ -275,7 +221,7 @@ export default function FinanceRequests() {
     setLoading(true);
     try {
       const params = new URLSearchParams();
-      if (statusFilter.length) params.set("status", statusFilter.join(","));
+      if (statusFilter && statusFilter !== "all") params.set("status", statusFilter);
       if (kindFilter && kindFilter !== "all") params.set("request_kind", kindFilter);
       params.set("limit", "200");
       const resp = await apiFetch(`/api/finance-requests?${params.toString()}`);
@@ -317,13 +263,11 @@ export default function FinanceRequests() {
     setForm({ ...EMPTY_FORM });
     setAttachmentItems([]);
     setAttachmentsUploading(false);
-    setBrlError(null);
   };
 
   const submitNew = async () => {
     if (!canUse) return;
     if (submitting) return;
-    setSubmitError(null);
     if (!form.company) {
       toast({ title: "Empresa obrigatória", variant: "destructive" });
       return;
@@ -404,7 +348,6 @@ export default function FinanceRequests() {
         throw new Error(firstFieldError ? `${message}: ${String(firstFieldError)}` : message);
       }
       toast({ title: "Solicitação enviada", description: `Protocolo: ${json?.request?.protocol || "—"}` });
-      setLastSuccess({ protocol: String(json?.request?.protocol || "") });
       try {
         if (typeof window !== "undefined") {
           if (form.company) window.localStorage.setItem(LAST_COMPANY_KEY, String(form.company));
@@ -430,49 +373,55 @@ export default function FinanceRequests() {
       resetForm();
       void load();
     } catch (e: any) {
-      const msg = e?.message || "Tente novamente.";
-      setSubmitError(msg);
-      toast({ title: "Erro ao enviar", description: msg, variant: "destructive" });
+      toast({ title: "Erro ao enviar", description: e?.message || "Tente novamente.", variant: "destructive" });
     } finally {
       setSubmitting(false);
     }
   };
 
-  const canCancelSelected = Boolean(detail?.permissions?.can_cancel);
-  const cancelSelected = async () => {
+  const canDeleteSelected = Boolean(detail?.permissions?.can_delete ?? detail?.permissions?.can_cancel);
+  const deleteBlockReason = useMemo(() => {
+    if (!detail?.request || canDeleteSelected) return "";
+    const current = statusLabel(detail.request.status);
+    if (current !== "Enviado") return `Exclusão indisponível: pedido já está em ${current}.`;
+    if (detail.request.analyst_viewed_at) return "Exclusão indisponível: o pedido já foi visualizado por um analista.";
+    return "Exclusão indisponível: o pedido já teve movimentação no fluxo.";
+  }, [canDeleteSelected, detail?.request]);
+  const deleteSelected = async () => {
     const id = String(detailId || "").trim();
     if (!id) return;
-    if (!window.confirm("Cancelar solicitação? (somente se ainda estiver como Enviado)")) return;
+    if (!window.confirm("Excluir solicitação? (somente se ainda estiver como Enviado e ainda não vista por analista)")) return;
     try {
       const resp = await apiFetch("/api/finance-request", {
-        method: "PATCH",
+        method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id }),
       });
       const json = await resp.json().catch(() => ({}));
-      if (!resp.ok) throw new Error(json?.error || "Falha ao cancelar");
-      toast({ title: "Solicitação cancelada" });
+      if (!resp.ok) throw new Error(json?.error || "Falha ao excluir");
+      toast({ title: "Solicitação excluída" });
       setDetailOpen(false);
       setDetailId(null);
       setDetail(null);
       void load();
     } catch (e: any) {
-      toast({ title: "Erro", description: e?.message || "Falha ao cancelar", variant: "destructive" });
+      toast({ title: "Erro", description: e?.message || "Falha ao excluir", variant: "destructive" });
     }
   };
 
   return (
-    <div className="relative min-h-screen bg-background pb-40 overflow-hidden">
+    <div className="relative min-h-screen bg-background pb-[calc(7.5rem+env(safe-area-inset-bottom))] lg:pb-10 lg:pl-[var(--djt-nav-desktop-offset)] overflow-hidden">
       <ThemedBackground theme="habilidades" />
-      <div className="container relative mx-auto px-3 py-4 space-y-4 max-w-4xl">
-        <div className="flex items-center justify-between gap-2">
+      <div className="container relative mx-auto px-3 py-4 sm:px-4 lg:px-6 space-y-4 max-w-4xl">
+        <div className="flex flex-wrap items-center gap-2">
           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => window.history.back()}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
-          <h1 className="text-lg font-semibold leading-tight flex-1">Solicitar Reembolso ou Adiantamento</h1>
-          <Button size="sm" onClick={() => setNewOpen(true)} disabled={!canUse}>
+          <h1 className="text-base sm:text-lg font-semibold leading-tight flex-1 min-w-[180px]">Solicitar Reembolso ou Adiantamento</h1>
+          <Button size="sm" onClick={() => setNewOpen(true)} disabled={!canUse} className="ml-auto">
             <Plus className="h-4 w-4 mr-2" />
-            Nova solicitação
+            <span className="hidden sm:inline">Nova solicitação</span>
+            <span className="sm:hidden">Nova</span>
           </Button>
         </div>
 
@@ -485,25 +434,6 @@ export default function FinanceRequests() {
           </Card>
         ) : null}
 
-        {lastSuccess && (
-          <div className="flex items-start justify-between gap-3 rounded-md border border-emerald-600 bg-emerald-950/40 px-4 py-3">
-            <div className="min-w-0">
-              <p className="text-[13px] font-semibold text-emerald-400">Solicitação enviada com sucesso</p>
-              <p className="text-[12px] text-muted-foreground mt-0.5">
-                Protocolo: <span className="font-mono font-semibold text-emerald-300">{lastSuccess.protocol}</span>
-              </p>
-            </div>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-7 px-2 text-[11px] text-muted-foreground flex-shrink-0"
-              onClick={() => setLastSuccess(null)}
-            >
-              <XCircle className="h-4 w-4" />
-            </Button>
-          </div>
-        )}
-
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm">Minhas solicitações</CardTitle>
@@ -512,60 +442,24 @@ export default function FinanceRequests() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-	            <div className="flex flex-col sm:flex-row gap-2">
-	              <div className="w-full sm:w-56">
-	                <Label className="text-[11px] text-muted-foreground">Status</Label>
-	                <DropdownMenu>
-	                  <DropdownMenuTrigger asChild>
-	                    <Button
-	                      type="button"
-	                      variant="outline"
-	                      className="mt-1 h-9 w-full justify-between"
-	                    >
-	                      <span className="min-w-0 truncate text-left text-[13px]">
-	                        {statusFilter.length === 0
-	                          ? "Todos"
-	                          : statusFilter.length === 1
-	                            ? statusFilter[0]
-	                            : `${statusFilter.length} selecionados`}
-	                      </span>
-	                      <ChevronDown className="ml-2 h-4 w-4 opacity-70" />
-	                    </Button>
-	                  </DropdownMenuTrigger>
-	                  <DropdownMenuContent align="start" className="w-56">
-	                    <DropdownMenuCheckboxItem
-	                      checked={statusFilter.length === 0}
-	                      onCheckedChange={(checked) => {
-	                        if (checked) setStatusFilter([]);
-	                      }}
-	                      onSelect={(e) => e.preventDefault()}
-	                    >
-	                      Todos
-	                    </DropdownMenuCheckboxItem>
-	                    <DropdownMenuSeparator />
-	                    {FINANCE_STATUSES.map((s) => (
-	                      <DropdownMenuCheckboxItem
-	                        key={s}
-	                        checked={statusFilter.includes(s)}
-	                        onCheckedChange={(checked) => {
-	                          setStatusFilter((prev) => {
-	                            const set = new Set(prev);
-	                            if (checked) set.add(s);
-	                            else set.delete(s);
-	                            return Array.from(set);
-	                          });
-	                        }}
-	                        onSelect={(e) => e.preventDefault()}
-	                      >
-	                        {s}
-	                      </DropdownMenuCheckboxItem>
-	                    ))}
-	                  </DropdownMenuContent>
-	                </DropdownMenu>
-	              </div>
-	              <div className="w-full sm:w-56">
-	                <Label className="text-[11px] text-muted-foreground">Tipo Solicitação</Label>
-	                <Select value={kindFilter} onValueChange={setKindFilter}>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <div className="w-full sm:w-56">
+                <Label className="text-[11px] text-muted-foreground">Status</Label>
+                <Select value={statusFilter} onValueChange={setStatusFilter}>
+                  <SelectTrigger className="h-9 mt-1">
+                    <SelectValue placeholder="Todos" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos</SelectItem>
+                    {FINANCE_STATUSES.map((s) => (
+                      <SelectItem key={s} value={s}>{s}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="w-full sm:w-56">
+                <Label className="text-[11px] text-muted-foreground">Tipo Solicitação</Label>
+                <Select value={kindFilter} onValueChange={setKindFilter}>
                   <SelectTrigger className="h-9 mt-1">
                     <SelectValue placeholder="Todos" />
                   </SelectTrigger>
@@ -601,18 +495,17 @@ export default function FinanceRequests() {
                           {r.request_kind} • {getExpenseTypeLabel(r.expense_type)} • {r.company} • {r.coordination}
                         </div>
                       </div>
-	                      <div className="flex flex-col items-end gap-1">
-	                        {(() => {
-	                          const b = financeStatusBadge(r.status);
-	                          return (
-	                            <Badge variant={b.variant} className={`text-[10px] ${b.className}`}>
-	                              {b.label}
-	                            </Badge>
-	                          );
-	                        })()}
-	                        <div className="text-[11px] text-muted-foreground">{formatBrl(r.amount_cents)}</div>
-	                      </div>
-	                    </div>
+                        <div className="flex flex-col items-end gap-1">
+                        <Badge
+                          variant="outline"
+                          className={cn("text-[10px] inline-flex items-center gap-1.5", financeStatusToneClass(r.status))}
+                        >
+                          <span className={cn("inline-block h-1.5 w-1.5 rounded-full", financeStatusDotClass(r.status))} aria-hidden />
+                          {statusLabel(r.status)}
+                        </Badge>
+                        <div className="text-[11px] text-muted-foreground">{formatBrl(r.amount_cents)}</div>
+                      </div>
+                    </div>
                     <div className="mt-2 flex items-center justify-between text-[11px] text-muted-foreground">
                       <span>
                         {r.date_start}
@@ -693,7 +586,7 @@ export default function FinanceRequests() {
                         expenseType: v === "Adiantamento" ? "Adiantamento" : "",
                         amountBrl: v === "Adiantamento" ? "" : p.amountBrl,
                       }));
-                      if (v === "Adiantamento") { setAttachmentItems([]); setBrlError(null); }
+                      if (v === "Adiantamento") setAttachmentItems([]);
                     }}
                   >
                     <SelectTrigger className="mt-1"><SelectValue placeholder="Selecione" /></SelectTrigger>
@@ -754,14 +647,7 @@ export default function FinanceRequests() {
             {form.requestKind === "Reembolso" ? (
               <div>
                 <Label>Valor (R$)</Label>
-                <Input
-                  className={`mt-1${brlError ? " border-red-500 focus-visible:ring-red-500" : ""}`}
-                  placeholder="Ex: 123,45"
-                  value={form.amountBrl}
-                  onChange={(e) => { setForm((p) => ({ ...p, amountBrl: e.target.value })); setBrlError(null); }}
-                  onBlur={(e) => setBrlError(validateBrl(e.target.value))}
-                />
-                {brlError && <p className="mt-1 text-[11px] text-red-400">{brlError}</p>}
+                <Input className="mt-1" placeholder="Ex: 123,45" value={form.amountBrl} onChange={(e) => setForm((p) => ({ ...p, amountBrl: e.target.value }))} />
               </div>
             ) : null}
 
@@ -774,14 +660,14 @@ export default function FinanceRequests() {
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <Label>Anexos (PDF/JPG/PNG)</Label>
-                  <span className="text-[11px] text-muted-foreground">{attachmentItems.length}/8</span>
+                  <span className="text-[11px] text-muted-foreground">{attachmentItems.length} arquivo(s)</span>
                 </div>
                 <AttachmentUploader
                   onAttachmentsChange={() => {}}
                   onAttachmentItemsChange={(items) => setAttachmentItems(items as any)}
                   onUploadingChange={setAttachmentsUploading}
-                  maxFiles={8}
-                  maxImages={8}
+                  maxFiles={12}
+                  maxImages={12}
                   maxVideos={0}
                   maxSizeMB={25}
                   capture="environment"
@@ -790,17 +676,6 @@ export default function FinanceRequests() {
                   pathPrefix="finance-requests"
                   acceptMimeTypes={["application/pdf", "image/jpeg", "image/png", "image/webp"]}
                 />
-                {attachmentItems.length > 0 && (
-                  <ul className="space-y-1 mt-1">
-                    {attachmentItems.map((a, i) => (
-                      <li key={i} className="flex items-center gap-2 text-[12px] text-muted-foreground bg-muted/30 rounded px-2 py-1">
-                        <FileText className="h-3 w-3 flex-shrink-0" />
-                        <span className="truncate flex-1">{a.filename || `arquivo-${i + 1}`}</span>
-                        {a.sizeBytes ? <span className="flex-shrink-0">{formatBytes(a.sizeBytes)}</span> : null}
-                      </li>
-                    ))}
-                  </ul>
-                )}
                 <p className="text-[11px] text-muted-foreground">
                   Para fotos, tentamos capturar GPS e horário (quando disponível no arquivo).
                 </p>
@@ -818,24 +693,17 @@ export default function FinanceRequests() {
                   ? "Adiantamento: sem valor e sem anexo."
                   : "Preencha os campos para habilitar o envio."}
               </div>
-              <div className="flex flex-col items-end gap-1">
-                {submitError && (
-                  <p className="text-[11px] text-destructive text-right">{submitError}</p>
-                )}
-                <div className="flex gap-2">
-                  <Button type="button" variant="outline" onClick={() => { setNewOpen(false); setSubmitError(null); }}>
-                    Cancelar
-                  </Button>
-                  <Button
-                    type="button"
-                    onClick={submitNew}
-                    disabled={submitting || attachmentsUploading || !canUse}
-                  >
-                    {submitting ? (
-                      <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Enviando...</>
-                    ) : "Enviar"}
-                  </Button>
-                </div>
+              <div className="flex justify-end gap-2">
+                <Button type="button" variant="outline" onClick={() => setNewOpen(false)}>
+                  Cancelar
+                </Button>
+                <Button
+                  type="button"
+                  onClick={submitNew}
+                  disabled={submitting || attachmentsUploading || !canUse}
+                >
+                  {submitting ? "Enviando..." : "Enviar"}
+                </Button>
               </div>
             </div>
           </div>
@@ -859,19 +727,15 @@ export default function FinanceRequests() {
                   <div className="text-[12px] text-muted-foreground">
                     {detail.request.request_kind} • {getExpenseTypeLabel(detail.request.expense_type)} • {detail.request.company} • {detail.request.coordination}
                   </div>
-	                </div>
-	                <div className="text-right">
-	                  {(() => {
-	                    const b = financeStatusBadge(detail.request.status);
-	                    return (
-	                      <Badge variant={b.variant} className={`text-[11px] ${b.className}`}>
-	                        {b.label}
-	                      </Badge>
-	                    );
-	                  })()}
-	                  <div className="text-[12px] text-muted-foreground mt-1">{formatBrl(detail.request.amount_cents)}</div>
-	                </div>
-	              </div>
+                </div>
+                <div className="text-right">
+                  <Badge variant="outline" className={cn("text-[11px] inline-flex items-center gap-1.5", financeStatusToneClass(detail.request.status))}>
+                    <span className={cn("inline-block h-1.5 w-1.5 rounded-full", financeStatusDotClass(detail.request.status))} aria-hidden />
+                    {statusLabel(detail.request.status)}
+                  </Badge>
+                  <div className="text-[12px] text-muted-foreground mt-1">{formatBrl(detail.request.amount_cents)}</div>
+                </div>
+              </div>
 
               {detail.request.last_observation ? (
                 <div className="rounded-md border p-2 text-[12px]">
@@ -932,14 +796,14 @@ export default function FinanceRequests() {
                 <div className="text-[12px] font-medium">Histórico</div>
                 {(detail.history || []).length ? (
                   <div className="mt-2 space-y-1">
-	                    {(detail.history || []).map((h: any) => (
-	                      <div key={h.id} className="text-[12px] flex items-start justify-between gap-2">
-	                        <div className="min-w-0">
-	                          <span className="font-medium">{normalizeFinanceStatusLabel(h.to_status)}</span>
-	                          {h.observation ? <div className="text-muted-foreground whitespace-pre-wrap">{h.observation}</div> : null}
-	                        </div>
-	                        <div className="text-[11px] text-muted-foreground flex-shrink-0">
-	                          {h.created_at ? new Date(h.created_at).toLocaleString(getActiveLocale()) : ""}
+                    {(detail.history || []).map((h: any) => (
+                      <div key={h.id} className="text-[12px] flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <span className="font-medium">{statusLabel(h.to_status)}</span>
+                          {h.observation ? <div className="text-muted-foreground whitespace-pre-wrap">{h.observation}</div> : null}
+                        </div>
+                        <div className="text-[11px] text-muted-foreground flex-shrink-0">
+                          {h.created_at ? new Date(h.created_at).toLocaleString(getActiveLocale()) : ""}
                         </div>
                       </div>
                     ))}
@@ -950,16 +814,17 @@ export default function FinanceRequests() {
               </div>
 
               <div className="flex justify-end gap-2">
-                {canCancelSelected ? (
-                  <Button type="button" variant="destructive" onClick={cancelSelected}>
-                    <XCircle className="h-4 w-4 mr-2" />
-                    Cancelar
-                  </Button>
-                ) : null}
+                <Button type="button" variant="destructive" onClick={deleteSelected} disabled={!canDeleteSelected} title={deleteBlockReason || undefined}>
+                  <XCircle className="h-4 w-4 mr-2" />
+                  Excluir
+                </Button>
                 <Button type="button" variant="outline" onClick={() => setDetailOpen(false)}>
                   Fechar
                 </Button>
               </div>
+              {!canDeleteSelected && deleteBlockReason ? (
+                <p className="text-[11px] text-muted-foreground text-right">{deleteBlockReason}</p>
+              ) : null}
             </div>
           ) : (
             <p className="text-sm text-muted-foreground">Selecione uma solicitação.</p>

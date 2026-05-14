@@ -94,6 +94,7 @@ const Dashboard = () => {
   // Desafios passam a ser conduzidos via campanhas e fóruns; seção dedicada de desafios fica oculta.
   const showChallengesSection = false;
   const [showQuizHistory, setShowQuizHistory] = useState(false);
+  const [showExpiredQuizzes, setShowExpiredQuizzes] = useState(false);
   const [showCampaignHistory, setShowCampaignHistory] = useState(false);
   const [showCampaignFilters, setShowCampaignFilters] = useState(false);
 
@@ -761,6 +762,22 @@ const Dashboard = () => {
       .sort((a, b) => quizCreatedAtMs(b) - quizCreatedAtMs(a));
   }, [allChallenges, attemptedMilhaoIds, completedChallengeIds]);
 
+  const expiredQuizzesPending = useMemo(() => {
+    const isQuiz = (c: Challenge) => (c?.type || '').toLowerCase().includes('quiz');
+    const isMilhao = (t: string) => /milh(ã|a)o/i.test(t || '');
+    return (allChallenges || [])
+      .filter((c) => {
+        if (!isQuiz(c)) return false;
+        if (!isChallengeOpen(c)) return false;
+        if (isChallengeVigente(c)) return false;
+        if (completedChallengeIds.has(c.id)) return false;
+        if (isMilhao(String(c.title || '')) && attemptedMilhaoIds.has(c.id)) return false;
+        if (featuredMilhao && c.id === featuredMilhao.id) return false;
+        return true;
+      })
+      .sort((a, b) => quizCreatedAtMs(b) - quizCreatedAtMs(a));
+  }, [allChallenges, attemptedMilhaoIds, completedChallengeIds, featuredMilhao]);
+
   const handleDeleteChallenge = async (challenge: Challenge) => {
     if (!user) return;
     const baseMsg = `Esta ação vai excluir permanentemente o desafio/quiz "${challenge.title}" e remover TODO o XP acumulado por quaisquer usuários ligado a ele.`;
@@ -826,27 +843,27 @@ const Dashboard = () => {
   }
 
   return (
-    <div className="relative min-h-screen bg-background pb-40 overflow-x-hidden">
+    <div className="relative min-h-screen bg-background pb-[calc(7.5rem+env(safe-area-inset-bottom))] lg:pb-10 lg:pl-[var(--djt-nav-desktop-offset)] overflow-x-hidden">
       <ThemedBackground theme="habilidades" />
       {/* Header */}
       <header className="sticky top-0 z-20 bg-[#0b2a34]/85 text-blue-50 border-b border-cyan-700/30">
-        <div className="container mx-auto px-3 py-3 grid grid-cols-3 items-center">
-          <div className="flex items-center gap-2 justify-self-start">
+        <div className="container mx-auto px-3 sm:px-4 lg:px-6 py-3 grid grid-cols-[minmax(0,1fr)_auto_auto] sm:grid-cols-3 items-center gap-2">
+          <div className="flex min-w-0 items-center gap-2 justify-self-start">
             {isLeader ? (
               <button
                 type="button"
                 onClick={() => navigate('/leader-dashboard')}
-                className="flex items-center gap-2 text-left hover:opacity-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded-md px-1 -mx-1"
+                className="flex min-w-0 items-center gap-2 text-left hover:opacity-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded-md px-1 -mx-1"
                 aria-label={tr("dashboard.leaderAria")}
                 title={tr("dashboard.leaderTitle")}
               >
                 <div className="flex items-center gap-1.5">
-                  <Shield className="h-6 w-6 text-primary" />
-                  <Zap className="h-6 w-6 text-secondary" />
+                  <Shield className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />
+                  <Zap className="h-5 w-5 sm:h-6 sm:w-6 text-secondary" />
                 </div>
-                <div>
-                  <h1 className="text-xl font-bold text-blue-50">DJT - Quest</h1>
-                  <p className="text-[10px] text-blue-100/80 leading-none">
+                <div className="min-w-0">
+                  <h1 className="truncate text-lg sm:text-xl font-bold text-blue-50">DJT - Quest</h1>
+                  <p className="hidden sm:block text-[10px] text-blue-100/80 leading-none">
                     {tr("dashboard.leaderHint")}
                   </p>
                 </div>
@@ -854,19 +871,19 @@ const Dashboard = () => {
             ) : (
               <>
                 <div className="flex items-center gap-1.5">
-                  <Shield className="h-6 w-6 text-primary" />
-                  <Zap className="h-6 w-6 text-secondary" />
+                  <Shield className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />
+                  <Zap className="h-5 w-5 sm:h-6 sm:w-6 text-secondary" />
                 </div>
-                <div>
-                  <h1 className="text-xl font-bold text-blue-50">DJT - Quest</h1>
-                  <p className="text-[10px] text-blue-100/80 leading-none">
+                <div className="min-w-0">
+                  <h1 className="truncate text-lg sm:text-xl font-bold text-blue-50">DJT - Quest</h1>
+                  <p className="hidden sm:block text-[10px] text-blue-100/80 leading-none">
                     CPFL Piratininga e Santa Cruz Subtransmissão
                   </p>
                 </div>
               </>
             )}
           </div>
-          <div className="flex items-center justify-center">
+          <div className="hidden sm:flex items-center justify-center">
             <AIStatus />
           </div>
           <div className="flex items-center gap-2 justify-self-end">
@@ -898,7 +915,7 @@ const Dashboard = () => {
         </div>
       </header>
 
-      <main className="container relative mx-auto px-3 py-4 space-y-4">
+      <main className="container relative mx-auto px-3 sm:px-4 lg:px-6 py-4 space-y-4">
         {/* Barra de progressão sempre no topo */}
         <Card className="bg-gradient-to-r from-primary/10 to-secondary/10">
           <CardHeader className="pb-3">
@@ -1008,18 +1025,35 @@ const Dashboard = () => {
               <Zap className="h-5 w-5 text-blue-300" />
               <h2 className="text-2xl font-semibold leading-tight">Quizzes</h2>
             </div>
-            {quizHistory.length > 0 && (
-              <Button
-                type="button"
-                size="sm"
-                variant={showQuizHistory ? "secondary" : "outline"}
-                onClick={() => setShowQuizHistory((v) => !v)}
-                className="gap-2"
-                aria-label={showQuizHistory ? "Ocultar quizzes respondidos" : "Mostrar quizzes respondidos"}
-              >
-                <Plus className="h-4 w-4" />
-                {showQuizHistory ? "Ocultar" : `+${quizHistory.length} respondidos`}
-              </Button>
+            {(quizHistory.length > 0 || expiredQuizzesPending.length > 0) && (
+              <div className="flex items-center gap-2">
+                {expiredQuizzesPending.length > 0 && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={showExpiredQuizzes ? "secondary" : "outline"}
+                    onClick={() => setShowExpiredQuizzes((v) => !v)}
+                    className="gap-2"
+                    aria-label={showExpiredQuizzes ? "Ocultar quizzes encerrados" : "Mostrar quizzes encerrados"}
+                  >
+                    <Plus className="h-4 w-4" />
+                    {showExpiredQuizzes ? "Ocultar" : `+${expiredQuizzesPending.length} encerrados`}
+                  </Button>
+                )}
+                {quizHistory.length > 0 && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={showQuizHistory ? "secondary" : "outline"}
+                    onClick={() => setShowQuizHistory((v) => !v)}
+                    className="gap-2"
+                    aria-label={showQuizHistory ? "Ocultar quizzes respondidos" : "Mostrar quizzes respondidos"}
+                  >
+                    <Plus className="h-4 w-4" />
+                    {showQuizHistory ? "Ocultar" : `+${quizHistory.length} respondidos`}
+                  </Button>
+                )}
+              </div>
             )}
           </div>
 
@@ -1138,10 +1172,75 @@ const Dashboard = () => {
             !featuredMilhao || featuredMilhaoCompleted ? (
               <Card className="bg-white/5 border border-white/20 text-white/90 backdrop-blur-md">
                 <CardContent className="p-4 text-sm">
-                  Nenhum quiz vigente pendente no momento.
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <span>Nenhum quiz vigente pendente no momento.</span>
+                    {expiredQuizzesPending.length > 0 && !showExpiredQuizzes && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setShowExpiredQuizzes(true)}
+                      >
+                        Ver encerrados
+                      </Button>
+                    )}
+                  </div>
                 </CardContent>
               </Card>
             ) : null
+          )}
+
+          {showExpiredQuizzes && expiredQuizzesPending.length > 0 && (
+            <div className="mt-4">
+              <div className="flex items-center justify-between gap-2 mb-3">
+                <div className="flex items-center gap-2 text-foreground">
+                  <History className="h-5 w-5 text-white/80" />
+                  <h3 className="text-lg font-semibold leading-tight">Encerrados (treino)</h3>
+                </div>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {expiredQuizzesPending.slice(0, 18).map((quiz) => {
+                  const totalQuestions = quizQuestionCounts[quiz.id] || 0;
+                  const dueLabel = quiz.due_date ? formatDueDateLabel(quiz.due_date) : '';
+                  return (
+                    <Card key={`expired_${quiz.id}`} className="hover:shadow-lg transition-shadow">
+                      <CardHeader className="pb-3">
+                        <div className="flex items-center justify-between mb-2 gap-2">
+                          <div className="flex items-center gap-2">
+                            <Badge variant="outline" className="text-[10px]">Quiz</Badge>
+                            <Badge className="text-[10px]" variant="secondary">{typeDomain(quiz.type)}</Badge>
+                          </div>
+                          <Badge variant="secondary" className="text-[10px]">
+                            Encerrado
+                          </Badge>
+                        </div>
+                        <CardTitle className="text-base leading-tight">{quiz.title}</CardTitle>
+                        <CardDescription className="text-xs line-clamp-2">{quiz.description}</CardDescription>
+                      </CardHeader>
+                      <CardContent className="pt-0">
+                        {totalQuestions > 0 && (
+                          <p className="text-[10px] text-muted-foreground mb-2">
+                            {totalQuestions} perguntas
+                          </p>
+                        )}
+                        {dueLabel && (
+                          <p className="text-[10px] text-muted-foreground mb-2">
+                            {tr("dashboard.quizDueUntil", { date: dueLabel })}
+                          </p>
+                        )}
+                        <Button
+                          className="w-full h-9 text-sm"
+                          variant="secondary"
+                          onClick={() => navigate(`/challenge/${encodeURIComponent(quiz.id)}?practice=1`)}
+                        >
+                          Treinar (sem pontuar)
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            </div>
           )}
 
           {showQuizHistory && quizHistory.length > 0 && (

@@ -2,6 +2,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
 import { assertDjtQuestServerEnv } from '../server/env-guard.js';
+import { loadLocalEnvIfNeeded } from '../server/lib/load-local-env.js';
 
 type Handler = (req: VercelRequest, res: VercelResponse) => any | Promise<any>;
 
@@ -31,6 +32,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === 'OPTIONS') return res.status(204).send('');
 
   try {
+    loadLocalEnvIfNeeded();
     assertDjtQuestServerEnv({ requireSupabaseUrl: false });
   } catch (e: any) {
     return res.status(500).json({ error: e?.message || 'Invalid server environment' });

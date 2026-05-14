@@ -10,6 +10,20 @@ const ANON_KEY = (process.env.SUPABASE_ANON_KEY ||
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+const extractYyyyMmDd = (value: unknown) => {
+  const s = String(value || "").trim();
+  const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
+  return m ? m[1] : "";
+};
+
+const dueEndMsBrt = (dueDate: unknown): number | null => {
+  const d = extractYyyyMmDd(dueDate);
+  if (!d) return null;
+  const dt = new Date(`${d}T23:59:59.999-03:00`);
+  const ms = dt.getTime();
+  return Number.isFinite(ms) ? ms : null;
+};
+
 const parseJsonBody = (req: VercelRequest) => {
   const raw = (req as any)?.body;
   if (!raw) return {};
@@ -62,6 +76,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!UUID_RE.test(challenge_id)) return res.status(400).json({ error: "Pergunta inválida" });
 
     // Only allow practice checks after the user has already completed the quiz once.
+    // Exception: if the quiz is already closed/expired, allow practice as a fallback (no XP, no persistence).
+    const { data: ch, error: chErr } = await admin
+      .from("challenges")
+      .select("id, status, due_date")
+      .eq("id", challenge_id)
+      .maybeSingle();
+    if (chErr) return res.status(400).json({ error: chErr.message });
+    const status = String((ch as any)?.status || "active").toLowerCase();
+    const isLocked = ["closed", "canceled", "cancelled"].includes(status);
+    const dueEnd = dueEndMsBrt((ch as any)?.due_date);
+    const isExpired = dueEnd != null && Date.now() > dueEnd;
+
     const { data: attempt, error: aErr } = await admin
       .from("quiz_attempts")
       .select("submitted_at")
@@ -69,7 +95,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .eq("challenge_id", challenge_id)
       .maybeSingle();
     if (aErr) return res.status(400).json({ error: aErr.message });
-    if (!attempt?.submitted_at) return res.status(403).json({ error: "Treino liberado apenas após concluir o quiz" });
+    if (!attempt?.submitted_at && !isLocked && !isExpired) {
+      return res.status(403).json({ error: "Treino liberado apenas após concluir o quiz (ou após o encerramento)" });
+    }
 
     const { data: rows, error: oErr } = await admin
       .from("quiz_options")
@@ -92,4 +120,3 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 }
 
 export const config = { api: { bodyParser: true } };
-

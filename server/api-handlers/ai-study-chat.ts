@@ -3,20 +3,16 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { createClient } from "@supabase/supabase-js";
 import { createRequire } from "module";
 import { extractPdfText, extractDocxText, extractJsonText, extractPlainText } from "../lib/import-parsers.js";
-import { readWorkbookRows } from "../lib/excel-workbook.js";
-import logger from "../lib/logger.js";
 import { extractImageTextWithAi, parseJsonFromAiContent } from "../lib/ai-curation-provider.js";
 import { DJT_RULES_ARTICLE } from "../../shared/djt-rules.js";
 import { normalizeChatModel, pickChatModel } from "../lib/openai-models.js";
+import { classifyOpenAiFailure } from "../lib/openai-failures.js";
 
 const require = createRequire(import.meta.url);
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY as string;
 const SUPABASE_URL = process.env.SUPABASE_URL as string;
-const SUPABASE_ANON_KEY = (process.env.SUPABASE_ANON_KEY ||
-  process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
-  process.env.VITE_SUPABASE_ANON_KEY) as string;
-const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || SUPABASE_ANON_KEY) as string;
+const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY) as string;
 const STUDYLAB_DEFAULT_CHAT_MODEL = "gpt-5-nano-2025-08-07";
 // Keep answers reasonably short to reduce latency and avoid timeouts.
 const STUDYLAB_MAX_COMPLETION_TOKENS = Math.max(
@@ -48,6 +44,15 @@ const OPENAI_MODEL_STUDYLAB_INGEST = normalizeChatModel(
 );
 const OPENAI_MODEL_STUDYLAB_EMBEDDINGS =
   (process.env.OPENAI_MODEL_STUDYLAB_EMBEDDINGS as string) || "text-embedding-3-small";
+
+const buildResponsesTextConfig = (model: unknown, desiredVerbosity: unknown) => {
+  const m = String(model || "").trim().toLowerCase();
+  // We only set text.verbosity for GPT-5. Other models have inconsistent support and can fail hard.
+  if (!m.startsWith("gpt-5")) return undefined;
+  const v = String(desiredVerbosity || "").trim().toLowerCase();
+  if (v === "low" || v === "medium") return { verbosity: v };
+  return { verbosity: "medium" };
+};
 
 function chooseModel(preferPremium = false) {
   const premium = process.env.OPENAI_MODEL_PREMIUM;
@@ -560,8 +565,7 @@ const fetchWebSearchSummary = async (query: string, opts?: { timeoutMs?: number 
           tools: [{ type: tool }],
           tool_choice: { type: tool },
           max_tool_calls: 1,
-          text: { verbosity: "low" },
-          reasoning: { effort: "low" },
+          text: buildResponsesTextConfig(model, "low"),
           max_output_tokens: 900,
         }),
       });
@@ -845,7 +849,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       messages = [],
       question = "",
       source_id = null,
-      source_ids = [] as string[],
       session_id = null,
       attachments = [],
       language = "pt-BR",
@@ -915,18 +918,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     let uid: string | null = null;
     let isLeaderOrStaff = false;
     const authHeader = req.headers["authorization"] as string | undefined;
-    const bearerToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
-    const sessionDb =
-      SUPABASE_URL && SUPABASE_ANON_KEY && bearerToken
-        ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-            auth: { autoRefreshToken: false, persistSession: false },
-            global: { headers: { Authorization: `Bearer ${bearerToken}` } },
-          })
-        : null;
-
-    if (admin && bearerToken) {
+    if (admin && authHeader?.startsWith("Bearer ")) {
+      const token = authHeader.slice(7);
       try {
-        const { data: userData } = await admin.auth.getUser(bearerToken);
+        const { data: userData } = await admin.auth.getUser(token);
         uid = userData?.user?.id || null;
       } catch {
         uid = null;
@@ -1037,13 +1032,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       if (ext === "xlsx" || ext === "xls" || mime.includes("spreadsheet") || mime.includes("excel")) {
         try {
-          const parsed = await readWorkbookRows(buffer, { maxRows: 200, maxColumns: 24 });
-          if (!parsed.sheetName) return "";
-          const lines = (parsed.rows || []).map((r: any[]) => (r || []).join("\t"));
-          return `Planilha: ${parsed.sheetName}\n` + lines.join("\n");
-        } catch (err: any) {
-          const msg = String(err?.message || "");
-          if (msg) return `Planilha não lida automaticamente: ${msg}`;
+          // Best-effort: transforma planilha em texto tabular (primeira aba)
+          // eslint-disable-next-line @typescript-eslint/no-var-requires
+          const xlsx = require("xlsx");
+          const wb = xlsx.read(buffer, { type: "buffer" });
+          const sheetName = wb.SheetNames?.[0];
+          if (!sheetName) return "";
+          const sheet = wb.Sheets[sheetName];
+          const rows = xlsx.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: "" });
+          const lines = (rows || []).slice(0, 200).map((r: any[]) => (r || []).slice(0, 24).join("\t"));
+          return `Planilha: ${sheetName}\n` + lines.join("\n");
+        } catch {
           return "";
         }
       }
@@ -1081,11 +1080,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return parts.join("\n\n").trim();
     };
 
-    const normalizedSourceIds = Array.isArray(source_ids)
-      ? (source_ids as string[]).filter((s) => typeof s === "string" && s.length > 0).slice(0, 6)
-      : [];
-
-    if (admin && normalizedSourceIds.length === 0 && source_id) {
+    if (admin && source_id) {
 
       const selectV2 =
         "id, user_id, title, summary, full_text, url, kind, topic, category, metadata, scope, published, ingest_status, ingest_error, ingested_at";
@@ -1174,106 +1169,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             joinedContext = `### Fonte: ${sourceRow.title}\n${baseText}${metaParts.length ? `\n\n### Metadados\n${metaParts.join("\n\n")}` : ""}`;
           }
         }
-      }
-    } else if (admin && normalizedSourceIds.length > 0) {
-      const selectV2 =
-        "id, user_id, title, summary, full_text, url, kind, topic, category, metadata, scope, published, ingest_status, ingest_error, ingested_at";
-      const selectV1 = "id, user_id, title, summary, full_text, url, ingest_status, ingest_error, ingested_at";
-
-      const contextParts: Array<{ idx: number; text: string }> = [];
-
-      await Promise.all(
-        normalizedSourceIds.map(async (sid: string, idx: number) => {
-          let srcRes = await admin.from("study_sources").select(selectV2).eq("id", sid).maybeSingle();
-          if (srcRes.error && /column .*?(category|metadata)/i.test(String(srcRes.error.message || srcRes.error))) {
-            srcRes = await admin.from("study_sources").select(selectV1).eq("id", sid).maybeSingle();
-          }
-          const row = srcRes.data || null;
-          if (!row) return;
-
-          const scope = (row.scope || "user").toString().toLowerCase();
-          const published = Boolean(row.published);
-          const canRead =
-            allowDevIngest ||
-            Boolean(uid && row.user_id && row.user_id === uid) ||
-            (scope === "org" && (published || isLeaderOrStaff));
-          if (!canRead) return;
-
-          let baseText = (row.full_text || row.summary || row.url || "").toString();
-
-          if (!row.full_text && row.url && row.url.startsWith("http")) {
-            try {
-              const isFile =
-                String(row.kind || "").toLowerCase() === "file" ||
-                /\.(pdf|docx|xlsx|xls|csv|txt|json|png|jpe?g|webp)(\?|#|$)/i.test(String(row.url || ""));
-              const fetched = isFile ? await extractFromFileUrl(row.url, row.title || "") : await fetchUrlContent(row.url);
-              if (fetched?.trim()) {
-                baseText = fetched;
-                await updateStudySourceWithFallback(admin, sid, {
-                  full_text: fetched,
-                  ingest_status: "ok",
-                  ingested_at: new Date().toISOString(),
-                  ingest_error: null,
-                });
-              }
-            } catch { /* non-blocking */ }
-          }
-
-          if (!baseText.trim()) return;
-
-          const category = (row.category || "").toString().trim().toUpperCase();
-          const meta = row.metadata && typeof row.metadata === "object" ? row.metadata : null;
-          const incident = meta?.incident && typeof meta.incident === "object" ? meta.incident : null;
-          const aiIncident = meta?.ai?.incident && typeof meta.ai.incident === "object" ? meta.ai.incident : null;
-          const metaParts: string[] = [];
-          if (category) metaParts.push(`Tipo no catálogo: ${category}`);
-          const subtitle = pickSourceSubtitle(meta);
-          if (subtitle) metaParts.push(`Subtítulo: ${subtitle}`);
-          const topic = String(row.topic || "").trim();
-          if (topic) metaParts.push(`Tema: ${topic}`);
-          const tags = pickSourceTags(meta);
-          if (tags.length) {
-            metaParts.push(`Tags: ${tags.slice(0, 16).map((h: any) => `#${String(h || "").replace(/^#+/, "")}`).join(" ")}`);
-          }
-          const outlineTitles = flattenOutlineTitles(meta?.ai?.outline);
-          if (outlineTitles.length) metaParts.push(`Tópicos: ${outlineTitles.slice(0, 12).join(" | ")}`);
-          const summary = String(row.summary || "").trim();
-          if (summary && row.full_text) metaParts.push(`Resumo do catálogo: ${summary.slice(0, 900)}`);
-          if (row.url) metaParts.push(`Link: ${String(row.url)}`);
-          if (incident) {
-            metaParts.push(
-              `Formulário (Relatório de Ocorrência):\n` +
-                `- ocorrido: ${(incident.ocorrido || "").toString().slice(0, 500)}\n` +
-                `- causa_raiz_modo_falha: ${(incident.causa_raiz_modo_falha || "").toString().slice(0, 500)}\n` +
-                `- barreiras_cuidados: ${(incident.barreiras_cuidados || "").toString().slice(0, 500)}\n` +
-                `- acoes_corretivas_preventivas: ${(incident.acoes_corretivas_preventivas || "").toString().slice(0, 500)}\n` +
-                `- mudancas_implementadas: ${(incident.mudancas_implementadas || "").toString().slice(0, 500)}`
-            );
-          }
-          if (aiIncident) {
-            const aprendizados = Array.isArray(aiIncident.aprendizados) ? aiIncident.aprendizados.slice(0, 8) : [];
-            const cuidados = Array.isArray(aiIncident.cuidados) ? aiIncident.cuidados.slice(0, 8) : [];
-            const mudancas = Array.isArray(aiIncident.mudancas) ? aiIncident.mudancas.slice(0, 8) : [];
-            const aiLines: string[] = [];
-            if (aprendizados.length) aiLines.push(`Aprendizados (IA): ${aprendizados.join(" | ")}`);
-            if (cuidados.length) aiLines.push(`Cuidados/Barreiras (IA): ${cuidados.join(" | ")}`);
-            if (mudancas.length) aiLines.push(`Mudanças (IA): ${mudancas.join(" | ")}`);
-            if (aiLines.length) metaParts.push(aiLines.join("\n"));
-          }
-
-          contextParts.push({
-            idx,
-            text: `### Fonte: ${row.title}\n${baseText}${metaParts.length ? `\n\n### Metadados\n${metaParts.join("\n\n")}` : ""}`,
-          });
-          if (!sourceRow) sourceRow = row;
-        })
-      );
-
-      if (contextParts.length > 0) {
-        joinedContext = contextParts
-          .sort((a, b) => a.idx - b.idx)
-          .map((p) => p.text)
-          .join("\n\n---\n\n");
       }
     }
 
@@ -1528,23 +1423,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           lastErrTxt = "Resposta inválida da IA (JSON não parseável).";
         }
 
-        if (!parsed || typeof parsed !== "object") {
-          const txt = lastErrTxt || "OpenAI request failed";
-          const errKind = lastErrKind || "openai";
-          if (errKind === "openai") {
-            logger.warn("Study ingest OpenAI error", { message: txt });
+          if (!parsed || typeof parsed !== "object") {
+            const txt = lastErrTxt || "OpenAI request failed";
+            const failure = classifyOpenAiFailure(txt);
+            const errKind = lastErrKind || "openai";
+            if (errKind === "openai") {
+            console.warn("Study ingest OpenAI error", txt);
             try {
               await updateStudySourceWithFallback(admin, source_id, {
                 full_text: trimmed,
                 ingest_status: "failed",
-                ingest_error: `OpenAI error: ${txt}`.slice(0, 900),
+                ingest_error: `${failure.message}${failure.raw ? ` (${failure.raw})` : ""}`.slice(0, 900),
                 ingested_at: new Date().toISOString(),
               });
             } catch {}
-            return res.status(200).json({ success: false, error: `OpenAI error: ${txt}` });
+            return res.status(200).json({ success: false, error: failure.message, meta: { reason_code: failure.code } });
           }
 
-          logger.warn("Study ingest invalid JSON response", { model: lastModel, message: txt });
+          console.warn("Study ingest invalid JSON response", { model: lastModel, err: txt });
           try {
             await updateStudySourceWithFallback(admin, source_id, {
               full_text: trimmed,
@@ -1676,7 +1572,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           });
         }
       } catch (e: any) {
-        logger.warn("Study ingest error", { message: e?.message || String(e) });
+        console.warn("Study ingest error", e?.message || e);
         try {
           await updateStudySourceWithFallback(admin, source_id, {
             ingest_status: "failed",
@@ -2490,8 +2386,7 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
           resp = await callOpenAiResponse({
             model,
             input: inputPayload,
-            text: { verbosity },
-            reasoning: { effort: reasoningEffort },
+            text: buildResponsesTextConfig(model, verbosity),
             max_output_tokens: modelMaxTokens,
           }, openAiTimeout);
         } catch (e: any) {
@@ -2547,9 +2442,10 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
     }
 
     if (!content) {
+      const failure = classifyOpenAiFailure(lastErrTxt || "unknown");
       return res.status(200).json({
         success: false,
-        error: `OpenAI error: ${lastErrTxt || "unknown"}`,
+        error: failure.message,
         meta: {
           model_candidates: modelCandidates,
           used_web_summary: usedWebSummary,
@@ -2560,6 +2456,7 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
           timeout_ms: STUDYLAB_OPENAI_TIMEOUT_MS,
           max_output_tokens: usedMaxTokens,
           latency_ms: Date.now() - t0,
+          reason_code: failure.code,
         },
       });
     }
@@ -2588,30 +2485,14 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
       }
     }
 
-    const sessionWriter = sessionDb || admin;
-    if (sessionWriter && uid) {
+    if (admin && uid) {
       try {
-        const logMessages = normalizedMessages.map((m: any) => ({ role: m?.role || "user", content: m?.content || "" }));
-        if (normalizedAttachments.length) {
-          for (let i = logMessages.length - 1; i >= 0; i -= 1) {
-            if (logMessages[i]?.role !== "user") continue;
-            const mergedMessageAttachments = uniqueAttachments([
-              ...(Array.isArray((logMessages[i] as any)?.attachments) ? (logMessages[i] as any).attachments : []),
-              ...normalizedAttachments,
-            ]);
-            logMessages[i] = {
-              ...logMessages[i],
-              ...(mergedMessageAttachments.length ? { attachments: mergedMessageAttachments } : {}),
-            };
-            break;
-          }
-        }
-        logMessages.push({ role: "assistant", content });
+        const logMessages = [...normalizedMessages, { role: "assistant", content }];
         const nowIso = new Date().toISOString();
 
         let sessionRow: any = null;
         try {
-          const { data: existing } = await sessionWriter
+          const { data: existing } = await admin
             .from("study_chat_sessions")
             .select("id, attachments, title, compendium_source_id")
             .eq("id", resolvedSessionId)
@@ -2651,9 +2532,9 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
         };
 
         if (sessionRow?.id) {
-          await sessionWriter.from("study_chat_sessions").update(sessionPayload).eq("id", resolvedSessionId);
+          await admin.from("study_chat_sessions").update(sessionPayload).eq("id", resolvedSessionId);
         } else {
-          await sessionWriter.from("study_chat_sessions").insert({
+          await admin.from("study_chat_sessions").insert({
             ...sessionPayload,
             created_at: nowIso,
           });
@@ -2690,7 +2571,7 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
           let compendiumId = sessionRow?.compendium_source_id || null;
           if (compendiumId) {
             try {
-              await sessionWriter
+              await admin
                 .from("study_sources")
                 .update({
                   summary,
@@ -2704,7 +2585,7 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
             }
           } else {
             try {
-              const { data: created, error } = await sessionWriter
+              const { data: created, error } = await admin
                 .from("study_sources")
                 .insert(compendiumPayload as any)
                 .select("id")
@@ -2725,7 +2606,7 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
                   ...legacyPayload
                 } = compendiumPayload;
                 try {
-                  const { data: created } = await sessionWriter
+                  const { data: created } = await admin
                     .from("study_sources")
                     .insert(legacyPayload as any)
                     .select("id")
@@ -2739,7 +2620,7 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
 
             if (compendiumId) {
               try {
-                await sessionWriter
+                await admin
                   .from("study_chat_sessions")
                   .update({ compendium_source_id: compendiumId })
                   .eq("id", resolvedSessionId);
@@ -2749,9 +2630,8 @@ Formato da saída: texto livre (sem JSON), em ${language}.`;
             }
           }
         }
-      } catch (err: any) {
+      } catch {
         // best-effort; nunca bloqueia a resposta do chat
-        logger.warn("StudyLab: falha ao salvar histórico", { message: err?.message || String(err) });
       }
     }
 

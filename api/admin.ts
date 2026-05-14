@@ -51,7 +51,7 @@ import reportsQuestionUsage from '../server/api-handlers/reports-question-usage.
 import reportsAccessSummary from '../server/api-handlers/reports-access-summary.js';
 import reportsListQuizzes from '../server/api-handlers/reports-list-quizzes.js';
 import reportsQuizAttempts from '../server/api-handlers/reports-quiz-attempts.js';
-import reportsQuizUserDetail from '../server/api-handlers/reports-quiz-user-detail.js';
+import reportsQuizResults from '../server/api-handlers/reports-quiz-results.js';
 import compendiumCatalogImport from '../server/api-handlers/compendium-catalog-import.js';
 import compendiumList from '../server/api-handlers/compendium-list.js';
 import compendiumCreateImport from '../server/api-handlers/compendium-create-import.js';
@@ -115,7 +115,7 @@ const handlers: Record<string, Handler> = {
   'reports-access-summary': reportsAccessSummary,
   'reports-list-quizzes': reportsListQuizzes,
   'reports-quiz-attempts': reportsQuizAttempts,
-  'reports-quiz-user-detail': reportsQuizUserDetail,
+  'reports-quiz-results': reportsQuizResults,
   'compendium-catalog-import': compendiumCatalogImport,
   'compendium-list': compendiumList,
   'compendium-create-import': compendiumCreateImport,

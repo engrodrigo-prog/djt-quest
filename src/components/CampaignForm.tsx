@@ -92,7 +92,7 @@ export const CampaignForm = () => {
       if (title) setValue('title', title);
       if (description) setValue('description', description);
       localStorage.removeItem('studio_compendium_draft');
-    } catch {}
+    } catch { /* noop */ }
   }, [setValue]);
 
   useEffect(() => {

@@ -1,9 +1,10 @@
 import { useMemo, useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { z } from "zod";
@@ -86,6 +87,17 @@ const REGISTRATION_TEAM_ORDER = new Map(REGISTRATION_TEAM_IDS.map((id, idx) => [
 
 const normalizeTeamId = (id: unknown) => String(id ?? "").trim().toUpperCase();
 
+type RequestedProfile = "collaborator" | "leader" | "guest";
+
+const normalizeRequestedProfile = (raw: string | null): RequestedProfile | null => {
+  const s = String(raw || "").trim().toLowerCase();
+  if (!s) return null;
+  if (s === "guest" || s === "convidado" || s === "invited") return "guest";
+  if (s === "leader" || s === "lider" || s === "líder" || s === "lider_equipe") return "leader";
+  if (s === "collaborator" || s === "colaborador" || s === "colab") return "collaborator";
+  return null;
+};
+
 const filterAndOrderRegistrationTeams = (raw: Array<{ id: string; name?: string | null }>) => {
   const byId = new Map<string, { id: string; name: string }>();
   for (const t of raw) {
@@ -108,6 +120,8 @@ const filterAndOrderRegistrationTeams = (raw: Array<{ id: string; name?: string 
 export default function Register() {
   const navigate = useNavigate();
   const { t } = useI18n();
+  const [searchParams] = useSearchParams();
+  const inviteProfile = normalizeRequestedProfile(searchParams.get("invite_profile"));
   const registerSchema = useMemo(() => buildRegisterSchema(t), [t]);
   const [loading, setLoading] = useState(false);
   const [teams, setTeams] = useState<Array<{ id: string; name: string }>>(() => filterAndOrderRegistrationTeams([]));
@@ -125,8 +139,25 @@ export default function Register() {
     operational_base: "",
     sigla_area: "",
   });
+  const isInviteGuest = inviteProfile === "guest";
   const sigla = String(formData.sigla_area || "").toUpperCase().trim();
-  const isGuest = sigla === GUEST_TEAM_ID || sigla === "EXTERNO";
+  const isGuest = isInviteGuest || sigla === GUEST_TEAM_ID || sigla === "EXTERNO";
+  const inviteProfileLabel = inviteProfile
+    ? inviteProfile === "guest"
+      ? t("register.inviteProfile.guest")
+      : inviteProfile === "leader"
+        ? t("register.inviteProfile.leader")
+        : t("register.inviteProfile.collaborator")
+    : "";
+
+  useEffect(() => {
+    if (!isInviteGuest) return;
+    setFormData((prev) => ({
+      ...prev,
+      sigla_area: GUEST_TEAM_ID,
+      operational_base: GUEST_TEAM_ID,
+    }));
+  }, [isInviteGuest]);
 
   // Carregar equipes (bases operacionais) para as listas suspensas
   useEffect(() => {
@@ -222,6 +253,7 @@ export default function Register() {
             matricula: validatedData.matricula || null,
             operational_base: validatedData.operational_base,
             sigla_area: validatedData.sigla_area.toUpperCase(),
+            ...(inviteProfile ? { requested_profile: inviteProfile } : {}),
           }),
         });
         const json = await resp.json().catch(() => ({}));
@@ -242,7 +274,7 @@ export default function Register() {
         }
       } catch (apiErr) {
         // Inserir na tabela pending_registrations (fallback)
-        const { error: insertError } = await supabase.from("pending_registrations").insert({
+        const insertPayload: any = {
           name: validatedData.name,
           email: validatedData.email,
           date_of_birth: validatedData.date_of_birth,
@@ -251,7 +283,22 @@ export default function Register() {
           operational_base: validatedData.operational_base,
           sigla_area: validatedData.sigla_area.toUpperCase(),
           status: "pending",
-        } as any);
+          ...(inviteProfile ? { requested_profile: inviteProfile } : {}),
+        };
+
+        let { error: insertError } = await supabase.from("pending_registrations").insert(insertPayload as any);
+
+        if (insertError && inviteProfile) {
+          const msg = String((insertError as any)?.message || "").toLowerCase();
+          const code = String((insertError as any)?.code || "");
+          const missingRequestedProfile =
+            (code === "42703" || msg.includes("requested_profile")) &&
+            (msg.includes("column") || msg.includes("does not exist"));
+          if (missingRequestedProfile) {
+            delete insertPayload.requested_profile;
+            ({ error: insertError } = await supabase.from("pending_registrations").insert(insertPayload as any));
+          }
+        }
 
         if (insertError) {
           console.error("Erro ao criar solicitação:", insertError);
@@ -309,6 +356,15 @@ export default function Register() {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
+            {inviteProfile && (
+              <div className="rounded-md border p-3 bg-muted/30 space-y-1">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-sm font-medium">{t("register.inviteProfile.title")}</div>
+                  <Badge variant="outline">{inviteProfileLabel}</Badge>
+                </div>
+                <p className="text-xs text-muted-foreground">{t("register.inviteProfile.description")}</p>
+              </div>
+            )}
             <div className="space-y-2">
               <Label htmlFor="name">{t("register.fullNameLabel")}</Label>
               <Input
@@ -381,6 +437,7 @@ export default function Register() {
                     role="combobox"
                     aria-expanded={teamsOpen}
                     className="w-full justify-between"
+                    disabled={Boolean(isInviteGuest) || loading}
                   >
                     <span className="truncate">
                       {sigla

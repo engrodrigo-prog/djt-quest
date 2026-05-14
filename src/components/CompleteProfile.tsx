@@ -13,6 +13,8 @@ import { AvatarCapture } from "@/components/AvatarCapture";
 import { AvatarDisplay } from "@/components/AvatarDisplay";
 import { apiFetch } from "@/lib/api";
 import { getProfileCompletionStatus } from "@/lib/profileCompletion";
+import { MIN_PASSWORD_LENGTH, mapPasswordUpdateError, validateNewPassword } from "@/lib/passwordPolicy";
+import { updatePassword } from "@/lib/supabaseAuth";
 
 interface CompleteProfileProps {
   profile: any;
@@ -22,6 +24,7 @@ export function CompleteProfile({ profile }: CompleteProfileProps) {
   const navigate = useNavigate();
   const { refreshUserSession } = useAuth();
   const [loading, setLoading] = useState(false);
+  const [passwordUpdatedInSession, setPasswordUpdatedInSession] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(
     profile?.avatar_url || profile?.avatar_thumbnail_url || null,
   );
@@ -113,40 +116,25 @@ export function CompleteProfile({ profile }: CompleteProfileProps) {
       }
 
       // Validar senha
-      if (profile.must_change_password) {
-        // Não permitir senha igual à atual
-        if (formData.newPassword === '123456') {
-          toast.error('A nova senha não pode ser igual à senha padrão (123456)');
-          setLoading(false);
-          return;
-        }
-
-        if (formData.newPassword.length < 6) {
-          toast.error("A senha deve ter no mínimo 6 caracteres");
-          setLoading(false);
-          return;
-        }
-        if (formData.newPassword !== formData.confirmPassword) {
-          toast.error("As senhas não coincidem");
+      if (profile.must_change_password && !passwordUpdatedInSession) {
+        const validation = validateNewPassword(formData.newPassword, formData.confirmPassword);
+        if (!validation.ok) {
+          toast.error(validation.message);
           setLoading(false);
           return;
         }
 
         // Atualizar senha
-        const { error: passwordError } = await supabase.auth.updateUser({
-          password: formData.newPassword,
-        });
-
-        if (passwordError) {
-          // Detectar erro específico de senha igual
-          if (passwordError.message?.includes('same_password') || 
-              passwordError.message?.includes('should be different')) {
-            toast.error('A nova senha não pode ser igual à senha atual (123456)');
-            setLoading(false);
-            return;
-          }
-          throw passwordError;
+        const passwordResult = await updatePassword(formData.newPassword);
+        if (!passwordResult.ok) {
+          const mapped = mapPasswordUpdateError(passwordResult.error);
+          toast.error(mapped.title, { description: mapped.description });
+          setLoading(false);
+          return;
         }
+
+        setPasswordUpdatedInSession(true);
+        setFormData((prev) => ({ ...prev, newPassword: "", confirmPassword: "" }));
       }
 
       // Atualizar perfil
@@ -198,11 +186,20 @@ export function CompleteProfile({ profile }: CompleteProfileProps) {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
-            {profile.must_change_password && (
+            {profile.must_change_password && !passwordUpdatedInSession && (
               <Alert>
                 <AlertCircle className="h-4 w-4" />
                 <AlertDescription>
                   Você está usando a senha padrão (123456). Por segurança, escolha uma nova senha <strong>diferente</strong>.
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {profile.must_change_password && passwordUpdatedInSession && (
+              <Alert>
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>
+                  Senha atualizada nesta sessão. Agora finalize os demais dados do perfil.
                 </AlertDescription>
               </Alert>
             )}
@@ -225,13 +222,13 @@ export function CompleteProfile({ profile }: CompleteProfileProps) {
               )}
             </div>
 
-            {profile.must_change_password && (
+            {profile.must_change_password && !passwordUpdatedInSession && (
               <>
                 <div className="space-y-2">
                   <Label htmlFor="newPassword">
                     Nova Senha * 
                     <span className="text-xs text-muted-foreground ml-2">
-                      (não use 123456)
+                      (não use 123456; use maiúscula, minúscula, número e símbolo)
                     </span>
                   </Label>
                   <input type="text" name="username" autoComplete="username" hidden readOnly />
@@ -251,8 +248,8 @@ export function CompleteProfile({ profile }: CompleteProfileProps) {
                       }
                     }}
                     required
-                    minLength={6}
-                    placeholder="Mínimo 6 caracteres (não use 123456)"
+                    minLength={MIN_PASSWORD_LENGTH}
+                    placeholder={`Mínimo ${MIN_PASSWORD_LENGTH} caracteres`}
                     autoComplete="new-password"
                     autoCapitalize="none"
                     autoCorrect="off"
@@ -268,7 +265,7 @@ export function CompleteProfile({ profile }: CompleteProfileProps) {
                     value={formData.confirmPassword}
                     onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
                     required
-                    minLength={6}
+                    minLength={MIN_PASSWORD_LENGTH}
                     placeholder="Digite a senha novamente"
                     autoComplete="new-password"
                     autoCapitalize="none"

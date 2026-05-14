@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
@@ -16,7 +16,8 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from 'recharts';
 import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart';
 import { getActiveLocale } from '@/lib/i18n/activeLocale';
-import { getQuizScoreBadgeClassName } from '@/lib/quizScore';
+import { Minus, Plus } from 'lucide-react';
+import { QuizPeopleDrilldown } from '@/components/QuizPeopleDrilldown';
 
 type Scope = 'team' | 'coord' | 'division' | 'all';
 type Chas = 'C' | 'H' | 'A' | 'S';
@@ -51,8 +52,8 @@ type UserRow = {
 };
 
 type QuizSummary = {
-  from: string | null;
-  to: string | null;
+  from: string;
+  to: string;
   scope: Scope;
   scopeId: string | null;
   includeLeaders: boolean;
@@ -99,11 +100,10 @@ type QuestionUsage = {
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 const monthStartIso = () => new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10);
-const formatPeriodLabel = (from?: string | null, to?: string | null) => {
-  if (from && to) return `${from}-a-${to}`;
-  if (from) return `${from}-em-diante`;
-  if (to) return `ate-${to}`;
-  return 'periodo-completo';
+const daysAgoIso = (days: number) => {
+  const d = new Date();
+  d.setDate(d.getDate() - Math.max(0, Math.floor(days)));
+  return d.toISOString().slice(0, 10);
 };
 
 function downloadCsv(filename: string, rows: Array<Record<string, any>>) {
@@ -125,30 +125,25 @@ function downloadCsv(filename: string, rows: Array<Record<string, any>>) {
 
 export function ReportsHub() {
   const { orgScope, userRole } = useAuth() as any;
-  const canAll = userRole === 'admin' || String(userRole || '').includes('gerente') || String(userRole || '').includes('coordenador');
   const [tab, setTab] = useState<'quizzes' | 'questions' | 'access'>('quizzes');
-  const [scope, setScope] = useState<Scope>(() => (canAll ? 'all' : 'team'));
+  const [scope, setScope] = useState<Scope>('team');
   const [scopeId, setScopeId] = useState<string>('');
-  const [includeLeaders, setIncludeLeaders] = useState(true);
+  const [includeLeaders, setIncludeLeaders] = useState(false);
   const [includeGuests, setIncludeGuests] = useState(false);
-  const [from, setFrom] = useState<string>('');
-  const [to, setTo] = useState<string>('');
+  const [from, setFrom] = useState<string>(monthStartIso());
+  const [to, setTo] = useState<string>(todayIso());
+  const [expandedQuizIds, setExpandedQuizIds] = useState<Record<string, true>>({});
 
   const [quizSummary, setQuizSummary] = useState<QuizSummary | null>(null);
   const [accessSummary, setAccessSummary] = useState<AccessSummary | null>(null);
   const [loading, setLoading] = useState(false);
   const [userSearch, setUserSearch] = useState('');
 
-  useEffect(() => {
-    if (!canAll) return;
-    setScope((current) => (current === 'team' ? 'all' : current));
-  }, [canAll]);
+  const canAll = userRole === 'admin' || String(userRole || '').includes('gerente') || String(userRole || '').includes('coordenador');
 
   useEffect(() => {
-    const defaultScopeId =
-      scope === 'team' ? orgScope?.teamId : scope === 'coord' ? orgScope?.coordId : scope === 'division' ? orgScope?.divisionId : null;
+    const defaultScopeId = scope === 'team' ? orgScope?.teamId : scope === 'coord' ? orgScope?.coordId : orgScope?.divisionId;
     if (defaultScopeId) setScopeId(String(defaultScopeId));
-    else setScopeId('');
   }, [orgScope?.coordId, orgScope?.divisionId, orgScope?.teamId, scope]);
 
   const scopeOptions = useMemo(() => {
@@ -166,8 +161,8 @@ export function ReportsHub() {
     setLoading(true);
     try {
       const qs = new URLSearchParams();
-      if (from) qs.set('from', from);
-      if (to) qs.set('to', to);
+      qs.set('from', from);
+      qs.set('to', to);
       qs.set('scope', scope);
       if (scope !== 'all') qs.set('scopeId', scopeId);
       qs.set('includeLeaders', includeLeaders ? '1' : '0');
@@ -296,23 +291,40 @@ export function ReportsHub() {
             <h2 className="text-3xl font-bold text-blue-50 mb-1">Relatórios</h2>
             <TipDialogButton tipId="studio-reports" ariaLabel="Entenda o hub de Relatórios" className="inline-flex items-center justify-center rounded-full border border-white/20 bg-black/20 p-1 text-blue-100/80 hover:bg-black/30 hover:text-blue-50" />
           </div>
-          <p className="text-blue-100/80">Acompanhe quizzes e acessos; em quizzes, o período pode ficar em branco</p>
+          <p className="text-blue-100/80">Acompanhe quizzes e acessos com filtros por período</p>
         </div>
       </div>
 
       <Card>
         <CardHeader>
           <CardTitle>Filtros</CardTitle>
-          <CardDescription>Em quizzes, deixe as datas vazias para ver todo o histórico; aplique filtros só quando precisar</CardDescription>
+          <CardDescription>Feche o mês (dia 1 → hoje) ou compare períodos</CardDescription>
         </CardHeader>
         <CardContent className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div className="space-y-2">
-            <Label>Período (início, opcional)</Label>
+            <Label>Período (início)</Label>
             <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
           </div>
           <div className="space-y-2">
-            <Label>Período (fim, opcional)</Label>
+            <Label>Período (fim)</Label>
             <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+          </div>
+          <div className="space-y-2">
+            <Label>Atalhos</Label>
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" variant="outline" onClick={() => { setFrom(daysAgoIso(7)); setTo(todayIso()); }}>
+                7 dias
+              </Button>
+              <Button type="button" variant="outline" onClick={() => { setFrom(daysAgoIso(30)); setTo(todayIso()); }}>
+                30 dias
+              </Button>
+              <Button type="button" variant="outline" onClick={() => { setFrom(daysAgoIso(60)); setTo(todayIso()); }}>
+                60 dias
+              </Button>
+              <Button type="button" variant="outline" onClick={() => { setFrom('2000-01-01'); setTo(todayIso()); }}>
+                Tudo
+              </Button>
+            </div>
           </div>
           <div className="space-y-2">
             <Label>Escopo</Label>
@@ -328,15 +340,24 @@ export function ReportsHub() {
                 ))}
               </SelectContent>
             </Select>
+            {scope !== 'all' && (
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground">ID do escopo</Label>
+                <Input
+                  value={scopeId}
+                  onChange={(e) => setScopeId(e.target.value)}
+                  placeholder={scope === 'team' ? 'Ex.: DJTB' : scope === 'coord' ? 'Ex.: DJTB-SAN' : 'Ex.: DJT'}
+                  disabled={!canAll}
+                />
+                {!canAll && <div className="text-[11px] text-muted-foreground">Somente staff pode alterar.</div>}
+              </div>
+            )}
           </div>
           <div className="space-y-2">
             <Label>Ações</Label>
             <div className="flex gap-2">
               <Button type="button" variant="outline" onClick={() => { setFrom(monthStartIso()); setTo(todayIso()); }}>
                 Mês atual
-              </Button>
-              <Button type="button" variant="outline" onClick={() => { setFrom(''); setTo(''); }}>
-                Tudo
               </Button>
               <Button type="button" onClick={() => { if (tab === 'access') fetchAccessSummary(); else fetchQuizSummary(); }} disabled={loading}>
                 {loading ? 'Carregando...' : 'Atualizar'}
@@ -348,7 +369,7 @@ export function ReportsHub() {
               <div className="flex items-center gap-2">
                 <Switch id="include-leaders" checked={includeLeaders} onCheckedChange={setIncludeLeaders} />
                 <Label htmlFor="include-leaders" className="text-sm text-muted-foreground">
-                  Incluir líderes nos cálculos
+                  Incluir líderes nos cálculos (por padrão, exclui)
                 </Label>
               </div>
               <div className="flex items-center gap-2">
@@ -410,7 +431,7 @@ export function ReportsHub() {
                     tentativas: q.attempts,
                     media_pct: q.avgScorePct ?? '',
                   }));
-                  if (rows.length) downloadCsv(`relatorio-quizzes-${formatPeriodLabel(from, to)}.csv`, rows);
+                  if (rows.length) downloadCsv(`relatorio-quizzes-${from}-a-${to}.csv`, rows);
                 }}
                 disabled={!quizSummary?.quizzes?.length}
               >
@@ -424,6 +445,7 @@ export function ReportsHub() {
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead className="w-[44px]"></TableHead>
                       <TableHead>Quiz</TableHead>
                       <TableHead>CHAS</TableHead>
                       <TableHead className="text-right">Participantes</TableHead>
@@ -431,24 +453,61 @@ export function ReportsHub() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {quizSummary.quizzes.map((q) => (
-                      <TableRow key={q.challenge_id}>
-                        <TableCell className="font-medium">{q.title}</TableCell>
-                        <TableCell>
-                          {q.chas_dimension ? (
-                            <Badge variant="outline" className="text-[10px]">
-                              {q.chas_dimension}
-                            </Badge>
-                          ) : (
-                            '—'
+                    {quizSummary.quizzes.map((q) => {
+                      const expanded = Boolean(expandedQuizIds[q.challenge_id]);
+                      return (
+                        <Fragment key={q.challenge_id}>
+                          <TableRow key={q.challenge_id}>
+                            <TableCell className="align-top">
+                              <Button
+                                type="button"
+                                size="icon"
+                                variant="ghost"
+                                className="h-8 w-8"
+                                aria-label={expanded ? 'Fechar detalhes' : 'Abrir detalhes'}
+                                onClick={() =>
+                                  setExpandedQuizIds((prev) => {
+                                    const next = { ...prev };
+                                    if (next[q.challenge_id]) delete next[q.challenge_id];
+                                    else next[q.challenge_id] = true;
+                                    return next;
+                                  })
+                                }
+                              >
+                                {expanded ? <Minus className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+                              </Button>
+                            </TableCell>
+                            <TableCell className="font-medium">{q.title}</TableCell>
+                            <TableCell>
+                              {q.chas_dimension ? (
+                                <Badge variant="outline" className="text-[10px]">
+                                  {q.chas_dimension}
+                                </Badge>
+                              ) : (
+                                '—'
+                              )}
+                            </TableCell>
+                            <TableCell className="text-right">{q.participants}</TableCell>
+                            <TableCell className="text-right">{q.avgScorePct == null ? '—' : `${q.avgScorePct}%`}</TableCell>
+                          </TableRow>
+                          {expanded && (
+                            <TableRow key={`${q.challenge_id}:details`}>
+                              <TableCell colSpan={5} className="p-0">
+                                <QuizPeopleDrilldown
+                                  challengeId={q.challenge_id}
+                                  scope={scope}
+                                  scopeId={scopeId}
+                                  includeLeaders={includeLeaders}
+                                  includeGuests={includeGuests}
+                                  from={from}
+                                  to={to}
+                                />
+                              </TableCell>
+                            </TableRow>
                           )}
-                        </TableCell>
-                        <TableCell className="text-right">{q.participants}</TableCell>
-                        <TableCell className="text-right">
-                          {q.avgScorePct == null ? '—' : <Badge variant="outline" className={getQuizScoreBadgeClassName(q.avgScorePct)}>{`${q.avgScorePct}%`}</Badge>}
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                        </Fragment>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               )}
@@ -473,7 +532,7 @@ export function ReportsHub() {
                     aderencia_pct: t.participationRate,
                     media_pct: t.avgScorePct ?? '',
                   }));
-                  if (rows.length) downloadCsv(`relatorio-chas-${formatPeriodLabel(from, to)}.csv`, rows);
+                  if (rows.length) downloadCsv(`relatorio-chas-${from}-a-${to}.csv`, rows);
                 }}
                 disabled={!themes.length}
               >
@@ -514,9 +573,7 @@ export function ReportsHub() {
                           <TableCell className="text-right">{t.quizzes}</TableCell>
                           <TableCell className="text-right">{t.participants}</TableCell>
                           <TableCell className="text-right">{t.participationRate}%</TableCell>
-                          <TableCell className="text-right">
-                            {t.avgScorePct == null ? '—' : <Badge variant="outline" className={getQuizScoreBadgeClassName(t.avgScorePct)}>{`${t.avgScorePct}%`}</Badge>}
-                          </TableCell>
+                          <TableCell className="text-right">{t.avgScorePct == null ? '—' : `${t.avgScorePct}%`}</TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
@@ -559,7 +616,7 @@ export function ReportsHub() {
                       S_quizzes: u.byChas?.S?.completedQuizzes ?? 0,
                       S_media_pct: u.byChas?.S?.avgScorePct ?? '',
                     }));
-                    if (rows.length) downloadCsv(`relatorio-notas-${formatPeriodLabel(from, to)}.csv`, rows);
+                    if (rows.length) downloadCsv(`relatorio-notas-${from}-a-${to}.csv`, rows);
                   }}
                   disabled={!filteredUsers.length}
                 >
@@ -598,9 +655,7 @@ export function ReportsHub() {
                             </TableCell>
                             <TableCell>{u.team_id ?? '—'}</TableCell>
                             <TableCell className="text-right">{u.completedQuizzes}</TableCell>
-                            <TableCell className="text-right">
-                              {u.avgScorePct == null ? '—' : <Badge variant="outline" className={getQuizScoreBadgeClassName(u.avgScorePct)}>{`${u.avgScorePct}%`}</Badge>}
-                            </TableCell>
+                            <TableCell className="text-right">{u.avgScorePct == null ? '—' : `${u.avgScorePct}%`}</TableCell>
                             <TableCell>
                               <div className="flex flex-wrap gap-1">
                                 {(['C', 'H', 'A', 'S'] as const).map((c) => {
@@ -609,9 +664,9 @@ export function ReportsHub() {
                                   const pct = stat?.avgScorePct;
                                   const label = pct == null ? `${c}:${n}` : `${c}:${n} • ${pct}%`;
                                   return (
-                                      <Badge key={c} variant="outline" className={`text-[10px] ${getQuizScoreBadgeClassName(pct)}`}>
-                                        {label}
-                                      </Badge>
+                                    <Badge key={c} variant="outline" className="text-[10px]">
+                                      {label}
+                                    </Badge>
                                   );
                                 })}
                               </div>
@@ -695,9 +750,7 @@ export function ReportsHub() {
                           {q.question_text}
                         </TableCell>
                         <TableCell className="text-right">{q.answeredCount}</TableCell>
-                        <TableCell className="text-right">
-                          {q.accuracyPct == null ? '—' : <Badge variant="outline" className={getQuizScoreBadgeClassName(q.accuracyPct)}>{`${q.accuracyPct}%`}</Badge>}
-                        </TableCell>
+                        <TableCell className="text-right">{q.accuracyPct == null ? '—' : `${q.accuracyPct}%`}</TableCell>
                         <TableCell>{q.lastAnsweredAt ? new Date(q.lastAnsweredAt).toLocaleString(getActiveLocale()) : '—'}</TableCell>
                       </TableRow>
                     ))}

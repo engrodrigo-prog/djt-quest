@@ -212,7 +212,7 @@ export function VoiceRecorderButton({
           const resp = await apiFetch("/api/ai?handler=transcribe-audio", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ audioBase64: b64, mode, language }),
+            body: JSON.stringify({ audioBase64: b64, audioMime: file.type || null, mode, language }),
           });
           if (!resp.ok) {
             const msg = await readApiError(resp);

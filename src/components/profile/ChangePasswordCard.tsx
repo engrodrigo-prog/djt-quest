@@ -3,9 +3,11 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/com
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/integrations/supabase/client';
+import { MIN_PASSWORD_LENGTH, mapPasswordUpdateError, validateNewPassword } from '@/lib/passwordPolicy';
+import { updatePassword } from '@/lib/supabaseAuth';
 
 interface ChangePasswordCardProps {
   compact?: boolean;
@@ -14,51 +16,40 @@ interface ChangePasswordCardProps {
 export function ChangePasswordCard({ compact = false }: ChangePasswordCardProps) {
   const [form, setForm] = useState({ password: '', confirm: '' });
   const [loading, setLoading] = useState(false);
-  const { refreshUserSession } = useAuth();
+  const { refreshUserSession, profile } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.password || form.password.length < 6) {
-      toast.error('A nova senha deve ter pelo menos 6 caracteres');
-      return;
-    }
-    if (form.password === '123456') {
-      toast.error('Por segurança, não use a senha padrão (123456)');
-      return;
-    }
-    if (form.password !== form.confirm) {
-      toast.error('As senhas não conferem');
+    const validation = validateNewPassword(form.password, form.confirm);
+    if (!validation.ok) {
+      toast.error(validation.message);
       return;
     }
     setLoading(true);
     try {
-      const { error } = await supabase.auth.updateUser({ password: form.password });
-      if (error) {
-        if (
-          // Mensagens comuns quando a senha nova é igual à atual
-          (typeof error.message === 'string' && (
-            error.message.includes('same_password') ||
-            error.message.includes('should be different') ||
-            error.message.toLowerCase().includes('same as the old password')
-          ))
-        ) {
-          toast.error('A nova senha deve ser diferente da senha atual');
-          return;
-        }
-        throw error;
+      const result = await updatePassword(form.password);
+      if (!result.ok) {
+        const mapped = mapPasswordUpdateError(result.error);
+        toast.error(mapped.title, { description: mapped.description });
+        return;
       }
+
+      // If the app flagged this user as "must_change_password", clear it after success.
+      try {
+        if (profile?.id) {
+          await supabase.from('profiles').update({ must_change_password: false }).eq('id', profile.id);
+        }
+      } catch {
+        // best-effort
+      }
+
       await refreshUserSession();
       toast.success('Senha atualizada com sucesso!');
       setForm({ password: '', confirm: '' });
     } catch (error) {
       console.error('Error updating password:', error);
-      const msg =
-        error instanceof Error
-          ? error.message
-          : typeof (error as any)?.message === 'string'
-            ? String((error as any)?.message)
-            : '';
-      toast.error('Não foi possível atualizar a senha', { description: msg || undefined });
+      const mapped = mapPasswordUpdateError(error);
+      toast.error(mapped.title, { description: mapped.description });
     } finally {
       setLoading(false);
     }
@@ -86,9 +77,12 @@ export function ChangePasswordCard({ compact = false }: ChangePasswordCardProps)
               autoCapitalize="none"
               autoCorrect="off"
               spellCheck={false}
-              minLength={6}
+              minLength={MIN_PASSWORD_LENGTH}
               required
             />
+            <p className="text-xs text-muted-foreground">
+              Use pelo menos {MIN_PASSWORD_LENGTH} caracteres, com maiúscula, minúscula, número e símbolo.
+            </p>
           </div>
           <div className="space-y-2">
             <Label>Confirmar senha</Label>
@@ -101,7 +95,7 @@ export function ChangePasswordCard({ compact = false }: ChangePasswordCardProps)
               autoCapitalize="none"
               autoCorrect="off"
               spellCheck={false}
-              minLength={6}
+              minLength={MIN_PASSWORD_LENGTH}
               required
             />
           </div>

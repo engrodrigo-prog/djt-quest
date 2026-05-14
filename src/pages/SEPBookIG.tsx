@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FocusEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation as useRouterLocation, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import Navigation from "@/components/Navigation";
@@ -33,7 +33,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useI18n } from "@/contexts/I18nContext";
 import { translateTextsCached } from "@/lib/i18n/aiTranslate";
 import { localeToOpenAiLanguageTag } from "@/lib/i18n/language";
-import { MapContainer, Marker, Popup, TileLayer, useMap, useMapEvents } from "react-leaflet";
+import { MapContainer, Marker, Popup, TileLayer, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import markerIcon2xUrl from "leaflet/dist/images/marker-icon-2x.png";
@@ -93,6 +93,7 @@ type SepPost = {
 
 type SepPostKind = "normal" | "ocorrencia";
 type SepPostKindFilter = "all" | SepPostKind;
+type EditLocationMode = "keep" | "update_current" | "clear";
 
 type SepComment = {
   id: string;
@@ -403,11 +404,18 @@ async function extractGpsFromImage(file: File): Promise<{ lat: number; lng: numb
   }
 }
 
-async function getCurrentDeviceLocation(): Promise<{ lat: number; lng: number } | null> {
+async function getCurrentDeviceLocation(options?: {
+  enableHighAccuracy?: boolean;
+  timeoutMs?: number;
+  maximumAgeMs?: number;
+}): Promise<{ lat: number; lng: number } | null> {
   try {
     if (typeof navigator === "undefined") return null;
     const geo = (navigator as any)?.geolocation;
     if (!geo?.getCurrentPosition) return null;
+    const enableHighAccuracy = options?.enableHighAccuracy ?? false;
+    const timeoutMs = options?.timeoutMs ?? 8000;
+    const maximumAgeMs = options?.maximumAgeMs ?? 5 * 60 * 1000;
     return await new Promise((resolve) => {
       geo.getCurrentPosition(
         (pos: any) => {
@@ -416,7 +424,7 @@ async function getCurrentDeviceLocation(): Promise<{ lat: number; lng: number } 
           resolve(clampLatLng(lat, lng));
         },
         () => resolve(null),
-        { enableHighAccuracy: false, timeout: 8000, maximumAge: 5 * 60 * 1000 },
+        { enableHighAccuracy, timeout: timeoutMs, maximumAge: maximumAgeMs },
       );
     });
   } catch {
@@ -521,58 +529,19 @@ function SepbookMapUserActivity({ onActivity }: { onActivity: () => void }) {
   return null;
 }
 
-function SepbookMapDismissSelection({ onDismiss }: { onDismiss: () => void }) {
-  useMapEvents({
-    click: (e) => {
-      try {
-        const target = (e as any)?.originalEvent?.target;
-        if (target && target instanceof Element) {
-          if (target.closest(".leaflet-control")) return;
-          if (target.closest(".leaflet-marker-icon")) return;
-          if (target.closest(".leaflet-popup")) return;
-        }
-        onDismiss();
-      } catch {
-        onDismiss();
-      }
-    },
-  });
-  return null;
-}
-
-function EditLocationMapEvents({
-  coords,
-  onPick,
-}: {
-  coords: { lat: number; lng: number } | null;
-  onPick: (lat: number, lng: number) => void;
-}) {
-  const map = useMap();
-  useEffect(() => {
-    if (!map) return;
-    if (!coords) return;
-    try {
-      map.setView([coords.lat, coords.lng], Math.max(map.getZoom(), 13), { animate: false });
-    } catch {
-      /* ignore */
-    }
-  }, [map, coords?.lat, coords?.lng]);
-
-  useMapEvents({
-    click: (e) => {
-      try {
-        const lat = Number((e as any)?.latlng?.lat);
-        const lng = Number((e as any)?.latlng?.lng);
-        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-        onPick(lat, lng);
-      } catch {
-        /* ignore */
-      }
-    },
-  });
-
-  return null;
-}
+const pickGpsMediaSource = (items: MediaItem[]) => {
+  const candidates = (items || []).filter(
+    (it) =>
+      it.kind === "image" &&
+      it.gps &&
+      typeof it.gps.lat === "number" &&
+      typeof it.gps.lng === "number" &&
+      !it.error,
+  );
+  if (!candidates.length) return null;
+  const preferred = candidates.find((it) => typeof it.url === "string" && it.url.trim().length > 0) || candidates[0];
+  return { gps: preferred.gps!, url: preferred.url || null, id: preferred.id };
+};
 
 const maybeDownscaleImage = async (file: File, maxImageDimension: number, imageQuality: number): Promise<File> => {
   if (typeof document === "undefined") return file;
@@ -847,58 +816,6 @@ export default function SEPBookIG() {
     return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || "");
   }, []);
 
-  const sepbookMobileTextareaClass =
-    "!text-[16px] !leading-6 caret-foreground placeholder:text-muted-foreground selection:bg-primary/25";
-
-  const handleMobileTextareaFocus = useCallback(
-    (e: FocusEvent<HTMLTextAreaElement>) => {
-      if (!isMobileDevice) return;
-      const el = e.currentTarget;
-      window.setTimeout(() => {
-        try {
-          el.scrollIntoView({ block: "center", behavior: "smooth" });
-        } catch {
-          // ignore
-        }
-      }, 80);
-    },
-    [isMobileDevice],
-  );
-
-  useEffect(() => {
-    if (!isMobileDevice) return;
-    if (typeof window === "undefined") return;
-    const vv = window.visualViewport;
-    if (!vv) return;
-
-    let raf = 0;
-    const update = () => {
-      cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(() => {
-        const raw = window.innerHeight - vv.height - vv.offsetTop;
-        const inset = Math.max(0, Math.round(raw));
-        document.documentElement.style.setProperty("--djt-kb-inset", `${inset}px`);
-      });
-    };
-
-    update();
-    vv.addEventListener("resize", update);
-    vv.addEventListener("scroll", update);
-    window.addEventListener("focusin", update);
-    window.addEventListener("focusout", update);
-    window.addEventListener("orientationchange", update);
-
-    return () => {
-      cancelAnimationFrame(raf);
-      vv.removeEventListener("resize", update);
-      vv.removeEventListener("scroll", update);
-      window.removeEventListener("focusin", update);
-      window.removeEventListener("focusout", update);
-      window.removeEventListener("orientationchange", update);
-      document.documentElement.style.setProperty("--djt-kb-inset", "0px");
-    };
-  }, [isMobileDevice]);
-
   const [composerOpen, setComposerOpen] = useState(false);
   const [composerText, setComposerText] = useState("");
   const [composerMentionQuery, setComposerMentionQuery] = useState("");
@@ -923,17 +840,10 @@ export default function SEPBookIG() {
   const [editingPostKind, setEditingPostKind] = useState<SepPostKind>("normal");
   const [editingPostMedia, setEditingPostMedia] = useState<MediaItem[]>([]);
   const [editingPostUploading, setEditingPostUploading] = useState(false);
+  const [editingPostLocationMode, setEditingPostLocationMode] = useState<EditLocationMode>("keep");
+  const [editingPostResolvingLocation, setEditingPostResolvingLocation] = useState(false);
   const editingPostCameraRef = useRef<HTMLInputElement | null>(null);
   const editingPostGalleryRef = useRef<HTMLInputElement | null>(null);
-  const [postEditLocationPromptOpen, setPostEditLocationPromptOpen] = useState(false);
-  const [postEditLocationPickerOpen, setPostEditLocationPickerOpen] = useState(false);
-  const [postEditLocationCoords, setPostEditLocationCoords] = useState<{ lat: number; lng: number } | null>(null);
-  const [pendingPostEdit, setPendingPostEdit] = useState<{
-    postId: string;
-    text: string;
-    attachments: string[];
-    kind: SepPostKind;
-  } | null>(null);
 
   const [commentsOpenFor, setCommentsOpenFor] = useState<string | null>(null);
   const [commentsByPost, setCommentsByPost] = useState<Record<string, SepComment[]>>({});
@@ -979,44 +889,48 @@ export default function SEPBookIG() {
 
   const activePost = useMemo(() => posts.find((p) => p.id === commentsOpenFor) || null, [commentsOpenFor, posts]);
   const editingPost = useMemo(() => posts.find((p) => p.id === editingPostId) || null, [editingPostId, posts]);
-  const canEditSepbookLocation = Boolean(isMod || myProfile?.sepbook_gps_consent === true);
-  const editingPostCoords = useMemo(() => {
-    if (!editingPost) return null;
-    const coords = clampLatLng(Number((editingPost as any).location_lat), Number((editingPost as any).location_lng));
-    return coords ? { lat: coords.lat, lng: coords.lng } : null;
-  }, [editingPost]);
-  const editingPostHasGps = useMemo(() => Boolean(editingPostCoords), [editingPostCoords]);
+  const editingPostCoords = useMemo(
+    () => (editingPost ? clampLatLng(Number(editingPost.location_lat), Number(editingPost.location_lng)) : null),
+    [editingPost],
+  );
+  const editingPostLocationLabel = useMemo(
+    () => sanitizeLocationLabel(editingPost?.location_label),
+    [editingPost?.location_label],
+  );
 
-  useEffect(() => {
-    if (editingPostId) return;
-    setPostEditLocationPromptOpen(false);
-    setPostEditLocationPickerOpen(false);
-    setPostEditLocationCoords(null);
-    setPendingPostEdit(null);
-  }, [editingPostId]);
+  const runAfterDropdownClose = useCallback((fn: () => void) => {
+    if (typeof window === "undefined") {
+      fn();
+      return;
+    }
+    window.requestAnimationFrame(() => {
+      const active = document.activeElement as HTMLElement | null;
+      if (active && typeof active.blur === "function") active.blur();
+      fn();
+    });
+  }, []);
 
   const [fallbackTranslations, setFallbackTranslations] = useState<Record<string, string>>({});
   const translationInFlightRef = useRef(0);
 
-  const composerGpsSource = useMemo(() => {
-    const items = composerMedia.filter((m) => m.kind === "image");
-    for (const it of items) {
-      if (it.gps && typeof it.gps.lat === "number" && typeof it.gps.lng === "number") {
-        return { gps: it.gps, url: it.url || null, id: it.id };
-      }
-    }
-    return null;
-  }, [composerMedia]);
+  const composerGpsSource = useMemo(() => pickGpsMediaSource(composerMedia), [composerMedia]);
+  const commentGpsSource = useMemo(() => pickGpsMediaSource(commentMedia), [commentMedia]);
 
-  const commentGpsSource = useMemo(() => {
-    const items = commentMedia.filter((m) => m.kind === "image");
-    for (const it of items) {
-      if (it.gps && typeof it.gps.lat === "number" && typeof it.gps.lng === "number") {
-        return { gps: it.gps, url: it.url || null, id: it.id };
+  const ensureGpsConsent = useCallback(async () => {
+    if (myProfile?.sepbook_gps_consent === true) return true;
+    const uid = String(user?.id || "").trim();
+    if (!uid) return false;
+    try {
+      const { data } = await supabase.from("profiles").select("sepbook_gps_consent").eq("id", uid).maybeSingle();
+      const consent = (data as any)?.sepbook_gps_consent === true;
+      if (consent && myProfile) {
+        setMyProfile((prev) => (prev ? { ...prev, sepbook_gps_consent: true } : prev));
       }
+      return consent;
+    } catch {
+      return false;
     }
-    return null;
-  }, [commentMedia]);
+  }, [myProfile, user?.id]);
 
   const authorOptions = useMemo(() => {
     const map = new Map<
@@ -1454,24 +1368,17 @@ export default function SEPBookIG() {
   }, [commentsByPost, commentsOpenFor, locale, visiblePosts]);
 
   const resolveLocationForNewPost = useCallback(async () => {
-    if (myProfile?.sepbook_gps_consent !== true) return null;
+    const hasConsent = await ensureGpsConsent();
+    if (!hasConsent) return null;
 
-    // Prefer EXIF GPS from the image, if present.
-    if (composerGpsSource?.gps && composerGpsSource.url) {
-      return {
-        location_lat: composerGpsSource.gps.lat,
-        location_lng: composerGpsSource.gps.lng,
-        // The backend will reverse-geocode (city/state) from lat/lng; never use operational_base as "location".
-        location_label: null,
-        __gps_url: composerGpsSource.url || null,
-      };
-    }
-
-    // Fallback: some images (ex.: WhatsApp/webp) do not preserve EXIF GPS.
-    // If the user consented, try current device location so the post can appear on the map.
     const hasImage = composerMedia.some((m) => m.kind === "image");
     if (hasImage) {
-      const coords = await getCurrentDeviceLocation();
+      // Prefer current device GPS at publish time for mobile posting.
+      const coords = await getCurrentDeviceLocation({
+        enableHighAccuracy: true,
+        timeoutMs: 12000,
+        maximumAgeMs: 0,
+      });
       if (coords) {
         return {
           location_lat: coords.lat,
@@ -1481,12 +1388,25 @@ export default function SEPBookIG() {
         };
       }
     }
+
+    // Fallback: use EXIF GPS if current location is unavailable.
+    if (composerGpsSource?.gps) {
+      return {
+        location_lat: composerGpsSource.gps.lat,
+        location_lng: composerGpsSource.gps.lng,
+        // The backend will reverse-geocode (city/state) from lat/lng; never use operational_base as "location".
+        location_label: null,
+        __gps_url: composerGpsSource.url || null,
+      };
+    }
+
     return null;
-  }, [composerGpsSource, composerMedia, myProfile?.sepbook_gps_consent]);
+  }, [composerGpsSource, composerMedia, ensureGpsConsent]);
 
   const resolveLocationForNewComment = useCallback(async () => {
-    if (myProfile?.sepbook_gps_consent !== true) return null;
-    if (commentGpsSource?.gps && commentGpsSource.url) {
+    const hasConsent = await ensureGpsConsent();
+    if (!hasConsent) return null;
+    if (commentGpsSource?.gps) {
       return {
         location_lat: commentGpsSource.gps.lat,
         location_lng: commentGpsSource.gps.lng,
@@ -1508,7 +1428,7 @@ export default function SEPBookIG() {
       }
     }
     return null;
-  }, [commentGpsSource, commentMedia, myProfile?.sepbook_gps_consent]);
+  }, [commentGpsSource, commentMedia, ensureGpsConsent]);
 
   const geoLabelCacheRef = useRef<Record<string, string>>({});
   const geoInFlightRef = useRef<Set<string>>(new Set());
@@ -1638,7 +1558,11 @@ export default function SEPBookIG() {
         return { ok: false, reason: "failed" as const, error: json?.error };
       }
       if (!usedAI) {
-        return { ok: false, reason: "unavailable" as const };
+        return {
+          ok: false,
+          reason: "unavailable" as const,
+          error: json?.error || json?.meta?.reason || "IA indisponível no momento. Tente novamente mais tarde.",
+        };
       }
       const cleaned = String(json.cleaned.description || base).trim();
       return { ok: true, cleaned, changed: cleaned !== base };
@@ -1822,6 +1746,8 @@ export default function SEPBookIG() {
       setEditingPostKind("normal");
       setEditingPostMedia([]);
       setEditingPostUploading(false);
+      setEditingPostLocationMode("keep");
+      setEditingPostResolvingLocation(false);
 
       if (cleanupUploads && toRemove.length) {
         void (async () => {
@@ -1844,6 +1770,8 @@ export default function SEPBookIG() {
       setEditingPostText(String(post.content_md || ""));
       setEditingPostKind(normalizePostKind((post as any)?.post_kind));
       setEditingPostUploading(false);
+      setEditingPostLocationMode("keep");
+      setEditingPostResolvingLocation(false);
       const urls = normalizeAttachmentUrls((post as any).attachments);
       setEditingPostMedia(
         urls
@@ -1883,76 +1811,90 @@ export default function SEPBookIG() {
       return;
     }
 
-    setPendingPostEdit({ postId: editingPostId, text, attachments, kind: editingPostKind });
-    setPostEditLocationCoords(editingPostCoords);
-    setPostEditLocationPromptOpen(true);
-  }, [editingPost, editingPostCoords, editingPostId, editingPostKind, editingPostMedia, editingPostText, editingPostUploading, toast]);
-
-  const performPostEditSave = useCallback(
-    async (
-      payload: { postId: string; text: string; attachments: string[]; kind: SepPostKind },
-      location: { lat: number; lng: number } | null | undefined,
-    ) => {
-      if (!payload?.postId) return;
-      setPostEditLocationPromptOpen(false);
-      setPostEditLocationPickerOpen(false);
-      setEditingPostSaving(true);
-      try {
-        const body: any = {
-          post_id: payload.postId,
-          content_md: payload.text,
-          attachments: payload.attachments,
-          post_kind: payload.kind,
-        };
-
-        if (location && Number.isFinite(location.lat) && Number.isFinite(location.lng)) {
-          if (!canEditSepbookLocation) {
-            toast({
-              title: "Localização",
-              description: "Ative o consentimento de GPS no SEPBook para alterar a localização.",
-              variant: "destructive",
-            });
-          } else {
-            body.location_lat = location.lat;
-            body.location_lng = location.lng;
-          }
+    setEditingPostSaving(true);
+    try {
+      let locationPatch: Record<string, any> = {};
+      if (editingPostLocationMode === "clear") {
+        locationPatch = { location_lat: null, location_lng: null };
+      } else if (editingPostLocationMode === "update_current") {
+        const hasConsent = await ensureGpsConsent();
+        if (!hasConsent) {
+          toast({
+            title: "Localização",
+            description: "Ative o consentimento de GPS no SEPBook para atualizar a localização da publicação.",
+            variant: "destructive",
+          });
+          return;
         }
-
-        const resp = await apiFetch("/api/sepbook-edit", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        });
-        const json = await resp.json().catch(() => ({}));
-        if (!resp.ok) throw new Error(json?.error || "Falha ao atualizar publicação");
-
-        const updated = (json?.post || null) as any;
-        setPosts((prev) =>
-          prev.map((p) =>
-            p.id === payload.postId
-              ? {
-                  ...p,
-                  ...(updated || {}),
-                  content_md: payload.text,
-                  attachments: payload.attachments,
-                  post_kind: payload.kind,
-                  translations: updated?.translations || { ...(p.translations || {}), "pt-BR": payload.text },
-                }
-              : p,
-          ),
-        );
-        setFallbackTranslations((prev) => ({ ...prev, [`post:${payload.postId}`]: payload.text }));
-        closeEditPost({ cleanupUploads: false });
-        toast({ title: "Publicação atualizada" });
-      } catch (e: any) {
-        toast({ title: "Erro ao editar", description: e?.message || "Tente novamente", variant: "destructive" });
-      } finally {
-        setEditingPostSaving(false);
-        setPendingPostEdit(null);
+        setEditingPostResolvingLocation(true);
+        const coords = await getCurrentDeviceLocation();
+        setEditingPostResolvingLocation(false);
+        if (!coords) {
+          toast({
+            title: "Localização indisponível",
+            description: "Não foi possível obter sua localização atual. Verifique a permissão de GPS do dispositivo.",
+            variant: "destructive",
+          });
+          return;
+        }
+        locationPatch = { location_lat: coords.lat, location_lng: coords.lng };
       }
-    },
-    [apiFetch, canEditSepbookLocation, closeEditPost, toast],
-  );
+
+      const resp = await apiFetch("/api/sepbook-edit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          post_id: editingPostId,
+          content_md: text,
+          attachments,
+          post_kind: editingPostKind,
+          ...(locationPatch || {}),
+        }),
+      });
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(json?.error || "Falha ao atualizar publicação");
+      const updated = (json?.post || null) as any;
+      const hasLocationLat = Boolean(updated && Object.prototype.hasOwnProperty.call(updated, "location_lat"));
+      const hasLocationLng = Boolean(updated && Object.prototype.hasOwnProperty.call(updated, "location_lng"));
+      const hasLocationLabel = Boolean(updated && Object.prototype.hasOwnProperty.call(updated, "location_label"));
+
+      setPosts((prev) =>
+        prev.map((p) =>
+          p.id === editingPostId
+            ? {
+                ...p,
+                content_md: text,
+                attachments,
+                post_kind: editingPostKind,
+                translations: { ...(p.translations || {}), "pt-BR": text },
+                location_lat: hasLocationLat ? updated.location_lat ?? null : p.location_lat ?? null,
+                location_lng: hasLocationLng ? updated.location_lng ?? null : p.location_lng ?? null,
+                location_label: hasLocationLabel ? updated.location_label ?? null : p.location_label ?? null,
+              }
+            : p,
+        ),
+      );
+      setFallbackTranslations((prev) => ({ ...prev, [`post:${editingPostId}`]: text }));
+      closeEditPost({ cleanupUploads: false });
+      toast({ title: "Publicação atualizada" });
+    } catch (e: any) {
+      toast({ title: "Erro ao editar", description: e?.message || "Tente novamente", variant: "destructive" });
+    } finally {
+      setEditingPostResolvingLocation(false);
+      setEditingPostSaving(false);
+    }
+  }, [
+    closeEditPost,
+    editingPost,
+    editingPostId,
+    editingPostKind,
+    editingPostLocationMode,
+    editingPostMedia,
+    editingPostText,
+    editingPostUploading,
+    ensureGpsConsent,
+    toast,
+  ]);
 
   const clearEditingPostMedia = useCallback(() => {
     const toRemove = (editingPostMedia || [])
@@ -2164,9 +2106,6 @@ export default function SEPBookIG() {
                 rows={3}
                 value={editingCommentText}
                 onChange={(e) => setEditingCommentText(e.target.value)}
-                onFocus={handleMobileTextareaFocus}
-                style={{ WebkitTextFillColor: "currentColor" }}
-                className={sepbookMobileTextareaClass}
               />
               {editingCommentMentionQuery && editingCommentMentions.items.length > 0 && (
                 <div className="rounded-xl border bg-background">
@@ -2237,7 +2176,7 @@ export default function SEPBookIG() {
                   ) : null}
                 </div>
               ) : text ? (
-                <div className="text-[14px] leading-5 mt-0.5">{renderRichText(toast, text)}</div>
+                <div className="text-[13px] mt-0.5">{renderRichText(toast, text)}</div>
               ) : null}
               {hasAtt ? (
                 <AttachmentViewer urls={comment.attachments || []} postId={comment.post_id} mediaLayout="grid" />
@@ -2429,7 +2368,7 @@ export default function SEPBookIG() {
         } else {
           toast({
             title: "Não foi possível revisar",
-            description: "IA indisponível no momento. Tente novamente mais tarde.",
+            description: result.error || "IA indisponível no momento. Tente novamente mais tarde.",
             variant: "destructive",
           });
         }
@@ -2459,7 +2398,7 @@ export default function SEPBookIG() {
         } else {
           toast({
             title: "Não foi possível revisar",
-            description: "IA indisponível no momento. Tente novamente mais tarde.",
+            description: result.error || "IA indisponível no momento. Tente novamente mais tarde.",
             variant: "destructive",
           });
         }
@@ -2489,7 +2428,7 @@ export default function SEPBookIG() {
         } else {
           toast({
             title: "Não foi possível revisar",
-            description: "IA indisponível no momento. Tente novamente mais tarde.",
+            description: result.error || "IA indisponível no momento. Tente novamente mais tarde.",
             variant: "destructive",
           });
         }
@@ -2518,7 +2457,7 @@ export default function SEPBookIG() {
         } else {
           toast({
             title: "Não foi possível revisar",
-            description: "IA indisponível no momento. Tente novamente mais tarde.",
+            description: result.error || "IA indisponível no momento. Tente novamente mais tarde.",
             variant: "destructive",
           });
         }
@@ -3126,7 +3065,7 @@ export default function SEPBookIG() {
   };
 
   return (
-    <div className="min-h-screen bg-background text-foreground pb-[120px]">
+    <div className="min-h-screen bg-background text-foreground pb-[calc(7.5rem+env(safe-area-inset-bottom))] lg:pb-10 lg:pl-[var(--djt-nav-desktop-offset)]">
       <SendUserFeedbackDialog
         open={feedbackDialogOpen}
         onOpenChange={(open) => {
@@ -3168,7 +3107,7 @@ export default function SEPBookIG() {
             >
               <MapPinned className="h-5 w-5" />
             </Button>
-            <DropdownMenu>
+            <DropdownMenu modal={false}>
               <DropdownMenuTrigger asChild>
                 <Button type="button" size="icon" variant="ghost" aria-label={tr("sepbook.filtersSort")}>
                   <SlidersHorizontal className="h-5 w-5" />
@@ -3194,8 +3133,22 @@ export default function SEPBookIG() {
                 >
                   {tr("sepbook.filterMine")}
                 </DropdownMenuCheckboxItem>
-                <DropdownMenuItem onClick={() => setAuthorPickerOpen(true)}>{tr("sepbook.filterByAuthor")}</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setCampaignPickerOpen(true)}>{tr("sepbook.filterByCampaign")}</DropdownMenuItem>
+                <DropdownMenuItem
+                  onSelect={(e) => {
+                    e.preventDefault();
+                    runAfterDropdownClose(() => setAuthorPickerOpen(true));
+                  }}
+                >
+                  {tr("sepbook.filterByAuthor")}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onSelect={(e) => {
+                    e.preventDefault();
+                    runAfterDropdownClose(() => setCampaignPickerOpen(true));
+                  }}
+                >
+                  {tr("sepbook.filterByCampaign")}
+                </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuLabel>{tr("sepbook.postKindLabel")}</DropdownMenuLabel>
                 <DropdownMenuRadioGroup value={filterPostKind} onValueChange={(v) => setFilterPostKind(v as any)}>
@@ -3313,7 +3266,7 @@ export default function SEPBookIG() {
                       </div>
                     </div>
 
-                    <DropdownMenu>
+                    <DropdownMenu modal={false}>
                       <DropdownMenuTrigger asChild>
                         <Button type="button" size="icon" variant="ghost" aria-label={tr("sepbook.options")} title={tr("sepbook.options")}>
                           <MoreHorizontal className="h-5 w-5" />
@@ -3321,7 +3274,7 @@ export default function SEPBookIG() {
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="min-w-[200px]">
                         <DropdownMenuItem
-                          onClick={() => {
+                          onSelect={() => {
                             void copyToClipboard(toast, buildAbsoluteAppUrl(`/sepbook#post-${encodeURIComponent(p.id)}`));
                           }}
                         >
@@ -3336,7 +3289,12 @@ export default function SEPBookIG() {
                         {p.user_id === user?.id || isMod ? (
                           <>
                             <DropdownMenuSeparator />
-                            <DropdownMenuItem onClick={() => startEditPost(p)}>
+                            <DropdownMenuItem
+                              onSelect={(e) => {
+                                e.preventDefault();
+                                runAfterDropdownClose(() => startEditPost(p));
+                              }}
+                            >
                               <Pencil className="h-4 w-4 mr-2" />
                               {tr("sepbook.edit")}
                             </DropdownMenuItem>
@@ -3350,17 +3308,20 @@ export default function SEPBookIG() {
                         ) : null}
                         {canGiveFeedback && p.user_id !== user?.id && (
                           <DropdownMenuItem
-                            onClick={() =>
-                              startFeedback({
-                                userId: p.user_id,
-                                name: p.author_name || null,
-                                context: {
-                                  type: "sepbook_post",
-                                  url: `/sepbook#post-${encodeURIComponent(p.id)}`,
-                                  label: caption ? `SEPBook: ${caption.slice(0, 80)}` : "SEPBook",
-                                },
-                              })
-                            }
+                            onSelect={(e) => {
+                              e.preventDefault();
+                              runAfterDropdownClose(() =>
+                                startFeedback({
+                                  userId: p.user_id,
+                                  name: p.author_name || null,
+                                  context: {
+                                    type: "sepbook_post",
+                                    url: `/sepbook#post-${encodeURIComponent(p.id)}`,
+                                    label: caption ? `SEPBook: ${caption.slice(0, 80)}` : "SEPBook",
+                                  },
+                                }),
+                              );
+                            }}
                           >
                             <MessageCircle className="h-4 w-4 mr-2" />
                             Feedback
@@ -3434,7 +3395,7 @@ export default function SEPBookIG() {
                     </button>
 
                     {caption ? (
-                      <div className="text-[14px] leading-5">
+                      <div className="text-[13px]">
                         <UserProfilePopover userId={p.user_id} name={p.author_name} avatarUrl={p.author_avatar}>
                           <button type="button" className="font-semibold hover:underline p-0 bg-transparent border-0">
                             {formatName(p.author_name)}
@@ -3492,7 +3453,7 @@ export default function SEPBookIG() {
           }
         }}
       >
-        <DrawerContent className="h-[92dvh] max-h-[92dvh] sm:h-auto sm:max-h-[92vh]">
+        <DrawerContent className="max-h-[92vh] max-h-[92dvh]">
           <DrawerHeader>
             <DrawerTitle>{tr("sepbook.newPost")}</DrawerTitle>
             <DrawerDescription className="sr-only">Criar uma nova postagem, com menções e campanha opcional</DrawerDescription>
@@ -3529,10 +3490,8 @@ export default function SEPBookIG() {
                   ref={composerInputRef}
                   value={composerText}
                   onChange={(e) => setComposerText(e.target.value)}
-                  onFocus={handleMobileTextareaFocus}
                   placeholder={tr("sepbook.captionPlaceholder")}
-                  style={{ WebkitTextFillColor: "currentColor" }}
-                  className={`min-h-[140px] ${sepbookMobileTextareaClass}`}
+                  className="min-h-[140px]"
                 />
 
                 {composerCampaignId ? (
@@ -3599,7 +3558,7 @@ export default function SEPBookIG() {
               </div>
             </ScrollArea>
 
-            <div className="border-t bg-background px-3 py-3 space-y-2 pb-[calc(env(safe-area-inset-bottom)+var(--djt-kb-inset,0px)+12px)]">
+            <div className="border-t bg-background px-3 py-3 space-y-2 pb-[calc(env(safe-area-inset-bottom)+12px)]">
               {composerUploading || composerMedia.some((m) => m.uploading) ? (
                 <div className="text-[12px] text-muted-foreground">
                   Enviando mídias... aguarde para publicar.
@@ -3685,7 +3644,7 @@ export default function SEPBookIG() {
           if (!open) cancelEditPost();
         }}
       >
-        <DrawerContent className="h-[92dvh] max-h-[92dvh] sm:h-auto sm:max-h-[92vh]">
+      <DrawerContent className="max-h-[92vh]">
           <DrawerHeader>
             <DrawerTitle>{tr("sepbook.edit")} </DrawerTitle>
             <DrawerDescription className="sr-only">Editar texto, mídia e menções da publicação</DrawerDescription>
@@ -3718,13 +3677,54 @@ export default function SEPBookIG() {
                   </div>
                 </div>
 
+                <div className="rounded-xl border bg-muted/20 px-3 py-2">
+                  <div className="text-[12px] text-muted-foreground">Localização da postagem</div>
+                  <div className="mt-1 text-[12px]">
+                    {editingPostCoords
+                      ? editingPostLocationLabel || formatLatLng(editingPostCoords.lat, editingPostCoords.lng)
+                      : "Sem localização cadastrada"}
+                  </div>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={editingPostLocationMode === "keep" ? "default" : "outline"}
+                      onClick={() => setEditingPostLocationMode("keep")}
+                      disabled={editingPostSaving || editingPostResolvingLocation}
+                    >
+                      Manter atual
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={editingPostLocationMode === "update_current" ? "default" : "outline"}
+                      onClick={() => setEditingPostLocationMode("update_current")}
+                      disabled={editingPostSaving || editingPostResolvingLocation}
+                    >
+                      Atualizar pelo local atual
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={editingPostLocationMode === "clear" ? "default" : "outline"}
+                      onClick={() => setEditingPostLocationMode("clear")}
+                      disabled={editingPostSaving || editingPostResolvingLocation}
+                    >
+                      Remover localização
+                    </Button>
+                  </div>
+                  {editingPostLocationMode === "update_current" ? (
+                    <p className="mt-2 text-[11px] text-muted-foreground">
+                      Ao salvar, vamos solicitar a localização atual do dispositivo para atualizar o GPS da publicação.
+                    </p>
+                  ) : null}
+                </div>
+
                 <Textarea
                   value={editingPostText}
                   onChange={(e) => setEditingPostText(e.target.value)}
-                  onFocus={handleMobileTextareaFocus}
                   placeholder={tr("sepbook.captionPlaceholder")}
-                  style={{ WebkitTextFillColor: "currentColor" }}
-                  className={`min-h-[140px] ${sepbookMobileTextareaClass}`}
+                  className="min-h-[140px]"
                 />
 
                 {editingPostMentionQuery && editingPostMentions.items.length > 0 && (
@@ -3748,11 +3748,14 @@ export default function SEPBookIG() {
               </div>
             </ScrollArea>
 
-            <div className="border-t bg-background px-3 py-3 pb-[calc(env(safe-area-inset-bottom)+var(--djt-kb-inset,0px)+12px)]">
+            <div className="border-t bg-background px-3 py-3 pb-[calc(env(safe-area-inset-bottom)+12px)]">
               {editingPostUploading || editingPostMedia.some((m) => m.uploading) ? (
                 <div className="text-[12px] text-muted-foreground">
                   Enviando mídias... aguarde para salvar.
                 </div>
+              ) : null}
+              {editingPostResolvingLocation ? (
+                <div className="text-[12px] text-muted-foreground">Obtendo localização atual...</div>
               ) : null}
 
               {renderMediaThumbs(editingPostMedia, (m) => removeMediaItem(m, setEditingPostMedia), { wrap: false })}
@@ -3822,7 +3825,12 @@ export default function SEPBookIG() {
                 <Button
                   type="button"
                   onClick={() => void savePostEdit()}
-                  disabled={editingPostSaving || editingPostUploading || editingPostMedia.some((m) => m.uploading)}
+                  disabled={
+                    editingPostSaving ||
+                    editingPostUploading ||
+                    editingPostResolvingLocation ||
+                    editingPostMedia.some((m) => m.uploading)
+                  }
                 >
                   {editingPostSaving ? tr("common.loading") : tr("sepbook.save")}
                 </Button>
@@ -3831,162 +3839,6 @@ export default function SEPBookIG() {
           </div>
         </DrawerContent>
       </Drawer>
-
-      <Dialog
-        open={postEditLocationPromptOpen}
-        onOpenChange={(open) => {
-          if (!open) setPostEditLocationPromptOpen(false);
-        }}
-      >
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>{tr("sepbook.location")}</DialogTitle>
-            <DialogDescription>
-              {editingPostHasGps
-                ? "Antes de salvar, deseja mudar a localização desta publicação?"
-                : "Antes de salvar, deseja definir uma localização para esta publicação?"}
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="text-sm">
-            <div className="text-muted-foreground">Atual</div>
-            <div className="mt-1">
-              {editingPostCoords ? (
-                <span className="truncate">
-                  {[sanitizeLocationLabel((editingPost as any)?.location_label), formatLatLng(editingPostCoords.lat, editingPostCoords.lng)]
-                    .filter(Boolean)
-                    .join(" • ") || tr("sepbook.location")}
-                </span>
-              ) : (
-                <span className="text-muted-foreground">Sem localização</span>
-              )}
-            </div>
-            {!canEditSepbookLocation ? (
-              <div className="mt-2 text-[12px] text-muted-foreground">
-                Para alterar localização, ative o consentimento de GPS do SEPBook.
-              </div>
-            ) : null}
-          </div>
-
-          <div className="flex items-center justify-end gap-2">
-            <Button type="button" variant="outline" onClick={() => setPostEditLocationPromptOpen(false)} disabled={editingPostSaving}>
-              {tr("sepbook.cancel")}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => {
-                if (!canEditSepbookLocation) return;
-                setPostEditLocationCoords((prev) => prev ?? editingPostCoords ?? { lat: mapCenter[0], lng: mapCenter[1] });
-                setPostEditLocationPromptOpen(false);
-                setPostEditLocationPickerOpen(true);
-              }}
-              disabled={editingPostSaving || !canEditSepbookLocation}
-              title={canEditSepbookLocation ? undefined : "Requer consentimento de GPS"}
-            >
-              {editingPostHasGps ? "Mudar no mapa" : "Definir no mapa"}
-            </Button>
-            <Button
-              type="button"
-              onClick={() => {
-                if (!pendingPostEdit) return;
-                void performPostEditSave(pendingPostEdit, undefined);
-              }}
-              disabled={editingPostSaving || !pendingPostEdit}
-            >
-              {editingPostSaving ? tr("common.loading") : tr("sepbook.save")}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog
-        open={postEditLocationPickerOpen}
-        onOpenChange={(open) => {
-          if (!open) setPostEditLocationPickerOpen(false);
-        }}
-      >
-        <DialogContent className="max-w-3xl p-0 overflow-hidden">
-          <DialogHeader className="px-4 pt-4 pb-2">
-            <DialogTitle>{tr("sepbook.location")}</DialogTitle>
-            <DialogDescription className="text-[12px] text-muted-foreground">
-              Clique no mapa para escolher um ponto. Você também pode arrastar o marcador.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="border-t">
-            <div className="h-[52vh]">
-              <MapContainer
-                center={[postEditLocationCoords?.lat ?? mapCenter[0], postEditLocationCoords?.lng ?? mapCenter[1]]}
-                zoom={13}
-                scrollWheelZoom={true}
-                zoomControl={true}
-                zoomAnimation={false}
-                fadeAnimation={false}
-                markerZoomAnimation={false}
-                className="h-full w-full"
-              >
-                <TileLayer
-                  attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                />
-                <EditLocationMapEvents
-                  coords={postEditLocationCoords}
-                  onPick={(lat, lng) => setPostEditLocationCoords(clampLatLng(lat, lng) || null)}
-                />
-                {postEditLocationCoords ? (
-                  <Marker
-                    position={[postEditLocationCoords.lat, postEditLocationCoords.lng]}
-                    draggable={true}
-                    icon={selectedMarkerIcon}
-                    eventHandlers={{
-                      dragend: (e) => {
-                        try {
-                          const m = (e as any)?.target;
-                          const ll = m?.getLatLng?.();
-                          if (!ll) return;
-                          setPostEditLocationCoords(clampLatLng(ll.lat, ll.lng) || null);
-                        } catch {
-                          /* ignore */
-                        }
-                      },
-                    }}
-                  />
-                ) : null}
-              </MapContainer>
-            </div>
-
-            <div className="px-4 py-3 flex flex-wrap items-center justify-between gap-2">
-              <div className="text-[12px] text-muted-foreground">
-                {postEditLocationCoords ? formatLatLng(postEditLocationCoords.lat, postEditLocationCoords.lng) : "Sem ponto selecionado"}
-              </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => {
-                    setPostEditLocationPickerOpen(false);
-                    setPostEditLocationPromptOpen(true);
-                  }}
-                  disabled={editingPostSaving}
-                >
-                  Voltar
-                </Button>
-                <Button
-                  type="button"
-                  onClick={() => {
-                    if (!pendingPostEdit) return;
-                    void performPostEditSave(pendingPostEdit, postEditLocationCoords);
-                  }}
-                  disabled={editingPostSaving || !pendingPostEdit || !postEditLocationCoords}
-                >
-                  {editingPostSaving ? tr("common.loading") : "Salvar com esta localização"}
-                </Button>
-              </div>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
 
       <Drawer
         open={Boolean(commentsOpenFor)}
@@ -4005,7 +3857,7 @@ export default function SEPBookIG() {
           }
         }}
       >
-        <DrawerContent className="h-[92dvh] max-h-[92dvh] sm:h-auto sm:max-h-[92vh]">
+        <DrawerContent className="max-h-[92vh]">
           <DrawerHeader>
             <DrawerTitle>
               {activePost
@@ -4028,7 +3880,7 @@ export default function SEPBookIG() {
                     {activePost.author_team ? `• ${activePost.author_team}` : ""}
                   </div>
                   {String(getPostDisplayText(activePost) || "").trim() ? (
-                    <div className="text-[14px] leading-5 mt-1">{renderRichText(toast, getPostDisplayText(activePost))}</div>
+                    <div className="text-[13px] mt-1">{renderRichText(toast, getPostDisplayText(activePost))}</div>
                   ) : null}
                 </div>
               )}
@@ -4067,7 +3919,7 @@ export default function SEPBookIG() {
               )}
             </ScrollArea>
 
-            <div className="border-t bg-background px-3 py-3 space-y-2 pb-[calc(env(safe-area-inset-bottom)+var(--djt-kb-inset,0px)+12px)]">
+            <div className="border-t bg-background px-3 py-3 space-y-2 pb-[calc(env(safe-area-inset-bottom)+12px)]">
               {replyTarget && (
                 <div className="flex items-center justify-between gap-2 rounded-xl border bg-muted/30 px-3 py-2 text-[12px]">
                   <span>
@@ -4208,11 +4060,9 @@ export default function SEPBookIG() {
                   ref={commentInputRef}
                   value={commentText}
                   onChange={(e) => setCommentText(e.target.value)}
-                  onFocus={handleMobileTextareaFocus}
                   placeholder={tr("sepbook.commentPlaceholder")}
                   rows={1}
-                  style={{ WebkitTextFillColor: "currentColor" }}
-                  className={`min-h-[44px] max-h-[140px] resize-none ${sepbookMobileTextareaClass}`}
+                  className="min-h-[42px] max-h-[120px] resize-none"
                 />
                 <Button
                   type="button"
@@ -4482,11 +4332,11 @@ export default function SEPBookIG() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-0 border-t">
               <div className="h-[48vh] md:h-[70vh] border-b md:border-b-0 md:border-r">
                 <div className="relative h-full w-full">
-	                  <MapContainer
-	                    center={mapCenter}
-	                    zoom={12}
-	                    scrollWheelZoom={true}
-	                    zoomControl={true}
+                  <MapContainer
+                    center={mapCenter}
+                    zoom={12}
+                    scrollWheelZoom={false}
+                    zoomControl={false}
                     zoomAnimation={false}
                     fadeAnimation={false}
                     markerZoomAnimation={false}
@@ -4494,17 +4344,16 @@ export default function SEPBookIG() {
                       mapInstanceRef.current = map;
                     }}
                     className="h-full w-full"
-	                  >
-	                    <TileLayer
-	                      attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-	                      url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-	                    />
-	                    <SepbookMapDismissSelection onDismiss={() => setMapSelectedId(null)} />
-	                    <SepbookFitBounds
-	                      points={mapPosts.map((x) => [Number(x.lat), Number(x.lng)] as [number, number])}
-	                      disabled={mapHasInteracted}
-	                      token={mapFitToken}
-	                    />
+                  >
+                    <TileLayer
+                      attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                      url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                    />
+                    <SepbookFitBounds
+                      points={mapPosts.map((x) => [Number(x.lat), Number(x.lng)] as [number, number])}
+                      disabled={mapHasInteracted}
+                      token={mapFitToken}
+                    />
                     <SepbookMapViewport onBoundsChange={setMapBounds} />
                     <SepbookMapUserActivity onActivity={() => setMapHasInteracted(true)} />
                     {mapPosts.map((x) => (

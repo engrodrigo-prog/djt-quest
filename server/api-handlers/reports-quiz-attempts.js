@@ -7,6 +7,12 @@ const GUEST_TEAM_ID = 'CONVIDADOS';
 const toIsoStart = (d) => new Date(`${d}T00:00:00.000Z`).toISOString();
 const toIsoEnd = (d) => new Date(`${d}T23:59:59.999Z`).toISOString();
 
+function getStrParam(req, key) {
+  const v = req.query?.[key];
+  const s = Array.isArray(v) ? v[0] : v;
+  return s != null ? String(s).trim() : '';
+}
+
 function getDateParam(req, key) {
   const v = req.query?.[key];
   const s = Array.isArray(v) ? v[0] : v;
@@ -14,12 +20,6 @@ function getDateParam(req, key) {
   const txt = String(s).trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(txt)) return null;
   return txt;
-}
-
-function getStrParam(req, key) {
-  const v = req.query?.[key];
-  const s = Array.isArray(v) ? v[0] : v;
-  return s != null ? String(s).trim() : '';
 }
 
 const chunk = (arr, size) => {
@@ -37,6 +37,76 @@ const toPct = (scoreRaw, maxRaw) => {
   return Math.max(0, Math.min(100, pct));
 };
 
+const ANSWERS_PAGE_SIZE = 10_000;
+
+const safeIso = (raw) => {
+  const s = raw != null ? String(raw).trim() : '';
+  if (!s) return null;
+  const ms = Date.parse(s);
+  return Number.isFinite(ms) ? new Date(ms).toISOString() : null;
+};
+
+const inRange = (iso, fromIso, toIso) => {
+  if (!iso) return false;
+  const ms = Date.parse(String(iso));
+  if (!Number.isFinite(ms)) return false;
+  if (fromIso) {
+    const fromMs = Date.parse(fromIso);
+    if (Number.isFinite(fromMs) && ms < fromMs) return false;
+  }
+  if (toIso) {
+    const toMs = Date.parse(toIso);
+    if (Number.isFinite(toMs) && ms > toMs) return false;
+  }
+  return true;
+};
+
+async function getTotalQuestions(admin, challengeId) {
+  const { count, error } = await admin
+    .from('quiz_questions')
+    .select('id', { count: 'exact', head: true })
+    .eq('challenge_id', challengeId);
+  if (error) return { totalQuestions: 0, error };
+  const total = Math.max(0, Number(count ?? 0) || 0);
+  return { totalQuestions: total, error: null };
+}
+
+async function loadAnswerStats(admin, challengeId, userIds, chunk) {
+  const byUser = new Map(); // user_id -> { answered, correct, lastAnsweredAt }
+  for (const ids of chunk(userIds, 500)) {
+    let from = 0;
+    while (true) {
+      const { data: rows, error } = await admin
+        .from('user_quiz_answers')
+        .select('id, user_id, is_correct, answered_at')
+        .in('user_id', ids)
+        .eq('challenge_id', challengeId)
+        .order('answered_at', { ascending: true })
+        .order('id', { ascending: true })
+        .range(from, from + ANSWERS_PAGE_SIZE - 1);
+      if (error) return { byUser: new Map(), error };
+
+      for (const row of rows || []) {
+        const uid = String(row?.user_id || '').trim();
+        if (!uid) continue;
+        const existing = byUser.get(uid) || { answered: 0, correct: 0, lastAnsweredAt: null };
+        existing.answered += 1;
+        if (row?.is_correct === true) existing.correct += 1;
+        const iso = safeIso(row?.answered_at);
+        if (iso) {
+          if (!existing.lastAnsweredAt || iso > existing.lastAnsweredAt) existing.lastAnsweredAt = iso;
+        }
+        byUser.set(uid, existing);
+      }
+
+      const got = (rows || []).length;
+      if (got < ANSWERS_PAGE_SIZE) break;
+      from += ANSWERS_PAGE_SIZE;
+    }
+  }
+  return { byUser, error: null };
+}
+
 export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(204).send('');
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
@@ -50,13 +120,6 @@ export default async function handler(req, res) {
     const challengeId = getStrParam(req, 'challengeId');
     if (!challengeId) return res.status(400).json({ error: 'challengeId required' });
 
-    const { data: challenge } = await admin
-      .from('challenges')
-      .select('title')
-      .eq('id', challengeId)
-      .maybeSingle();
-    const isMilhao = /milh(ã|a)o/i.test(String(challenge?.title || ''));
-
     const { data: rolesRows } = await admin.from('user_roles').select('role').eq('user_id', caller.id);
     const roleSet = rolesToSet(rolesRows);
     const isStaff = Array.from(roleSet).some((r) => STAFF_ROLES.has(r));
@@ -69,22 +132,21 @@ export default async function handler(req, res) {
 
     const isAllowedRole = Array.from(roleSet).some((r) => ALLOWED_ROLES.has(r));
     const allowed = Boolean(profile?.studio_access) || Boolean(profile?.is_leader) || isAllowedRole;
-    const canUseGlobalScope = isStaff || Boolean(profile?.is_leader) || roleSet.has('lider_equipe');
     if (!allowed) return res.status(403).json({ error: 'Forbidden' });
 
-    // Scope: staff and leaders can query all; demais usuários ficam restritos ao próprio escopo.
+    // Scope: staff can query all; leaders limited to their own scope.
     const scopeRaw = getStrParam(req, 'scope');
     const scope =
       scopeRaw === 'team' || scopeRaw === 'coord' || scopeRaw === 'division' || scopeRaw === 'all'
         ? scopeRaw
-        : canUseGlobalScope
+        : isStaff
           ? 'all'
           : 'team';
 
     const scopeIdRaw = getStrParam(req, 'scopeId');
     const allowedScopeIds = new Set([profile?.team_id, profile?.coord_id, profile?.division_id].filter(Boolean));
 
-    if (scope === 'all' && !canUseGlobalScope) return res.status(403).json({ error: 'Forbidden' });
+    if (scope === 'all' && !isStaff) return res.status(403).json({ error: 'Forbidden' });
 
     const effectiveScopeId =
       scope === 'team'
@@ -96,10 +158,10 @@ export default async function handler(req, res) {
             : '';
 
     if (scope !== 'all' && !effectiveScopeId) return res.status(400).json({ error: 'scopeId required for this scope' });
-    if (!canUseGlobalScope && scope !== 'team') {
+    if (!isStaff && scope !== 'team') {
       if (!allowedScopeIds.has(effectiveScopeId)) return res.status(403).json({ error: 'Forbidden' });
     }
-    if (!canUseGlobalScope && scope === 'team') {
+    if (!isStaff && scope === 'team') {
       const effectiveTeam = effectiveScopeId || '';
       if (effectiveTeam && profile?.team_id && String(profile.team_id) !== String(effectiveTeam)) {
         return res.status(403).json({ error: 'Forbidden' });
@@ -109,7 +171,6 @@ export default async function handler(req, res) {
     const includeLeaders = getStrParam(req, 'includeLeaders') === '1';
     const includeGuests = getStrParam(req, 'includeGuests') === '1';
     const sort = getStrParam(req, 'sort') || 'score_desc'; // score_desc | submitted_desc | name_asc
-    const includeEligible = getStrParam(req, 'includeEligible') === '1';
     const from = getDateParam(req, 'from');
     const to = getDateParam(req, 'to');
     const fromIso = from ? toIsoStart(from) : null;
@@ -151,159 +212,75 @@ export default async function handler(req, res) {
         includeGuests,
         eligibleUsers: 0,
         participants: 0,
-        completedUsers: 0,
         participationRate: 0,
-        completionRate: 0,
         attempts: [],
-        inProgress: [],
       });
     }
 
-    // Para evitar contagem "zerada" quando há respostas mas não há quiz_attempts.submitted_at,
-    // calculamos participação e notas a partir de user_quiz_answers (acertos / total de perguntas).
-    const { count: totalQuestionsRaw, error: tqErr } = await admin
-      .from('quiz_questions')
-      .select('id', { count: 'exact', head: true })
-      .eq('challenge_id', challengeId);
-    if (tqErr) {
-      const msg = String(tqErr.message || '');
-      if (/quiz_questions/i.test(msg) && /(does not exist|schema cache|relation)/i.test(msg)) {
-        return res.status(400).json({
-          error: 'Tabela quiz_questions não encontrada. Aplique as migrações de quiz (supabase/migrations/*quiz*).',
-        });
-      }
-      return res.status(400).json({ error: msg || 'Falha ao carregar perguntas do quiz' });
-    }
-    const totalQuestions = Math.max(0, Number(totalQuestionsRaw ?? 0) || 0);
+    const { totalQuestions, error: tqErr } = await getTotalQuestions(admin, challengeId);
+    if (tqErr) return res.status(400).json({ error: tqErr.message || 'Falha ao contar perguntas' });
 
-    const statsByUserId = new Map(); // user_id -> { answered:Set, correct:number, lastAnsweredAt:string|null }
-    const attemptMetaByUserId = new Map(); // user_id -> { submitted_at:string|null, score:number, max_score:number }
-    const safeChunkSize =
-      totalQuestions > 0 ? Math.max(1, Math.min(500, Math.floor(9000 / totalQuestions))) : 500;
-
-    for (const ids of chunk(userIds, safeChunkSize)) {
-      let ansQuery = admin
-        .from('user_quiz_answers')
-        .select('user_id, question_id, is_correct, answered_at')
+    // Submitted attempts (completion marker). We ignore score/max_score because older records stored XP.
+    const submittedByUserId = new Map(); // user_id -> submitted_at
+    for (const ids of chunk(userIds, 500)) {
+      let q = admin
+        .from('quiz_attempts')
+        .select('user_id, submitted_at')
         .in('user_id', ids)
         .eq('challenge_id', challengeId)
-        .limit(10000);
-      if (fromIso) ansQuery = ansQuery.gte('answered_at', fromIso);
-      if (toIso) ansQuery = ansQuery.lte('answered_at', toIso);
-
-      const { data: answers, error: aErr } = await ansQuery;
+        .not('submitted_at', 'is', null)
+        .limit(5000);
+      if (fromIso) q = q.gte('submitted_at', fromIso);
+      if (toIso) q = q.lte('submitted_at', toIso);
+      const { data: rows, error: aErr } = await q;
       if (aErr) {
         const msg = String(aErr.message || '');
-        if (/user_quiz_answers/i.test(msg) && /(does not exist|schema cache|relation)/i.test(msg)) {
+        if (/quiz_attempts/i.test(msg) && /(does not exist|schema cache|relation)/i.test(msg)) {
           return res.status(400).json({
-            error: 'Tabela user_quiz_answers não encontrada. Aplique as migrações de quiz (supabase/migrations/*quiz*).',
+            error: 'Tabela quiz_attempts não encontrada. Aplique a migração supabase/migrations/202511110945_quiz_attempts.sql.',
           });
         }
-        return res.status(400).json({ error: msg || 'Falha ao carregar respostas' });
+        return res.status(400).json({ error: msg || 'Falha ao carregar tentativas' });
       }
-
-      const { data: attemptRows, error: attemptErr } = await admin
-        .from('quiz_attempts')
-        .select('user_id, submitted_at, score, max_score')
-        .in('user_id', ids)
-        .eq('challenge_id', challengeId)
-        .limit(10000);
-      if (attemptErr) {
-        const msg = String(attemptErr.message || '');
-        if (!/quiz_attempts/i.test(msg) || !/(does not exist|schema cache|relation)/i.test(msg)) {
-          return res.status(400).json({ error: msg || 'Falha ao carregar tentativas' });
-        }
-      } else {
-        for (const row of attemptRows || []) {
-          const uid = String(row?.user_id || '').trim();
-          if (!uid || !byUserId.has(uid)) continue;
-          attemptMetaByUserId.set(uid, {
-            submitted_at: row?.submitted_at ? String(row.submitted_at) : null,
-            score: Number(row?.score ?? 0) || 0,
-            max_score: Number(row?.max_score ?? 0) || 0,
-          });
-        }
-      }
-
-      for (const row of answers || []) {
+      for (const row of rows || []) {
         const uid = String(row?.user_id || '').trim();
         const prof = byUserId.get(uid);
         if (!uid || !prof) continue;
-
-        const qid = String(row?.question_id || '').trim();
-        if (!qid) continue;
-
-        const current = statsByUserId.get(uid) || { answered: new Set(), correct: 0, lastAnsweredAt: null };
-        if (!current.answered.has(qid)) {
-          current.answered.add(qid);
-          if (row?.is_correct) current.correct += 1;
-        }
-        const ts = row?.answered_at ? String(row.answered_at) : null;
-        if (ts && (!current.lastAnsweredAt || ts > current.lastAnsweredAt)) current.lastAnsweredAt = ts;
-        statsByUserId.set(uid, current);
+        const submittedAt = safeIso(row?.submitted_at);
+        if (submittedAt) submittedByUserId.set(uid, submittedAt);
       }
     }
 
+    const { byUser: answerStats, error: ansErr } = await loadAnswerStats(admin, challengeId, userIds, chunk);
+    if (ansErr) return res.status(400).json({ error: ansErr.message || 'Falha ao carregar respostas' });
+
     const attempts = [];
-    const inProgress = [];
-    let participants = 0;
+    for (const p of eligibleProfiles) {
+      const uid = String(p.id);
+      const submittedAt = submittedByUserId.get(uid) || null;
+      const s = answerStats.get(uid) || { answered: 0, correct: 0, lastAnsweredAt: null };
+      const completedByAnswers = totalQuestions > 0 && Number(s.answered || 0) >= totalQuestions;
+      const completionAt = submittedAt || s.lastAnsweredAt || null;
+      const hasAttempt = (Boolean(submittedAt) || completedByAnswers) && (fromIso || toIso ? inRange(completionAt, fromIso, toIso) : true);
+      if (!hasAttempt) continue;
 
-    for (const uid of userIds) {
-      const stat = statsByUserId.get(uid) || { answered: new Set(), correct: 0, lastAnsweredAt: null };
-      const attemptMeta = attemptMetaByUserId.get(uid) || null;
-      const prof = byUserId.get(uid);
-      if (!prof) continue;
-
-      const answeredCount = Math.max(0, Number(stat?.answered?.size ?? 0) || 0);
-      const score = Math.max(0, Number(stat?.correct ?? 0) || 0);
-      const maxScore = totalQuestions;
-      const submittedAt = attemptMeta?.submitted_at || stat?.lastAnsweredAt || null;
-      const hasStarted =
-        answeredCount > 0 ||
-        Boolean(
-          attemptMeta?.submitted_at ||
-          Number(attemptMeta?.score ?? 0) > 0 ||
-          Number(attemptMeta?.max_score ?? 0) > 0,
-        );
-      const completedByAnswers = totalQuestions > 0 && answeredCount >= totalQuestions;
-      const isCompleted = isMilhao ? Boolean(attemptMeta?.submitted_at) || completedByAnswers : completedByAnswers;
-
-      if (hasStarted) participants += 1;
-      if (!hasStarted) continue;
-
-      if (!isCompleted) {
-        inProgress.push({
-          user_id: String(uid),
-          name: prof.name,
-          team_id: prof.team_id,
-          is_leader: prof.is_leader,
-          answeredQuestions: answeredCount,
-          totalQuestions,
-          progressPct: totalQuestions > 0 ? Math.round((answeredCount / totalQuestions) * 1000) / 10 : null,
-          lastAnsweredAt: submittedAt,
-          hadSubmittedAttempt: !isMilhao && Boolean(attemptMeta?.submitted_at),
-        });
-        continue;
-      }
-
+      const when = completionAt;
+      const score = Math.max(0, Number(s.correct || 0) || 0);
+      const max = Math.max(0, Number(totalQuestions || 0) || 0);
       attempts.push({
-        user_id: String(uid),
-        name: prof.name,
-        team_id: prof.team_id,
-        is_leader: prof.is_leader,
-        submitted_at: submittedAt ? String(submittedAt) : null,
+        user_id: uid,
+        name: p.name,
+        team_id: p.team_id,
+        is_leader: p.is_leader,
+        submitted_at: when,
         score,
-        max_score: maxScore,
-        scorePct: toPct(score, maxScore),
+        max_score: max,
+        scorePct: toPct(score, max),
       });
     }
 
-    const completedUsers = attempts.length;
+    const participants = attempts.length;
     const participationRate = eligibleProfiles.length > 0 ? Math.round((participants / eligibleProfiles.length) * 1000) / 10 : 0;
-    const completionRate = eligibleProfiles.length > 0 ? Math.round((completedUsers / eligibleProfiles.length) * 1000) / 10 : 0;
-    const scorePcts = attempts.map((a) => a.scorePct).filter((v) => typeof v === 'number');
-    const avgScorePct =
-      scorePcts.length > 0 ? Math.round((scorePcts.reduce((acc, v) => acc + v, 0) / scorePcts.length) * 10) / 10 : null;
 
     const compareName = (a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'pt-BR');
     const compareSubmitted = (a, b) => String(b.submitted_at || '').localeCompare(String(a.submitted_at || ''), 'en');
@@ -312,32 +289,17 @@ export default async function handler(req, res) {
     if (sort === 'submitted_desc') attempts.sort((a, b) => compareSubmitted(a, b) || compareScore(a, b));
     else if (sort === 'name_asc') attempts.sort(compareName);
     else attempts.sort(compareScore);
-    inProgress.sort(
-      (a, b) =>
-        (Number(b.answeredQuestions ?? 0) - Number(a.answeredQuestions ?? 0)) ||
-        String(b.lastAnsweredAt || '').localeCompare(String(a.lastAnsweredAt || ''), 'en') ||
-        compareName(a, b),
-    );
 
     return res.status(200).json({
       challengeId,
-      isMilhao,
-      from,
-      to,
       scope,
       scopeId: scope === 'all' ? null : effectiveScopeId,
       includeLeaders,
       includeGuests,
-      sort,
       eligibleUsers: eligibleProfiles.length,
       participants,
-      completedUsers,
       participationRate,
-      completionRate,
-      avgScorePct,
       attempts,
-      inProgress,
-      ...(includeEligible ? { eligible: eligibleProfiles } : {}),
     });
   } catch (e) {
     return res.status(500).json({ error: e?.message || 'Unknown error' });

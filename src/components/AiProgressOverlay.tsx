@@ -66,20 +66,22 @@ export function AiProgressOverlay() {
   const { t } = useI18n();
   const snap = useSyncExternalStore(aiProgressStore.subscribe, aiProgressStore.getSnapshot, aiProgressStore.getSnapshot);
   const task = snap.current;
+  const taskId = task?.id || "";
+  const taskStartedAt = typeof task?.startedAt === "number" ? task.startedAt : 0;
 
   const [progress, setProgress] = React.useState(0);
 
   React.useEffect(() => {
-    if (!task) {
+    if (!taskId || !taskStartedAt) {
       setProgress(0);
       return;
     }
     setProgress(8);
     const timer = setInterval(() => {
-      setProgress(computeProgress(task.startedAt));
+      setProgress(computeProgress(taskStartedAt));
     }, 120);
     return () => clearInterval(timer);
-  }, [task?.id]);
+  }, [taskId, taskStartedAt]);
 
   if (!task) return null;
 

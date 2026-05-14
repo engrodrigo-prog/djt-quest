@@ -309,7 +309,8 @@ export const AttachmentUploader = ({
     let { file } = attachment;
     // compress/reescalar imagens antes de subir
     file = await maybeDownscaleImage(file);
-    const fileExt = file.name.split('.').pop();
+    const fileExtRaw = String(file?.name || '').split('.').pop() || '';
+    const fileExt = /^[a-z0-9]{1,10}$/i.test(fileExtRaw) ? fileExtRaw : 'bin';
     const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
     
     const { data: userData } = await supabase.auth.getUser();
@@ -411,12 +412,16 @@ export const AttachmentUploader = ({
         ));
       } catch (error) {
         console.error('Upload error:', error);
+        const msg =
+          (error && typeof error === 'object' && 'message' in error && typeof (error as any).message === 'string')
+            ? String((error as any).message)
+            : 'Erro ao fazer upload';
         setAttachments(prev => prev.map(a => 
           a.id === attachment.id 
-            ? { ...a, uploading: false, error: 'Erro ao fazer upload', progress: 0 }
+            ? { ...a, uploading: false, error: msg, progress: 0 }
             : a
         ));
-        toast.error(`Erro ao fazer upload de ${attachment.file.name}`);
+        toast.error(`${attachment.file.name}: ${msg}`);
       }
     }
   }, [attachments, ensureVideoDurationOk, extractCapturedAtFromImage, extractGpsFromImage, includeImageGpsMeta, maxFiles, maxImages, maxVideos, validateFile]);

@@ -1,5 +1,6 @@
 // @ts-nocheck
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { classifyOpenAiFailure } from '../lib/openai-failures.js';
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY as string;
 const OPENAI_MODEL_AUDIO = (process.env.OPENAI_MODEL_AUDIO as string) || 'gpt-audio-2025-08-28';
@@ -38,6 +39,93 @@ async function fetchBytesFromUrl(url: string): Promise<{ bytes: Uint8Array; mime
   const mime = (resp.headers?.get?.('content-type') || '').toString();
   const ab = await resp.arrayBuffer();
   return { bytes: new Uint8Array(ab), mime };
+}
+
+const AUDIO_MIME_BY_EXT: Record<string, string> = {
+  mp3: 'audio/mpeg',
+  mpeg: 'audio/mpeg',
+  m4a: 'audio/mp4',
+  mp4: 'audio/mp4',
+  aac: 'audio/aac',
+  wav: 'audio/wav',
+  wave: 'audio/wav',
+  ogg: 'audio/ogg',
+  oga: 'audio/ogg',
+  webm: 'audio/webm',
+};
+
+function toAudioMime(input: any): string | null {
+  const value = String(input || '').split(';')[0].trim().toLowerCase();
+  if (!value) return null;
+  if (value in AUDIO_MIME_BY_EXT) return AUDIO_MIME_BY_EXT[value];
+  if (value.startsWith('audio/')) {
+    if (value === 'audio/x-m4a') return 'audio/mp4';
+    if (value === 'audio/x-wav') return 'audio/wav';
+    return value;
+  }
+  if (value === 'video/webm') return 'audio/webm';
+  return null;
+}
+
+function cleanUrlPath(input: any) {
+  const raw = String(input || '').trim();
+  if (!raw) return '';
+  try {
+    const url = new URL(raw);
+    return `${url.pathname || ''}`.toLowerCase();
+  } catch {
+    return raw.split('?')[0].split('#')[0].toLowerCase();
+  }
+}
+
+function audioMimeFromUrl(input: string): string | null {
+  const path = cleanUrlPath(input);
+  const m = path.match(/\.([a-z0-9]{2,8})$/i);
+  if (!m) return null;
+  const ext = String(m[1] || '').toLowerCase();
+  return AUDIO_MIME_BY_EXT[ext] || null;
+}
+
+function sniffAudioMime(bytes: Uint8Array): string | null {
+  if (!bytes || bytes.length < 12) return null;
+  if (bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46) return 'audio/wav'; // RIFF
+  if (bytes[0] === 0x4f && bytes[1] === 0x67 && bytes[2] === 0x67 && bytes[3] === 0x53) return 'audio/ogg'; // OggS
+  if (bytes[0] === 0x1a && bytes[1] === 0x45 && bytes[2] === 0xdf && bytes[3] === 0xa3) return 'audio/webm'; // EBML (webm)
+  if (bytes[0] === 0x49 && bytes[1] === 0x44 && bytes[2] === 0x33) return 'audio/mpeg'; // ID3
+  if (bytes[0] === 0xff && (bytes[1] & 0xe0) === 0xe0) return 'audio/mpeg'; // MP3 frame sync
+  const tag = String.fromCharCode(bytes[4] || 0, bytes[5] || 0, bytes[6] || 0, bytes[7] || 0);
+  if (tag === 'ftyp') return 'audio/mp4';
+  return null;
+}
+
+function pickAudioMime(params: { hintMime?: any; fileUrl?: any; bytes?: Uint8Array }): string {
+  const fromHint = toAudioMime(params.hintMime);
+  if (fromHint) return fromHint;
+  const fromUrl = params.fileUrl ? audioMimeFromUrl(String(params.fileUrl)) : null;
+  if (fromUrl) return fromUrl;
+  const fromBytes = params.bytes ? sniffAudioMime(params.bytes) : null;
+  if (fromBytes) return fromBytes;
+  return 'audio/mpeg';
+}
+
+function normalizeTranscribeLanguage(raw: any): string | undefined {
+  const src = String(raw || '').trim().toLowerCase();
+  if (!src) return undefined;
+  const base = src.replace(/_/g, '-').split('-')[0];
+  const aliases: Record<string, string> = {
+    'pt-br': 'pt',
+    pt: 'pt',
+    'en-us': 'en',
+    'en-gb': 'en',
+    en: 'en',
+    'zh-cn': 'zh',
+    'zh-tw': 'zh',
+    zh: 'zh',
+  };
+  if (aliases[src]) return aliases[src];
+  if (aliases[base]) return aliases[base];
+  if (/^[a-z]{2}$/.test(base)) return base;
+  return undefined;
 }
 
 function parseDataUrl(input: string): { bytes: Uint8Array; mime: string } {
@@ -95,6 +183,23 @@ function extFromMime(input: string) {
   if (mime === 'audio/webm') return 'webm';
   const p = mime.split('/')[1] || 'mp3';
   return p.toLowerCase();
+}
+
+async function transcribeWithTranscriptionsFallback(params: { bytes: Uint8Array; mime: string; model: string; language?: string }) {
+  let firstErr: any = null;
+  try {
+    return await transcribeWithTranscriptionsEndpoint(params);
+  } catch (e: any) {
+    firstErr = e;
+  }
+  if (params.language) {
+    try {
+      return await transcribeWithTranscriptionsEndpoint({ ...params, language: undefined });
+    } catch (e2: any) {
+      throw e2 || firstErr;
+    }
+  }
+  throw firstErr;
 }
 
 const collectOutputText = (payload: any) => {
@@ -178,7 +283,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     if (!OPENAI_API_KEY) return res.status(500).json({ error: 'Missing OPENAI_API_KEY' });
-    const { audioBase64, fileUrl, summarize, organize, mode, language } = req.body || {};
+    const { audioBase64, fileUrl, audioMime, summarize, organize, mode, language } = req.body || {};
     // Back-compat and default behavior: organize text unless explicitly summarizing
     const wantedMode: 'organize' | 'summarize' = (typeof mode === 'string' && (mode === 'organize' || mode === 'summarize'))
       ? mode
@@ -190,25 +295,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (fileUrl) {
       const fetched = await fetchBytesFromUrl(fileUrl);
       bytes = fetched.bytes;
-      const headerMime = String(fetched.mime || '').split(';')[0].trim();
-      if (headerMime && headerMime.includes('/')) {
-        mime = headerMime;
-      } else {
-        const urlLower = String(fileUrl).toLowerCase();
-        if (urlLower.endsWith('.wav')) mime = 'audio/wav';
-        else if (urlLower.endsWith('.ogg') || urlLower.endsWith('.oga')) mime = 'audio/ogg';
-        else if (urlLower.endsWith('.webm')) mime = 'audio/webm';
-        else if (urlLower.endsWith('.m4a') || urlLower.endsWith('.mp4')) mime = 'audio/mp4';
-        else if (urlLower.endsWith('.mp3')) mime = 'audio/mpeg';
-        else if (urlLower.endsWith('.aac')) mime = 'audio/aac';
-      }
+      mime = pickAudioMime({ hintMime: fetched.mime || audioMime, fileUrl, bytes });
     } else {
       const parsed = parseDataUrl(audioBase64);
       bytes = parsed.bytes;
-      mime = String(parsed.mime || '').split(';')[0].trim() || mime;
+      mime = pickAudioMime({ hintMime: parsed.mime || audioMime, fileUrl: null, bytes });
     }
 
     if (!bytes || bytes.length === 0) return res.status(400).json({ error: 'empty audio payload' });
+    const safeLanguage = normalizeTranscribeLanguage(language);
 
     // Transcription (prefer gpt-audio via Responses API when configured; fallback to /audio/transcriptions)
     const preferredAudioModel = String(OPENAI_MODEL_AUDIO || '').trim();
@@ -219,7 +314,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (preferredAudioModel) {
       try {
-        transcript = await transcribeWithResponses({ bytes, mime, model: preferredAudioModel, language });
+        transcript = await transcribeWithResponses({ bytes, mime, model: preferredAudioModel, language: safeLanguage || language });
         usedTranscribeModel = preferredAudioModel;
       } catch (e: any) {
         lastTranscribeErr = e;
@@ -229,13 +324,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (!transcript) {
       try {
-        transcript = await transcribeWithTranscriptionsEndpoint({ bytes, mime, model: preferredTranscribeModel, language });
+        transcript = await transcribeWithTranscriptionsFallback({
+          bytes,
+          mime,
+          model: preferredTranscribeModel,
+          language: safeLanguage,
+        });
         usedTranscribeModel = preferredTranscribeModel;
       } catch (e: any) {
         lastTranscribeErr = e;
         if (preferredTranscribeModel !== 'whisper-1') {
           try {
-            transcript = await transcribeWithTranscriptionsEndpoint({ bytes, mime, model: 'whisper-1', language });
+            transcript = await transcribeWithTranscriptionsFallback({
+              bytes,
+              mime,
+              model: 'whisper-1',
+              language: safeLanguage,
+            });
             usedTranscribeModel = 'whisper-1';
             lastTranscribeErr = null;
           } catch (e2: any) {
@@ -246,7 +351,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (!transcript) {
-      return res.status(400).json({ error: lastTranscribeErr?.message || 'transcription failed' });
+      const failure = classifyOpenAiFailure(lastTranscribeErr?.message || 'transcription failed');
+      const status =
+        failure.code === 'quota_exceeded' || failure.code === 'rate_limited'
+          ? 429
+          : failure.code === 'invalid_api_key' || failure.code === 'model'
+            ? 503
+            : 400;
+      return res.status(status).json({ error: failure.message, meta: { reason_code: failure.code } });
     }
 
     // Post-processing: organize or summarize
@@ -297,7 +409,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       meta: { transcribe_model: usedTranscribeModel || null },
     });
   } catch (err: any) {
-    return res.status(500).json({ error: err?.message || 'unknown error' });
+    const failure = classifyOpenAiFailure(err?.message || 'unknown error');
+    const status =
+      failure.code === 'quota_exceeded' || failure.code === 'rate_limited'
+        ? 429
+        : failure.code === 'invalid_api_key' || failure.code === 'model'
+          ? 503
+          : 500;
+    return res.status(status).json({ error: failure.message, meta: { reason_code: failure.code } });
   }
 }
 

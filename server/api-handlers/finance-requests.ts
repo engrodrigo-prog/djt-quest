@@ -1,15 +1,20 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
-import { assertDjtQuestServerEnv } from '../env-guard.js';
-import { financeRequestCreateSchema } from '../finance/schema.js';
-import { isGuestProfile } from '../finance/permissions.js';
-import { clampLimit, parseBrlToCents, pickQueryParam, safeText, tryParseStorageFromPublicUrl } from '../finance/utils.js';
+import { assertDjtQuestServerEnv, DJT_QUEST_SUPABASE_HOST } from '../server/env-guard.js';
+import { financeRequestCreateSchema } from '../server/finance/schema.js';
+import { isGuestProfile } from '../server/finance/permissions.js';
+import { normalizeFinanceStatus } from '../server/finance/constants.js';
+import { clampLimit, parseBrlToCents, pickQueryParam, safeText, tryParseStorageFromPublicUrl } from '../server/finance/utils.js';
+import { getSupabaseUrlFromEnv } from '../server/lib/supabase-url.js';
 
-const SUPABASE_URL = process.env.SUPABASE_URL as string;
-const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY as string | undefined;
-const ANON_KEY = (process.env.SUPABASE_ANON_KEY ||
-  process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
-  process.env.VITE_SUPABASE_ANON_KEY) as string;
+const getSupabaseUrl = () =>
+  getSupabaseUrlFromEnv(process.env, { expectedHostname: DJT_QUEST_SUPABASE_HOST, allowLocal: true });
+
+const getSupabaseAnonKey = () =>
+  (process.env.SUPABASE_ANON_KEY ||
+    process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+    process.env.VITE_SUPABASE_ANON_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) as string;
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === 'OPTIONS') return res.status(204).send('');
@@ -17,7 +22,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     assertDjtQuestServerEnv({ requireSupabaseUrl: false });
-    if (!SUPABASE_URL || !ANON_KEY) return res.status(500).json({ error: 'Missing Supabase config' });
+    const SUPABASE_URL = getSupabaseUrl();
+    const ANON_KEY = getSupabaseAnonKey();
+    const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY as string | undefined;
+    if (!SUPABASE_URL || !ANON_KEY) {
+      return res.status(500).json({
+        error: 'Missing Supabase config',
+        missing: { supabaseUrl: !SUPABASE_URL, supabaseAnonKey: !ANON_KEY },
+      });
+    }
 
     const authHeader = req.headers['authorization'] as string | undefined;
     if (!authHeader?.startsWith('Bearer ')) return res.status(401).json({ error: 'Unauthorized' });
@@ -50,46 +63,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(403).json({ error: 'CONVIDADOS não podem solicitar reembolso/adiantamento.' });
     }
 
-	    if (req.method === 'GET') {
-	      const statusRaw = safeText(pickQueryParam(req.query, 'status'), 200) || '';
-	      const kind = safeText(pickQueryParam(req.query, 'request_kind'), 40);
-	      const limit = clampLimit(pickQueryParam(req.query, 'limit'), 60, 200);
+    if (req.method === 'GET') {
+      const statusRaw = safeText(pickQueryParam(req.query, 'status'), 40);
+      const status = statusRaw ? normalizeFinanceStatus(statusRaw) : null;
+      const kind = safeText(pickQueryParam(req.query, 'request_kind'), 40);
+      const limit = clampLimit(pickQueryParam(req.query, 'limit'), 60, 200);
 
       let q = db
         .from('finance_requests')
         .select(
           'id,protocol,created_at,updated_at,company,training_operational,request_kind,expense_type,coordination,date_start,date_end,amount_cents,currency,status,last_observation',
         )
-	        .eq('created_by', uid)
-	        .order('updated_at', { ascending: false })
-	        .limit(limit);
-	      const statuses = statusRaw
-	        .split(',')
-	        .map((s) => s.trim())
-	        .filter((s) => s && s !== 'all');
-	      if (statuses.length) {
-	        const dbValues = new Set<string>();
-	        for (const s0 of statuses) {
-	          const s = s0 === 'Em análise' ? 'Em Análise' : s0;
-	          if (s === 'Em Análise') {
-	            dbValues.add('Em Análise');
-	            dbValues.add('Em análise');
-	          } else if (s === 'Aprovado') {
-	            dbValues.add('Aprovado');
-	            dbValues.add('Pago');
-	          } else if (s === 'Pago') {
-	            dbValues.add('Pago');
-	            dbValues.add('Aprovado');
-	          } else {
-	            dbValues.add(s);
-	          }
-	        }
-	        q = q.in('status', Array.from(dbValues));
-	      }
-	      if (kind && kind !== 'all') q = q.eq('request_kind', kind);
-	      const { data } = await q;
-	      return res.status(200).json({ items: Array.isArray(data) ? data : [] });
-	    }
+        .eq('created_by', uid)
+        .order('updated_at', { ascending: false })
+        .limit(limit);
+      if (status && status !== 'all') q = q.eq('status', status);
+      if (kind && kind !== 'all') q = q.eq('request_kind', kind);
+      const { data } = await q;
+      return res.status(200).json({ items: Array.isArray(data) ? data : [] });
+    }
 
     // POST create
     const parsed = financeRequestCreateSchema.safeParse(req.body || {});
