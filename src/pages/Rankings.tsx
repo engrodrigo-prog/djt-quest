@@ -7,6 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import Navigation from '@/components/Navigation';
 import { ThemedBackground } from '@/components/ThemedBackground';
+import { TipDialogButton } from '@/components/TipDialogButton';
 import { Trophy, Users, Building2, Award, Shield, Percent, BarChart3 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
@@ -78,6 +79,7 @@ interface XpBreakdown {
   quizXp: number;
   forumPosts: number;
   forumXp: number;
+  sepbookPostCount: number;
   sepbookPhotoCount: number;
   sepbookPostXp: number;
   sepbookComments: number;
@@ -135,8 +137,9 @@ const computeBaseXpFromBreakdown = (b: any) => {
   const accessXp = Number(b?.access_xp || 0);
   const forumXp = Number(b?.forum_posts || 0) * 10;
   const sepbookXp =
+    Number(b?.sepbook_post_count || 0) * 30 +
     Number(b?.sepbook_photo_count || 0) * 5 +
-    Number(b?.sepbook_comments || 0) * 2 +
+    Number(b?.sepbook_comments || 0) * 5 +
     Number(b?.sepbook_likes || 0);
   const evaluationsXp = Number(b?.evaluations_completed || 0) * LEADER_EVAL_POINTS;
   return quizXp + initiativesXp + quizPublishXp + accessXp + forumXp + sepbookXp + evaluationsXp;
@@ -866,10 +869,11 @@ function Rankings() {
         const quizXp = Number(b?.quiz_xp || 0);
         const forumPosts = Number(b?.forum_posts || 0);
         const forumXp = forumPosts * 10;
+        const sepbookPostCount = Number(b?.sepbook_post_count || 0);
         const sepbookPhotoCount = Number(b?.sepbook_photo_count || 0);
-        const sepbookPostXp = sepbookPhotoCount * 5;
+        const sepbookPostXp = sepbookPostCount * 30 + sepbookPhotoCount * 5;
         const sepbookComments = Number(b?.sepbook_comments || 0);
-        const sepbookCommentXp = sepbookComments * 2;
+        const sepbookCommentXp = sepbookComments * 5;
         const sepbookLikes = Number(b?.sepbook_likes || 0);
         const sepbookLikeXp = sepbookLikes;
         const campaignsXp = Number(b?.initiatives_xp || 0);
@@ -903,6 +907,7 @@ function Rankings() {
               quizXp,
               forumPosts,
               forumXp,
+              sepbookPostCount,
               sepbookPhotoCount,
               sepbookPostXp,
               sepbookComments,
@@ -1115,13 +1120,50 @@ function Rankings() {
       <Navigation />
       <div className="container relative mx-auto p-4 md:p-6 max-w-6xl">
         <div className="mb-6">
-          <h1 className="text-3xl md:text-4xl font-bold flex items-center gap-2">
-            <Trophy className="h-8 w-8 text-primary" />
-            {tr("rankings.title")}
-          </h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-3xl md:text-4xl font-bold flex items-center gap-2">
+              <Trophy className="h-8 w-8 text-primary" />
+              {tr("rankings.title")}
+            </h1>
+            <TipDialogButton tipId="xp-overview" ariaLabel="Como ganhar XP" />
+          </div>
           <p className="text-muted-foreground mt-2">
             {tr("rankings.subtitle")}
           </p>
+        </div>
+
+        <div className="mb-6 rounded-md border border-white/10 bg-white/[0.02] p-3">
+          <p className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wide">Como ganhar XP</p>
+          <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs sm:grid-cols-4">
+            <div className="flex items-baseline gap-1">
+              <span className="font-semibold text-foreground">+30 XP</span>
+              <span className="text-muted-foreground">publicação SEPBook</span>
+            </div>
+            <div className="flex items-baseline gap-1">
+              <span className="font-semibold text-foreground">+5 XP</span>
+              <span className="text-muted-foreground">foto no SEPBook</span>
+            </div>
+            <div className="flex items-baseline gap-1">
+              <span className="font-semibold text-foreground">+5 XP</span>
+              <span className="text-muted-foreground">comentário SEPBook</span>
+            </div>
+            <div className="flex items-baseline gap-1">
+              <span className="font-semibold text-foreground">+1 XP</span>
+              <span className="text-muted-foreground">curtida SEPBook</span>
+            </div>
+            <div className="flex items-baseline gap-1">
+              <span className="font-semibold text-foreground">+10 XP</span>
+              <span className="text-muted-foreground">post no Fórum</span>
+            </div>
+            <div className="flex items-baseline gap-1">
+              <span className="font-semibold text-foreground">+5 XP</span>
+              <span className="text-muted-foreground">avaliação (líderes)</span>
+            </div>
+            <div className="flex items-baseline gap-1 col-span-2">
+              <span className="font-semibold text-foreground">Quiz</span>
+              <span className="text-muted-foreground">XP por pergunta definido no Studio · resposta correta acumula</span>
+            </div>
+          </div>
         </div>
 
         {showRankingMetric && (
@@ -1605,23 +1647,26 @@ function Rankings() {
                   </div>
                   <div>
                     {tr("rankings.breakdown.forum")}:{" "}
-                    <span className="font-semibold">{selectedBreakdown.forumPosts}</span>{" "}
-                    → {selectedBreakdown.forumXp.toLocaleString()} XP
+                    <span className="font-semibold">{selectedBreakdown.forumPosts}</span> post{selectedBreakdown.forumPosts !== 1 ? 's' : ''}{" "}
+                    × 10 XP = <span className="font-semibold">{selectedBreakdown.forumXp.toLocaleString()}</span> XP
                   </div>
                   <div>
-                    {tr("rankings.breakdown.sepbookPhotos")}:{" "}
-                    <span className="font-semibold">{selectedBreakdown.sepbookPhotoCount}</span>{" "}
-                    → {selectedBreakdown.sepbookPostXp.toLocaleString()} XP
+                    SEPBook — publicações:{" "}
+                    <span className="font-semibold">{selectedBreakdown.sepbookPostCount}</span> × 30 XP
+                    {selectedBreakdown.sepbookPhotoCount > 0 && (
+                      <> + <span className="font-semibold">{selectedBreakdown.sepbookPhotoCount}</span> foto{selectedBreakdown.sepbookPhotoCount !== 1 ? 's' : ''} × 5 XP</>
+                    )}{" "}
+                    = <span className="font-semibold">{selectedBreakdown.sepbookPostXp.toLocaleString()}</span> XP
                   </div>
                   <div>
-                    {tr("rankings.breakdown.sepbookComments")}:{" "}
-                    <span className="font-semibold">{selectedBreakdown.sepbookComments}</span>{" "}
-                    → {selectedBreakdown.sepbookCommentXp.toLocaleString()} XP
+                    SEPBook — comentários:{" "}
+                    <span className="font-semibold">{selectedBreakdown.sepbookComments}</span> × 5 XP{" "}
+                    = <span className="font-semibold">{selectedBreakdown.sepbookCommentXp.toLocaleString()}</span> XP
                   </div>
                   <div>
-                    {tr("rankings.breakdown.sepbookLikes")}:{" "}
-                    <span className="font-semibold">{selectedBreakdown.sepbookLikes}</span>{" "}
-                    → {selectedBreakdown.sepbookLikeXp.toLocaleString()} XP
+                    SEPBook — curtidas:{" "}
+                    <span className="font-semibold">{selectedBreakdown.sepbookLikes}</span> × 1 XP{" "}
+                    = <span className="font-semibold">{selectedBreakdown.sepbookLikeXp.toLocaleString()}</span> XP
                   </div>
                   <div>
                     {tr("rankings.breakdown.campaigns")}:{" "}
@@ -1633,13 +1678,13 @@ function Rankings() {
                   </div>
                   <div>
                     {tr("rankings.breakdown.evaluations")}:{" "}
-                    <span className="font-semibold">{selectedBreakdown.evaluationsCompleted}</span>{" "}
-                    → {selectedBreakdown.evaluationsXp.toLocaleString()} XP
+                    <span className="font-semibold">{selectedBreakdown.evaluationsCompleted}</span> × 5 XP{" "}
+                    = <span className="font-semibold">{selectedBreakdown.evaluationsXp.toLocaleString()}</span> XP
                   </div>
                   <div>
                     Acessos na plataforma:{" "}
                     <span className="font-semibold">{selectedBreakdown.accessSessions.toLocaleString()}</span>{" "}
-                    → {formatPoints(selectedBreakdown.accessXp)} XP
+                    = {formatPoints(selectedBreakdown.accessXp)} XP
                   </div>
                 </div>
               )}
