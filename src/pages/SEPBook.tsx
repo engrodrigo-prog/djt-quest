@@ -235,18 +235,16 @@ export default function SEPBook() {
 
   const scrollFieldIntoView = useCallback((el: HTMLElement | null) => {
     if (!el || typeof window === "undefined") return;
-    setTimeout(() => {
-      try {
-        const vv = window.visualViewport;
-        const viewportBottom = (vv?.height ?? window.innerHeight) + (vv?.offsetTop ?? 0);
-        const rect = el.getBoundingClientRect();
-        if (rect.bottom > viewportBottom - 8) {
-          el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    // Retry at 150ms, 350ms, 550ms — keyboard animation varies by device/OS
+    [150, 350, 550].forEach((delay) => {
+      setTimeout(() => {
+        try {
+          el.scrollIntoView({ behavior: "smooth", block: "center" });
+        } catch {
+          // ignore
         }
-      } catch {
-        // ignore
-      }
-    }, 320);
+      }, delay);
+    });
   }, []);
 
   useEffect(() => {
@@ -271,6 +269,24 @@ export default function SEPBook() {
     return () => {
       window.dispatchEvent(new CustomEvent("djt-nav-visibility", { detail: { hidden: false } }));
     };
+  }, [composerFocused]);
+
+  // Scroll focused textarea into view whenever the visual viewport shrinks (keyboard opening)
+  useEffect(() => {
+    if (typeof window === "undefined" || !composerFocused) return;
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const onViewportResize = () => {
+      const el = document.activeElement as HTMLElement | null;
+      if (!el || (el.tagName !== "TEXTAREA" && el.tagName !== "INPUT")) return;
+      try {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+      } catch {
+        // ignore
+      }
+    };
+    vv.addEventListener("resize", onViewportResize);
+    return () => vv.removeEventListener("resize", onViewportResize);
   }, [composerFocused]);
 
   const formatName = (name: string | null | undefined) => {
@@ -1906,7 +1922,7 @@ export default function SEPBook() {
 	                    )}
 	                  </div>
 
-	                  <div className={`sticky bottom-0 z-20 -mx-6 px-6 pt-2 border-t border-white/10 bg-slate-950/40 backdrop-blur-md ${composerFocused ? "pb-2" : "pb-[calc(env(safe-area-inset-bottom)+12px)]"}`}>
+	                  <div className={`-mx-6 px-6 pt-2 border-t border-white/10 bg-slate-950/40 backdrop-blur-md ${composerFocused ? "pb-2" : "sticky bottom-0 z-20 pb-[calc(env(safe-area-inset-bottom)+12px)]"}`}>
 	                    <div className="flex flex-wrap items-center justify-center gap-2">
 	                      <Button
 	                        size="sm"
