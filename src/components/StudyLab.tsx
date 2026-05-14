@@ -34,6 +34,7 @@ import {
   EMPTY_INCIDENT,
   FIXED_RULES_ID,
   FIXED_SOURCES,
+  PRIVATE_TTL_DAYS,
   TOPIC_LABELS,
   getSourceCategoryKey,
   getSourceMeta,
@@ -44,7 +45,7 @@ import {
   isPublicSource,
   normalizeCategory,
 } from "@/components/studylab/catalog-utils";
-import type { IncidentForm, StudyCategory, StudySource } from "@/components/studylab/catalog-utils";
+import type { IncidentForm, StudyCategory, StudyScope, StudySource } from "@/components/studylab/catalog-utils";
 
 type ChatSessionSummary = {
   id: string;
