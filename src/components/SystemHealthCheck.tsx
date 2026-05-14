@@ -126,7 +126,7 @@ export const SystemHealthCheck = () => {
     try {
       setAiLoading(true);
       const base = (import.meta as any).env?.VITE_API_BASE_URL?.replace(/\/$/, '') || '';
-      const url = base ? `${base}/api/ai?handler=health` : '/api/ai?handler=health';
+      const url = base ? `${base}/api/ai?handler=health&force=1` : '/api/ai?handler=health&force=1';
       const resp = await fetch(url);
       let json: any = {};
       try { json = await resp.json(); } catch { json = { ok: false, error: 'Resposta inválida' }; }
@@ -168,7 +168,7 @@ export const SystemHealthCheck = () => {
         setForumBonusEnabled(!!data.value.enabled);
         setForumBonusMaxPct(typeof data.value.maxPct === 'number' ? data.value.maxPct : 0.20);
       }
-    } catch {}
+    } catch { /* noop */ }
   };
 
   const saveForumBonusSettings = async () => {

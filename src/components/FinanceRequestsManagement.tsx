@@ -3,23 +3,16 @@ import { apiFetch } from "@/lib/api";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { getActiveLocale } from "@/lib/i18n/activeLocale";
-import { ChevronDown, Download, FileText, RefreshCw, Save } from "lucide-react";
-import { FINANCE_COMPANIES, FINANCE_COORDINATIONS, FINANCE_REQUEST_KINDS, FINANCE_STATUSES } from "@/lib/finance/constants";
+import { cn } from "@/lib/utils";
+import { Download, FileText, RefreshCw, Save } from "lucide-react";
+import { FINANCE_COMPANIES, FINANCE_COORDINATIONS, FINANCE_REQUEST_KINDS, FINANCE_STATUSES, normalizeFinanceStatus } from "@/lib/finance/constants";
 
 type RequestRow = any;
 
@@ -29,53 +22,24 @@ const formatBrl = (cents: number | null | undefined) => {
   return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 };
 
-const normalizeFinanceStatusLabel = (raw: unknown) => {
-  const s = String(raw || "").trim();
-  if (!s) return "—";
-  // Backward compatibility: old UIs and legacy rows.
-  if (s === "Pago") return "Aprovado";
-  if (s === "Em análise") return "Em Análise";
-  return s;
+const statusLabel = (raw: unknown) => normalizeFinanceStatus(raw) || "—";
+const financeStatusToneClass = (raw: unknown) => {
+  const s = statusLabel(raw);
+  if (s === "Enviado") return "border-blue-600 bg-blue-600 text-white";
+  if (s === "Em Análise") return "border-yellow-400 bg-yellow-400 text-slate-950";
+  if (s === "Aprovado") return "border-emerald-600 bg-emerald-600 text-white";
+  if (s === "Reprovado") return "border-red-600 bg-red-600 text-white";
+  if (s === "Cancelado") return "border-purple-600 bg-purple-600 text-white";
+  return "border-border bg-muted/30 text-foreground";
 };
-
-const financeStatusBadge = (rawStatus: unknown) => {
-  const status = normalizeFinanceStatusLabel(rawStatus);
-  if (status === "Enviado") {
-    return {
-      label: status,
-      variant: "outline" as const,
-      className: "border-blue-700 bg-blue-600 text-white",
-    };
-  }
-  if (status === "Em Análise") {
-    return {
-      label: status,
-      variant: "outline" as const,
-      className: "border-orange-700 bg-orange-500 text-white",
-    };
-  }
-  if (status === "Aprovado") {
-    return {
-      label: status,
-      variant: "outline" as const,
-      className: "border-emerald-700 bg-emerald-600 text-white",
-    };
-  }
-  if (status === "Reprovado") {
-    return {
-      label: status,
-      variant: "outline" as const,
-      className: "border-red-700 bg-red-600 text-white",
-    };
-  }
-  if (status === "Cancelado") {
-    return {
-      label: status,
-      variant: "outline" as const,
-      className: "border-purple-700 bg-purple-600 text-white",
-    };
-  }
-  return { label: status, variant: "outline" as const, className: "" };
+const financeStatusDotClass = (raw: unknown) => {
+  const s = statusLabel(raw);
+  if (s === "Enviado") return "bg-white";
+  if (s === "Em Análise") return "bg-slate-900";
+  if (s === "Aprovado") return "bg-white";
+  if (s === "Reprovado") return "bg-white";
+  if (s === "Cancelado") return "bg-white";
+  return "bg-foreground/70";
 };
 
 export function FinanceRequestsManagement() {
@@ -87,7 +51,7 @@ export function FinanceRequestsManagement() {
   const [company, setCompany] = useState<string>("all");
   const [coordination, setCoordination] = useState<string>("all");
   const [kind, setKind] = useState<string>("all");
-  const [statusFilters, setStatusFilters] = useState<string[]>([]);
+  const [status, setStatus] = useState<string>("all");
   const [q, setQ] = useState<string>("");
   const [dateFrom, setDateFrom] = useState<string>("");
   const [dateTo, setDateTo] = useState<string>("");
@@ -99,12 +63,6 @@ export function FinanceRequestsManagement() {
   const [updating, setUpdating] = useState(false);
   const [nextStatus, setNextStatus] = useState<string>("Enviado");
   const [observation, setObservation] = useState<string>("");
-  const [rejectConfirmOpen, setRejectConfirmOpen] = useState(false);
-
-  const statusOptions = useMemo(
-    () => (FINANCE_STATUSES as readonly string[]).filter((s) => String(s) !== "Pago"),
-    [],
-  );
 
   const buildParams = useCallback((extra?: Record<string, string>) => {
     const params = new URLSearchParams();
@@ -112,13 +70,13 @@ export function FinanceRequestsManagement() {
     if (company !== "all") params.set("company", company);
     if (coordination !== "all") params.set("coordination", coordination);
     if (kind !== "all") params.set("request_kind", kind);
-    if (statusFilters.length) params.set("status", statusFilters.join(","));
+    if (status !== "all") params.set("status", status);
     if (q.trim()) params.set("q", q.trim());
     if (dateFrom) params.set("date_start_from", dateFrom);
     if (dateTo) params.set("date_start_to", dateTo);
     if (extra) Object.entries(extra).forEach(([k, v]) => params.set(k, v));
     return params;
-  }, [company, coordination, dateFrom, dateTo, kind, q, statusFilters]);
+  }, [company, coordination, dateFrom, dateTo, kind, q, status]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -150,8 +108,8 @@ export function FinanceRequestsManagement() {
       const json = await resp.json().catch(() => ({}));
       if (!resp.ok) throw new Error(json?.error || "Falha ao carregar detalhes");
       setDetail(json);
-      const st = normalizeFinanceStatusLabel(json?.request?.status || "Enviado");
-      setNextStatus(st === "—" ? "Enviado" : st);
+      const st = statusLabel(json?.request?.status || "Enviado");
+      setNextStatus(st || "Enviado");
       setObservation(String(json?.request?.last_observation || ""));
     } catch (e: any) {
       setDetail(null);
@@ -192,11 +150,11 @@ export function FinanceRequestsManagement() {
     }
   };
 
-  const applyStatus = async (confirmed = false) => {
+  const applyStatus = async () => {
     const id = String(detailId || "").trim();
     if (!id) return;
-    if (nextStatus === "Reprovado" && !confirmed) {
-      setRejectConfirmOpen(true);
+    if (statusLabel(nextStatus) === "Reprovado" && String(observation || "").trim().length < 5) {
+      toast({ title: "Observação obrigatória", description: "Explique o motivo da reprovação (mín. 5 caracteres).", variant: "destructive" });
       return;
     }
     try {
@@ -220,17 +178,16 @@ export function FinanceRequestsManagement() {
     }
   };
 
-  const metrics = useMemo(() => {
-    const total = items.length;
-    const enviado = items.filter((r) => normalizeFinanceStatusLabel(r.status) === "Enviado").length;
-    const emAnalise = items.filter((r) => normalizeFinanceStatusLabel(r.status) === "Em Análise").length;
-    const aprovado = items.filter((r) => ["Aprovado", "Pago"].includes(String(r.status))).length;
-    const reprovado = items.filter((r) => normalizeFinanceStatusLabel(r.status) === "Reprovado").length;
-    const sumCents = items
+  const totals = useMemo(() => {
+    const pending = items.filter((r) => ["Enviado", "Em Análise"].includes(statusLabel(r.status))).length;
+    const approved = items.filter((r) => statusLabel(r.status) === "Aprovado").length;
+    const rejected = items.filter((r) => statusLabel(r.status) === "Reprovado").length;
+    const canceled = items.filter((r) => statusLabel(r.status) === "Cancelado").length;
+    const total = items
       .map((r) => Number(r?.amount_cents))
-      .filter((n) => Number.isFinite(n) && n > 0)
+      .filter((n) => Number.isFinite(n))
       .reduce((a, b) => a + b, 0);
-    return { total, enviado, emAnalise, aprovado, reprovado, sumCents };
+    return { pending, approved, rejected, canceled, total };
   }, [items]);
 
   return (
@@ -275,57 +232,17 @@ export function FinanceRequestsManagement() {
               </SelectContent>
             </Select>
           </div>
-	          <div>
-	            <Label className="text-[11px] text-muted-foreground">Status</Label>
-	            <DropdownMenu>
-	              <DropdownMenuTrigger asChild>
-	                <Button
-	                  type="button"
-	                  variant="outline"
-	                  className="mt-1 h-9 w-full justify-between"
-	                >
-	                  <span className="min-w-0 truncate text-left text-[13px]">
-	                    {statusFilters.length === 0
-	                      ? "Todos"
-	                      : statusFilters.length === 1
-	                        ? statusFilters[0]
-	                        : `${statusFilters.length} selecionados`}
-	                  </span>
-	                  <ChevronDown className="ml-2 h-4 w-4 opacity-70" />
-	                </Button>
-	              </DropdownMenuTrigger>
-	              <DropdownMenuContent align="start" className="w-56">
-	                <DropdownMenuCheckboxItem
-	                  checked={statusFilters.length === 0}
-	                  onCheckedChange={(checked) => {
-	                    if (checked) setStatusFilters([]);
-	                  }}
-	                  onSelect={(e) => e.preventDefault()}
-	                >
-	                  Todos
-	                </DropdownMenuCheckboxItem>
-	                <DropdownMenuSeparator />
-	                {statusOptions.map((s) => (
-	                  <DropdownMenuCheckboxItem
-	                    key={s}
-	                    checked={statusFilters.includes(s)}
-	                    onCheckedChange={(checked) => {
-	                      setStatusFilters((prev) => {
-	                        const set = new Set(prev);
-	                        if (checked) set.add(s);
-	                        else set.delete(s);
-	                        return Array.from(set);
-	                      });
-	                    }}
-	                    onSelect={(e) => e.preventDefault()}
-	                  >
-	                    {s}
-	                  </DropdownMenuCheckboxItem>
-	                ))}
-	              </DropdownMenuContent>
-	            </DropdownMenu>
-	          </div>
-	        </div>
+          <div>
+            <Label className="text-[11px] text-muted-foreground">Status</Label>
+            <Select value={status} onValueChange={setStatus}>
+              <SelectTrigger className="h-9 mt-1"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos</SelectItem>
+                {FINANCE_STATUSES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
 
         <div className="grid gap-2 md:grid-cols-6">
           <div className="md:col-span-2">
@@ -352,22 +269,13 @@ export function FinanceRequestsManagement() {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-          {[
-            { label: "Total", value: metrics.total, cls: "text-foreground" },
-            { label: "Enviado", value: metrics.enviado, cls: "text-blue-400" },
-            { label: "Em Análise", value: metrics.emAnalise, cls: "text-orange-400" },
-            { label: "Aprovado", value: metrics.aprovado, cls: "text-emerald-400" },
-            { label: "Reprovado", value: metrics.reprovado, cls: "text-red-400" },
-          ].map(({ label, value, cls }) => (
-            <div key={label} className="rounded-md border bg-card px-3 py-2 text-center">
-              <p className={`text-lg font-bold leading-none ${cls}`}>{value}</p>
-              <p className="mt-1 text-[10px] text-muted-foreground">{label}</p>
-            </div>
-          ))}
-        </div>
-        <div className="text-[11px] text-muted-foreground">
-          Valor total filtrado: <span className="font-semibold text-foreground">{(metrics.sumCents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}</span>
+        <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+          <Badge variant="secondary" className="text-[10px]">Itens: {items.length}</Badge>
+          <Badge variant="outline" className="text-[10px]">Em andamento: {totals.pending}</Badge>
+          <Badge variant="outline" className="text-[10px]">Aprovados: {totals.approved}</Badge>
+          <Badge variant="outline" className="text-[10px]">Reprovados: {totals.rejected}</Badge>
+          <Badge variant="outline" className="text-[10px]">Cancelados: {totals.canceled}</Badge>
+          <Badge className="text-[10px]">Total (R$): {(totals.total / 100).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Badge>
         </div>
 
         {items.length === 0 ? (
@@ -392,10 +300,10 @@ export function FinanceRequestsManagement() {
                     </div>
                   </div>
                   <div className="flex flex-col items-end gap-1">
-                    {(() => {
-                      const b = financeStatusBadge(r.status);
-                      return <Badge variant={b.variant} className={`text-[10px] ${b.className}`}>{b.label}</Badge>;
-                    })()}
+                    <Badge variant="outline" className={cn("text-[10px] inline-flex items-center gap-1.5", financeStatusToneClass(r.status))}>
+                      <span className={cn("inline-block h-1.5 w-1.5 rounded-full", financeStatusDotClass(r.status))} aria-hidden />
+                      {statusLabel(r.status)}
+                    </Badge>
                     <div className="text-[11px] text-muted-foreground">{formatBrl(r.amount_cents)}</div>
                   </div>
                 </div>
@@ -419,29 +327,23 @@ export function FinanceRequestsManagement() {
               <p className="text-sm text-muted-foreground">Carregando...</p>
             ) : detail?.request ? (
               <div className="space-y-3">
-                <div className="rounded-md border bg-muted/30 px-3 py-2 flex items-start justify-between gap-2">
+                <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <div className="text-sm font-bold font-mono tracking-wide">{detail.request.protocol}</div>
-                    <div className="text-[13px] font-semibold mt-0.5">{detail.request.created_by_name}</div>
-                    <div className="text-[11px] text-muted-foreground">
-                      {detail.request.created_by_email}
-                      {detail.request.created_by_matricula ? ` · matrícula ${detail.request.created_by_matricula}` : ""}
+                    <div className="text-sm font-semibold">{detail.request.protocol}</div>
+                    <div className="text-[12px] text-muted-foreground">
+                      {detail.request.created_by_name} • {detail.request.created_by_email}
+                      {detail.request.created_by_matricula ? ` • ${detail.request.created_by_matricula}` : ""}
                     </div>
-                    <div className="text-[11px] text-muted-foreground mt-1">
-                      {detail.request.request_kind} · {detail.request.expense_type} · {detail.request.company} · {detail.request.coordination}
-                    </div>
-                    <div className="text-[11px] text-muted-foreground">
-                      {detail.request.date_start}{detail.request.date_end ? ` → ${detail.request.date_end}` : ""}
+                    <div className="text-[12px] text-muted-foreground">
+                      {detail.request.request_kind} • {detail.request.expense_type} • {detail.request.company} • {detail.request.coordination}
                     </div>
                   </div>
-                  <div className="text-right flex-shrink-0">
-                    {(() => {
-                      const b = financeStatusBadge(detail.request.status);
-                      return <Badge variant={b.variant} className={`text-[11px] ${b.className}`}>{b.label}</Badge>;
-                    })()}
-                    {detail.request.amount_cents ? (
-                      <div className="text-[14px] font-bold mt-1">{formatBrl(detail.request.amount_cents)}</div>
-                    ) : null}
+                  <div className="text-right">
+                    <Badge variant="outline" className={cn("text-[11px] inline-flex items-center gap-1.5", financeStatusToneClass(detail.request.status))}>
+                      <span className={cn("inline-block h-1.5 w-1.5 rounded-full", financeStatusDotClass(detail.request.status))} aria-hidden />
+                      {statusLabel(detail.request.status)}
+                    </Badge>
+                    <div className="text-[12px] text-muted-foreground mt-1">{formatBrl(detail.request.amount_cents)}</div>
                   </div>
                 </div>
 
@@ -451,7 +353,7 @@ export function FinanceRequestsManagement() {
                     <Select value={nextStatus} onValueChange={setNextStatus}>
                       <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        {statusOptions.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                        {FINANCE_STATUSES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
                       </SelectContent>
                     </Select>
                   </div>
@@ -474,10 +376,28 @@ export function FinanceRequestsManagement() {
                   {(detail.attachments || []).length ? (
                     <div className="mt-2 space-y-1">
                       {(detail.attachments || []).map((a: any) => (
-                        <a key={a.id} href={a.url} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-[12px] hover:underline">
-                          <FileText className="h-4 w-4" />
-                          <span className="truncate">{a.filename || a.url}</span>
-                        </a>
+                        <div key={a.id} className="flex items-center justify-between gap-3">
+                          <a
+                            href={a.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="flex items-center gap-2 text-[12px] hover:underline min-w-0"
+                          >
+                            <FileText className="h-4 w-4 flex-shrink-0" />
+                            <span className="truncate">{a.filename || a.url}</span>
+                          </a>
+                          {a?.metadata?.table_csv?.url ? (
+                            <a
+                              href={a.metadata.table_csv.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-[11px] text-muted-foreground hover:underline flex-shrink-0"
+                              title="Tabela extraída (CSV)"
+                            >
+                              CSV
+                            </a>
+                          ) : null}
+                        </div>
                       ))}
                     </div>
                   ) : (
@@ -486,29 +406,23 @@ export function FinanceRequestsManagement() {
                 </div>
 
                 <div className="rounded-md border p-2">
-                  <div className="text-[12px] font-medium mb-2">Histórico</div>
+                  <div className="text-[12px] font-medium">Histórico</div>
                   {(detail.history || []).length ? (
-                    <ol className="relative border-l border-border ml-2 space-y-3">
-                      {(detail.history || []).map((h: any, idx: number) => {
-                        const b = financeStatusBadge(h.to_status);
-                        const isLast = idx === (detail.history || []).length - 1;
-                        return (
-                          <li key={h.id} className="ml-4">
-                            <span className={`absolute -left-[7px] mt-0.5 h-3 w-3 rounded-full border-2 border-background ${isLast ? "bg-primary" : "bg-muted-foreground/40"}`} />
-                            <div className="flex items-center gap-2">
-                              <Badge variant={b.variant} className={`text-[10px] px-1.5 py-0 ${b.className}`}>{b.label}</Badge>
-                              {h.from_status ? <span className="text-[10px] text-muted-foreground">← {normalizeFinanceStatusLabel(h.from_status)}</span> : null}
-                              <span className="ml-auto text-[10px] text-muted-foreground flex-shrink-0">
-                                {h.created_at ? new Date(h.created_at).toLocaleString(getActiveLocale()) : ""}
-                              </span>
-                            </div>
-                            {h.observation ? <p className="text-[11px] text-muted-foreground mt-0.5 whitespace-pre-wrap">{h.observation}</p> : null}
-                          </li>
-                        );
-                      })}
-                    </ol>
+                    <div className="mt-2 space-y-1">
+                      {(detail.history || []).map((h: any) => (
+                        <div key={h.id} className="text-[12px] flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <span className="font-medium">{statusLabel(h.to_status)}</span>
+                            {h.observation ? <div className="text-muted-foreground whitespace-pre-wrap">{h.observation}</div> : null}
+                          </div>
+                          <div className="text-[11px] text-muted-foreground flex-shrink-0">
+                            {h.created_at ? new Date(h.created_at).toLocaleString(getActiveLocale()) : ""}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   ) : (
-                    <p className="text-[11px] text-muted-foreground">—</p>
+                    <p className="text-[11px] text-muted-foreground mt-2">—</p>
                   )}
                 </div>
 
@@ -527,26 +441,6 @@ export function FinanceRequestsManagement() {
             )}
           </DialogContent>
         </Dialog>
-
-        <AlertDialog open={rejectConfirmOpen} onOpenChange={setRejectConfirmOpen}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Confirmar reprovação</AlertDialogTitle>
-              <AlertDialogDescription>
-                Tem certeza que deseja reprovar esta solicitação? O solicitante será informado e não poderá mais cancelar.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Cancelar</AlertDialogCancel>
-              <AlertDialogAction
-                className="bg-red-600 hover:bg-red-700"
-                onClick={() => { setRejectConfirmOpen(false); void applyStatus(true); }}
-              >
-                Sim, reprovar
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
       </CardContent>
     </Card>
   );

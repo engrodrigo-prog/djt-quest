@@ -32,7 +32,7 @@ export default async function handler(req, res) {
         // Determine if target is a quiz (quizzes have stricter permissions)
         const { data: chall, error: chErr } = await admin
             .from('challenges')
-            .select('id,type')
+            .select('id,type,owner_id,created_by')
             .eq('id', id)
             .maybeSingle();
         if (chErr)
@@ -40,18 +40,23 @@ export default async function handler(req, res) {
         if (!chall?.id)
             return res.status(404).json({ error: 'Challenge not found' });
         const isQuiz = String(chall.type || '').toLowerCase().includes('quiz');
+        const isOwner = String(chall.owner_id || '') === uid || String(chall.created_by || '') === uid;
+        const { data: roles } = await admin.from('user_roles').select('role').eq('user_id', uid);
+        const allowed = new Set(['coordenador_djtx', 'gerente_divisao_djtx', 'gerente_djt', 'admin']);
+        const hasLeadershipRole = Boolean(roles?.some((r) => allowed.has(r.role)));
         if (isQuiz) {
             const { data: prof } = await admin.from('profiles').select('matricula,email').eq('id', uid).maybeSingle();
             const matricula = String(prof?.matricula || '').trim();
             const profileEmail = String(prof?.email || '').trim().toLowerCase();
-            if (!isAllowlistedAdmin({ email: email || profileEmail, matricula }))
+            const allowlisted = isAllowlistedAdmin({ email: email || profileEmail, matricula });
+            if ((nextStatus === 'canceled' || nextStatus === 'cancelled') && !allowlisted)
+                return res.status(403).json({ error: 'Insufficient permissions' });
+            if (!allowlisted && !hasLeadershipRole && !isOwner)
                 return res.status(403).json({ error: 'Insufficient permissions' });
         }
         else {
             // Non-quiz: allow coordinators/managers/admins (legacy behavior)
-            const { data: roles } = await admin.from('user_roles').select('role').eq('user_id', uid);
-            const allowed = new Set(['coordenador_djtx', 'gerente_divisao_djtx', 'gerente_djt', 'admin']);
-            if (!roles?.some((r) => allowed.has(r.role)))
+            if (!hasLeadershipRole)
                 return res.status(403).json({ error: 'Insufficient permissions' });
         }
         const { error } = await admin.from('challenges').update({ status: nextStatus }).eq('id', id);

@@ -1,23 +1,37 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
-import { assertDjtQuestServerEnv } from '../env-guard.js';
-import { financeRequestCancelSchema } from '../finance/schema.js';
-import { canManageFinanceRequests, isGuestProfile } from '../finance/permissions.js';
-import { pickQueryParam } from '../finance/utils.js';
+import { assertDjtQuestServerEnv, DJT_QUEST_SUPABASE_HOST } from '../server/env-guard.js';
+import { financeRequestCancelSchema } from '../server/finance/schema.js';
+import { canManageFinanceRequests, canOwnerDeleteFinanceRequest, isGuestProfile } from '../server/finance/permissions.js';
+import { pickQueryParam } from '../server/finance/utils.js';
+import { getSupabaseUrlFromEnv } from '../server/lib/supabase-url.js';
 
-const SUPABASE_URL = process.env.SUPABASE_URL as string;
-const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY as string | undefined;
-const ANON_KEY = (process.env.SUPABASE_ANON_KEY ||
-  process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
-  process.env.VITE_SUPABASE_ANON_KEY) as string;
+const getSupabaseUrl = () =>
+  getSupabaseUrlFromEnv(process.env, { expectedHostname: DJT_QUEST_SUPABASE_HOST, allowLocal: true });
+
+const getSupabaseAnonKey = () =>
+  (process.env.SUPABASE_ANON_KEY ||
+    process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+    process.env.VITE_SUPABASE_ANON_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) as string;
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === 'OPTIONS') return res.status(204).send('');
-  if (req.method !== 'GET' && req.method !== 'PATCH') return res.status(405).json({ error: 'Method not allowed' });
+  if (req.method !== 'GET' && req.method !== 'PATCH' && req.method !== 'DELETE') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
 
   try {
     assertDjtQuestServerEnv({ requireSupabaseUrl: false });
-    if (!SUPABASE_URL || !ANON_KEY) return res.status(500).json({ error: 'Missing Supabase config' });
+    const SUPABASE_URL = getSupabaseUrl();
+    const ANON_KEY = getSupabaseAnonKey();
+    const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY as string | undefined;
+    if (!SUPABASE_URL || !ANON_KEY) {
+      return res.status(500).json({
+        error: 'Missing Supabase config',
+        missing: { supabaseUrl: !SUPABASE_URL, supabaseAnonKey: !ANON_KEY },
+      });
+    }
 
     const authHeader = req.headers['authorization'] as string | undefined;
     if (!authHeader?.startsWith('Bearer ')) return res.status(401).json({ error: 'Unauthorized' });
@@ -55,7 +69,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       (req.body && typeof req.body.id === 'string' ? req.body.id : '');
     if (!id) return res.status(400).json({ error: 'id obrigatório' });
 
-    const { data: reqRow } = await db
+    let { data: reqRow } = await db
       .from('finance_requests')
       .select('*')
       .eq('id', id)
@@ -67,6 +81,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!isOwner && !canManage) return res.status(403).json({ error: 'Forbidden' });
 
     if (req.method === 'GET') {
+      if (canManage && !isOwner && !reqRow.analyst_viewed_at) {
+        const { data: seenRow } = await db
+          .from('finance_requests')
+          .update({ analyst_viewed_at: new Date().toISOString() })
+          .eq('id', id)
+          .is('analyst_viewed_at', null)
+          .select('analyst_viewed_at')
+          .maybeSingle();
+        if (seenRow?.analyst_viewed_at) {
+          reqRow = { ...reqRow, analyst_viewed_at: seenRow.analyst_viewed_at };
+        }
+      }
+
       const [atts, hist] = await Promise.all([
         db
           .from('finance_request_attachments')
@@ -79,35 +106,59 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           .eq('request_id', id)
           .order('created_at', { ascending: true }),
       ]);
+      const historyRows = Array.isArray(hist.data) ? hist.data : [];
+      const canDelete = isOwner && canOwnerDeleteFinanceRequest(reqRow, historyRows, uid);
       return res.status(200).json({
         request: reqRow,
         attachments: Array.isArray(atts.data) ? atts.data : [],
-        history: Array.isArray(hist.data) ? hist.data : [],
-        permissions: { can_manage: canManage, can_cancel: isOwner && String(reqRow.status) === 'Enviado' },
+        history: historyRows,
+        permissions: {
+          can_manage: canManage,
+          can_delete: canDelete,
+          can_cancel: canDelete,
+        },
       });
     }
 
-    // PATCH cancel (owner only; status must be Enviado)
+    // DELETE/PATCH legacy cancel endpoint: now performs hard-delete only while still initial/unseen.
     const parsed = financeRequestCancelSchema.safeParse(req.body || {});
     if (!parsed.success) return res.status(400).json({ error: 'Dados inválidos' });
-    if (!isOwner) return res.status(403).json({ error: 'Somente o solicitante pode cancelar.' });
-    if (String(reqRow.status) !== 'Enviado') return res.status(400).json({ error: 'Só é possível cancelar quando status = Enviado.' });
+    if (!isOwner) return res.status(403).json({ error: 'Somente o solicitante pode excluir.' });
 
-    const { error: updErr } = await db
+    const { data: histRowsData } = await db
+      .from('finance_request_status_history')
+      .select('from_status,to_status,changed_by')
+      .eq('request_id', id)
+      .order('created_at', { ascending: true });
+    const historyRows = Array.isArray(histRowsData) ? histRowsData : [];
+    const canDelete = canOwnerDeleteFinanceRequest(reqRow, historyRows, uid);
+    if (!canDelete) {
+      return res
+        .status(400)
+        .json({
+          error: 'Só é possível excluir quando o pedido estiver em Enviado e ainda não tiver sido visto/processado por analista.',
+        });
+    }
+
+    const { data: deleted, error: delErr } = await db
       .from('finance_requests')
-      .update({ status: 'Cancelado', last_observation: 'Cancelado pelo usuário' })
-      .eq('id', id);
-    if (updErr) return res.status(400).json({ error: updErr.message });
+      .delete()
+      .eq('id', id)
+      .eq('created_by', uid)
+      .eq('status', 'Enviado')
+      .is('analyst_viewed_at', null)
+      .select('id')
+      .maybeSingle();
+    if (delErr) return res.status(400).json({ error: delErr.message });
+    if (!deleted?.id) {
+      return res
+        .status(400)
+        .json({
+          error: 'Não foi possível excluir. O pedido pode já ter sido visto/processado por analista.',
+        });
+    }
 
-    await db.from('finance_request_status_history').insert({
-      request_id: id,
-      changed_by: uid,
-      from_status: 'Enviado',
-      to_status: 'Cancelado',
-      observation: 'Cancelado pelo usuário',
-    });
-
-    return res.status(200).json({ success: true });
+    return res.status(200).json({ success: true, deleted: true });
   } catch (e: any) {
     return res.status(500).json({ error: e?.message || 'Unknown error' });
   }

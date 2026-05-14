@@ -177,11 +177,30 @@
     "entering": "Entrando…",
     "shareWhatsapp": "Compartilhar acesso pelo WhatsApp",
     "shareWhatsappMessage": "Acesse o DJT Quest pelo link:",
+    "shareProfile": {
+      "title": "Compartilhar acesso",
+      "description": "Escolha o perfil do cadastro para quem vai receber o link.",
+      "profileLabel": "Perfil do cadastro",
+      "options": {
+        "collaborator": "Colaborador",
+        "collaboratorHint": "Cadastro normal (padrão).",
+        "leader": "Líder",
+        "leaderHint": "O usuário será aprovado já como líder (você confirma na aprovação).",
+        "guest": "Convidado (externo)",
+        "guestHint": "Entra como convidado, fora da hierarquia (CONVIDADOS)."
+      },
+      "hint": "O cadastro ainda precisa ser aprovado no Studio.",
+      "messageLine": "Perfil do cadastro: {profile}",
+      "cancel": "Cancelar",
+      "confirm": "Compartilhar no WhatsApp"
+    },
     "noAccount": "Não tem conta?",
     "requestSignup": "Solicitar Cadastro",
     "errors": {
       "loginFailedTitle": "Não foi possível entrar",
       "loginFailedDesc": "Verifique as credenciais e tente novamente",
+      "invalidCredentialsDesc": "Credenciais inválidas. Se você não tem acesso, use \"Solicitar Cadastro\". Se esqueceu a senha, use \"Esqueci minha senha\".",
+      "missingEmailDesc": "Este perfil não possui e-mail cadastrado para login. Solicite cadastro ou peça ao líder para atualizar seu e-mail.",
       "loginUnexpectedTitle": "Falha inesperada ao entrar",
       "completeOrSelectUser": "Conclua a matrícula, refine a busca ou selecione o usuário na lista.",
       "userNotFoundDetailed": "Usuário não encontrado. Verifique matrícula, nome ou e-mail."
@@ -245,6 +264,13 @@
   "register": {
     "title": "Solicitar cadastro",
     "description": "Preencha seus dados para solicitar acesso ao DJT Quest",
+    "inviteProfile": {
+      "title": "Perfil definido pelo convite",
+      "description": "Este cadastro será enviado com este perfil (não editável).",
+      "collaborator": "Colaborador",
+      "leader": "Líder",
+      "guest": "Convidado (externo)"
+    },
     "fullNameLabel": "Nome completo *",
     "fullNamePlaceholder": "Digite seu nome completo",
     "emailLabel": "E-mail *",

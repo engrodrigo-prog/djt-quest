@@ -1,16 +1,21 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
-import { assertDjtQuestServerEnv } from '../env-guard.js';
-import { financeRequestAdminUpdateSchema } from '../finance/schema.js';
-import { canManageFinanceRequests, isGuestProfile } from '../finance/permissions.js';
-import { clampLimit, pickQueryParam, safeText } from '../finance/utils.js';
-import { buildWorkbookBuffer } from '../lib/excel-workbook.js';
+import { assertDjtQuestServerEnv, DJT_QUEST_SUPABASE_HOST } from '../server/env-guard.js';
+import { financeRequestAdminUpdateSchema } from '../server/finance/schema.js';
+import { canManageFinanceRequests, isGuestProfile } from '../server/finance/permissions.js';
+import { normalizeFinanceStatus } from '../server/finance/constants.js';
+import { clampLimit, pickQueryParam, safeText } from '../server/finance/utils.js';
+import * as XLSX from 'xlsx';
+import { getSupabaseUrlFromEnv } from '../server/lib/supabase-url.js';
 
-const SUPABASE_URL = process.env.SUPABASE_URL as string;
-const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY as string | undefined;
-const ANON_KEY = (process.env.SUPABASE_ANON_KEY ||
-  process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
-  process.env.VITE_SUPABASE_ANON_KEY) as string;
+const getSupabaseUrl = () =>
+  getSupabaseUrlFromEnv(process.env, { expectedHostname: DJT_QUEST_SUPABASE_HOST, allowLocal: true });
+
+const getSupabaseAnonKey = () =>
+  (process.env.SUPABASE_ANON_KEY ||
+    process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+    process.env.VITE_SUPABASE_ANON_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) as string;
 
 const toCsv = (rows: any[]) => {
   const header = [
@@ -74,8 +79,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.setHeader('Surrogate-Control', 'no-store');
 
     assertDjtQuestServerEnv({ requireSupabaseUrl: false });
-    if (!SUPABASE_URL || !ANON_KEY) return res.status(500).json({ error: 'Missing Supabase config' });
-    if (!SERVICE_ROLE_KEY) return res.status(503).json({ error: 'Admin finance endpoint requires SUPABASE_SERVICE_ROLE_KEY' });
+    const SUPABASE_URL = getSupabaseUrl();
+    const ANON_KEY = getSupabaseAnonKey();
+    const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY as string | undefined;
+    if (!SUPABASE_URL || !ANON_KEY) {
+      return res.status(500).json({
+        error: 'Missing Supabase config',
+        missing: { supabaseUrl: !SUPABASE_URL, supabaseAnonKey: !ANON_KEY },
+      });
+    }
 
     const authHeader = req.headers['authorization'] as string | undefined;
     if (!authHeader?.startsWith('Bearer ')) return res.status(401).json({ error: 'Unauthorized' });
@@ -85,7 +97,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       auth: { autoRefreshToken: false, persistSession: false },
       global: { headers: { Authorization: `Bearer ${token}` } },
     });
-    const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { autoRefreshToken: false, persistSession: false } });
+    const admin = SERVICE_ROLE_KEY
+      ? createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { autoRefreshToken: false, persistSession: false } })
+      : null;
+    const db = admin || authed;
 
     const { data: userData, error: authErr } = await authed.auth.getUser();
     if (authErr) return res.status(401).json({ error: 'Unauthorized' });
@@ -93,8 +108,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!uid) return res.status(401).json({ error: 'Unauthorized' });
 
     const [{ data: rolesRows }, { data: profile }] = await Promise.all([
-      admin.from('user_roles').select('role').eq('user_id', uid),
-      admin
+      db.from('user_roles').select('role').eq('user_id', uid),
+      db
         .from('profiles')
         .select('id,name,email,matricula,team_id,sigla_area,operational_base,is_leader')
         .eq('id', uid)
@@ -111,7 +126,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (!parsed.success) return res.status(400).json({ error: 'Dados inválidos', details: parsed.error.flatten() });
       const { id, status, observation } = parsed.data;
 
-      const { data: reqRow } = await admin
+      const { data: reqRow } = await db
         .from('finance_requests')
         .select('id,status')
         .eq('id', id)
@@ -121,42 +136,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const from_status = String(reqRow.status || '');
       const to_status = String(status);
 
-      const legacyDbStatus = (s: string) => {
-        // Backward compatibility: some environments still have the old CHECK constraint casing.
-        if (s === 'Em Análise') return 'Em análise';
-        return s;
-      };
-
-      let dbStatus = to_status;
-      let updResp = await admin
+      const { error: updErr } = await db
         .from('finance_requests')
-        .update({ status: dbStatus, last_observation: safeText(observation, 2000) })
+        .update({ status: to_status, last_observation: safeText(observation, 2000) })
         .eq('id', id);
-      if (updResp.error) {
-        const msg = String(updResp.error.message || '').toLowerCase();
-        const legacy = legacyDbStatus(dbStatus);
-        if (
-          legacy !== dbStatus &&
-          (msg.includes('check constraint') ||
-            msg.includes('status_check') ||
-            msg.includes('violates') ||
-            msg.includes('violação') ||
-            msg.includes('violacao'))
-        ) {
-          dbStatus = legacy;
-          updResp = await admin
-            .from('finance_requests')
-            .update({ status: dbStatus, last_observation: safeText(observation, 2000) })
-            .eq('id', id);
-        }
-      }
-      if (updResp.error) return res.status(400).json({ error: updResp.error.message });
+      if (updErr) return res.status(400).json({ error: updErr.message });
 
-      await admin.from('finance_request_status_history').insert({
+      await db.from('finance_request_status_history').insert({
         request_id: id,
         changed_by: uid,
         from_status,
-        to_status: dbStatus,
+        to_status,
         observation: safeText(observation, 2000),
       });
 
@@ -166,13 +156,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // GET list / export
     const exportFmt = String(pickQueryParam(req.query, 'export') || '').trim().toLowerCase();
     const limit = clampLimit(pickQueryParam(req.query, 'limit'), 120, 500);
-	    const company = safeText(pickQueryParam(req.query, 'company'), 80);
-	    const coordination = safeText(pickQueryParam(req.query, 'coordination'), 80);
-	    const request_kind = safeText(pickQueryParam(req.query, 'request_kind'), 40);
-	    const statusRaw = safeText(pickQueryParam(req.query, 'status'), 200) || '';
-	    const q = safeText(pickQueryParam(req.query, 'q'), 200);
-	    const dateFromRaw = safeText(pickQueryParam(req.query, 'date_start_from'), 30);
-	    const dateToRaw = safeText(pickQueryParam(req.query, 'date_start_to'), 30);
+    const company = safeText(pickQueryParam(req.query, 'company'), 80);
+    const coordination = safeText(pickQueryParam(req.query, 'coordination'), 80);
+    const request_kind = safeText(pickQueryParam(req.query, 'request_kind'), 40);
+    const statusRaw = safeText(pickQueryParam(req.query, 'status'), 40);
+    const status = statusRaw ? normalizeFinanceStatus(statusRaw) : null;
+    const q = safeText(pickQueryParam(req.query, 'q'), 200);
+    const dateFromRaw = safeText(pickQueryParam(req.query, 'date_start_from'), 30);
+    const dateToRaw = safeText(pickQueryParam(req.query, 'date_start_to'), 30);
     const isIsoDate = (s?: string | null) => Boolean(s && /^\d{4}-\d{2}-\d{2}$/.test(String(s)));
     const dateFrom = isIsoDate(dateFromRaw) ? String(dateFromRaw) : '';
     const dateTo = isIsoDate(dateToRaw) ? String(dateToRaw) : '';
@@ -182,7 +173,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ error: 'date_start_to deve ser >= date_start_from' });
     }
 
-    let query = admin
+    let query = db
       .from('finance_requests')
       .select(
         'id,protocol,created_at,updated_at,created_by,created_by_name,created_by_email,created_by_matricula,company,training_operational,request_kind,expense_type,coordination,date_start,date_end,amount_cents,currency,status,last_observation',
@@ -190,36 +181,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .order('updated_at', { ascending: false })
       .limit(limit);
 
-	    if (company && company !== 'all') query = query.eq('company', company);
-	    if (coordination && coordination !== 'all') query = query.eq('coordination', coordination);
-	    if (request_kind && request_kind !== 'all') query = query.eq('request_kind', request_kind);
-	    const statuses = statusRaw
-	      .split(',')
-	      .map((s) => s.trim())
-	      .filter((s) => s && s !== 'all');
-	    if (statuses.length) {
-	      const dbValues = new Set<string>();
-	      for (const s0 of statuses) {
-	        const s = s0 === 'Em análise' ? 'Em Análise' : s0;
-	        if (s === 'Em Análise') {
-	          dbValues.add('Em Análise');
-	          dbValues.add('Em análise');
-	        } else if (s === 'Aprovado') {
-	          dbValues.add('Aprovado');
-	          dbValues.add('Pago');
-	        } else if (s === 'Pago') {
-	          dbValues.add('Pago');
-	          dbValues.add('Aprovado');
-	        } else {
-	          dbValues.add(s);
-	        }
-	      }
-	      query = query.in('status', Array.from(dbValues));
-	    }
-	    if (dateFrom) query = query.gte('date_start', dateFrom);
-	    if (dateTo) query = query.lte('date_start', dateTo);
-	    if (q) {
-	      const needle = q.replace(/[%_]/g, '\\$&');
+    if (company && company !== 'all') query = query.eq('company', company);
+    if (coordination && coordination !== 'all') query = query.eq('coordination', coordination);
+    if (request_kind && request_kind !== 'all') query = query.eq('request_kind', request_kind);
+    if (status && status !== 'all') query = query.eq('status', status);
+    if (dateFrom) query = query.gte('date_start', dateFrom);
+    if (dateTo) query = query.lte('date_start', dateTo);
+    if (q) {
+      const needle = q.replace(/[%_]/g, '\\$&');
       query = query.or(`created_by_name.ilike.%${needle}%,created_by_email.ilike.%${needle}%`);
     }
 
@@ -245,29 +214,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         Status: r.status,
         Observacao: r.last_observation,
       }));
-      const header = [
-        'Protocolo',
-        'CriadoEm',
-        'AtualizadoEm',
-        'Nome',
-        'Email',
-        'Matricula',
-        'Empresa',
-        'TreinamentoOperacional',
-        'TipoSolicitacao',
-        'Tipo',
-        'Coordenacao',
-        'DataInicio',
-        'DataFim',
-        'Valor',
-        'Status',
-        'Observacao',
-      ];
-      const matrix = [
-        header,
-        ...sheetRows.map((row) => header.map((key) => (row as Record<string, unknown>)[key] ?? '')),
-      ];
-      const buf = await buildWorkbookBuffer({ sheetName: 'Solicitacoes', rows: matrix });
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.json_to_sheet(sheetRows);
+      XLSX.utils.book_append_sheet(wb, ws, 'Solicitacoes');
+      const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as any;
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       res.setHeader('Content-Disposition', 'attachment; filename="finance-requests.xlsx"');
       return res.status(200).send(buf);

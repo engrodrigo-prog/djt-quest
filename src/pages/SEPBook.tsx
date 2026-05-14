@@ -226,68 +226,6 @@ export default function SEPBook() {
   const [selectedParticipants, setSelectedParticipants] = useState<Set<string>>(new Set());
   const [participantOptions, setParticipantOptions] = useState<Array<{ id: string; name: string; sigla_area: string | null }>>([]);
   const [participantSearch, setParticipantSearch] = useState("");
-  const [composerFocused, setComposerFocused] = useState(false);
-  const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
-  const commentFocusedPostId = useRef<string | null>(null);
-
-  const sepbookTextInputClass =
-    "border-white/35 bg-slate-950/78 text-[16px] leading-7 text-slate-100 placeholder:text-slate-300/75 caret-slate-100 [color-scheme:dark] selection:bg-cyan-500/35";
-
-  const scrollFieldIntoView = useCallback((el: HTMLElement | null) => {
-    if (!el || typeof window === "undefined") return;
-    // Retry at 150ms, 350ms, 550ms — keyboard animation varies by device/OS
-    [150, 350, 550].forEach((delay) => {
-      setTimeout(() => {
-        try {
-          el.scrollIntoView({ behavior: "smooth", block: "center" });
-        } catch {
-          // ignore
-        }
-      }, delay);
-    });
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const isMobile = window.matchMedia?.("(max-width: 768px)")?.matches ?? false;
-    window.dispatchEvent(
-      new CustomEvent("djt-nav-visibility", { detail: { hidden: Boolean(isMobile && showComposer) } }),
-    );
-    return () => {
-      window.dispatchEvent(new CustomEvent("djt-nav-visibility", { detail: { hidden: false } }));
-    };
-  }, [showComposer]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const isMobile = window.matchMedia?.("(max-width: 768px)")?.matches ?? false;
-    window.dispatchEvent(
-      new CustomEvent("djt-nav-visibility", {
-        detail: { hidden: Boolean(isMobile && composerFocused) },
-      }),
-    );
-    return () => {
-      window.dispatchEvent(new CustomEvent("djt-nav-visibility", { detail: { hidden: false } }));
-    };
-  }, [composerFocused]);
-
-  // Scroll focused textarea into view whenever the visual viewport shrinks (keyboard opening)
-  useEffect(() => {
-    if (typeof window === "undefined" || !composerFocused) return;
-    const vv = window.visualViewport;
-    if (!vv) return;
-    const onViewportResize = () => {
-      const el = document.activeElement as HTMLElement | null;
-      if (!el || (el.tagName !== "TEXTAREA" && el.tagName !== "INPUT")) return;
-      try {
-        el.scrollIntoView({ behavior: "smooth", block: "center" });
-      } catch {
-        // ignore
-      }
-    };
-    vv.addEventListener("resize", onViewportResize);
-    return () => vv.removeEventListener("resize", onViewportResize);
-  }, [composerFocused]);
 
   const formatName = (name: string | null | undefined) => {
     const parts = String(name || "").trim().split(/\s+/).filter(Boolean);
@@ -295,7 +233,7 @@ export default function SEPBook() {
     return `${parts[0]} ${parts[parts.length - 1]}`;
   };
 
-  const sortParticipants = useCallback((list: Array<{ id: string; name: string; sigla_area: string | null }>) => {
+  const sortParticipants = (list: Array<{ id: string; name: string; sigla_area: string | null }>) => {
     const myTeam = (profile as any)?.sigla_area?.toString().toLowerCase() || "";
     return [...list].sort((a, b) => {
       const aSame = myTeam && (a.sigla_area || "").toLowerCase() === myTeam;
@@ -304,25 +242,23 @@ export default function SEPBook() {
       if (!aSame && bSame) return 1;
       return a.name.localeCompare(b.name, getActiveLocale(), { sensitivity: "base" });
     });
-  }, [profile]);
+  };
 
-	  useEffect(() => {
-	    const draft = localStorage.getItem("sepbook_draft");
-	    if (draft && !content) {
-	      try {
-	        const parsed = JSON.parse(draft);
-	        setContent(parsed.content || "");
-	      } catch {
-	        // ignore corrupted draft
-	      }
-	      localStorage.removeItem("sepbook_draft");
-	    }
-	  }, [content]);
+  useEffect(() => {
+    const draft = localStorage.getItem("sepbook_draft");
+    if (draft && !content) {
+      try {
+        const parsed = JSON.parse(draft);
+        setContent(parsed.content || "");
+      } catch { /* noop */ }
+      localStorage.removeItem("sepbook_draft");
+    }
+  }, [content]);
 
-	  const fetchFeed = useCallback(async () => {
-	    setFeedLoading(true);
-	    try {
-	      const { data: session } = await supabase.auth.getSession();
+  const fetchFeed = async () => {
+    setFeedLoading(true);
+    try {
+      const { data: session } = await supabase.auth.getSession();
       const token = session.session?.access_token;
       const resp = await fetch("/api/sepbook-feed", {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
@@ -375,14 +311,14 @@ export default function SEPBook() {
       }
     } catch (e: any) {
       toast({ title: "Erro ao carregar SEPBook", description: e?.message || "Tente novamente", variant: "destructive" });
-	    } finally {
-	      setFeedLoading(false);
-	    }
-	  }, [toast]);
+    } finally {
+      setFeedLoading(false);
+    }
+  };
 
-	  useEffect(() => {
-	    void fetchFeed();
-	  }, [fetchFeed]);
+  useEffect(() => {
+    fetchFeed();
+  }, []);
 
   // Campanhas vigentes (para vincular evidências)
   useEffect(() => {
@@ -414,37 +350,32 @@ export default function SEPBook() {
     })();
   }, []);
 
-	  // Participantes disponíveis (marcar colegas de qualquer equipe)
-	  useEffect(() => {
-	    let cancelled = false;
-	    (async () => {
-	      try {
-	        const { data, error } = await supabase
-	          .from("profiles")
-	          .select("id, name, sigla_area")
-	          .order("name")
-	          .limit(200);
-	        if (cancelled) return;
-	        if (!error && Array.isArray(data)) {
-	          setParticipantOptions(sortParticipants(data as any));
-	          // Se ainda não houver seleção, destaca o próprio usuário como participante principal
-	          if (user?.id) {
-	            setSelectedParticipants((prev) => (prev && prev.size > 0 ? prev : new Set([user.id])));
-	          }
-	        }
-	      } catch (e) {
-	        if (!cancelled) console.warn("SEPBook: falha ao carregar participantes", e);
-	      }
-	    })();
-	    return () => {
-	      cancelled = true;
-	    };
-	  }, [sortParticipants, user?.id]);
+  // Participantes disponíveis (marcar colegas de qualquer equipe)
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data, error } = await supabase
+          .from("profiles")
+          .select("id, name, sigla_area")
+          .order("name")
+          .limit(200);
+        if (!error && Array.isArray(data)) {
+          setParticipantOptions(sortParticipants(data as any));
+          // Se ainda não houver seleção, destaca o próprio usuário como participante principal
+          if (user?.id) {
+            setSelectedParticipants(new Set([user.id]));
+          }
+        }
+      } catch (e) {
+        console.warn("SEPBook: falha ao carregar participantes", e);
+      }
+    })();
+  }, []);
 
-	  const fetchTrending = useCallback(async (range: typeof trendRange) => {
-	    setTrendingLoading(true);
-	    try {
-	      const { data: session } = await supabase.auth.getSession();
+  const fetchTrending = async (range: typeof trendRange) => {
+    setTrendingLoading(true);
+    try {
+      const { data: session } = await supabase.auth.getSession();
       const token = session.session?.access_token;
       const resp = await fetch(`/api/sepbook-trending?range=${encodeURIComponent(range)}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
@@ -464,14 +395,14 @@ export default function SEPBook() {
         description: e?.message || "Tente novamente",
         variant: "destructive",
       });
-	    } finally {
-	      setTrendingLoading(false);
-	    }
-	  }, [toast]);
+    } finally {
+      setTrendingLoading(false);
+    }
+  };
 
-	  useEffect(() => {
-	    void fetchTrending(trendRange);
-	  }, [fetchTrending, trendRange]);
+  useEffect(() => {
+    fetchTrending(trendRange);
+  }, [trendRange]);
 
   useEffect(() => {
     (async () => {
@@ -536,19 +467,14 @@ export default function SEPBook() {
     })();
   }, []);
 
-  useEffect(() => {
+  const resolveLocation = () => {
     if (!useLocation) {
       setCoords(null);
       setLocationLabel(null);
       return;
     }
-    if (typeof navigator === "undefined") return;
     if (!navigator.geolocation) {
-      toast({
-        title: "Geolocalização indisponível",
-        description: "Seu navegador não suporta localização.",
-        variant: "destructive",
-      });
+      toast({ title: "Geolocalização indisponível", description: "Seu navegador não suporta localização.", variant: "destructive" });
       setUseLocation(false);
       return;
     }
@@ -560,24 +486,20 @@ export default function SEPBook() {
       },
       (err) => {
         console.warn("Erro ao obter localização", err);
-        toast({
-          title: "Não foi possível obter localização",
-          description: "Verifique permissões de GPS.",
-          variant: "destructive",
-        });
+        toast({ title: "Não foi possível obter localização", description: "Verifique permissões de GPS.", variant: "destructive" });
         setUseLocation(false);
       },
-      { enableHighAccuracy: false, timeout: 8000 },
+      { enableHighAccuracy: false, timeout: 8000 }
     );
-  }, [toast, useLocation]);
+  };
 
   useEffect(() => {
-    if (!useLocation || askedLocationOnce) return;
-    setAskedLocationOnce(true);
-    try {
-      localStorage.setItem("sepbook_location_asked", "1");
-    } catch {
-      // ignore
+    if (useLocation && !askedLocationOnce) {
+      resolveLocation();
+      setAskedLocationOnce(true);
+      try {
+        localStorage.setItem("sepbook_location_asked", "1");
+      } catch { /* noop */ }
     }
   }, [useLocation, askedLocationOnce]);
 
@@ -713,10 +635,10 @@ export default function SEPBook() {
     return () => window.clearTimeout(t);
   }, [commentsByPost, openComments]);
 
-	  const handleAddComment = async (post: SepPost) => {
-	    const text = (newComment[post.id] || "").trim();
-	    const attachments = commentAttachments[post.id] || [];
-	    const uploading = commentUploading[post.id];
+  const handleAddComment = async (post: SepPost) => {
+    const text = (newComment[post.id] || "").trim();
+    const attachments = commentAttachments[post.id] || [];
+    const uploading = commentUploading[post.id];
     if (uploading) {
       toast({ title: "Aguarde o envio das fotos", description: "Estamos concluindo o upload antes de comentar." });
       return;
@@ -732,19 +654,17 @@ export default function SEPBook() {
           body: JSON.stringify({ text }),
         });
         const json = await resp.json();
-	        if (resp.ok && Array.isArray(json.hashtags) && json.hashtags.length > 0) {
-	          const toAdd = json.hashtags.filter((h: string) => !finalText.includes(h));
-	          if (toAdd.length > 0) {
-	            finalText = `${finalText}\n${toAdd.join(" ")}`;
-	          }
-	        }
-	      } catch {
-	        // ignore AI hashtag suggestions failures
-	      }
-	    }
-	    const replyToCommentId = replyTarget?.postId === post.id ? replyTarget.commentId : null;
-	    try {
-	      const { data: session } = await supabase.auth.getSession();
+        if (resp.ok && Array.isArray(json.hashtags) && json.hashtags.length > 0) {
+          const toAdd = json.hashtags.filter((h: string) => !finalText.includes(h));
+          if (toAdd.length > 0) {
+            finalText = `${finalText}\n${toAdd.join(" ")}`;
+          }
+        }
+      } catch { /* noop */ }
+    }
+    const replyToCommentId = replyTarget?.postId === post.id ? replyTarget.commentId : null;
+    try {
+      const { data: session } = await supabase.auth.getSession();
       const token = session.session?.access_token;
       if (!token) throw new Error("Não autenticado");
       const resp = await fetch("/api/sepbook-comments", {
@@ -841,7 +761,6 @@ export default function SEPBook() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          mode: "polish",
           title: "Comentário SEPBook",
           description: text,
           language: localeToOpenAiLanguageTag(getActiveLocale()),
@@ -882,7 +801,6 @@ export default function SEPBook() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          mode: "polish",
           title: "Comentário SEPBook",
           description: text,
           language: localeToOpenAiLanguageTag(getActiveLocale()),
@@ -1008,7 +926,7 @@ export default function SEPBook() {
       <div
         key={comment.id}
         id={`comment-${comment.id}`}
-        className={`flex items-start gap-2 text-[12px] text-slate-200/95 ${isReply ? "ml-6" : ""}`}
+        className={`flex items-start gap-2 text-[11px] text-muted-foreground ${isReply ? "ml-6" : ""}`}
       >
         {comment.author_avatar && (
           <UserProfilePopover userId={comment.user_id} name={comment.author_name} avatarUrl={comment.author_avatar}>
@@ -1037,7 +955,7 @@ export default function SEPBook() {
           </div>
           {isEditing ? (
             <div className="space-y-2">
-              <div className="flex items-center justify-between text-[10px] text-slate-300">
+              <div className="flex items-center justify-between text-[10px] text-muted-foreground">
                 <span>Revisar antes de salvar</span>
                 <Button
                   type="button"
@@ -1053,9 +971,6 @@ export default function SEPBook() {
                 rows={3}
                 value={editingCommentText}
                 onChange={(e) => setEditingCommentText(e.target.value)}
-                className={`min-h-[96px] ${sepbookTextInputClass}`}
-                onFocus={(e) => { setComposerFocused(true); scrollFieldIntoView(e.currentTarget); }}
-                onBlur={() => setComposerFocused(false)}
               />
               <div className="flex justify-end gap-2">
                 <Button type="button" size="sm" variant="outline" onClick={cancelEditComment}>
@@ -1076,9 +991,7 @@ export default function SEPBook() {
               {isDeleted ? (
                 <div className="italic opacity-70">Comentário removido</div>
               ) : comment.content_md?.trim() ? (
-                <div className="block rounded-md bg-slate-950/35 px-2.5 py-2 text-[14px] leading-6 text-slate-100 break-words">
-                  {renderRichText(comment.content_md)}
-                </div>
+                <div className="block">{renderRichText(comment.content_md)}</div>
               ) : null}
               {comment.attachments && comment.attachments.length > 0 && (
                 <div className="mt-2">
@@ -1187,12 +1100,7 @@ export default function SEPBook() {
       const resp = await apiFetch("/api/ai?handler=cleanup-text", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          mode: "polish",
-          title: "Publicação SEPBook",
-          description: text,
-          language: localeToOpenAiLanguageTag(getActiveLocale()),
-        }),
+        body: JSON.stringify({ title: "Publicação SEPBook", description: text, language: localeToOpenAiLanguageTag(getActiveLocale()) }),
       });
       const j = await resp.json().catch(() => ({}));
       const usedAI = j?.meta?.usedAI !== false;
@@ -1205,11 +1113,11 @@ export default function SEPBook() {
       }
       const cleaned = String(j.cleaned.description || text).trim();
       if (cleaned === text) {
-        toast({ title: "Nenhuma correção necessária", description: "Não encontrei melhorias relevantes para aplicar sem mudar sua mensagem.", variant: "default" });
+        toast({ title: "Nenhuma correção necessária", description: "Não encontrei ajustes de ortografia/pontuação para fazer.", variant: "default" });
         return;
       }
       setContent(cleaned);
-      toast({ title: "Texto revisado", description: "Ortografia corrigida e texto levemente aprimorado, sem mudar o conteúdo." });
+      toast({ title: "Texto revisado", description: "Ortografia e pontuação ajustadas, conteúdo preservado." });
     } catch (e: any) {
       toast({ title: "Não foi possível revisar agora", description: e?.message || "Tente novamente mais tarde.", variant: "destructive" });
     } finally {
@@ -1244,22 +1152,22 @@ export default function SEPBook() {
     }
   };
 
-	  const handlePublish = async () => {
-	    const text = content.trim();
-	    if (!text && attachments.length === 0 && !repostOf) {
-	      toast({ title: "Conteúdo vazio", description: "Escreva algo ou envie uma mídia antes de publicar.", variant: "destructive" });
+  const handlePublish = async () => {
+    const text = content.trim();
+    if (!text && attachments.length === 0 && !repostOf) {
+      toast({ title: "Conteúdo vazio", description: "Escreva algo ou envie uma mídia antes de publicar.", variant: "destructive" });
       return;
     }
     if (attachmentsUploading) {
       toast({ title: "Aguarde o envio das mídias", description: "Estamos concluindo o upload das fotos/vídeos antes de publicar.", variant: "default" });
       return;
-	    }
-	    setLoading(true);
-	    try {
-	      const finalText = text;
-	      const { data: session } = await supabase.auth.getSession();
-	      const token = session.session?.access_token;
-	      if (!token) throw new Error("Não autenticado");
+    }
+    setLoading(true);
+    try {
+      let finalText = text;
+      const { data: session } = await supabase.auth.getSession();
+      const token = session.session?.access_token;
+      if (!token) throw new Error("Não autenticado");
       const participantsToSend = new Set(selectedParticipants);
       if (user?.id) participantsToSend.add(user.id);
       const resp = await fetch("/api/sepbook-post", {
@@ -1311,10 +1219,10 @@ export default function SEPBook() {
     setEditingNewAttachments([]);
   };
 
-	  const handleSaveEdit = async (post: SepPost) => {
-	    let text = editingText.trim();
-	    const mergedAttachments = [
-	      ...(Array.isArray(post.attachments) ? post.attachments : []),
+  const handleSaveEdit = async (post: SepPost) => {
+    let text = editingText.trim();
+    const mergedAttachments = [
+      ...(Array.isArray(post.attachments) ? post.attachments : []),
       ...editingNewAttachments,
     ];
     if (!text && mergedAttachments.length === 0) {
@@ -1329,18 +1237,16 @@ export default function SEPBook() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ text }),
           });
-	          const js = await r.json();
-	          if (r.ok && Array.isArray(js.hashtags) && js.hashtags.length > 0) {
-	            const toAdd = js.hashtags.filter((h: string) => !text.includes(h));
-	            if (toAdd.length > 0) text = `${text}\n${toAdd.join(" ")}`;
-	          }
-	        } catch {
-	          // ignore AI hashtag suggestions failures
-	        }
-	      }
-	      const { data: session } = await supabase.auth.getSession();
-	      const token = session.session?.access_token;
-	      if (!token) throw new Error("Não autenticado");
+          const js = await r.json();
+          if (r.ok && Array.isArray(js.hashtags) && js.hashtags.length > 0) {
+            const toAdd = js.hashtags.filter((h: string) => !text.includes(h));
+            if (toAdd.length > 0) text = `${text}\n${toAdd.join(" ")}`;
+          }
+        } catch { /* noop */ }
+      }
+      const { data: session } = await supabase.auth.getSession();
+      const token = session.session?.access_token;
+      if (!token) throw new Error("Não autenticado");
       const resp = await fetch("/api/sepbook-edit", {
         method: "POST",
         headers: {
@@ -1423,12 +1329,7 @@ export default function SEPBook() {
   const cleanPostWithIA = async (post: SepPost) => {
     setCleaningPostId(post.id);
     try {
-      const body = {
-        mode: "polish",
-        title: "Publicação SEPBook",
-        description: post.content_md,
-        language: localeToOpenAiLanguageTag(getActiveLocale()),
-      };
+      const body = { title: "Publicação SEPBook", description: post.content_md, language: localeToOpenAiLanguageTag(getActiveLocale()) };
       const resp = await apiFetch("/api/ai?handler=cleanup-text", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1445,7 +1346,7 @@ export default function SEPBook() {
       const trimmedCleaned = String(cleaned).trim();
       const trimmedOriginal = String(post.content_md || "").trim();
       if (trimmedCleaned === trimmedOriginal) {
-        toast({ title: "Nenhuma correção necessária", description: "Não encontrei melhorias relevantes para aplicar sem mudar sua mensagem.", variant: "default" });
+        toast({ title: "Nenhuma correção necessária", description: "Não encontrei ajustes de ortografia/pontuação para fazer.", variant: "default" });
         return;
       }
 
@@ -1502,9 +1403,9 @@ export default function SEPBook() {
   };
 
   return (
-    <div className="relative min-h-screen pb-40">
+    <div className="relative min-h-screen pb-[calc(7.5rem+env(safe-area-inset-bottom))] lg:pb-10 lg:pl-[var(--djt-nav-desktop-offset)]">
       <ThemedBackground theme="atitude" />
-      <div className="container relative mx-auto p-4 md:p-6 max-w-5xl space-y-4">
+      <div className="container relative mx-auto px-3 py-4 sm:px-4 md:px-5 md:py-6 lg:px-6 max-w-5xl space-y-4">
         <div className="flex justify-end">
           <Button
             variant="outline"
@@ -1653,8 +1554,8 @@ export default function SEPBook() {
                   </span>
                 </div>
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                  <p className="text-xs text-white/80">
-                    Você pode digitar ou falar sua publicação. Use a varinha para corrigir ortografia e melhorar levemente o texto.
+                  <p className="text-xs text-muted-foreground">
+                    Você pode digitar ou falar sua publicação. Use a varinha para revisar ortografia e pontuação.
                   </p>
                   <div className="flex flex-wrap items-center gap-2">
                     <VoiceRecorderButton
@@ -1671,7 +1572,7 @@ export default function SEPBook() {
                       className="h-7 w-7"
                       onClick={handleCleanupContent}
                       disabled={cleaning}
-                      title="Corrigir ortografia e melhorar levemente o texto (sem mudar conteúdo)"
+                      title="Revisar ortografia e pontuação (sem mudar conteúdo)"
                     >
                       <Wand2 className="h-4 w-4" />
                     </Button>
@@ -1688,14 +1589,10 @@ export default function SEPBook() {
                   </div>
                 </div>
                 <Textarea
-                  ref={composerTextareaRef}
                   rows={3}
                   value={content}
                   onChange={(e) => handleContentChange(e.target.value)}
                   placeholder="Compartilhe um aprendizado, uma boa prática ou um registro de bastidor..."
-                  className={`min-h-[120px] ${sepbookTextInputClass}`}
-                  onFocus={(e) => { setComposerFocused(true); scrollFieldIntoView(e.currentTarget); }}
-                  onBlur={() => setComposerFocused(false)}
                 />
                 {campaignOptions.length > 0 && (
                   <div className="space-y-1">
@@ -1824,139 +1721,143 @@ export default function SEPBook() {
                   imageQuality={0.82}
                   onUploadingChange={setAttachmentsUploading}
                 />
-	                <p className="text-[11px] text-muted-foreground text-center">
-	                  Imagens são otimizadas para até 4K. Vídeos: até 30s (preferencialmente 1080p/FullHD). Limite: 3 fotos + 2 vídeos por post.
-	                </p>
-	                <div className="space-y-2">
-	                  <div className="flex flex-col items-center justify-center gap-2">
-	                    <div className="flex flex-wrap items-center gap-3">
-	                      <button
-	                        type="button"
-	                        onClick={() => setShowTagPicker((v) => !v)}
-	                        className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-muted"
-	                        title="Sugerir hashtags de campanhas e desafios"
-	                      >
-	                        <Hash className="h-3 w-3" />
-	                        Tags
-	                      </button>
-	                    </div>
-	                    {showTagPicker && tagsSuggestions.length > 0 && (
-	                      <div className="flex flex-wrap justify-center gap-1 text-[11px]">
-	                        {tagsSuggestions.map((t) => (
-	                          <button
-	                            key={`${t.kind}-${t.tag}`}
-	                            type="button"
-	                            onClick={() =>
-	                              setContent((prev) => {
-	                                const hash = `#${t.tag}`;
-	                                if (prev.includes(hash)) return prev;
-	                                return [prev.trim(), hash].filter(Boolean).join(" ");
-	                              })
-	                            }
-	                            className="px-2 py-0.5 rounded-full border border-muted-foreground/40 bg-background/60 hover:bg-muted"
-	                          >
-	                            #{t.tag}
-	                          </button>
-	                        ))}
-	                      </div>
-	                    )}
-	                    {hashtagSuggestions.length > 0 && (
-	                      <div className="flex flex-col items-center gap-1 text-[11px]">
-	                        <div className="flex flex-wrap justify-center gap-1">
-	                          {hashtagSuggestions.map((tag, idx) => (
-	                            <button
-	                              key={tag + idx}
-	                              type="button"
-	                              onClick={() =>
-	                                setContent((prev) => {
-	                                  if (prev.includes(tag)) return prev;
-	                                  return [prev.trim(), tag].filter(Boolean).join(" ");
-	                                })
-	                              }
-	                              className="px-2 py-0.5 rounded-full border border-amber-500/50 bg-amber-500/10 hover:bg-amber-500/20"
-	                            >
-	                              {tag}
-	                            </button>
-	                          ))}
-	                        </div>
-	                        <button
-	                          type="button"
-	                          onClick={() => setHashtagSuggestions([])}
-	                          className="mt-1 text-[10px] text-amber-100/80 underline underline-offset-2"
-	                        >
-	                          Não usar hashtags sugeridas agora
-	                        </button>
-	                      </div>
-	                    )}
-	                    {mentionSuggestions.length > 0 && mentionQuery.length >= 1 && (
-	                      <div className="flex flex-wrap justify-center gap-1 text-[11px]">
-	                        {mentionSuggestions.map((s, idx) => (
-	                          <button
-	                            key={`${s.kind}-${s.handle}-${idx}`}
-	                            type="button"
-	                            onClick={() => {
-	                              setContent((prev) => {
-	                                const re = /@([A-Za-z0-9_.-]{1,30})/g;
-	                                const all = Array.from(prev.matchAll(re));
-	                                if (!all.length) {
-	                                  return [prev.trim(), `@${s.handle}`].filter(Boolean).join(" ");
-	                                }
-	                                const last = all[all.length - 1];
-	                                const start = last.index ?? 0;
-	                                const before = prev.slice(0, start);
-	                                const after = prev.slice(start + last[0].length);
-	                                return `${before}@${s.handle}${after}`;
-	                              });
-	                              setMentionQuery("");
-	                              setMentionSuggestions([]);
-	                            }}
-	                            className="px-2 py-0.5 rounded-full border border-muted-foreground/40 bg-background/60 hover:bg-muted"
-	                          >
-	                            <span className="font-semibold">{s.label || s.handle}</span>
-	                            {s.kind === "user" && <span className="ml-1 opacity-70">@{s.handle}</span>}
-	                            {s.kind === "team" && <span className="ml-1 opacity-70">(equipe @{s.handle})</span>}
-	                            {s.kind === "everyone" && <span className="ml-1 opacity-70">(todos)</span>}
-	                          </button>
-	                        ))}
-	                      </div>
-	                    )}
-	                  </div>
-
-	                  <div className={`-mx-6 px-6 pt-2 border-t border-white/10 bg-slate-950/40 backdrop-blur-md ${composerFocused ? "pb-2" : "sticky bottom-0 z-20 pb-[calc(env(safe-area-inset-bottom)+12px)]"}`}>
-	                    <div className="flex flex-wrap items-center justify-center gap-2">
-	                      <Button
-	                        size="sm"
-	                        variant="ghost"
-	                        onClick={() => fetchHashtagSuggestions(content)}
-	                        disabled={hashtagLoading || content.trim().length < 8}
-	                        className="text-[11px]"
-	                      >
-	                        {hashtagLoading ? "Gerando #..." : "Sugerir # com IA"}
-	                      </Button>
-	                      <Button
-	                        onClick={handlePublish}
-	                        disabled={loading || attachmentsUploading}
-	                        size="sm"
-	                        className="px-4"
-	                      >
-	                        {attachmentsUploading ? "Enviando..." : "Publicar"}
-	                      </Button>
-	                      <Button
-	                        type="button"
-	                        variant="ghost"
-	                        size="sm"
-	                        onClick={() => setShowComposer(false)}
-	                      >
-	                        Cancelar
-	                      </Button>
-	                    </div>
-	                  </div>
-	                </div>
-	              </>
-	            ) : (
-	              <div className="flex flex-col items-center justify-center gap-3 py-6">
-	                <p className="text-xs text-muted-foreground text-center">
-	                  Compartilhe bastidores, boas práticas e momentos da sua base no SEPBook.
+                <p className="text-[11px] text-muted-foreground text-center">
+                  Imagens são otimizadas para até 4K. Vídeos: até 30s (preferencialmente 1080p/FullHD). Limite: 3 fotos + 2 vídeos por post.
+                </p>
+                <div className="flex flex-col items-center justify-center gap-2">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setShowTagPicker((v) => !v)}
+                      className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-muted"
+                      title="Sugerir hashtags de campanhas e desafios"
+                    >
+                      <Hash className="h-3 w-3" />
+                      Tags
+                    </button>
+                  </div>
+                  {showTagPicker && tagsSuggestions.length > 0 && (
+                    <div className="flex flex-wrap justify-center gap-1 text-[11px]">
+                      {tagsSuggestions.map((t) => (
+                        <button
+                          key={`${t.kind}-${t.tag}`}
+                          type="button"
+                          onClick={() =>
+                            setContent((prev) => {
+                              const hash = `#${t.tag}`;
+                              if (prev.includes(hash)) return prev;
+                              return [prev.trim(), hash].filter(Boolean).join(" ");
+                            })
+                          }
+                          className="px-2 py-0.5 rounded-full border border-muted-foreground/40 bg-background/60 hover:bg-muted"
+                        >
+                          #{t.tag}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {hashtagSuggestions.length > 0 && (
+                    <div className="flex flex-col items-center gap-1 text-[11px]">
+                      <div className="flex flex-wrap justify-center gap-1">
+                        {hashtagSuggestions.map((tag, idx) => (
+                          <button
+                            key={tag + idx}
+                            type="button"
+                            onClick={() =>
+                              setContent((prev) => {
+                                if (prev.includes(tag)) return prev;
+                                return [prev.trim(), tag].filter(Boolean).join(" ");
+                              })
+                            }
+                            className="px-2 py-0.5 rounded-full border border-amber-500/50 bg-amber-500/10 hover:bg-amber-500/20"
+                          >
+                            {tag}
+                          </button>
+                        ))}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setHashtagSuggestions([])}
+                        className="mt-1 text-[10px] text-amber-100/80 underline underline-offset-2"
+                      >
+                        Não usar hashtags sugeridas agora
+                      </button>
+                    </div>
+                  )}
+                  {mentionSuggestions.length > 0 && mentionQuery.length >= 1 && (
+                    <div className="flex flex-wrap justify-center gap-1 text-[11px]">
+                      {mentionSuggestions.map((s, idx) => (
+                        <button
+                          key={`${s.kind}-${s.handle}-${idx}`}
+                          type="button"
+                          onClick={() =>
+                            {
+                              setContent((prev) =>
+                                {
+                                  const re = /@([A-Za-z0-9_.-]{1,30})/g;
+                                  const all = Array.from(prev.matchAll(re));
+                                  if (!all.length) {
+                                    return [prev.trim(), `@${s.handle}`].filter(Boolean).join(" ");
+                                  }
+                                  const last = all[all.length - 1];
+                                  const start = last.index ?? 0;
+                                  const before = prev.slice(0, start);
+                                  const after = prev.slice(start + last[0].length);
+                                  return `${before}@${s.handle}${after}`;
+                                }
+                              );
+                              setMentionQuery("");
+                              setMentionSuggestions([]);
+                            }
+                          }
+                          className="px-2 py-0.5 rounded-full border border-muted-foreground/40 bg-background/60 hover:bg-muted"
+                        >
+                          <span className="font-semibold">
+                            {s.label || s.handle}
+                          </span>
+                          {s.kind === "user" && (
+                            <span className="ml-1 opacity-70">@{s.handle}</span>
+                          )}
+                          {s.kind === "team" && (
+                            <span className="ml-1 opacity-70">(equipe @{s.handle})</span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => fetchHashtagSuggestions(content)}
+                      disabled={hashtagLoading || content.trim().length < 8}
+                      className="text-[11px]"
+                    >
+                      {hashtagLoading ? "Gerando #..." : "Sugerir # com IA"}
+                    </Button>
+                    <Button
+                      onClick={handlePublish}
+                      disabled={loading}
+                      size="sm"
+                      className="px-4"
+                    >
+                      Publicar
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setShowComposer(false)}
+                    >
+                      Cancelar
+                    </Button>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div className="flex flex-col items-center justify-center gap-3 py-6">
+                <p className="text-xs text-muted-foreground text-center">
+                  Compartilhe bastidores, boas práticas e momentos da sua base no SEPBook.
                 </p>
                 <Button
                   type="button"
@@ -2078,8 +1979,8 @@ export default function SEPBook() {
                 )}
                 {editingId === p.id ? (
                   <div className="space-y-2">
-                    <div className="flex items-center justify-between text-[11px] text-slate-300">
-                      <span>Use a varinha para corrigir ortografia e melhorar levemente o texto desta publicação.</span>
+                    <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                      <span>Use a varinha para revisar o texto desta publicação.</span>
                       <Button
                         type="button"
                         size="icon"
@@ -2092,12 +1993,7 @@ export default function SEPBook() {
                             const resp = await apiFetch("/api/ai?handler=cleanup-text", {
                               method: "POST",
                               headers: { "Content-Type": "application/json" },
-                              body: JSON.stringify({
-                                mode: "polish",
-                                title: "Publicação SEPBook (edição)",
-                                description: source,
-                                language: localeToOpenAiLanguageTag(getActiveLocale()),
-                              }),
+                              body: JSON.stringify({ title: "Publicação SEPBook (edição)", description: source, language: localeToOpenAiLanguageTag(getActiveLocale()) }),
                             });
                             const j = await resp.json().catch(() => ({}));
                             const cleaned = j?.cleaned?.description;
@@ -2109,16 +2005,16 @@ export default function SEPBook() {
                             }
                             const next = String(cleaned).trim();
                             if (next === source) {
-                              toast({ title: "Nenhuma correção necessária", description: "Não encontrei melhorias relevantes para aplicar sem mudar sua mensagem.", variant: "default" });
+                              toast({ title: "Nenhuma correção necessária", description: "Não encontrei ajustes de ortografia/pontuação para fazer.", variant: "default" });
                               return;
                             }
                             setEditingText(next);
-                            toast({ title: "Texto revisado", description: "Ortografia corrigida e texto levemente aprimorado, sem mudar o conteúdo." });
+                            toast({ title: "Texto revisado", description: "Ortografia e pontuação ajustadas, conteúdo preservado." });
                           } catch (e: any) {
                             toast({ title: "Não foi possível revisar agora", description: e?.message || "Tente novamente mais tarde.", variant: "destructive" });
                           }
                         }}
-                        title="Corrigir ortografia e melhorar levemente o texto (sem mudar conteúdo)"
+                        title="Revisar ortografia e pontuação (sem mudar conteúdo)"
                       >
                         <Wand2 className="h-4 w-4" />
                       </Button>
@@ -2127,9 +2023,6 @@ export default function SEPBook() {
                       rows={3}
                       value={editingText}
                       onChange={(e) => setEditingText(e.target.value)}
-                      className={`min-h-[110px] ${sepbookTextInputClass}`}
-                      onFocus={(e) => { setComposerFocused(true); scrollFieldIntoView(e.currentTarget); }}
-                      onBlur={() => setComposerFocused(false)}
                     />
                     <AttachmentUploader
                       onAttachmentsChange={setEditingNewAttachments}
@@ -2195,12 +2088,10 @@ export default function SEPBook() {
                   </div>
                 ) : (
                   <>
-                    <div className="rounded-md bg-slate-950/45 px-3 py-2 text-[15px] leading-7 text-slate-100 break-words">
-                      {renderRichText(p.content_md)}
-                    </div>
+                    <div className="text-sm">{renderRichText(p.content_md)}</div>
                     {p.repost && (
                       <div className="mt-2 rounded-lg border bg-muted/30 p-2">
-                        <p className="text-[11px] text-slate-300 mb-1">
+                        <p className="text-[11px] text-muted-foreground mb-1">
                           Repost de{" "}
                           <UserProfilePopover userId={p.repost.user_id} name={p.repost.author_name} avatarUrl={p.repost.author_avatar}>
                             <button type="button" className="font-semibold hover:underline p-0 bg-transparent border-0">
@@ -2209,9 +2100,7 @@ export default function SEPBook() {
                           </UserProfilePopover>
                           {p.repost.author_team ? ` (${p.repost.author_team})` : ""}
                         </p>
-                        <div className="rounded-md bg-slate-950/35 px-2.5 py-2 text-[14px] leading-6 text-slate-100 break-words">
-                          {renderRichText(p.repost.content_md)}
-                        </div>
+                        <div className="text-sm">{renderRichText(p.repost.content_md)}</div>
                         {p.repost.attachments && p.repost.attachments.length > 0 && (
                           <div className="mt-2 flex justify-center">
                             <AttachmentViewer urls={p.repost.attachments} postId={p.repost.id} mediaLayout="carousel" />
@@ -2390,18 +2279,12 @@ export default function SEPBook() {
                       <div className="flex items-start gap-1">
                         <Textarea
                           rows={2}
-                          className={`flex-1 min-h-[86px] ${sepbookTextInputClass}`}
+                          className="flex-1 text-[11px]"
                           placeholder={replyTarget?.postId === p.id ? "Escreva sua resposta..." : "Escreva um comentário..."}
                           value={newComment[p.id] || ""}
                           onChange={(e) =>
                             setNewComment((prev) => ({ ...prev, [p.id]: e.target.value }))
                           }
-                          onFocus={(e) => {
-                            commentFocusedPostId.current = p.id;
-                            setComposerFocused(true);
-                            scrollFieldIntoView(e.currentTarget);
-                          }}
-                          onBlur={() => { commentFocusedPostId.current = null; setComposerFocused(false); }}
                         />
                         <button
                           type="button"

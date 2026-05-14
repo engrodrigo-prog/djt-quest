@@ -3,20 +3,23 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useAuth } from "@/contexts/AuthContext";
 import { isAllowlistedAdminFromProfile } from "@/lib/adminAllowlist";
 import { apiFetch } from "@/lib/api";
-import { QuizAnalyticsFull } from "@/components/QuizAnalyticsFull";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { QuizResultsDashboard } from "@/components/QuizResultsDashboard";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { QuizQuestionsList } from "@/components/QuizQuestionsList";
 
 type RangeKey = "30" | "60" | "180" | "365" | "all";
 
 interface Challenge {
   id: string;
   title: string;
-  description: string;
+  description: string | null;
   type: string;
   status?: string | null;
+  due_date?: string | null;
   xp_reward: number;
   reward_mode?: string | null;
   reward_tier_steps?: number | null;
@@ -36,8 +39,20 @@ export const ChallengeManagement = ({ onlyQuizzes }: ChallengeManagementProps) =
   const [editTitle, setEditTitle] = useState("");
   const [editDescription, setEditDescription] = useState("");
   const [editXp, setEditXp] = useState<string>("0");
-  const [analyticsOpen, setAnalyticsOpen] = useState(false);
-  const [analyticsChallenge, setAnalyticsChallenge] = useState<Challenge | null>(null);
+  const [editDueDate, setEditDueDate] = useState<string>("");
+  const [modalChallenge, setModalChallenge] = useState<Challenge | null>(null);
+  const [modalTab, setModalTab] = useState<"general" | "questions" | "follow">("general");
+
+  const extractYyyyMmDd = (raw: any) => {
+    const s = String(raw || "").trim();
+    if (!s) return "";
+    const m = /^(\d{4}-\d{2}-\d{2})/.exec(s);
+    if (m?.[1]) return m[1];
+    const d = new Date(s);
+    if (Number.isNaN(d.getTime())) return "";
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  };
 
   const isTopLeader = profile?.matricula === "601555";
   const isAllowlistedAdmin = isAllowlistedAdminFromProfile(profile);
@@ -77,6 +92,19 @@ export const ChallengeManagement = ({ onlyQuizzes }: ChallengeManagementProps) =
     load();
   }, [onlyQuizzes]);
 
+  const openModal = (c: Challenge, tab: "general" | "questions" | "follow") => {
+    setModalChallenge(c);
+    setModalTab(tab);
+    setEditTitle(String(c.title || ""));
+    setEditDescription(String(c.description || ""));
+    setEditXp(String(c.xp_reward ?? 0));
+    setEditDueDate(extractYyyyMmDd((c as any).due_date));
+  };
+
+  const closeModal = () => {
+    setModalChallenge(null);
+  };
+
   const cutoff = (() => {
     if (range === "all") return null;
     const days = range === "30" ? 30 : range === "60" ? 60 : range === "180" ? 180 : 365;
@@ -94,11 +122,6 @@ export const ChallengeManagement = ({ onlyQuizzes }: ChallengeManagementProps) =
 
   const updateStatus = async (c: Challenge, status: string) => {
     if (!c.id) return;
-    const isQuiz = (c.type || "").toLowerCase().includes("quiz");
-    if (isQuiz && !isAllowlistedAdmin) {
-      alert("Apenas admins (Rodrigo/Cíntia) podem alterar status de quizzes no momento.");
-      return;
-    }
     try {
       const msg =
         status === "active"
@@ -189,16 +212,22 @@ export const ChallengeManagement = ({ onlyQuizzes }: ChallengeManagementProps) =
   };
 
   const handleEdit = (c: Challenge) => {
+    if (onlyQuizzes) {
+      openModal(c, "general");
+      return;
+    }
     setEditingId(c.id);
     setEditTitle(c.title || "");
     setEditDescription(c.description || "");
     setEditXp(String(c.xp_reward ?? 0));
+    setEditDueDate(extractYyyyMmDd((c as any).due_date));
   };
 
   const handleSaveEdit = async (c: Challenge) => {
     const title = editTitle.trim();
     const description = editDescription.trim() || null;
     const xp = parseInt(editXp, 10);
+    const dueDate = String(editDueDate || "").trim();
     if (!title) {
       alert("Informe um título para o desafio/quiz.");
       return;
@@ -213,12 +242,14 @@ export const ChallengeManagement = ({ onlyQuizzes }: ChallengeManagementProps) =
         description: c.description,
         xp_reward: c.xp_reward,
         type: c.type,
+        due_date: (c as any)?.due_date || null,
       };
       const after = {
         title,
         description,
         xp_reward: xp,
         type: c.type,
+        due_date: dueDate || null,
       };
       const { data: userData } = await supabase.auth.getUser();
       const uid = userData.user?.id;
@@ -234,11 +265,22 @@ export const ChallengeManagement = ({ onlyQuizzes }: ChallengeManagementProps) =
         });
         const json = await resp.json().catch(() => ({}));
         if (!resp.ok) throw new Error(json?.error || "Falha ao salvar quiz");
+        if (dueDate) {
+          const dueResp = await apiFetch("/api/admin?handler=studio-update-quiz-vigencia", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ challengeId: c.id, due_date: dueDate }),
+          });
+          const dueJson = await dueResp.json().catch(() => ({}));
+          if (!dueResp.ok) throw new Error(dueJson?.error || "Falha ao atualizar vigência do quiz");
+        }
       } else {
-        const { error } = await supabase
-          .from("challenges")
-          .update({ title, description, xp_reward: xp })
-          .eq("id", c.id);
+        const patch: any = { title, description, xp_reward: xp, due_date: dueDate || null };
+        let { error } = await supabase.from("challenges").update(patch).eq("id", c.id);
+        if (error && /column .*due_date/i.test(String(error.message || ""))) {
+          const fallback = await supabase.from("challenges").update({ title, description, xp_reward: xp }).eq("id", c.id);
+          error = fallback.error;
+        }
         if (error) throw error;
       }
 
@@ -262,6 +304,114 @@ export const ChallengeManagement = ({ onlyQuizzes }: ChallengeManagementProps) =
 
   return (
     <div className="space-y-4">
+      <Dialog
+        open={Boolean(modalChallenge)}
+        onOpenChange={(open) => {
+          if (!open) closeModal();
+        }}
+      >
+        <DialogContent className="max-w-6xl">
+          <DialogHeader>
+            <DialogTitle>Gerenciar quiz</DialogTitle>
+            <DialogDescription className="text-xs">
+              {modalChallenge?.title || "—"}
+            </DialogDescription>
+          </DialogHeader>
+          {modalChallenge?.id ? (
+            <Tabs value={modalTab} onValueChange={(v) => setModalTab(v as any)} className="w-full">
+              <TabsList className="grid w-full grid-cols-3">
+                <TabsTrigger value="general">Editar</TabsTrigger>
+                <TabsTrigger value="questions">Perguntas</TabsTrigger>
+                <TabsTrigger value="follow">Acompanhar</TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="general" className="space-y-3">
+                <div className="space-y-2">
+                  <div className="text-xs text-muted-foreground">
+                    Aqui você edita o nome e a descrição. Para perguntas/alternativas use a aba “Perguntas”.
+                  </div>
+                  <input
+                    className="w-full text-sm font-semibold bg-black/40 border border-white/10 rounded px-2 py-2 text-blue-50"
+                    value={editTitle}
+                    onChange={(e) => setEditTitle(e.target.value)}
+                    placeholder="Nome do quiz"
+                  />
+                  <textarea
+                    className="w-full text-xs bg-black/40 border border-white/10 rounded px-2 py-2 text-muted-foreground"
+                    rows={4}
+                    value={editDescription}
+                    onChange={(e) => setEditDescription(e.target.value)}
+                    placeholder="Descrição do quiz"
+                  />
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground">XP:</span>
+                      <input
+                        className="w-[120px] text-sm bg-black/40 border border-white/10 rounded px-2 py-2 text-blue-50"
+                        value={editXp}
+                        onChange={(e) => setEditXp(e.target.value)}
+                        inputMode="numeric"
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground">Vigência:</span>
+                      <input
+                        className="w-[140px] text-sm bg-black/40 border border-white/10 rounded px-2 py-2 text-blue-50"
+                        type="date"
+                        value={editDueDate}
+                        onChange={(e) => setEditDueDate(e.target.value)}
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => modalChallenge && handleSaveEdit(modalChallenge)}
+                      >
+                        Salvar
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={closeModal}>
+                        Fechar
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => modalChallenge && updateStatus(modalChallenge, "closed")}
+                      >
+                        Encerrar
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => modalChallenge && updateStatus(modalChallenge, "active")}
+                      >
+                        Reabrir
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </TabsContent>
+
+              <TabsContent value="questions" className="space-y-3">
+                <div className="text-xs text-muted-foreground">
+                  Edite perguntas e alternativas. Em quiz publicado, apenas curadoria/admin consegue alterar.
+                </div>
+                <QuizQuestionsList
+                  challengeId={modalChallenge.id}
+                  onUpdate={() => {
+                    load();
+                  }}
+                />
+              </TabsContent>
+
+              <TabsContent value="follow" className="space-y-3">
+                <QuizResultsDashboard challengeId={modalChallenge.id} active={modalTab === "follow"} />
+              </TabsContent>
+            </Tabs>
+          ) : null}
+        </DialogContent>
+      </Dialog>
+
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div>
           <h2 className="text-2xl font-bold text-blue-50">
@@ -291,7 +441,7 @@ export const ChallengeManagement = ({ onlyQuizzes }: ChallengeManagementProps) =
         </div>
       </div>
 
-	      <Card>
+      <Card>
         <CardHeader>
           <CardTitle className="text-base">
             {onlyQuizzes ? "Quizzes" : "Desafios"} ({filtered.length})
@@ -317,10 +467,10 @@ export const ChallengeManagement = ({ onlyQuizzes }: ChallengeManagementProps) =
               Nenhum item no período selecionado.
             </p>
           )}
-	          {filtered.map((c) => {
-	            const isEditing = editingId === c.id;
-	            return (
-	              <div key={c.id} className="flex flex-col gap-1 border rounded-md p-3 bg-black/20">
+          {filtered.map((c) => {
+            const isEditing = !onlyQuizzes && editingId === c.id;
+            return (
+              <div key={c.id} className="flex flex-col gap-1 border rounded-md p-3 bg-black/20">
                 <div className="flex items-center justify-between gap-2">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
@@ -346,7 +496,7 @@ export const ChallengeManagement = ({ onlyQuizzes }: ChallengeManagementProps) =
                         />
                       </>
                     ) : (
-                      <>
+	                        <>
                         <p className="font-semibold text-sm truncate text-blue-50">
                           {c.title}
                         </p>
@@ -364,9 +514,9 @@ export const ChallengeManagement = ({ onlyQuizzes }: ChallengeManagementProps) =
                         ? `+${c.reward_tier_steps || 1} patamar(es)`
                         : `+${c.xp_reward} XP`}
                     </span>
-		                    <div className="flex gap-1 mt-1 flex-wrap justify-end">
-	                      {isEditing ? (
-	                        <>
+                    <div className="flex gap-1 mt-1">
+                      {isEditing ? (
+                        <>
                           <Button
                             size="xs"
                             variant="secondary"
@@ -382,45 +532,47 @@ export const ChallengeManagement = ({ onlyQuizzes }: ChallengeManagementProps) =
                             Cancelar
                           </Button>
                         </>
-		                      ) : (
-		                        <>
-		                          <Button
-		                            size="xs"
-		                            variant="outline"
-		                            onClick={() => handleEdit(c)}
-		                          >
-		                            Editar
-		                          </Button>
-                              {onlyQuizzes && (
-                                <Button
-                                  size="xs"
-                                  variant="outline"
-                                  onClick={() => {
-                                    setAnalyticsChallenge(c);
-                                    setAnalyticsOpen(true);
-                                  }}
-                                >
-                                  Relatório
-                                </Button>
-                              )}
-		                          {(!onlyQuizzes || isAllowlistedAdmin) && (
-		                            <>
-		                              <Button
-		                                size="xs"
-	                                variant="outline"
-	                                onClick={() => updateStatus(c, "closed")}
-	                              >
-	                                Encerrar
-	                              </Button>
-	                              <Button
-	                                size="xs"
-	                                variant="secondary"
-	                                onClick={() => updateStatus(c, "active")}
-	                              >
-	                                Reabrir
-	                              </Button>
-	                            </>
-	                          )}
+	                      ) : (
+	                        <>
+                          <Button
+                            size="xs"
+                            variant="outline"
+                            onClick={() => handleEdit(c)}
+                          >
+                            Editar
+                          </Button>
+                          {(c.type || "").toLowerCase().includes("quiz") && (
+                            <>
+                              <Button
+                                size="xs"
+                                variant="outline"
+                                onClick={() => openModal(c, "questions")}
+                              >
+                                Perguntas
+                              </Button>
+                              <Button
+                                size="xs"
+                                variant="outline"
+                                onClick={() => openModal(c, "follow")}
+                              >
+                                Acompanhar
+                              </Button>
+                            </>
+                          )}
+                              <Button
+                                size="xs"
+                                variant="outline"
+                                onClick={() => updateStatus(c, "closed")}
+                              >
+                                Encerrar
+                              </Button>
+                              <Button
+                                size="xs"
+                                variant="secondary"
+                                onClick={() => updateStatus(c, "active")}
+                              >
+                                Reabrir
+                              </Button>
 	                          {onlyQuizzes && isAllowlistedAdmin && (
 	                            <Button
 	                              size="xs"
@@ -445,28 +597,10 @@ export const ChallengeManagement = ({ onlyQuizzes }: ChallengeManagementProps) =
                   </div>
                 </div>
               </div>
-	            );
-	          })}
-	        </CardContent>
-	      </Card>
-
-        <Dialog
-          open={analyticsOpen}
-          onOpenChange={(open) => {
-            setAnalyticsOpen(open);
-            if (!open) setAnalyticsChallenge(null);
-          }}
-        >
-          <DialogContent className="w-[98vw] max-w-[98vw] max-h-[94vh] overflow-x-hidden overflow-y-auto p-4 sm:p-6">
-            <DialogHeader>
-              <DialogTitle>Relatório do quiz</DialogTitle>
-              <DialogDescription className="truncate">
-                {analyticsChallenge?.title || analyticsChallenge?.id || ''}
-              </DialogDescription>
-            </DialogHeader>
-            {analyticsChallenge?.id ? <QuizAnalyticsFull challengeId={analyticsChallenge.id} /> : null}
-          </DialogContent>
-        </Dialog>
-	    </div>
-	  );
-	};
+            );
+          })}
+        </CardContent>
+      </Card>
+    </div>
+  );
+};

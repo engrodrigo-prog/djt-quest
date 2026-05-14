@@ -110,6 +110,43 @@ export function ForumManagement() {
     }
   });
 
+  const updateTopicStatusMutation = useMutation({
+    mutationFn: async ({ id, status }: { id: string; status: 'open' | 'closed' }) => {
+      const { data: session } = await supabase.auth.getSession();
+      const token = session.session?.access_token;
+      if (!token) throw new Error('Não autenticado');
+      const resp = await apiFetch('/api/forum?handler=moderate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          action: 'update_topic',
+          topic_id: id,
+          update: {
+            status,
+            is_active: status !== 'closed',
+            is_locked: status === 'closed',
+          },
+        }),
+      });
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(json?.error || 'Falha ao atualizar status do fórum');
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['forum-topics-manage'] });
+      toast({ title: 'Status do fórum atualizado!' });
+    },
+    onError: (error: any) => {
+      toast({
+        title: 'Erro ao atualizar status do fórum',
+        description: error?.message || 'Tente novamente',
+        variant: 'destructive',
+      });
+    },
+  });
+
   const deleteTopicMutation = useMutation({
     mutationFn: async (id: string) => {
       const { data: session } = await supabase.auth.getSession();
@@ -151,6 +188,9 @@ export function ForumManagement() {
     try {
       const { data: userData } = await supabase.auth.getUser();
       const uid = userData.user?.id;
+      const { data: session } = await supabase.auth.getSession();
+      const token = session.session?.access_token;
+      if (!token) throw new Error('Não autenticado');
       const before = {
         title: topic.title,
         description: topic.description,
@@ -161,11 +201,20 @@ export function ForumManagement() {
         description: newDesc,
         category: topic.category,
       };
-      const { error } = await supabase
-        .from('forum_topics')
-        .update({ title: newTitle, description: newDesc })
-        .eq('id', topic.id);
-      if (error) throw error;
+      const resp = await apiFetch('/api/forum?handler=moderate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          action: 'update_topic',
+          topic_id: topic.id,
+          update: { title: newTitle, description: newDesc },
+        }),
+      });
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(json?.error || 'Falha ao atualizar tópico');
       if (uid) {
         await supabase.from('content_change_requests').insert({
           item_type: 'forum_topic',
@@ -411,6 +460,7 @@ export function ForumManagement() {
                     <MessageSquare className="h-4 w-4" />
                     {topic.posts_count} posts
                   </span>
+                  <span>{String(topic.status || 'open').toLowerCase() === 'closed' ? 'Encerrado' : 'Aberto'}</span>
                   <span className="capitalize">{topic.category?.replace('_', ' ')}</span>
                 </div>
                 
@@ -431,6 +481,23 @@ export function ForumManagement() {
                     <Lock className="h-4 w-4 mr-1" />
                     {topic.is_locked ? 'Desbloquear' : 'Bloquear'}
                   </Button>
+                  {String(topic.status || 'open').toLowerCase() === 'closed' ? (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => updateTopicStatusMutation.mutate({ id: topic.id, status: 'open' })}
+                    >
+                      Reabrir
+                    </Button>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => updateTopicStatusMutation.mutate({ id: topic.id, status: 'closed' })}
+                    >
+                      Encerrar
+                    </Button>
+                  )}
                   {isEditing ? (
                     <>
                       <Button

@@ -133,7 +133,7 @@ export default function ForumTopic() {
     hashtagDialogResolveRef.current = null
     try {
       resolve?.(choice)
-    } catch {}
+    } catch { /* noop */ }
   }, [])
 
   const formatHashtags = useCallback((tags: string[], withHash: boolean) => {
@@ -235,7 +235,7 @@ export default function ForumTopic() {
         for (const a of authors || []) {
           if (a?.id) authorMap.set(String(a.id), a)
         }
-      } catch {}
+      } catch { /* noop */ }
     }
     let likedSet = new Set<string>()
     if (user?.id && postsData.length) {
@@ -878,7 +878,7 @@ export default function ForumTopic() {
           }
         }
       }
-    } catch {}
+    } catch { /* noop */ }
     try {
       const { data: session } = await supabase.auth.getSession()
       const token = session.session?.access_token
@@ -914,7 +914,7 @@ export default function ForumTopic() {
               body: JSON.stringify({ post_id: (j as any)?.post?.id }),
             })
           }
-        } catch {}
+        } catch { /* noop */ }
         return
       } catch (apiErr:any) {
         // Fallback: direct insert via Supabase client (requires forum_posts to exist and RLS enabled)
@@ -1075,7 +1075,7 @@ export default function ForumTopic() {
           }
         }
       }
-    } catch {}
+    } catch { /* noop */ }
     try {
       const { data: session } = await supabase.auth.getSession(); const token = session.session?.access_token
       if (!token) throw new Error('Não autenticado')
@@ -1132,7 +1132,7 @@ export default function ForumTopic() {
       if (!save.ok) throw new Error(j2?.error || tr('forumTopic.errors.saveReviewFailed'))
 
       setPosts(prev => prev.map(p => p.id === post.id ? { ...p, content_md: trimmedCleaned } : p))
-      try { await load() } catch {}
+      try { await load() } catch { /* noop */ }
       toast({ title: tr('forumTopic.toast.textReviewedTitle'), description: tr('forumTopic.toast.textReviewedDesc') })
     } catch (e:any) {
       toast({
@@ -1201,7 +1201,7 @@ export default function ForumTopic() {
   if (!topic) return null
 
   return (
-    <div className="relative min-h-screen pb-40">
+    <div className="relative min-h-screen pb-[calc(7.5rem+env(safe-area-inset-bottom))] lg:pb-10 lg:pl-[var(--djt-nav-desktop-offset)]">
       <ThemedBackground theme="atitude" />
       <HelpInfo kind="forum" />
       <SendUserFeedbackDialog
@@ -1240,7 +1240,7 @@ export default function ForumTopic() {
           </div>
         </DialogContent>
       </Dialog>
-      <div className="container relative mx-auto p-4 md:p-6 max-w-5xl space-y-4">
+      <div className="container relative mx-auto px-3 py-4 sm:px-4 md:px-5 md:py-6 lg:px-6 max-w-5xl space-y-4">
         <Card>
           <CardHeader>
             <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">

@@ -1,6 +1,13 @@
 const DEFAULT_FAST_MODEL = "gpt-5-2025-08-07";
 const DEFAULT_PREMIUM_MODEL = "gpt-5-2025-08-07";
 
+const sanitizeModelName = (value) =>
+  String(value || "")
+    .replace(/\\r\\n|\\n|\\r/g, " ")
+    .replace(/[\r\n]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
 const ALLOWED_BASE_MODELS = new Set([
   "gpt-5-2025-08-07",
   "gpt-5-nano-2025-08-07",
@@ -25,7 +32,7 @@ const legacyAliasToModel = (lower) => {
 
 const isLegacyAlias = (lower) => Boolean(legacyAliasToModel(lower));
 const isChatModelName = (value) => {
-  const lower = String(value || "").toLowerCase().trim();
+  const lower = sanitizeModelName(value).toLowerCase();
   if (isLegacyAlias(lower)) return true;
   if (ALLOWED_BASE_MODELS.has(lower)) return true;
   if (
@@ -42,7 +49,7 @@ const isChatModelName = (value) => {
 };
 
 const normalizeChatModel = (value, fallback = DEFAULT_FAST_MODEL) => {
-  const model = String(value || "").trim();
+  const model = sanitizeModelName(value);
   if (!model) return fallback;
   const lower = model.toLowerCase().trim();
   const mapped = legacyAliasToModel(lower);

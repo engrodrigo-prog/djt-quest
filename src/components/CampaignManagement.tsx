@@ -30,6 +30,25 @@ export const CampaignManagement = () => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const [editDescription, setEditDescription] = useState("");
+  const [editStartDate, setEditStartDate] = useState("");
+  const [editEndDate, setEditEndDate] = useState("");
+
+  const toDateTimeInputValue = (value?: string | null) => {
+    const raw = String(value || "").trim();
+    if (!raw) return "";
+    const date = new Date(raw);
+    if (Number.isNaN(date.getTime())) return "";
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  };
+
+  const toIsoOrNull = (value: string) => {
+    const raw = String(value || "").trim();
+    if (!raw) return null;
+    const date = new Date(raw);
+    if (Number.isNaN(date.getTime())) return null;
+    return date.toISOString();
+  };
 
   const load = async () => {
     setLoading(true);
@@ -105,13 +124,21 @@ export const CampaignManagement = () => {
     setEditingId(c.id);
     setEditTitle(c.title || "");
     setEditDescription(c.description || "");
+    setEditStartDate(toDateTimeInputValue(c.start_date));
+    setEditEndDate(toDateTimeInputValue(c.end_date));
   };
 
   const handleSaveEdit = async (c: Campaign) => {
     const title = editTitle.trim();
     const description = editDescription.trim() || null;
+    const startDate = toIsoOrNull(editStartDate);
+    const endDate = toIsoOrNull(editEndDate);
     if (!title) {
       alert("Informe um título para a campanha.");
+      return;
+    }
+    if (startDate && endDate && new Date(endDate).getTime() < new Date(startDate).getTime()) {
+      alert("A vigência final não pode ser anterior ao início.");
       return;
     }
     try {
@@ -119,17 +146,21 @@ export const CampaignManagement = () => {
         title: c.title,
         description: c.description,
         narrative_tag: c.narrative_tag,
+        start_date: c.start_date || null,
+        end_date: c.end_date || null,
       };
       const after = {
         title,
         description,
         narrative_tag: c.narrative_tag,
+        start_date: startDate,
+        end_date: endDate,
       };
       const { data: userData } = await supabase.auth.getUser();
       const uid = userData.user?.id;
       const { error } = await supabase
         .from("campaigns")
-        .update({ title, description })
+        .update({ title, description, start_date: startDate, end_date: endDate })
         .eq("id", c.id);
       if (error) throw error;
       // Log da alteração para validação pelo nível acima
@@ -270,6 +301,26 @@ export const CampaignManagement = () => {
                           value={editDescription}
                           onChange={(e) => setEditDescription(e.target.value)}
                         />
+                        <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
+                          <label className="space-y-1 text-[11px] text-blue-100/80">
+                            <span>Início da vigência</span>
+                            <input
+                              type="datetime-local"
+                              className="w-full rounded border border-white/10 bg-black/40 px-2 py-1 text-xs text-blue-50"
+                              value={editStartDate}
+                              onChange={(e) => setEditStartDate(e.target.value)}
+                            />
+                          </label>
+                          <label className="space-y-1 text-[11px] text-blue-100/80">
+                            <span>Fim da vigência</span>
+                            <input
+                              type="datetime-local"
+                              className="w-full rounded border border-white/10 bg-black/40 px-2 py-1 text-xs text-blue-50"
+                              value={editEndDate}
+                              onChange={(e) => setEditEndDate(e.target.value)}
+                            />
+                          </label>
+                        </div>
                       </>
                     ) : (
                       c.description && (

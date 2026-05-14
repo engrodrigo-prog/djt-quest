@@ -1,25 +1,18 @@
-import { lazy, Suspense, useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import Navigation from '@/components/Navigation';
 import { ThemedBackground } from '@/components/ThemedBackground';
-import { TipDialogButton } from '@/components/TipDialogButton';
-import { Trophy, Users, Building2, Award, Shield, Percent, BarChart3 } from 'lucide-react';
+import { Trophy, Users, Building2, Award, Shield, Percent } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { useI18n } from '@/contexts/I18nContext';
 import { getActiveLocale } from '@/lib/i18n/activeLocale';
 import { UserProfilePopover } from '@/components/UserProfilePopover';
 import { DJT_TEAM_GROUP_IDS, buildTeamScope, normalizeTeamId } from '@/lib/constants/points';
-import { useNavigate } from 'react-router-dom';
-
-const GuardiaoVidaDashboard = lazy(() =>
-  import('@/components/GuardiaoVidaDashboard').then((mod) => ({ default: mod.GuardiaoVidaDashboard })),
-);
 
 interface IndividualRanking {
   rank: number;
@@ -37,7 +30,6 @@ interface IndividualRanking {
   isLeader: boolean;
   isGuest: boolean;
   quizXp: number;
-  quizPublishXp: number;
   initiativesXp: number;
   forumXp: number;
   sepbookXp: number;
@@ -71,6 +63,8 @@ interface LeaderRanking {
   initiativesXp: number;
   forumXp: number;
   sepbookXp: number;
+  quizPublishXp: number;
+  accessXp: number;
   baseXp: number;
   score: number;
 }
@@ -79,7 +73,6 @@ interface XpBreakdown {
   quizXp: number;
   forumPosts: number;
   forumXp: number;
-  sepbookPostCount: number;
   sepbookPhotoCount: number;
   sepbookPostXp: number;
   sepbookComments: number;
@@ -109,22 +102,7 @@ interface XpDetailRow {
   campaignTitle: string | null;
   challengeId: string | null;
   challengeTitle: string | null;
-  details: Record<string, any> | null;
 }
-
-type RankingMetric = 'total' | 'campanha' | 'quiz' | 'forum' | 'sepbook' | 'avaliacoes' | 'acesso';
-type DisplayRanking = IndividualRanking & { displayPoints: number };
-type QuizQuestionView = {
-  challengeId: string | null;
-  challengeTitle: string | null;
-  questionId: string;
-  questionText: string;
-  orderIndex: number | null;
-  options: Array<{ id: string; text: string; explanation: string | null }>;
-  selectedOptionId: string | null;
-  isCorrect: boolean | null;
-  xp: number;
-};
 
 const GUEST_TEAM_ID = 'CONVIDADOS';
 const isGuestTeamId = (id: string | null | undefined) => String(id || '').toUpperCase() === GUEST_TEAM_ID;
@@ -137,18 +115,16 @@ const computeBaseXpFromBreakdown = (b: any) => {
   const accessXp = Number(b?.access_xp || 0);
   const forumXp = Number(b?.forum_posts || 0) * 10;
   const sepbookXp =
-    Number(b?.sepbook_post_count || 0) * 30 +
     Number(b?.sepbook_photo_count || 0) * 5 +
-    Number(b?.sepbook_comments || 0) * 5 +
+    Number(b?.sepbook_comments || 0) * 2 +
     Number(b?.sepbook_likes || 0);
   const evaluationsXp = Number(b?.evaluations_completed || 0) * LEADER_EVAL_POINTS;
   return quizXp + initiativesXp + quizPublishXp + accessXp + forumXp + sepbookXp + evaluationsXp;
 };
 
 function Rankings() {
-  const { orgScope, user, userRole, roles } = useAuth() as any;
+  const { orgScope } = useAuth();
   const { t: tr } = useI18n();
-  const navigate = useNavigate();
   const [individualRankings, setIndividualRankings] = useState<IndividualRanking[]>([]);
   const [guestRankings, setGuestRankings] = useState<IndividualRanking[]>([]);
   const [myTeamRankings, setMyTeamRankings] = useState<IndividualRanking[]>([]);
@@ -156,9 +132,7 @@ function Rankings() {
   const [divisionRankings, setDivisionRankings] = useState<DivisionRanking[]>([]);
   const [leaderRankings, setLeaderRankings] = useState<LeaderRanking[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<
-    'individual' | 'guests' | 'myteam' | 'teams' | 'divisions' | 'leaders' | 'guardiaoVida'
-  >('individual');
+  const [activeTab, setActiveTab] = useState<'individual' | 'guests' | 'myteam' | 'teams' | 'divisions' | 'leaders'>('individual');
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [selectedUserName, setSelectedUserName] = useState<string>('');
@@ -169,24 +143,6 @@ function Rankings() {
   const [detailError, setDetailError] = useState<string | null>(null);
   const [selectedDetails, setSelectedDetails] = useState<XpDetailRow[]>([]);
   const [detailCategory, setDetailCategory] = useState<DetailCategory>('all');
-  const [rankingMetric, setRankingMetric] = useState<RankingMetric>('total');
-  const [quizQuestionOpen, setQuizQuestionOpen] = useState(false);
-  const [quizQuestionLoading, setQuizQuestionLoading] = useState(false);
-  const [quizQuestionError, setQuizQuestionError] = useState<string | null>(null);
-  const [quizQuestionView, setQuizQuestionView] = useState<QuizQuestionView | null>(null);
-
-  const canSeeGuardiaoDashboard = useMemo(() => {
-    const r = String(userRole || '').toLowerCase();
-    if (r === 'admin') return true;
-    if (r.includes('gerente') || r.includes('coordenador')) return true;
-    const list = Array.isArray(roles) ? (roles as string[]) : [];
-    return (
-      list.includes('admin') ||
-      list.includes('gerente_djt') ||
-      list.includes('gerente_divisao_djtx') ||
-      list.includes('coordenador_djtx')
-    );
-  }, [roles, userRole]);
 
   const detailCategories: Array<{ key: DetailCategory; label: string }> = useMemo(
     () => [
@@ -199,67 +155,6 @@ function Rankings() {
       { key: 'acesso', label: 'Acesso' },
     ],
     [],
-  );
-
-  const rankingMetrics: Array<{ key: RankingMetric; label: string }> = useMemo(
-    () => [
-      { key: 'total', label: 'Total' },
-      { key: 'campanha', label: 'Campanha' },
-      { key: 'quiz', label: 'Quiz' },
-      { key: 'forum', label: 'Fórum' },
-      { key: 'sepbook', label: 'SEPBook' },
-      { key: 'avaliacoes', label: 'Avaliações' },
-      { key: 'acesso', label: 'Acesso' },
-    ],
-    [],
-  );
-
-  const metricValue = useCallback((r: IndividualRanking, metric: RankingMetric) => {
-    switch (metric) {
-      case 'campanha':
-        return Number(r.initiativesXp || 0);
-      case 'quiz':
-        return Number(r.quizXp || 0) + Number(r.quizPublishXp || 0);
-      case 'forum':
-        return Number(r.forumXp || 0);
-      case 'sepbook':
-        return Number(r.sepbookXp || 0);
-      case 'avaliacoes':
-        return Number(r.evaluationsXp || 0);
-      case 'acesso':
-        return Number(r.accessXp || 0);
-      case 'total':
-      default:
-        return Number(r.points || 0);
-    }
-  }, []);
-
-  const sortRankingsByMetric = useCallback(
-    (rows: IndividualRanking[]): DisplayRanking[] => {
-      const items = rows.map((r) => ({ ...r, displayPoints: metricValue(r, rankingMetric) }));
-      items.sort(
-        (a, b) =>
-          (b.displayPoints || 0) - (a.displayPoints || 0) ||
-          String(a.name).localeCompare(String(b.name), getActiveLocale()),
-      );
-      return items.map((r, i) => ({ ...r, rank: i + 1 }));
-    },
-    [metricValue, rankingMetric],
-  );
-
-  const displayedIndividualRankings = useMemo(
-    () => sortRankingsByMetric(individualRankings),
-    [individualRankings, sortRankingsByMetric],
-  );
-
-  const displayedGuestRankings = useMemo(
-    () => sortRankingsByMetric(guestRankings),
-    [guestRankings, sortRankingsByMetric],
-  );
-
-  const displayedMyTeamRankings = useMemo(
-    () => sortRankingsByMetric(myTeamRankings),
-    [myTeamRankings, sortRankingsByMetric],
   );
 
   const filteredDetails = useMemo(
@@ -350,8 +245,8 @@ function Rankings() {
         isGuestTeamId(p?.sigla_area) ||
         isGuestTeamId(p?.operational_base);
 
-      const nonLeaderProfiles = allProfiles.filter((profile: any) => !isLeaderProfile(profile));
-      const visibleProfiles = allProfiles; // Overall rankings: include all categories (leaders + non-leaders + guests)
+      const profilesData = allProfiles.filter((profile: any) => !isLeaderProfile(profile));
+      const visibleProfiles = profilesData; // Overall rankings: include guests (filter via tab)
       let breakdownByUserId: Record<string, any> = {};
       try {
         const ids = visibleProfiles.map((p: any) => p?.id).filter(Boolean);
@@ -383,7 +278,6 @@ function Rankings() {
             const points = baseXp;
             const xp = Number(profile.xp ?? 0);
             const quizXp = Number(breakdown?.quiz_xp || 0);
-            const quizPublishXp = Number(breakdown?.quiz_publish_xp || 0);
             const initiativesXp = Number(breakdown?.initiatives_xp || 0);
             const forumXp = Number(breakdown?.forum_posts || 0) * 10;
             const sepbookXp =
@@ -399,7 +293,6 @@ function Rankings() {
               __isLeader: isLeader,
               __isGuest: isGuest,
               __quizXp: quizXp,
-              __quizPublishXp: quizPublishXp,
               __initiativesXp: initiativesXp,
               __forumXp: forumXp,
               __sepbookXp: sepbookXp,
@@ -431,7 +324,6 @@ function Rankings() {
               isLeader: Boolean((profile as any).__isLeader),
               isGuest: Boolean((profile as any).__isGuest),
               quizXp: Number((profile as any).__quizXp ?? 0),
-              quizPublishXp: Number((profile as any).__quizPublishXp ?? 0),
               initiativesXp: Number((profile as any).__initiativesXp ?? 0),
               forumXp: Number((profile as any).__forumXp ?? 0),
               sepbookXp: Number((profile as any).__sepbookXp ?? 0),
@@ -470,7 +362,7 @@ function Rankings() {
           reduce<Record<string, string | null>>((acc, c) => { acc[c.id] = c.division_id; return acc; }, {});
 
         // Build team members map (exclude leaders)
-        const teamMembers = nonLeaderProfiles.reduce<Record<string, string[]>>((acc, p: any) => {
+        const teamMembers = profilesData.reduce<Record<string, string[]>>((acc, p: any) => {
           const isGuest = isGuestProfile(p);
           if (isGuest) {
             if (!acc[GUEST_TEAM_ID]) acc[GUEST_TEAM_ID] = [];
@@ -567,7 +459,7 @@ function Rankings() {
         };
 
         // Team members and member->team map
-        const teamMembers = nonLeaderProfiles.reduce<Record<string, string[]>>((acc, p: any) => {
+        const teamMembers = profilesData.reduce<Record<string, string[]>>((acc, p: any) => {
           const isGuest = isGuestProfile(p);
           if (isGuest) {
             if (!acc[GUEST_TEAM_ID]) acc[GUEST_TEAM_ID] = [];
@@ -808,8 +700,10 @@ function Rankings() {
           const sepbookXp = b
             ? Number(b.sepbook_photo_count || 0) * 5 + Number(b.sepbook_comments || 0) * 2 + Number(b.sepbook_likes || 0)
             : 0;
+          const quizPublishXp = b ? Number(b.quiz_publish_xp || 0) : 0;
+          const accessXp = b ? Number(b.access_xp || 0) : 0;
           const evaluationsXp = completed * LEADER_EVAL_POINTS;
-          const baseXp = quizXp + initiativesXp + forumXp + sepbookXp + evaluationsXp;
+          const baseXp = quizXp + initiativesXp + forumXp + sepbookXp + evaluationsXp + quizPublishXp + accessXp;
           const score = baseXp;
           return {
             userId: p.id,
@@ -820,6 +714,8 @@ function Rankings() {
             initiativesXp,
             forumXp,
             sepbookXp,
+            quizPublishXp,
+            accessXp,
             baseXp,
             score,
           } as LeaderRanking;
@@ -861,19 +757,17 @@ function Rankings() {
           supabase.rpc('user_points_detail', { _user_id: userId } as any),
         ]);
 
-        const breakdownError = breakdownResult.error;
-        const detailRpcError = detailResult.error;
-        const b =
-          breakdownError || !Array.isArray(breakdownResult.data) ? null : (breakdownResult.data[0] as any);
+        if (breakdownResult.error) throw breakdownResult.error;
+
+        const b = Array.isArray(breakdownResult.data) ? breakdownResult.data[0] : null;
 
         const quizXp = Number(b?.quiz_xp || 0);
         const forumPosts = Number(b?.forum_posts || 0);
         const forumXp = forumPosts * 10;
-        const sepbookPostCount = Number(b?.sepbook_post_count || 0);
         const sepbookPhotoCount = Number(b?.sepbook_photo_count || 0);
-        const sepbookPostXp = sepbookPostCount * 30 + sepbookPhotoCount * 5;
+        const sepbookPostXp = sepbookPhotoCount * 5;
         const sepbookComments = Number(b?.sepbook_comments || 0);
-        const sepbookCommentXp = sepbookComments * 5;
+        const sepbookCommentXp = sepbookComments * 2;
         const sepbookLikes = Number(b?.sepbook_likes || 0);
         const sepbookLikeXp = sepbookLikes;
         const campaignsXp = Number(b?.initiatives_xp || 0);
@@ -883,7 +777,7 @@ function Rankings() {
         const accessSessions = Number(b?.access_sessions || 0);
         const accessXp = Number(b?.access_xp || 0);
 
-        const detailRows = detailRpcError
+        const detailRows = detailResult.error
           ? []
           : (Array.isArray(detailResult.data) ? detailResult.data : []).map((row: any) => ({
               sourceKey: String(row?.source_key || ''),
@@ -898,40 +792,29 @@ function Rankings() {
               campaignTitle: row?.campaign_title ? String(row.campaign_title) : null,
               challengeId: row?.challenge_id ? String(row.challenge_id) : null,
               challengeTitle: row?.challenge_title ? String(row.challenge_title) : null,
-              details: row?.details && typeof row.details === 'object' ? row.details : null,
             })) as XpDetailRow[];
 
         if (!cancelled) {
-          if (b) {
-            setSelectedBreakdown({
-              quizXp,
-              forumPosts,
-              forumXp,
-              sepbookPostCount,
-              sepbookPhotoCount,
-              sepbookPostXp,
-              sepbookComments,
-              sepbookCommentXp,
-              sepbookLikes,
-              sepbookLikeXp,
-              campaignsXp,
-              quizPublishXp,
-              evaluationsCompleted,
-              evaluationsXp,
-              accessSessions,
-              accessXp,
-            });
-          } else {
-            setSelectedBreakdown(null);
-          }
-
+          setSelectedBreakdown({
+            quizXp,
+            forumPosts,
+            forumXp,
+            sepbookPhotoCount,
+            sepbookPostXp,
+            sepbookComments,
+            sepbookCommentXp,
+            sepbookLikes,
+            sepbookLikeXp,
+            campaignsXp,
+            quizPublishXp,
+            evaluationsCompleted,
+            evaluationsXp,
+            accessSessions,
+            accessXp,
+          });
           setSelectedDetails(detailRows);
-
-          if (breakdownError) {
-            setDetailError((prev) => prev || 'Não foi possível carregar o resumo de pontuação.');
-          }
-          if (detailRpcError) {
-            setDetailError((prev) => prev || 'Não foi possível carregar o extrato detalhado.');
+          if (detailResult.error) {
+            setDetailError('Não foi possível carregar o extrato detalhado.');
           }
         }
       } catch {
@@ -960,276 +843,48 @@ function Rankings() {
     return `#${position}`;
   };
 
-  const buildDetailRowAction = useCallback(
-    (row: XpDetailRow): { label: string; to: string } | null => {
-      const d: any = row.details || {};
-      const sourceId = row.sourceId ? String(row.sourceId) : '';
-      const campaignId = row.campaignId ? String(row.campaignId) : '';
-      const challengeId = row.challengeId ? String(row.challengeId) : '';
-
-      if (row.sourceType === 'forum_post') {
-        const topicId = d?.topic_id ? String(d.topic_id) : '';
-        if (topicId && sourceId) return { label: 'Abrir post', to: `/forum/${encodeURIComponent(topicId)}#post-${encodeURIComponent(sourceId)}` };
-        return null;
-      }
-
-      if (row.sourceType === 'sepbook_post_photo') {
-        if (sourceId) return { label: 'Abrir no SEPBook', to: `/sepbook#post-${encodeURIComponent(sourceId)}` };
-        return null;
-      }
-
-      if (row.sourceType === 'sepbook_like') {
-        const postId = sourceId || (d?.post_id ? String(d.post_id) : '');
-        if (postId) return { label: 'Abrir no SEPBook', to: `/sepbook#post-${encodeURIComponent(postId)}` };
-        return null;
-      }
-
-      if (row.sourceType === 'sepbook_comment' || row.sourceType === 'sepbook_comment_like') {
-        const postId = d?.post_id ? String(d.post_id) : '';
-        const commentId = sourceId || (d?.comment_id ? String(d.comment_id) : '');
-        if (postId && commentId) {
-          return {
-            label: 'Abrir comentário',
-            to: `/sepbook?comment=${encodeURIComponent(commentId)}#post-${encodeURIComponent(postId)}`,
-          };
-        }
-        if (postId) return { label: 'Abrir no SEPBook', to: `/sepbook#post-${encodeURIComponent(postId)}` };
-        return null;
-      }
-
-      if (row.sourceType === 'challenge_event') {
-        const eventId = sourceId;
-        if (campaignId && eventId) {
-          return {
-            label: 'Abrir evidência',
-            to: `/campaign/${encodeURIComponent(campaignId)}?event=${encodeURIComponent(eventId)}#event-${encodeURIComponent(eventId)}`,
-          };
-        }
-        if (challengeId) return { label: 'Abrir desafio', to: `/challenge/${encodeURIComponent(challengeId)}` };
-        if (campaignId) return { label: 'Abrir campanha', to: `/campaign/${encodeURIComponent(campaignId)}` };
-        return null;
-      }
-
-      if (row.sourceType === 'evaluation_completed') {
-        const eventId = d?.event_id ? String(d.event_id) : '';
-        if (campaignId && eventId) {
-          return {
-            label: 'Abrir evidência',
-            to: `/campaign/${encodeURIComponent(campaignId)}?event=${encodeURIComponent(eventId)}#event-${encodeURIComponent(eventId)}`,
-          };
-        }
-        if (challengeId) return { label: 'Abrir ação', to: `/challenge/${encodeURIComponent(challengeId)}` };
-        if (campaignId) return { label: 'Abrir campanha', to: `/campaign/${encodeURIComponent(campaignId)}` };
-        return null;
-      }
-
-      if (row.sourceType === 'quiz_answer') {
-        if (challengeId) return { label: 'Abrir quiz', to: `/challenge/${encodeURIComponent(challengeId)}` };
-        if (campaignId) return { label: 'Abrir campanha', to: `/campaign/${encodeURIComponent(campaignId)}` };
-        return null;
-      }
-
-      if (row.sourceType === 'quiz_publish') {
-        if (challengeId) return { label: 'Abrir quiz', to: `/challenge/${encodeURIComponent(challengeId)}` };
-        if (campaignId) return { label: 'Abrir campanha', to: `/campaign/${encodeURIComponent(campaignId)}` };
-        return null;
-      }
-
-      if (campaignId) return { label: 'Abrir campanha', to: `/campaign/${encodeURIComponent(campaignId)}` };
-      if (challengeId) return { label: 'Abrir desafio', to: `/challenge/${encodeURIComponent(challengeId)}` };
-      return null;
-    },
-    [],
-  );
-
-  const openQuizQuestion = useCallback(
-    async (row: XpDetailRow) => {
-      const d: any = row.details || {};
-      const questionId = d?.question_id ? String(d.question_id) : '';
-      if (!questionId) return;
-
-      setDetailDialogOpen(false);
-      setQuizQuestionOpen(true);
-      setQuizQuestionLoading(true);
-      setQuizQuestionError(null);
-      setQuizQuestionView(null);
-
-      try {
-        const { data: question, error: qErr } = await supabase
-          .from('quiz_questions')
-          .select('id, question_text, challenge_id, order_index')
-          .eq('id', questionId)
-          .maybeSingle();
-        if (qErr) throw qErr;
-        if (!question) throw new Error('Questão não encontrada.');
-
-        const { data: options, error: oErr } = await supabase
-          .from('quiz_options')
-          .select('id, option_text, explanation')
-          .eq('question_id', questionId);
-        if (oErr) throw oErr;
-
-        // Only highlight the selected option when viewing your own history (RLS-safe).
-        let selectedOptionId: string | null = null;
-        try {
-          if (row.sourceId && user?.id && selectedUserId && String(user.id) === String(selectedUserId)) {
-            const { data: ans } = await supabase
-              .from('user_quiz_answers')
-              .select('selected_option_id')
-              .eq('id', row.sourceId)
-              .maybeSingle();
-            if (ans?.selected_option_id) selectedOptionId = String(ans.selected_option_id);
-          }
-        } catch {
-          selectedOptionId = null;
-        }
-
-        const isCorrect = typeof d?.is_correct === 'boolean' ? Boolean(d.is_correct) : null;
-        const orderIndex = question?.order_index != null ? Number((question as any).order_index) : null;
-
-        setQuizQuestionView({
-          challengeId: question?.challenge_id ? String((question as any).challenge_id) : row.challengeId,
-          challengeTitle: row.challengeTitle || null,
-          questionId,
-          questionText: String((question as any)?.question_text || ''),
-          orderIndex,
-          options: (Array.isArray(options) ? options : []).map((o: any) => ({
-            id: String(o?.id || ''),
-            text: String(o?.option_text || ''),
-            explanation: o?.explanation != null ? String(o.explanation) : null,
-          })),
-          selectedOptionId,
-          isCorrect,
-          xp: Number(row.points || 0),
-        });
-      } catch (e: any) {
-        setQuizQuestionError(e?.message || 'Não foi possível carregar a questão agora.');
-      } finally {
-        setQuizQuestionLoading(false);
-      }
-    },
-    [selectedUserId, user?.id],
-  );
-
-  const showRankingMetric =
-    activeTab === 'individual' || activeTab === 'guests' || activeTab === 'myteam';
-
   return (
-    <div className="relative min-h-screen pb-40">
+    <div className="relative min-h-screen pb-[calc(7.5rem+env(safe-area-inset-bottom))] lg:pb-10 lg:pl-[var(--djt-nav-desktop-offset)]">
       <ThemedBackground theme="conhecimento" />
       <Navigation />
-      <div className="container relative mx-auto p-4 md:p-6 max-w-6xl">
+      <div className="container relative mx-auto px-3 py-4 sm:px-4 md:px-5 md:py-6 lg:px-6 max-w-6xl">
         <div className="mb-6">
-          <div className="flex items-center gap-2">
-            <h1 className="text-3xl md:text-4xl font-bold flex items-center gap-2">
-              <Trophy className="h-8 w-8 text-primary" />
-              {tr("rankings.title")}
-            </h1>
-            <TipDialogButton tipId="xp-overview" ariaLabel="Como ganhar XP" />
-          </div>
+          <h1 className="text-3xl md:text-4xl font-bold flex items-center gap-2">
+            <Trophy className="h-8 w-8 text-primary" />
+            {tr("rankings.title")}
+          </h1>
           <p className="text-muted-foreground mt-2">
             {tr("rankings.subtitle")}
           </p>
         </div>
 
-        <div className="mb-6 rounded-md border border-white/10 bg-white/[0.02] p-3">
-          <p className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wide">Como ganhar XP</p>
-          <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs sm:grid-cols-4">
-            <div className="flex items-baseline gap-1">
-              <span className="font-semibold text-foreground">+30 XP</span>
-              <span className="text-muted-foreground">publicação SEPBook</span>
-            </div>
-            <div className="flex items-baseline gap-1">
-              <span className="font-semibold text-foreground">+5 XP</span>
-              <span className="text-muted-foreground">foto no SEPBook</span>
-            </div>
-            <div className="flex items-baseline gap-1">
-              <span className="font-semibold text-foreground">+5 XP</span>
-              <span className="text-muted-foreground">comentário SEPBook</span>
-            </div>
-            <div className="flex items-baseline gap-1">
-              <span className="font-semibold text-foreground">+1 XP</span>
-              <span className="text-muted-foreground">curtida SEPBook</span>
-            </div>
-            <div className="flex items-baseline gap-1">
-              <span className="font-semibold text-foreground">+10 XP</span>
-              <span className="text-muted-foreground">post no Fórum</span>
-            </div>
-            <div className="flex items-baseline gap-1">
-              <span className="font-semibold text-foreground">+5 XP</span>
-              <span className="text-muted-foreground">avaliação (líderes)</span>
-            </div>
-            <div className="flex items-baseline gap-1 col-span-2">
-              <span className="font-semibold text-foreground">Quiz</span>
-              <span className="text-muted-foreground">XP por pergunta definido no Studio · resposta correta acumula</span>
-            </div>
-          </div>
-        </div>
-
-        {showRankingMetric && (
-          <div className="mb-6 rounded-md border border-white/10 bg-white/[0.02] p-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <p className="text-sm font-semibold">Filtrar por tipo de XP</p>
-                <p className="text-xs text-muted-foreground">Ordena o ranking pelo tipo selecionado.</p>
-              </div>
-	              <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1 sm:flex-wrap sm:overflow-visible">
-	                {rankingMetrics.map((m) => (
-	                  <button
-	                    key={m.key}
-	                    type="button"
-	                    onClick={() => setRankingMetric(m.key)}
-	                    className={`shrink-0 rounded-full border px-2 py-1 text-xs transition-colors ${
-	                      rankingMetric === m.key
-	                        ? 'border-primary/60 bg-primary/20 text-foreground'
-	                        : 'border-white/10 bg-white/5 text-muted-foreground hover:text-foreground'
-	                    }`}
-	                  >
-	                    {m.label}
-	                  </button>
-	                ))}
-	              </div>
-            </div>
-          </div>
-        )}
-
         <Tabs value={activeTab} onValueChange={(v:any)=>setActiveTab(v)} className="w-full">
-	          <TabsList className="grid w-full grid-cols-3 sm:grid-cols-7 mb-6 h-auto gap-1">
-	            <TabsTrigger value="individual" className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 min-w-0 px-2 py-2 sm:px-3 sm:py-1.5 text-xs sm:text-sm whitespace-normal" title={tr("rankings.tabs.overall")}>
-	              <Trophy className="h-4 w-4" />
-	              <span className="leading-tight text-center sm:text-left sm:truncate">{tr("rankings.tabs.overall")}</span>
-	            </TabsTrigger>
-	            <TabsTrigger value="guests" className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 min-w-0 px-2 py-2 sm:px-3 sm:py-1.5 text-xs sm:text-sm whitespace-normal" title={tr("rankings.tabs.guests")}>
-	              <Award className="h-4 w-4" />
-	              <span className="leading-tight text-center sm:text-left sm:truncate">{tr("rankings.tabs.guests")}</span>
-	            </TabsTrigger>
-	            <TabsTrigger value="myteam" className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 min-w-0 px-2 py-2 sm:px-3 sm:py-1.5 text-xs sm:text-sm whitespace-normal" title={tr("rankings.tabs.myTeam")}>
-	              <Users className="h-4 w-4" />
-	              <span className="leading-tight text-center sm:text-left sm:truncate">{tr("rankings.tabs.myTeam")}</span>
-	            </TabsTrigger>
-	            <TabsTrigger value="teams" className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 min-w-0 px-2 py-2 sm:px-3 sm:py-1.5 text-xs sm:text-sm whitespace-normal" title={tr("rankings.tabs.teams")}>
-	              <Users className="h-4 w-4" />
-	              <span className="leading-tight text-center sm:text-left sm:truncate">{tr("rankings.tabs.teams")}</span>
-	            </TabsTrigger>
-	            <TabsTrigger value="divisions" className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 min-w-0 px-2 py-2 sm:px-3 sm:py-1.5 text-xs sm:text-sm whitespace-normal" title={tr("rankings.tabs.divisions")}>
-	              <Building2 className="h-4 w-4" />
-	              <span className="leading-tight text-center sm:text-left sm:truncate">{tr("rankings.tabs.divisions")}</span>
-	            </TabsTrigger>
-	            <TabsTrigger value="leaders" className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 min-w-0 px-2 py-2 sm:px-3 sm:py-1.5 text-xs sm:text-sm whitespace-normal" title={tr("rankings.tabs.leaders")}>
-	              <Shield className="h-4 w-4" />
-	              <span className="leading-tight text-center sm:text-left sm:truncate">{tr("rankings.tabs.leaders")}</span>
-	            </TabsTrigger>
-              {canSeeGuardiaoDashboard && (
-                <TabsTrigger
-                  value="guardiaoVida"
-                  className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 min-w-0 px-2 py-2 sm:px-3 sm:py-1.5 text-xs sm:text-sm whitespace-normal"
-                  title="Guardião da Vida"
-                >
-                  <BarChart3 className="h-4 w-4" />
-                  <span className="leading-tight text-center sm:text-left sm:truncate">Guardião da Vida</span>
-                </TabsTrigger>
-              )}
-	          </TabsList>
+          <TabsList className="grid w-full grid-cols-6 mb-6">
+            <TabsTrigger value="individual" className="flex items-center gap-2 min-w-0" title={tr("rankings.tabs.overall")}>
+              <Trophy className="h-4 w-4" />
+              <span className="truncate">{tr("rankings.tabs.overall")}</span>
+            </TabsTrigger>
+            <TabsTrigger value="guests" className="flex items-center gap-2 min-w-0" title={tr("rankings.tabs.guests")}>
+              <Award className="h-4 w-4" />
+              <span className="truncate">{tr("rankings.tabs.guests")}</span>
+            </TabsTrigger>
+            <TabsTrigger value="myteam" className="flex items-center gap-2 min-w-0" title={tr("rankings.tabs.myTeam")}>
+              <Users className="h-4 w-4" />
+              <span className="truncate">{tr("rankings.tabs.myTeam")}</span>
+            </TabsTrigger>
+            <TabsTrigger value="teams" className="flex items-center gap-2 min-w-0" title={tr("rankings.tabs.teams")}>
+              <Users className="h-4 w-4" />
+              <span className="truncate">{tr("rankings.tabs.teams")}</span>
+            </TabsTrigger>
+            <TabsTrigger value="divisions" className="flex items-center gap-2 min-w-0" title={tr("rankings.tabs.divisions")}>
+              <Building2 className="h-4 w-4" />
+              <span className="truncate">{tr("rankings.tabs.divisions")}</span>
+            </TabsTrigger>
+            <TabsTrigger value="leaders" className="flex items-center gap-2 min-w-0" title={tr("rankings.tabs.leaders")}>
+              <Shield className="h-4 w-4" />
+              <span className="truncate">{tr("rankings.tabs.leaders")}</span>
+            </TabsTrigger>
+          </TabsList>
 
           <TabsContent value="individual">
             <Card className="bg-transparent border-transparent shadow-none">
@@ -1245,7 +900,7 @@ function Rankings() {
                 ) : (
                   <div className="space-y-6">
                     <div className="space-y-6">
-                      {displayedIndividualRankings.map((ranking) => (
+                      {individualRankings.map((ranking) => (
                         <div
                           key={ranking.userId}
                           onClick={() => openUserPointsDetail(ranking.userId, ranking.name)}
@@ -1280,11 +935,6 @@ function Rankings() {
                                   <Badge variant="outline" className="text-xs">
                                     {ranking.tier}
                                   </Badge>
-                                  {ranking.isLeader && (
-                                    <Badge className="text-xs">
-                                      Líder
-                                    </Badge>
-                                  )}
                                   {ranking.isGuest && (
                                     <Badge variant="secondary" className="text-xs">
                                       {tr("rankings.guestBadge")}
@@ -1304,7 +954,7 @@ function Rankings() {
                               openUserPointsDetail(ranking.userId, ranking.name);
                             }}
                           >
-                            <p className="text-lg font-bold">{formatPoints(ranking.displayPoints)} {tr("rankings.pointsLabel")}</p>
+                            <p className="text-lg font-bold">{ranking.points.toLocaleString()} {tr("rankings.pointsLabel")}</p>
                             <p className="text-xs text-muted-foreground">Clique para ver detalhes</p>
                           </button>
                         </div>
@@ -1331,7 +981,7 @@ function Rankings() {
                   <p className="text-center py-8 text-muted-foreground">{tr("rankings.guestsEmpty")}</p>
                 ) : (
                   <div className="space-y-6">
-                    {displayedGuestRankings.map((ranking) => (
+                    {guestRankings.map((ranking) => (
                       <div
                         key={ranking.userId}
                         onClick={() => openUserPointsDetail(ranking.userId, ranking.name)}
@@ -1373,7 +1023,7 @@ function Rankings() {
                             openUserPointsDetail(ranking.userId, ranking.name);
                           }}
                         >
-                          <p className="text-lg font-bold">{formatPoints(ranking.displayPoints)} {tr("rankings.pointsLabel")}</p>
+                          <p className="text-lg font-bold">{ranking.points.toLocaleString()} {tr("rankings.pointsLabel")}</p>
                           <p className="text-xs text-muted-foreground">Clique para ver detalhes</p>
                         </button>
                       </div>
@@ -1402,7 +1052,7 @@ function Rankings() {
                   <p className="text-center py-8 text-muted-foreground">{tr("rankings.myTeamEmpty")}</p>
                 ) : (
                   <div className="space-y-6">
-                    {displayedMyTeamRankings.map((ranking) => (
+                    {myTeamRankings.map((ranking) => (
                       <div
                         key={ranking.userId}
                         className="flex items-center gap-4 p-4 rounded-lg bg-transparent transition-colors"
@@ -1432,11 +1082,6 @@ function Rankings() {
                                 <Badge variant="outline" className="text-xs">
                                   {ranking.tier}
                                 </Badge>
-                                {ranking.isLeader && (
-                                  <Badge className="text-xs">
-                                    Líder
-                                  </Badge>
-                                )}
                               </div>
                             </div>
                           </button>
@@ -1447,7 +1092,7 @@ function Rankings() {
                           className="text-right rounded-md px-2 py-1 hover:bg-white/10"
                           onClick={() => openUserPointsDetail(ranking.userId, ranking.name)}
                         >
-                          <p className="text-lg font-bold">{formatPoints(ranking.displayPoints)} {tr("rankings.pointsLabel")}</p>
+                          <p className="text-lg font-bold">{ranking.points.toLocaleString()} {tr("rankings.pointsLabel")}</p>
                           <p className="text-xs text-muted-foreground">Clique para ver detalhes</p>
                         </button>
                       </div>
@@ -1575,6 +1220,7 @@ function Rankings() {
                                   forumXp: r.forumXp.toLocaleString(),
                                   sepbookXp: r.sepbookXp.toLocaleString(),
                                 })}
+                                {` • Pub: ${formatPoints(r.quizPublishXp)} XP • Acesso: ${formatPoints(r.accessXp)} XP`}
                               </p>
                             </div>
                           </button>
@@ -1594,29 +1240,6 @@ function Rankings() {
               </CardContent>
             </Card>
           </TabsContent>
-          {canSeeGuardiaoDashboard && (
-            <TabsContent value="guardiaoVida">
-              <Card className="bg-transparent border-transparent shadow-none">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <BarChart3 className="h-5 w-5 text-emerald-500" />
-                    Guardião da Vida
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <Suspense
-                    fallback={
-                      <div className="flex min-h-[180px] items-center justify-center">
-                        <p className="text-sm text-muted-foreground">{tr('common.loading')}</p>
-                      </div>
-                    }
-                  >
-                    <GuardiaoVidaDashboard />
-                  </Suspense>
-                </CardContent>
-              </Card>
-            </TabsContent>
-          )}
         </Tabs>
 
         <Dialog open={detailDialogOpen} onOpenChange={setDetailDialogOpen}>
@@ -1629,264 +1252,137 @@ function Rankings() {
             </DialogHeader>
 
             <div className="mt-2 space-y-4 overflow-y-auto pr-1">
-              {(breakdownLoading || detailLoading) && (
-                <span className="text-xs text-muted-foreground">
-                  {breakdownLoading ? tr("rankings.breakdownLoading") : ''}
-                  {breakdownLoading && detailLoading ? ' • ' : ''}
-                  {detailLoading ? 'Carregando extrato...' : ''}
-                </span>
+              {breakdownLoading && (
+                <span className="text-xs text-muted-foreground">{tr("rankings.breakdownLoading")}</span>
               )}
-
-              {detailError && <p className="text-xs text-destructive">{detailError}</p>}
 
               {selectedBreakdown && (
-                <div className="grid gap-3 text-sm sm:grid-cols-2">
-                  <div>
-                    {tr("rankings.breakdown.quiz")}:{" "}
-                    <span className="font-semibold">{selectedBreakdown.quizXp.toLocaleString()}</span> XP
-                  </div>
-                  <div>
-                    {tr("rankings.breakdown.forum")}:{" "}
-                    <span className="font-semibold">{selectedBreakdown.forumPosts}</span> post{selectedBreakdown.forumPosts !== 1 ? 's' : ''}{" "}
-                    × 10 XP = <span className="font-semibold">{selectedBreakdown.forumXp.toLocaleString()}</span> XP
-                  </div>
-                  <div>
-                    SEPBook — publicações:{" "}
-                    <span className="font-semibold">{selectedBreakdown.sepbookPostCount}</span> × 30 XP
-                    {selectedBreakdown.sepbookPhotoCount > 0 && (
-                      <> + <span className="font-semibold">{selectedBreakdown.sepbookPhotoCount}</span> foto{selectedBreakdown.sepbookPhotoCount !== 1 ? 's' : ''} × 5 XP</>
-                    )}{" "}
-                    = <span className="font-semibold">{selectedBreakdown.sepbookPostXp.toLocaleString()}</span> XP
-                  </div>
-                  <div>
-                    SEPBook — comentários:{" "}
-                    <span className="font-semibold">{selectedBreakdown.sepbookComments}</span> × 5 XP{" "}
-                    = <span className="font-semibold">{selectedBreakdown.sepbookCommentXp.toLocaleString()}</span> XP
-                  </div>
-                  <div>
-                    SEPBook — curtidas:{" "}
-                    <span className="font-semibold">{selectedBreakdown.sepbookLikes}</span> × 1 XP{" "}
-                    = <span className="font-semibold">{selectedBreakdown.sepbookLikeXp.toLocaleString()}</span> XP
-                  </div>
-                  <div>
-                    {tr("rankings.breakdown.campaigns")}:{" "}
-                    <span className="font-semibold">{selectedBreakdown.campaignsXp.toLocaleString()}</span> XP
-                  </div>
-                  <div>
-                    Publicação de quizzes:{" "}
-                    <span className="font-semibold">{selectedBreakdown.quizPublishXp.toLocaleString()}</span> XP
-                  </div>
-                  <div>
-                    {tr("rankings.breakdown.evaluations")}:{" "}
-                    <span className="font-semibold">{selectedBreakdown.evaluationsCompleted}</span> × 5 XP{" "}
-                    = <span className="font-semibold">{selectedBreakdown.evaluationsXp.toLocaleString()}</span> XP
-                  </div>
-                  <div>
-                    Acessos na plataforma:{" "}
-                    <span className="font-semibold">{selectedBreakdown.accessSessions.toLocaleString()}</span>{" "}
-                    = {formatPoints(selectedBreakdown.accessXp)} XP
-                  </div>
-                </div>
-              )}
-
-              <div className="rounded-md border border-white/10 bg-white/[0.02] p-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <p className="text-sm font-semibold">Detalhamento por origem</p>
-                    <p className="text-xs text-muted-foreground">
-                      Clique nas categorias para auditar onde cada ponto foi conquistado.
-                    </p>
-                  </div>
-                  {detailLoading && <span className="text-xs text-muted-foreground">Carregando extrato...</span>}
-                </div>
-
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {detailCategories.map((cat) => (
-                    <button
-                      key={cat.key}
-                      type="button"
-                      onClick={() => setDetailCategory(cat.key)}
-                      className={`rounded-full border px-2 py-1 text-xs transition-colors ${
-                        detailCategory === cat.key
-                          ? 'border-primary/60 bg-primary/20 text-foreground'
-                          : 'border-white/10 bg-white/5 text-muted-foreground hover:text-foreground'
-                      }`}
-                    >
-                      {cat.label}
-                    </button>
-                  ))}
-                </div>
-
-                {Object.keys(detailTotals).length > 0 && (
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {detailCategories
-                      .filter((cat) => cat.key !== 'all')
-                      .filter((cat) => Number(detailTotals[cat.key] || 0) > 0)
-                      .map((cat) => (
-                        <Badge key={cat.key} variant="outline" className="text-xs">
-                          {cat.label}: {formatPoints(Number(detailTotals[cat.key] || 0))} XP
-                        </Badge>
-                      ))}
-                  </div>
-                )}
-
-                {!detailLoading && !detailError && filteredDetails.length === 0 && (
-                  <p className="mt-3 text-xs text-muted-foreground">Nenhum lançamento encontrado nesta categoria.</p>
-                )}
-
-                {!detailLoading && filteredDetails.length > 0 && (
-                  <div className="mt-3 max-h-80 space-y-2 overflow-y-auto pr-1">
-                    {filteredDetails.map((row) => {
-                      const action = buildDetailRowAction(row);
-                      const questionId =
-                        row.sourceType === 'quiz_answer' && (row.details as any)?.question_id
-                          ? String((row.details as any).question_id)
-                          : '';
-                      const canOpenQuestion = row.sourceType === 'quiz_answer' && Boolean(questionId);
-                      return (
-                        <div
-                          key={row.sourceKey}
-                          className="flex items-start justify-between gap-3 rounded-md border border-white/10 bg-white/[0.03] p-2"
-                        >
-                          <div className="min-w-0">
-                            <p className="truncate text-sm font-medium">{row.title}</p>
-                            {row.subtitle && <p className="truncate text-xs text-muted-foreground">{row.subtitle}</p>}
-                            <div className="mt-1 flex flex-wrap gap-1">
-                              {row.campaignTitle && (
-                                <Badge variant="secondary" className="text-[10px]">
-                                  Campanha: {row.campaignTitle}
-                                </Badge>
-                              )}
-                              {row.challengeTitle && (
-                                <Badge variant="outline" className="text-[10px]">
-                                  Desafio/Quiz: {row.challengeTitle}
-                                </Badge>
-                              )}
-                              <Badge variant="outline" className="text-[10px] capitalize">
-                                {row.category}
-                              </Badge>
-                            </div>
-                          </div>
-                          <div className="text-right">
-                            <p className="text-sm font-semibold text-primary">+{formatPoints(row.points)} XP</p>
-                            <p className="text-[11px] text-muted-foreground">{formatDateTime(row.createdAt)}</p>
-                            {canOpenQuestion && (
-                              <button
-                                type="button"
-                                className="mt-1 block w-full text-[11px] text-muted-foreground underline underline-offset-2 hover:text-foreground"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  void openQuizQuestion(row);
-                                }}
-                              >
-                                Ver questão
-                              </button>
-                            )}
-                            {action && (
-                              <button
-                                type="button"
-                                className="mt-1 block w-full text-[11px] text-muted-foreground underline underline-offset-2 hover:text-foreground"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  setDetailDialogOpen(false);
-                                  navigate(action.to);
-                                }}
-                              >
-                                {action.label}
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            </div>
-          </DialogContent>
-        </Dialog>
-
-        <Dialog
-          open={quizQuestionOpen}
-          onOpenChange={(open) => {
-            setQuizQuestionOpen(open);
-            if (!open) {
-              setQuizQuestionLoading(false);
-              setQuizQuestionError(null);
-              setQuizQuestionView(null);
-            }
-          }}
-        >
-          <DialogContent className="sm:max-w-3xl max-h-[85vh] overflow-hidden">
-            <DialogHeader>
-              <DialogTitle>{quizQuestionView?.challengeTitle ? `Quiz: ${quizQuestionView.challengeTitle}` : 'Questão do Quiz'}</DialogTitle>
-              <DialogDescription>
-                {quizQuestionLoading
-                  ? 'Carregando…'
-                  : quizQuestionError
-                    ? 'Não foi possível carregar agora.'
-                    : quizQuestionView
-                      ? `XP: +${formatPoints(quizQuestionView.xp)}`
-                      : ''}
-              </DialogDescription>
-            </DialogHeader>
-
-            <div className="mt-2 space-y-3 overflow-y-auto pr-1">
-              {quizQuestionLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
-              {quizQuestionError && <p className="text-sm text-destructive">{quizQuestionError}</p>}
-
-              {!quizQuestionLoading && !quizQuestionError && quizQuestionView && (
-                <div className="space-y-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <p className="text-sm font-semibold">
-                      {quizQuestionView.orderIndex != null ? `${quizQuestionView.orderIndex}. ` : ''}
-                      {quizQuestionView.questionText}
-                    </p>
-                    {quizQuestionView.isCorrect != null ? (
-                      <Badge variant={quizQuestionView.isCorrect ? 'default' : 'destructive'}>
-                        {quizQuestionView.isCorrect ? 'Acertou' : 'Errou'}
-                      </Badge>
-                    ) : null}
+                <>
+                  <div className="grid gap-3 text-sm sm:grid-cols-2">
+                    <div>
+                      {tr("rankings.breakdown.quiz")}:{" "}
+                      <span className="font-semibold">{selectedBreakdown.quizXp.toLocaleString()}</span> XP
+                    </div>
+                    <div>
+                      {tr("rankings.breakdown.forum")}:{" "}
+                      <span className="font-semibold">{selectedBreakdown.forumPosts}</span>{" "}
+                      → {selectedBreakdown.forumXp.toLocaleString()} XP
+                    </div>
+                    <div>
+                      {tr("rankings.breakdown.sepbookPhotos")}:{" "}
+                      <span className="font-semibold">{selectedBreakdown.sepbookPhotoCount}</span>{" "}
+                      → {selectedBreakdown.sepbookPostXp.toLocaleString()} XP
+                    </div>
+                    <div>
+                      {tr("rankings.breakdown.sepbookComments")}:{" "}
+                      <span className="font-semibold">{selectedBreakdown.sepbookComments}</span>{" "}
+                      → {selectedBreakdown.sepbookCommentXp.toLocaleString()} XP
+                    </div>
+                    <div>
+                      {tr("rankings.breakdown.sepbookLikes")}:{" "}
+                      <span className="font-semibold">{selectedBreakdown.sepbookLikes}</span>{" "}
+                      → {selectedBreakdown.sepbookLikeXp.toLocaleString()} XP
+                    </div>
+                    <div>
+                      {tr("rankings.breakdown.campaigns")}:{" "}
+                      <span className="font-semibold">{selectedBreakdown.campaignsXp.toLocaleString()}</span> XP
+                    </div>
+                    <div>
+                      Publicação de quizzes:{" "}
+                      <span className="font-semibold">{selectedBreakdown.quizPublishXp.toLocaleString()}</span> XP
+                    </div>
+                    <div>
+                      {tr("rankings.breakdown.evaluations")}:{" "}
+                      <span className="font-semibold">{selectedBreakdown.evaluationsCompleted}</span>{" "}
+                      → {selectedBreakdown.evaluationsXp.toLocaleString()} XP
+                    </div>
+                    <div>
+                      Acessos na plataforma:{" "}
+                      <span className="font-semibold">{selectedBreakdown.accessSessions.toLocaleString()}</span>{" "}
+                      → {formatPoints(selectedBreakdown.accessXp)} XP
+                    </div>
                   </div>
 
-                  <div className="space-y-1 text-sm">
-                    {quizQuestionView.options.map((o, idx) => {
-                      const letter = String.fromCharCode(65 + idx);
-                      const selected = quizQuestionView.selectedOptionId && o.id === quizQuestionView.selectedOptionId;
-                      return (
-                        <div
-                          key={o.id}
-                          className={`rounded px-2 py-1 border ${
-                            selected ? 'bg-primary/10 border-primary/30' : 'border-white/10 bg-white/[0.02]'
+                  <div className="rounded-md border border-white/10 bg-white/[0.02] p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-semibold">Detalhamento por origem</p>
+                        <p className="text-xs text-muted-foreground">
+                          Clique nas categorias para auditar onde cada ponto foi conquistado.
+                        </p>
+                      </div>
+                      {detailLoading && <span className="text-xs text-muted-foreground">Carregando extrato...</span>}
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {detailCategories.map((cat) => (
+                        <button
+                          key={cat.key}
+                          type="button"
+                          onClick={() => setDetailCategory(cat.key)}
+                          className={`rounded-full border px-2 py-1 text-xs transition-colors ${
+                            detailCategory === cat.key
+                              ? 'border-primary/60 bg-primary/20 text-foreground'
+                              : 'border-white/10 bg-white/5 text-muted-foreground hover:text-foreground'
                           }`}
                         >
-                          <p className="text-sm">
-                            <span className="font-mono text-xs mr-2">{letter}.</span>
-                            {o.text}
-                          </p>
-                          {selected && o.explanation && (
-                            <p className="text-xs text-muted-foreground mt-1 whitespace-pre-wrap">{o.explanation}</p>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
+                          {cat.label}
+                        </button>
+                      ))}
+                    </div>
 
-                  <div className="flex justify-end gap-2">
-                    {quizQuestionView.challengeId ? (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => {
-                          setQuizQuestionOpen(false);
-                          navigate(`/challenge/${encodeURIComponent(quizQuestionView.challengeId || '')}`);
-                        }}
-                      >
-                        Abrir quiz
-                      </Button>
-                    ) : null}
+                    {Object.keys(detailTotals).length > 0 && (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {detailCategories
+                          .filter((cat) => cat.key !== 'all')
+                          .filter((cat) => Number(detailTotals[cat.key] || 0) > 0)
+                          .map((cat) => (
+                            <Badge key={cat.key} variant="outline" className="text-xs">
+                              {cat.label}: {formatPoints(Number(detailTotals[cat.key] || 0))} XP
+                            </Badge>
+                          ))}
+                      </div>
+                    )}
+
+                    {detailError && <p className="mt-3 text-xs text-destructive">{detailError}</p>}
+
+                    {!detailLoading && !detailError && filteredDetails.length === 0 && (
+                      <p className="mt-3 text-xs text-muted-foreground">Nenhum lançamento encontrado nesta categoria.</p>
+                    )}
+
+                    {!detailLoading && filteredDetails.length > 0 && (
+                      <div className="mt-3 max-h-80 space-y-2 overflow-y-auto pr-1">
+                        {filteredDetails.map((row) => (
+                          <div key={row.sourceKey} className="flex items-start justify-between gap-3 rounded-md border border-white/10 bg-white/[0.03] p-2">
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-medium">{row.title}</p>
+                              {row.subtitle && <p className="truncate text-xs text-muted-foreground">{row.subtitle}</p>}
+                              <div className="mt-1 flex flex-wrap gap-1">
+                                {row.campaignTitle && (
+                                  <Badge variant="secondary" className="text-[10px]">
+                                    Campanha: {row.campaignTitle}
+                                  </Badge>
+                                )}
+                                {row.challengeTitle && (
+                                  <Badge variant="outline" className="text-[10px]">
+                                    Desafio/Quiz: {row.challengeTitle}
+                                  </Badge>
+                                )}
+                                <Badge variant="outline" className="text-[10px] capitalize">
+                                  {row.category}
+                                </Badge>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-sm font-semibold text-primary">+{formatPoints(row.points)} XP</p>
+                              <p className="text-[11px] text-muted-foreground">{formatDateTime(row.createdAt)}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                </div>
+                </>
               )}
             </div>
           </DialogContent>
