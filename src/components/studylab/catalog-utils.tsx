@@ -1,3 +1,4 @@
+import type React from "react";
 import { Badge } from "@/components/ui/badge";
 import { DJT_RULES_ARTICLE } from "../../../shared/djt-rules";
 
@@ -171,7 +172,7 @@ export const getSourceTags = (s: StudySource): string[] => {
 
 // ─── JSX utilities ────────────────────────────────────────────────────────────
 
-export const renderOutline = (nodes: any[], depth = 0): JSX.Element | null => {
+export const renderOutline = (nodes: any[], depth = 0): React.ReactElement | null => {
   if (!Array.isArray(nodes) || nodes.length === 0) return null;
   return (
     <ul className={`space-y-1 ${depth > 0 ? "ml-4" : ""}`}>

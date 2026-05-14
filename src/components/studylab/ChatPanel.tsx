@@ -244,7 +244,7 @@ export function ChatPanel({
             <p className="mb-2 text-[11px] text-muted-foreground">
               {t("studylab.hashtagFocusHint")}
             </p>
-            <ForumKbThemeMenu selection={kbSelection} onSelect={onKbSelectionChange} />
+            <ForumKbThemeMenu selected={kbSelection} onSelect={onKbSelectionChange} />
           </div>
         )}
       </CardHeader>
